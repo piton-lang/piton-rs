@@ -1,0 +1,10 @@
+{
+  "clients": {
+    "piton": {
+      "enabled": true,
+      "command": ["piton", "lsp"],
+      "selector": "source.piton",
+      "schemes": ["file"]
+    }
+  }
+}

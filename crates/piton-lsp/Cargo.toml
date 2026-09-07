@@ -1,0 +1,18 @@
+[package]
+name = "piton-lsp"
+description = "The Piton language server, built on the Piton compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piton-syntax.workspace = true
+piton-core.workspace = true
+piton-fmt.workspace = true
+tower-lsp.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+walkdir.workspace = true
+serde_json.workspace = true

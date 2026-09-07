@@ -1,0 +1,23 @@
+{
+  "name": "piton-textmate",
+  "displayName": "Piton",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "contributes": {
+    "languages": [
+      {
+        "id": "piton",
+        "aliases": ["Piton"],
+        "extensions": [".pi"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "piton",
+        "scopeName": "source.piton",
+        "path": "./piton.tmLanguage.json"
+      }
+    ]
+  }
+}

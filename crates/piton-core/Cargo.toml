@@ -1,0 +1,17 @@
+[package]
+name = "piton-core"
+description = "Name resolution, evaluation, and the framework plugin interface for Piton"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piton-syntax.workspace = true
+indexmap.workspace = true
+serde_json.workspace = true
+rowan.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

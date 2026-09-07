@@ -1,0 +1,11 @@
+[package]
+name = "piton-belay"
+description = "The Belay framework: Piton for agentic skills, agents, commands, and instructions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piton-core.workspace = true

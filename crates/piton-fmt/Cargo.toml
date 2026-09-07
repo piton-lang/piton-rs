@@ -1,0 +1,11 @@
+[package]
+name = "piton-fmt"
+description = "The canonical formatter for Piton source"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piton-syntax.workspace = true

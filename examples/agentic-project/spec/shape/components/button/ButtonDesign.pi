@@ -1,0 +1,14 @@
+// The visual design of the button, referenced rather than duplicated.
+export anchor ButtonDesign:
+    surface: The button should be blue with contrasting text
+
+    states:
+        - Default
+        - Hover
+        - Pressed
+        - Disabled
+
+    tokens:
+        background: "#0000aa"
+        foreground: "#ffffff"
+        radius: 6

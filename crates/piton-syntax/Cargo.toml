@@ -1,0 +1,12 @@
+[package]
+name = "piton-syntax"
+description = "Lexer, chumsky grammar, and rowan CST for the Piton language"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chumsky.workspace = true
+rowan.workspace = true

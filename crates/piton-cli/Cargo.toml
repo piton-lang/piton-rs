@@ -1,0 +1,25 @@
+[package]
+name = "piton-cli"
+description = "The Piton compiler CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "piton"
+path = "src/main.rs"
+
+[dependencies]
+piton-syntax.workspace = true
+piton-core.workspace = true
+piton-fmt.workspace = true
+piton-belay.workspace = true
+piton-grammar.workspace = true
+piton-docs.workspace = true
+piton-lsp.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+globset.workspace = true
+walkdir.workspace = true

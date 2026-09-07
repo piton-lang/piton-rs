@@ -1,0 +1,9 @@
+use @piton/belay
+
+// Guidance that lands next to src/components/input.
+export instruction InputComponent:
+    description: The text input component
+
+    prompt:
+        The input should be labelled, should show validation errors beneath
+        itself, and should never lose focus while the user is typing.

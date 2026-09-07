@@ -1,0 +1,12 @@
+[package]
+name = "piton-docs"
+description = "Generates Piton language reference prose from the compiler's own definitions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piton-syntax.workspace = true
+piton-core.workspace = true

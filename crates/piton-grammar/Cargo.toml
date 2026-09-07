@@ -1,0 +1,14 @@
+[package]
+name = "piton-grammar"
+description = "Generates editor syntax grammars and extensions from the Piton compiler's own tables"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piton-syntax.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

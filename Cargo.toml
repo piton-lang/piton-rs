@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/piton-syntax",
+    "crates/piton-core",
+    "crates/piton-fmt",
+    "crates/piton-belay",
+    "crates/piton-grammar",
+    "crates/piton-docs",
+    "crates/piton-lsp",
+    "crates/piton-cli",
+    "xtask",
+]
+# Generated editor integrations contain their own crates (the Zed extension is
+# built for wasm32-wasip1 by Zed) and must not be pulled into this workspace.
+exclude = ["editors"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/piton-lang/piton"
+
+[workspace.dependencies]
+piton-syntax = { path = "crates/piton-syntax", version = "0.1.0" }
+piton-core = { path = "crates/piton-core", version = "0.1.0" }
+piton-fmt = { path = "crates/piton-fmt", version = "0.1.0" }
+piton-belay = { path = "crates/piton-belay", version = "0.1.0" }
+piton-grammar = { path = "crates/piton-grammar", version = "0.1.0" }
+piton-docs = { path = "crates/piton-docs", version = "0.1.0" }
+piton-lsp = { path = "crates/piton-lsp", version = "0.1.0" }
+
+chumsky = { version = "0.13", default-features = false, features = ["std"] }
+rowan = "0.17"
+indexmap = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "2"
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+dashmap = "6"
+globset = "0.4"
+walkdir = "2"
+line-index = "0.1"
+
+[profile.release]
+lto = "thin"
+strip = true

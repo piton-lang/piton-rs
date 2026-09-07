@@ -1,0 +1,67 @@
+================
+Declarations
+================
+
+export abstract anchor Shape as shape:
+    description:: string
+
+shape Concrete extends Shape:
+    description: A concrete shape
+
+---
+
+(source_file
+  (anchor_declaration name: (word) (as_clause keyword: (word)))
+  (property key: (typed_key) (type name: (builtin_type)))
+  (keyword_declaration
+    keyword: (word)
+    name: (word)
+    (extends_clause name: (word)))
+  (property key: (key) (value (word) (word) (word))))
+
+================
+Prose is not a declaration
+================
+
+note: see https://example.com for details, or e.g. (this) one
+
+---
+
+(source_file
+  (property
+    key: (key)
+    (value (word) (url) (word) (word) (word) (word) (word) (word))))
+
+================
+Interpolation and sigils
+================
+
+message: Hello, ${name} and @{Anchor} and reference{Other}
+
+---
+
+(source_file
+  (property
+    key: (key)
+    (value
+      (word)
+      (interpolation (sigil) (expression (identifier)))
+      (word)
+      (interpolation (sigil) (expression (identifier)))
+      (word)
+      (interpolation (sigil) (expression (identifier))))))
+
+================
+Lists and spreads
+================
+
+items:
+    + {super.items}
+    - one
+
+---
+
+(source_file
+  (property key: (key))
+  (spread_item (value (interpolation (sigil) (expression (self_reference) (identifier)))))
+  (list_item (value (word))))
