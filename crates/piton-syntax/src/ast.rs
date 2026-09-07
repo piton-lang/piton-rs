@@ -282,8 +282,14 @@ impl ExtendsClause {
 }
 
 impl AsClause {
+    /// The keyword being registered, which may be a reserved word that the
+    /// validator will reject with a better message than the parser could.
     pub fn name_token(&self) -> Option<SyntaxToken> {
-        token(&self.syntax, IDENT)
+        self.syntax
+            .children_with_tokens()
+            .filter_map(|it| it.into_token())
+            .filter(|it| !it.kind().is_trivia())
+            .nth(1)
     }
     pub fn name(&self) -> Option<String> {
         self.name_token().map(|it| it.text().to_string())

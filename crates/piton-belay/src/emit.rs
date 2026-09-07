@@ -14,7 +14,7 @@ use piton_core::value::{AnchorId, Dict, Value};
 
 use crate::markdown::{block, front_matter, humanize, kebab, remainder};
 use crate::module;
-use crate::settings::{reference_path, Adapter, Settings};
+use crate::settings::{reference_path, relative_to, Adapter, Settings};
 
 /// The kinds of thing Belay knows how to emit.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -110,7 +110,38 @@ pub fn emit_adapter(
 
     files.extend(instruction_files(compilation, settings, adapter, plan));
     files.extend(reference_files(compilation, settings, adapter, plan, referenced));
+
+    // `@{}` produced project-relative paths, because evaluation happens before
+    // anyone knows which files the text lands in. Now that it is known, each
+    // reference is rewritten relative to its own document.
+    for file in &mut files {
+        file.contents = localise_references(&file.contents, &file.path, base, adapter);
+    }
     files
+}
+
+/// Rewrite `@<agent-dir>/...` references to be relative to `file`.
+fn localise_references(contents: &str, file: &Path, base: &Path, adapter: &Adapter) -> String {
+    let Some(directory) = file.parent() else { return contents.to_string() };
+    let marker = format!("@{}/", adapter.directory.display());
+    if !contents.contains(&marker) {
+        return contents.to_string();
+    }
+
+    let mut out = String::with_capacity(contents.len());
+    let mut rest = contents;
+    while let Some(at) = rest.find(&marker) {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 1..];
+        let end = tail.find(char::is_whitespace).unwrap_or(tail.len());
+        // A reference at the end of a sentence keeps its full stop.
+        let path = tail[..end].trim_end_matches(['.', ',', ';', ':', ')', '!', '?']);
+        out.push('@');
+        out.push_str(&relative_to(directory, &base.join(path)));
+        rest = &tail[path.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 // ---- individual documents ------------------------------------------------
@@ -221,7 +252,9 @@ fn instruction_files(
         // Every instruction is also published under the agent directory.
         if let Some(source) = source {
             files.push(OutputFile {
-                path: settings.base.join(reference_path(settings, adapter, &source)),
+                path: settings
+                    .base
+                    .join(reference_path(settings, adapter, &source, &anchor.name)),
                 contents: body,
             });
         }
@@ -283,7 +316,9 @@ fn reference_files(
         let Some(anchor) = compilation.anchor(*id) else { continue };
         let Some(source) = compilation.source_path(*id) else { continue };
         files.push(OutputFile {
-            path: settings.base.join(reference_path(settings, adapter, source)),
+            path: settings
+                .base
+                .join(reference_path(settings, adapter, source, &anchor.name)),
             contents: format!(
                 "# {}\n\n{}\n",
                 humanize(&anchor.name),

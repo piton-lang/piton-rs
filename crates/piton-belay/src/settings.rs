@@ -110,11 +110,38 @@ fn read_adapter(value: &Value, messages: &mut Vec<String>) -> Vec<Adapter> {
     adapters
 }
 
+/// A path from one directory to a file, using `..` where it must.
+///
+/// Reference paths have to be relative to the document that contains them:
+/// Claude Code resolves an `@import` against the importing file's directory,
+/// not against the project root.
+pub fn relative_to(from: &Path, target: &Path) -> String {
+    let from: Vec<_> = from.components().collect();
+    let target: Vec<_> = target.components().collect();
+    let shared = from.iter().zip(&target).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), from.len() - shared).collect();
+    parts.extend(
+        target[shared..].iter().map(|part| part.as_os_str().to_string_lossy().to_string()),
+    );
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
 /// Where the compiled Markdown for an anchor lives inside an agent directory.
 ///
 /// Anchors under the shape root keep their structure beneath `reference/shape`;
-/// anything else lands under `reference`.
-pub fn reference_path(settings: &Settings, adapter: &Adapter, source: &Path) -> PathBuf {
+/// anything else lands under `reference`. The leaf is the anchor's own name, not
+/// the file's, so that two anchors declared in one file cannot collide and so
+/// that `@{Name}` always points at `Name.md`.
+pub fn reference_path(
+    settings: &Settings,
+    adapter: &Adapter,
+    source: &Path,
+    anchor: &str,
+) -> PathBuf {
     let under_shape = settings
         .shape_root
         .as_ref()
@@ -130,7 +157,9 @@ pub fn reference_path(settings: &Settings, adapter: &Adapter, source: &Path) -> 
     if shape {
         path.push("shape");
     }
-    path.push(relative);
-    path.set_extension("md");
+    if let Some(directory) = relative.parent() {
+        path.push(directory);
+    }
+    path.push(format!("{anchor}.md"));
     path
 }

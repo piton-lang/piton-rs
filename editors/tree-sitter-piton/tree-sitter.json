@@ -1,0 +1,29 @@
+{
+  "grammars": [
+    {
+      "name": "piton",
+      "camelcase": "Piton",
+      "scope": "source.piton",
+      "path": ".",
+      "file-types": ["pi"],
+      "highlights": ["queries/highlights.scm"],
+      "injections": ["queries/injections.scm"],
+      "folds": ["queries/folds.scm"],
+      "indents": ["queries/indents.scm"]
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for the Piton language",
+    "authors": [{ "name": "Piton" }]
+  },
+  "bindings": {
+    "c": true,
+    "go": false,
+    "node": true,
+    "python": false,
+    "rust": true,
+    "swift": false
+  }
+}

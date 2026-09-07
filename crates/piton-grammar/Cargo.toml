@@ -12,3 +12,5 @@ piton-syntax.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+piton-syntax.workspace = true
+fancy-regex = "0.14"

@@ -249,8 +249,19 @@ fn extends_clause<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a
 }
 
 /// `as my-keyword`
+///
+/// A reserved word is accepted here so that it can be reported as a reserved
+/// word rather than as an unparsable line.
 fn as_clause<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>> + Clone {
-    group((tok(AS_KW), tok(IDENT))).map(|parts| Tree::new(AS_CLAUSE, children(parts)))
+    group((tok(AS_KW), name_like())).map(|parts| Tree::new(AS_CLAUSE, children(parts)))
+}
+
+/// An identifier, or a keyword being used where a name belongs.
+fn name_like<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>> + Clone {
+    kind_in(&[
+        IDENT, ANCHOR_KW, ABSTRACT_KW, EXTENDS_KW, AS_KW, EXPORT_KW, FROM_KW, IMPORT_KW, USE_KW,
+        THIS_KW, SELF_KW, SUPER_KW, TRUE_KW, FALSE_KW, NULL_KW,
+    ])
 }
 
 /// `:: Type`

@@ -191,8 +191,9 @@ one place, and `parse(src).syntax().text() == src` for every input.
 ## Development
 
 ```sh
-cargo test           # the language spec suite, the formatter, Belay, the LSP
+cargo test           # 141 tests: syntax, language, formatter, Belay, grammars, LSP
 cargo clippy --all-targets
+cargo xtask grammar-test      # the Tree-sitter parse corpus and highlight assertions
 cargo xtask build    # build the CLI and print where the binary landed
 cargo xtask install  # build it and put it on your PATH
 cargo xtask zed      # check the Zed extension compiles to WebAssembly
@@ -204,9 +205,19 @@ cargo run -p piton-cli -- grammar editors     # regenerate editor support
 `xtask/` holds the workspace's development tasks; `cargo xtask` is an alias
 defined in `.cargo/config.toml`.
 
-The language specification tests in `crates/piton-core/tests/language.rs` are
-written directly from the Piton specification; each one names the rule it
-checks.
+Where the tests live, and what each one is asserting against:
+
+| Suite | Correctness means |
+| --- | --- |
+| `piton-syntax/tests/syntax.rs` | Parsing is lossless, total, and never panics; the tree has the shape the compiler reads |
+| `piton-core/tests/language.rs` | The Piton specification, one test per rule |
+| `piton-core/tests/modules.rs` | Imports, exports, `use`, and path resolution against real files |
+| `piton-fmt` | The canonical style, and that formatting is idempotent |
+| `piton-belay/tests/conformance.rs` | The rules Claude Code enforces on the files it loads |
+| `piton-belay/tests/project.rs` | The output layout the Belay specification describes |
+| `piton-grammar/tests/highlighting.rs` | TextMate patterns compiled and executed against real lines |
+| `piton-lsp/src/tests.rs` | Every advertised capability, including what completion must *not* offer |
+| `editors/tree-sitter-piton/test` | `tree-sitter test`: a parse corpus and highlight assertions |
 
 ## Project documents
 

@@ -1,88 +1,8 @@
 //! End-to-end checks of Belay's output, driven from a real project on disk.
 
-use std::path::{Path, PathBuf};
+mod common;
 
-use piton_belay::Belay;
-use piton_core::builtin;
-use piton_core::compile::compile;
-use piton_core::db::Db;
-use piton_core::framework::{Frameworks, OutputFile};
-use piton_core::project::Project;
-
-/// Write a throwaway project and build it.
-fn build(files: &[(&str, &str)]) -> (PathBuf, Vec<OutputFile>, Vec<String>) {
-    let root = std::env::temp_dir().join(format!(
-        "piton-belay-test-{}-{:?}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
-    for (path, contents) in files {
-        let target = root.join(path);
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(&target, contents).unwrap();
-    }
-
-    let mut frameworks = Frameworks::new(vec![Box::new(Belay::new())]);
-    let loaded = Project::load(&root, &frameworks);
-    if let Some(configuration) = &loaded.compilation {
-        frameworks.configure(&loaded.project, configuration, &loaded.project.framework_configs);
-    }
-
-    let mut db = Db::new();
-    for module in builtin::modules().into_iter().chain(frameworks.modules()) {
-        db.add_virtual_module(module.name, module.source);
-    }
-    db.set_root(&loaded.project.root);
-    let entry = db.load(&loaded.project.entry).expect("entry loads");
-    let compilation = compile(db, vec![entry], &frameworks);
-    let messages: Vec<String> = compilation
-        .diagnostics
-        .iter()
-        .filter(|it| it.is_error())
-        .map(|it| it.message.clone())
-        .collect();
-
-    let mut outputs = Vec::new();
-    for framework in &frameworks.active {
-        outputs.extend(framework.emit(&compilation, &loaded.project).files);
-    }
-    (root, outputs, messages)
-}
-
-fn find<'a>(outputs: &'a [OutputFile], root: &Path, suffix: &str) -> &'a str {
-    outputs
-        .iter()
-        .find(|file| file.path.strip_prefix(root).is_ok_and(|it| it.to_string_lossy() == suffix))
-        .map(|file| file.contents.as_str())
-        .unwrap_or_else(|| {
-            let listing: Vec<String> = outputs
-                .iter()
-                .map(|file| file.path.strip_prefix(root).unwrap_or(&file.path).display().to_string())
-                .collect();
-            panic!("no output at {suffix}; produced: {listing:#?}")
-        })
-}
-
-const CONFIG: &str = "\
-use @piton/config
-use @piton/belay
-
-from @piton/belay import ClaudeAdapter
-
-export piton-config Config:
-    root: ./spec
-    entry: ./spec/index.pi
-
-    frameworks:
-        - {BelayConfiguration}
-
-belay-config BelayConfiguration:
-    codeRoot: ./src
-    shapeRoot: ./spec/shape
-
-    adapters:
-        - {ClaudeAdapter}
-";
+use common::{build, find, normalise, CONFIG};
 
 #[test]
 fn agents_skills_and_commands_land_in_the_agent_directory() {
@@ -170,8 +90,8 @@ fn instructions_mirror_the_shape_tree_onto_the_code_tree() {
     assert_eq!(find(&outputs, &root, "src/components/button/CLAUDE.md"), "@AGENTS.md\n");
 
     // And each instruction is also published under the agent directory.
-    find(&outputs, &root, ".claude/reference/shape/components/button/Button.md");
-    find(&outputs, &root, ".claude/reference/shape/components/button/Extra.md");
+    find(&outputs, &root, ".claude/reference/shape/components/button/ButtonComponent.md");
+    find(&outputs, &root, ".claude/reference/shape/components/button/ButtonStates.md");
 }
 
 #[test]
@@ -214,13 +134,53 @@ export skill Build:
         ),
     ]);
     assert!(errors.is_empty(), "{errors:?}");
+    // The reference is relative to the file it lands in: Claude Code resolves
+    // an `@import` against the importing file's directory, not the project root.
     let skill = find(&outputs, &root, ".claude/skills/build/SKILL.md");
-    assert!(skill.contains("@.claude/reference/Doc.md"), "{skill}");
+    assert!(skill.contains("@../../reference/Design.md"), "{skill}");
+    assert!(!skill.contains("@.claude/"), "a project-relative reference would not resolve");
     // `${}` on a complex value inserts the compiled name, not the structure.
     assert!(skill.contains("name it Design"), "{skill}");
     // The referenced anchor is published so the agent can actually read it.
-    let reference = find(&outputs, &root, ".claude/reference/Doc.md");
+    let reference = find(&outputs, &root, ".claude/reference/Design.md");
     assert!(reference.contains("Blue with contrasting text"), "{reference}");
+}
+
+#[test]
+fn references_resolve_from_every_document_that_carries_them() {
+    let (root, outputs, errors) = build(&[
+        ("piton.config.pi", CONFIG),
+        ("src/components/button/.keep", ""),
+        ("spec/index.pi", "from ./shape/components/button/Button export *\n"),
+        (
+            "spec/shape/components/button/Button.pi",
+            "\
+use @piton/belay
+
+export anchor ButtonDesign:
+    surface: Blue
+
+export instruction ButtonComponent:
+    description: The button
+    prompt: For details, read @{ButtonDesign}.
+",
+        ),
+    ]);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    // Same sentence, three documents, three different correct paths.
+    let cases = [
+        ("src/components/button/AGENTS.md", "../../../.claude/reference/shape/components/button/ButtonDesign.md"),
+        (".claude/reference/shape/components/button/ButtonComponent.md", "ButtonDesign.md"),
+    ];
+    for (file, expected) in cases {
+        let contents = find(&outputs, &root, file);
+        assert!(contents.contains(&format!("@{expected}")), "{file}:\n{contents}");
+        // And the path has to actually land on a file that gets written.
+        let resolved = normalise(&root.join(file).parent().unwrap().join(expected));
+        let published = outputs.iter().any(|output| normalise(&output.path) == resolved);
+        assert!(published, "{file} points at {}, which is never written", resolved.display());
+    }
 }
 
 #[test]

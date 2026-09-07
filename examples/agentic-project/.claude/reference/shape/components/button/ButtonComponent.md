@@ -3,7 +3,7 @@
 The clickable button component
 
 The button component should be clickable and should have a hover state.
-For details about the design, read @.claude/reference/shape/components/button/ButtonDesign.md.
+For details about the design, read @ButtonDesign.md.
 
 ## Api
 

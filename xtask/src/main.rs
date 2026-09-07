@@ -38,6 +38,8 @@ enum Command {
     Zed,
     /// Regenerate every editor integration, including the Tree-sitter parser.
     Grammar,
+    /// Run the Tree-sitter corpus and highlight tests.
+    GrammarTest,
     /// Publish the Tree-sitter grammar subtree and pin the editors to it.
     PublishGrammar(PublishArgs),
 }
@@ -95,6 +97,7 @@ fn main() -> Result<()> {
         Command::Uninstall(destination) => uninstall(&destination)?,
         Command::Zed => zed()?,
         Command::Grammar => regenerate_editors(None, None, true)?,
+        Command::GrammarTest => grammar_test()?,
         Command::PublishGrammar(args) => publish_grammar(&args)?,
     }
     Ok(())
@@ -248,6 +251,54 @@ fn regenerate_editors(
     }
     println!("regenerated {} and its parser", grammar.display());
     Ok(())
+}
+
+/// Run `tree-sitter test`: the parse corpus and the highlight assertions.
+///
+/// The CLI finds a grammar by scanning its configured parser directories for a
+/// `tree-sitter-*` directory, so this writes a throwaway config pointing at
+/// `editors/` rather than asking anyone to edit `~/.config/tree-sitter`.
+fn grammar_test() -> Result<()> {
+    let root = workspace_root();
+    let grammar = root.join(GRAMMAR_PREFIX);
+    if !have("tree-sitter") {
+        bail!("the tree-sitter CLI is not installed; install it with `cargo install tree-sitter-cli`");
+    }
+    regenerate_editors(None, None, false)?;
+
+    let scratch = root.join("target").join("xtask");
+    std::fs::create_dir_all(&scratch).with_context(|| format!("creating {}", scratch.display()))?;
+    let config = scratch.join("tree-sitter-config.json");
+    let parsers = root.join("editors");
+    std::fs::write(
+        &config,
+        format!("{{\"parser-directories\": [{}]}}\n", json_string(&parsers.display().to_string())),
+    )
+    .with_context(|| format!("writing {}", config.display()))?;
+
+    let status = Process::new("tree-sitter")
+        .current_dir(&grammar)
+        .args(["test", "--config-path"])
+        .arg(&config)
+        .status()
+        .context("running tree-sitter test")?;
+    if !status.success() {
+        bail!("the Tree-sitter tests failed");
+    }
+    Ok(())
+}
+
+/// Quote a path for embedding in JSON.
+fn json_string(text: &str) -> String {
+    let escaped: String = text
+        .chars()
+        .flat_map(|ch| match ch {
+            '"' => vec!['\\', '"'],
+            '\\' => vec!['\\', '\\'],
+            other => vec![other],
+        })
+        .collect();
+    format!("\"{escaped}\"")
 }
 
 /// Push the grammar subtree to its own repository and record the commit.

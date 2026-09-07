@@ -75,10 +75,12 @@ impl Framework for Belay {
             "@" => {
                 self.note_reference(interpolation.value);
                 let source = interpolation.anchor_source.as_ref()?;
+                let Value::Anchor(anchor) = interpolation.value else { return None };
                 let path = settings::reference_path(
                     &self.settings,
                     self.settings.adapters.first()?,
                     source,
+                    &anchor.name,
                 );
                 Some(Value::string(format!("@{}", path.display())))
             }

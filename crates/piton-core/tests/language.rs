@@ -441,3 +441,202 @@ anchor Uses extends Holder:
         "{diagnostics:?}"
     );
 }
+
+// ---- the remaining rows of the specification's tables -----------------------
+
+#[test]
+fn escapes_and_quoting_produce_strings() {
+    assert_eq!(eval("a: \\false\n", "a"), json!("false"));
+    assert_eq!(eval("a: \\// not a comment\n", "a"), json!("// not a comment"));
+    assert_eq!(eval("a: \"true\"\n", "a"), json!("true"));
+    assert_eq!(eval("a: he said \"hi\" loudly\n", "a"), json!("he said \"hi\" loudly"));
+    assert_eq!(eval("a: \"a \\\" quote\"\n", "a"), json!("a \" quote"));
+}
+
+#[test]
+fn truthiness_follows_the_specification() {
+    for (source, expected) in [
+        ("a: {0 ? \"t\" : \"f\"}\n", "f"),
+        ("a: {1 ? \"t\" : \"f\"}\n", "t"),
+        ("a: {-1 ? \"t\" : \"f\"}\n", "t"),
+        ("a: {null ? \"t\" : \"f\"}\n", "f"),
+        ("a: {false ? \"t\" : \"f\"}\n", "f"),
+        ("a: {\"\" ? \"t\" : \"f\"}\n", "f"),
+        ("a: {\"x\" ? \"t\" : \"f\"}\n", "t"),
+    ] {
+        assert_eq!(eval(source, "a"), json!(expected), "{source}");
+    }
+}
+
+#[test]
+fn logical_operators_short_circuit() {
+    // The right-hand side would divide by zero if it were evaluated.
+    let (_, diagnostics) = eval_with_diagnostics("a: {false && (1 / 0)}\n", "a");
+    assert!(diagnostics.is_empty(), "`&&` must not evaluate its right side: {diagnostics:?}");
+    let (_, diagnostics) = eval_with_diagnostics("a: {true || (1 / 0)}\n", "a");
+    assert!(diagnostics.is_empty(), "`||` must not evaluate its right side: {diagnostics:?}");
+    assert_eq!(eval("a: {false && true}\n", "a"), json!(false));
+    assert_eq!(eval("a: {true || false}\n", "a"), json!(true));
+}
+
+#[test]
+fn modulo_takes_the_divisors_sign() {
+    assert_eq!(eval("a: {7 % 3}\n", "a"), json!(1.0));
+    assert_eq!(eval("a: {-7 % 3}\n", "a"), json!(2.0));
+    assert_eq!(eval("a: {7 % -3}\n", "a"), json!(-2.0));
+    assert_eq!(eval("a: {6 % 3}\n", "a"), json!(0.0));
+}
+
+#[test]
+fn the_ternary_is_right_associative_and_loosest() {
+    // Parsed as `true ? "a" : (false ? "b" : "c")`.
+    assert_eq!(eval("a: {true ? \"a\" : false ? \"b\" : \"c\"}\n", "a"), json!("a"));
+    assert_eq!(eval("a: {false ? \"a\" : false ? \"b\" : \"c\"}\n", "a"), json!("c"));
+    // `||` binds tighter than the ternary.
+    assert_eq!(eval("a: {false || true ? \"y\" : \"n\"}\n", "a"), json!("y"));
+}
+
+#[test]
+fn dictionaries_merge_shallowly_with_plus_and_deeply_with_plus_plus() {
+    let source = "\
+left:
+    keep: 1
+    nested:
+        a: 1
+        b: 2
+
+right:
+    nested:
+        b: 20
+        c: 30
+
+shallow: {left + right}
+deep: {left ++ right}
+";
+    assert_eq!(
+        eval(source, "shallow"),
+        json!({ "keep": 1.0, "nested": { "b": 20.0, "c": 30.0 } }),
+        "`+` replaces the nested dictionary"
+    );
+    assert_eq!(
+        eval(source, "deep"),
+        json!({ "keep": 1.0, "nested": { "a": 1.0, "b": 20.0, "c": 30.0 } }),
+        "`++` merges into it"
+    );
+}
+
+#[test]
+fn list_deduplication_is_shallow() {
+    // Equal nested lists are the same value, so they deduplicate.
+    assert_eq!(eval("a: {[[1, 2]] + [[1, 2]]}\n", "a"), json!([[1.0, 2.0]]));
+    // Different ones do not.
+    assert_eq!(eval("a: {[[1, 2]] + [[3]]}\n", "a"), json!([[1.0, 2.0], [3.0]]));
+}
+
+#[test]
+fn only_dictionaries_in_an_implicit_list_stay_addressable() {
+    let addressable = "\
+combined:
+    prose
+
+    key:
+        deep: found
+
+reached: {combined.key.deep}
+";
+    assert_eq!(eval(addressable, "reached"), json!("found"));
+
+    // Inside an explicit list, the dictionary is out of reach.
+    let hidden = "combined:\n    - key:\n        deep: found\n\nreached: {combined.key}\n";
+    let (_, diagnostics) = eval_with_diagnostics(hidden, "reached");
+    assert!(diagnostics.iter().any(|it| it.contains("has no property")), "{diagnostics:?}");
+}
+
+#[test]
+fn special_constraints_accept_and_reject_the_right_shapes() {
+    assert_eq!(eval("a:: simple: false\n", "a"), json!(false));
+    assert_eq!(eval("a:: any:\n    - 1\n", "a"), json!([1.0]));
+    assert_eq!(eval("a:: null: null\n", "a"), json!(null));
+
+    for (source, name) in [
+        ("a:: simple:\n    - one\n", "simple rejects a list"),
+        ("a:: complex: 1\n", "complex rejects a number"),
+        ("a:: number: true\n", "number rejects a boolean"),
+        ("a:: boolean: 1\n", "boolean rejects a number"),
+        ("a:: string:\n    - one\n", "string rejects a list"),
+        ("a:: dictionary:\n    - one\n", "dictionary rejects a list"),
+    ] {
+        let (_, diagnostics) = eval_with_diagnostics(source, "a");
+        assert!(
+            diagnostics.iter().any(|it| it.contains("does not satisfy")),
+            "{name}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn comparisons_work_within_a_type_and_not_across_them() {
+    assert_eq!(eval("a: {1 < 2}\n", "a"), json!(true));
+    assert_eq!(eval("a: {\"a\" < \"b\"}\n", "a"), json!(true));
+    assert_eq!(eval("a: {\"x\" == \"x\"}\n", "a"), json!(true));
+    assert_eq!(eval("a: {null != null}\n", "a"), json!(false));
+    let (_, diagnostics) = eval_with_diagnostics("a: {1 < \"x\"}\n", "a");
+    assert!(diagnostics.iter().any(|it| it.contains("cannot order")), "{diagnostics:?}");
+}
+
+#[test]
+fn a_user_defined_keyword_must_be_lowercase_and_unreserved() {
+    let (_, diagnostics) = eval_with_diagnostics("anchor A as MyKeyword:\n    x: 1\n", "A");
+    assert!(diagnostics.iter().any(|it| it.contains("must be lowercase")), "{diagnostics:?}");
+
+    let (_, diagnostics) = eval_with_diagnostics("anchor A as anchor:\n    x: 1\n", "A");
+    assert!(diagnostics.iter().any(|it| it.contains("reserved word")), "{diagnostics:?}");
+}
+
+#[test]
+fn unknown_names_are_reported_where_they_are_written() {
+    for (source, expected) in [
+        ("anchor A extends Missing:\n    x: 1\n", "cannot find anchor `Missing`"),
+        ("a:: Nonsense: 1\n", "unknown type `Nonsense`"),
+        ("a: 1\na: 2\n", "already declared"),
+        ("unknown-keyword Thing:\n    x: 1\n", "is not a keyword here"),
+    ] {
+        let (_, diagnostics) = eval_with_diagnostics(source, "a");
+        assert!(
+            diagnostics.iter().any(|it| it.contains(expected)),
+            "expected {expected:?} for {source:?}, got {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn an_anchor_may_not_inherit_from_itself() {
+    let (_, diagnostics) = eval_with_diagnostics("anchor A extends A:\n    x: 1\n", "A");
+    assert!(diagnostics.iter().any(|it| it.contains("inherits from itself")), "{diagnostics:?}");
+
+    let cycle = "anchor A extends B:\n    x: 1\n\nanchor B extends A:\n    y: 2\n";
+    let (_, diagnostics) = eval_with_diagnostics(cycle, "A");
+    assert!(diagnostics.iter().any(|it| it.contains("inherits from itself")), "{diagnostics:?}");
+}
+
+#[test]
+fn forward_references_resolve() {
+    assert_eq!(eval("first: {second}\nsecond: 42\n", "first"), json!(42.0));
+    let source = "anchor A:\n    x: {B.y}\n\nanchor B:\n    y: found\n";
+    assert_eq!(eval(source, "A"), json!({ "x": "found" }));
+}
+
+#[test]
+fn anchors_resolve_by_reference_and_keep_their_identity() {
+    let source = "\
+anchor Design:
+    surface: blue
+
+holder:
+    design: {Design}
+
+same: {holder.design.surface}
+";
+    assert_eq!(eval(source, "same"), json!("blue"));
+    assert_eq!(eval(source, "holder"), json!({ "design": { "surface": "blue" } }));
+}
