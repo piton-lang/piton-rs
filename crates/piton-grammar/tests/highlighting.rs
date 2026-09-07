@@ -150,14 +150,30 @@ fn an_operator_needs_space_around_it_so_hyphens_survive() {
 }
 
 #[test]
-fn every_interpolation_sigil_opens_an_embedded_region() {
+fn any_sigil_opens_an_embedded_region() {
     let grammar = grammar();
     let interpolation = pattern(&grammar, "interpolation", "begin");
-    for good in ["${name}", "@{Anchor}", "reference{Other}", "{bare}"] {
+    // A framework may register any sigil, so the grammar cannot enumerate them.
+    for good in
+        ["${name}", "@{Anchor}", "reference{Other}", "link-to{X}", "SeeAlso{X}", "!{X}", "{bare}"]
+    {
         assert!(matches(&interpolation, good), "{good:?} opens an interpolation");
     }
-    // A price is not a sigil.
+    // A sigil has to be pressed against the brace, and a price is not one.
     assert!(!matches(&interpolation, "This costs $5 plus tax"));
+
+    // The captured sigil is what was written, and nothing before a space.
+    let captured = |line: &str| -> String {
+        interpolation
+            .captures(line)
+            .ok()
+            .flatten()
+            .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+            .unwrap_or_default()
+    };
+    assert_eq!(captured("read reference{X}"), "reference");
+    assert_eq!(captured("read SeeAlso{X}"), "SeeAlso");
+    assert_eq!(captured("read {X}"), "", "a bare brace has no sigil");
 }
 
 #[test]
@@ -213,14 +229,27 @@ fn the_language_configuration_is_usable() {
         .expect("a language configuration is generated");
     let value: Value = serde_json::from_str(&configuration.contents).expect("valid JSON");
     assert_eq!(value["comments"]["lineComment"], "//");
-    // Every indentation rule has to be a usable regular expression.
-    for key in ["increaseIndentPattern", "decreaseIndentPattern"] {
-        let raw = value["indentationRules"][key].as_str().expect(key);
-        Regex::new(raw).unwrap_or_else(|error| panic!("{key}: {error}"));
+
+    // Indentation is the author's decision in a whitespace-structured language,
+    // so nothing may re-indent a line while it is being typed.
+    assert!(
+        value["indentationRules"].is_null(),
+        "indentationRules would undo a deliberate dedent on the next keystroke"
+    );
+
+    // Enter after a line that opens a block should still indent.
+    let rules = value["onEnterRules"].as_array().expect("onEnterRules");
+    assert!(!rules.is_empty());
+    for rule in rules {
+        let raw = rule["beforeText"].as_str().expect("beforeText");
+        Regex::new(raw).unwrap_or_else(|error| panic!("{raw}: {error}"));
     }
-    let increase = Regex::new(value["indentationRules"]["increaseIndentPattern"].as_str().unwrap())
-        .unwrap();
-    assert!(matches(&increase, "anchor A:"), "a declaration opens a block");
-    assert!(matches(&increase, "    items:"), "so does a property with no value");
-    assert!(!matches(&increase, "    name: value"), "a property with a value does not");
+    let opener = rules
+        .iter()
+        .find(|rule| rule["action"]["indent"] == "indent")
+        .expect("a rule that indents after a block opens");
+    let before = Regex::new(opener["beforeText"].as_str().unwrap()).unwrap();
+    assert!(matches(&before, "anchor A:"), "a declaration opens a block");
+    assert!(matches(&before, "    items:"), "so does a property with no value");
+    assert!(!matches(&before, "    name: value"), "a property with a value does not");
 }

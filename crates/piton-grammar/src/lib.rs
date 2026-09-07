@@ -128,6 +128,13 @@ impl Vocabulary {
         self
     }
 
+    /// The characters a sigil may contain: anything a run of prose may.
+    ///
+    /// A sigil is whatever is written immediately in front of a `{`, so the
+    /// class is defined by what ends a run of text rather than by a list of
+    /// approved spellings.
+    pub(crate) const SIGIL_CHARS: &str = r#"[^\s{}\[\](),"\\]"#;
+
     /// A regex alternation, longest first so greedy matching works.
     pub(crate) fn alternation(words: &[String]) -> String {
         let mut sorted = words.to_vec();
@@ -135,24 +142,10 @@ impl Vocabulary {
         sorted.join("|")
     }
 
-    /// Every sigil that may precede `{`, including the default.
-    pub(crate) fn sigil_pattern(&self) -> String {
-        let mut all = vec!["\\$".to_string()];
-        all.extend(self.sigils.iter().map(|sigil| regex_escape(sigil)));
-        all.push("[a-z][a-z0-9-]*".to_string());
-        all.join("|")
+    /// The regex for a sigil: any run of prose pressed against a `{`.
+    pub(crate) fn sigil_pattern() -> String {
+        format!("{}+", Vocabulary::SIGIL_CHARS)
     }
-}
-
-pub(crate) fn regex_escape(text: &str) -> String {
-    let mut out = String::new();
-    for ch in text.chars() {
-        if "\\^$.|?*+()[]{}".contains(ch) {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    out
 }
 
 /// Generate every grammar and editor integration.

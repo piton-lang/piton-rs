@@ -256,17 +256,13 @@ fn number_end(src: &str, at: usize, end: usize) -> usize {
     stop
 }
 
-/// `$`, `@`, or a lowercase kebab-case word may introduce an interpolation.
+/// Anything written immediately in front of a `{` is that interpolation's sigil.
+///
+/// The set is deliberately open: a framework may register any sigil it likes,
+/// and one nobody registered falls back to `${}` with a warning. Restricting
+/// the spelling here would decide that question in the wrong place.
 fn is_sigil(text: &str) -> bool {
-    if text == "$" || text == "@" {
-        return true;
-    }
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) if first.is_ascii_lowercase() => {}
-        _ => return false,
-    }
-    text.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    !text.is_empty()
 }
 
 /// A whole run of prose that is exactly a numeric literal.

@@ -26,7 +26,7 @@ syntax match pitonPath "\%(\<\%(from\|use\)\s\+\)\@<=\S\+"
 syntax match pitonNumber "\<\d[0-9_]*\%(\.\d[0-9_]*\)\?\>"
 syntax region pitonString start=+"+ skip=+\\.+ end=+"+ contains=pitonEscape
 syntax match pitonEscape "\\." contained
-syntax region pitonInterp matchgroup=pitonSigil start="\%(\$\|@\|\<[a-z][a-z0-9-]*\)\?{" end="}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
+syntax region pitonInterp matchgroup=pitonSigil start="[^ \t{}[\](),\"]*{" end="}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
 syntax match pitonOperator "\%(\s\|^\|(\|\[\|,\)\@<=\%(++\|&&\|||\|==\|!=\|>=\|<=\|[-+*/%<>?:]\)\%(\s\|$\|)\|\]\|,\)\@="
 
 highlight default link pitonKeyword Keyword

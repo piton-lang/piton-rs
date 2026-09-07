@@ -52,7 +52,7 @@
    `(,(concat "::[[:space:]]*\\(?:extends[[:space:]]+\\)?\\("
               (regexp-opt piton--types) "\\|[A-Za-z_][A-Za-z0-9_-]*\\)")
      1 font-lock-type-face)
-   '("\\(?:\\$\\|@\\|\\_<[a-z][a-z0-9-]*\\)?{\\([^}]*\\)}" 0 font-lock-preprocessor-face keep)
+   '("[^ \t{}\\[\\](),\"]*{[^}]*}" 0 font-lock-preprocessor-face keep)
    '("\\_<[0-9][0-9_]*\\(?:\\.[0-9][0-9_]*\\)?\\_>" . font-lock-constant-face)
    '("^[[:space:]]*\\(-\\)[[:space:]]" 1 font-lock-negation-char-face)
    '("^[[:space:]]*\\(\\+\\+?\\)[[:space:]]" 1 font-lock-warning-face))

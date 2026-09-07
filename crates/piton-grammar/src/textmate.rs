@@ -4,7 +4,7 @@ use crate::Vocabulary;
 
 /// Escape a regex for embedding in a JSON string.
 fn json_regex(pattern: &str) -> String {
-    pattern.replace('\\', "\\\\")
+    pattern.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Build `piton.tmLanguage.json`.
@@ -14,7 +14,7 @@ pub fn grammar(vocabulary: &Vocabulary) -> String {
     let literals = Vocabulary::alternation(&vocabulary.literals);
     let types = Vocabulary::alternation(&vocabulary.types);
     // The grammar is JSON, so every regex backslash has to survive encoding.
-    let sigils = json_regex(&vocabulary.sigil_pattern());
+    let sigils = json_regex(&Vocabulary::sigil_pattern());
     let framework = if vocabulary.framework.is_empty() {
         String::from("(?!)")
     } else {
@@ -174,6 +174,13 @@ pub fn grammar(vocabulary: &Vocabulary) -> String {
 }
 
 /// The bracket and comment configuration VS Code-style editors expect.
+///
+/// Deliberately no `indentationRules`. Those make the editor re-indent the
+/// current line *while you type*, which is right for a language with braces and
+/// wrong for one where indentation is the author's decision: dedenting to start
+/// a new property would be undone on the next keystroke. `onEnterRules` do the
+/// useful half — indent after a line that opens a block — and only fire when
+/// Enter is pressed.
 pub fn language_configuration() -> String {
     r#"{
   "comments": { "lineComment": "//" },
@@ -185,10 +192,6 @@ pub fn language_configuration() -> String {
     { "open": "\"", "close": "\"", "notIn": ["string"] }
   ],
   "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""]],
-  "indentationRules": {
-    "increaseIndentPattern": ":\\s*$",
-    "decreaseIndentPattern": "^\\s*$"
-  },
   "onEnterRules": [
     {
       "beforeText": ":\\s*$",

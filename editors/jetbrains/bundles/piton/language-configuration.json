@@ -8,10 +8,6 @@
     { "open": "\"", "close": "\"", "notIn": ["string"] }
   ],
   "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""]],
-  "indentationRules": {
-    "increaseIndentPattern": ":\\s*$",
-    "decreaseIndentPattern": "^\\s*$"
-  },
   "onEnterRules": [
     {
       "beforeText": ":\\s*$",

@@ -205,10 +205,11 @@ module.exports = grammar({{
     ),
 
     // The sigil and its brace are one token so that `reference{{` cannot be
-    // mistaken for the word `reference`.
+    // mistaken for the word `reference`. Any run of prose may be a sigil, so
+    // the token is longer than the word it would otherwise lex as and wins.
     interpolation: $ => seq($.sigil, optional($.expression), '}}'),
 
-    sigil: $ => token(seq(optional(choice('$', '@', /[a-z][a-z0-9-]*/)), '{{')),
+    sigil: $ => token(seq(optional(/[^\s{{}}\[\](),"\\]+/), '{{')),
 
     // Inside `{{ }}` bare words are references, so identifiers replace prose.
     expression: $ => repeat1(choice(
@@ -485,7 +486,7 @@ note: see https://example.com for details, or e.g. (this) one
 Interpolation and sigils
 ================
 
-message: Hello, ${name} and @{Anchor} and reference{Other}
+message: ${name} @{Anchor} reference{Other} SeeAlso{X} !{X} {bare}
 
 ---
 
@@ -493,11 +494,11 @@ message: Hello, ${name} and @{Anchor} and reference{Other}
   (property
     key: (key)
     (value
-      (word)
       (interpolation (sigil) (expression (identifier)))
-      (word)
       (interpolation (sigil) (expression (identifier)))
-      (word)
+      (interpolation (sigil) (expression (identifier)))
+      (interpolation (sigil) (expression (identifier)))
+      (interpolation (sigil) (expression (identifier)))
       (interpolation (sigil) (expression (identifier))))))
 
 ================
@@ -550,6 +551,8 @@ anchor Example:
     greeting: Hello, ${name}
 //            ^ string
 //                   ^ keyword.operator
+    referenced: SeeAlso{name}
+//              ^ keyword.operator
     url: https://example.com/a//b
 //       ^ string.special.url
     hyphen: a well-known thing

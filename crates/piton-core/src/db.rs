@@ -199,18 +199,34 @@ impl Db {
     }
 }
 
+/// How a specifier addresses its target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModuleOrigin {
+    /// `./x`, resolved against the importing file.
+    Relative,
+    /// `/x`, resolved against the project root.
+    Root,
+    /// `@piton/x`, a module built into the compiler or a framework.
+    Builtin,
+}
+
 /// A module a partially typed `from`/`use` specifier could mean.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModuleCandidate {
-    /// The specifier to insert, complete with the prefix already typed.
-    pub specifier: String,
-    /// The last segment, for display.
+    /// The last segment, which is what a reader is scanning for.
     pub name: String,
-    /// True when this is importable: a `.pi` file, or a directory with an
+    /// The complete specifier this produces.
+    pub specifier: String,
+    /// The text that replaces the typed specifier from `replace_from` on.
+    pub insert: String,
+    /// Byte offset into the typed text where `insert` begins.
+    pub replace_from: usize,
+    /// True when this can be imported: a `.pi` file, or a directory with an
     /// `index.pi`.
     pub importable: bool,
-    /// True when there is more path to type after this.
+    /// True when there is more path to type after it.
     pub directory: bool,
+    pub origin: ModuleOrigin,
 }
 
 impl Db {
@@ -239,44 +255,86 @@ impl Db {
             .find_map(|candidate| self.by_source.get(&Source::Disk(canonical(&candidate))).copied())
     }
 
-    /// Complete a partially typed module specifier written in `from`.
+    /// Complete a partially typed module specifier written in `from` or `use`.
     ///
     /// This lives beside [`Db::resolve`] on purpose: how a specifier turns into
     /// a file is one rule, and the language server should not reimplement it.
+    ///
+    /// With nothing typed yet, all three ways of addressing a module are
+    /// offered together, because a specifier that could have been written
+    /// against the project root is not discoverable otherwise.
     pub fn complete_specifier(&self, from: FileId, partial: &str) -> Vec<ModuleCandidate> {
-        if partial.starts_with('@') {
-            let mut out: Vec<ModuleCandidate> = self
-                .virtual_modules()
-                .filter(|name| name.starts_with(partial))
-                .map(|name| ModuleCandidate {
-                    specifier: name.to_string(),
-                    name: name.to_string(),
-                    importable: true,
-                    directory: false,
-                })
-                .collect();
-            out.sort_by(|a, b| a.specifier.cmp(&b.specifier));
-            return out;
+        let mut out = Vec::new();
+        match partial.chars().next() {
+            Some('@') => out.extend(self.builtin_candidates(partial)),
+            Some('/') => out.extend(self.path_candidates(from, partial, ModuleOrigin::Root)),
+            Some('.') => out.extend(self.path_candidates(from, partial, ModuleOrigin::Relative)),
+            Some(_) => {
+                // Something is typed but it names no prefix; treat it as a leaf
+                // of the current directory.
+                out.extend(self.path_candidates(from, partial, ModuleOrigin::Relative));
+            }
+            None => {
+                out.extend(self.path_candidates(from, partial, ModuleOrigin::Relative));
+                if self.root.is_some() {
+                    out.extend(self.path_candidates(from, partial, ModuleOrigin::Root));
+                }
+                out.extend(self.builtin_candidates(partial));
+            }
         }
+        out.sort_by(|a, b| {
+            (a.origin, !a.importable, a.name.to_lowercase())
+                .cmp(&(b.origin, !b.importable, b.name.to_lowercase()))
+        });
+        out
+    }
 
-        // Split what has been typed into the directory part and the partial leaf.
+    fn builtin_candidates(&self, partial: &str) -> Vec<ModuleCandidate> {
+        self.virtual_modules()
+            .filter(|name| name.starts_with(partial))
+            .map(|name| ModuleCandidate {
+                name: name.to_string(),
+                specifier: name.to_string(),
+                insert: name.to_string(),
+                replace_from: 0,
+                importable: true,
+                directory: false,
+                origin: ModuleOrigin::Builtin,
+            })
+            .collect()
+    }
+
+    /// Read one directory and offer what is in it.
+    fn path_candidates(
+        &self,
+        from: FileId,
+        partial: &str,
+        origin: ModuleOrigin,
+    ) -> Vec<ModuleCandidate> {
+        // Split what has been typed into the part that is already a directory
+        // and the leaf still being written.
         let (typed, leaf) = match partial.rfind('/') {
             Some(at) => (&partial[..=at], &partial[at + 1..]),
             None => ("", partial),
         };
-        // A specifier with no prefix yet still has to come out as `./name`.
-        let written = if typed.is_empty() { "./" } else { typed };
+        // With no prefix typed, the candidate has to supply one itself.
+        let written = match (typed.is_empty(), origin) {
+            (false, _) => typed.to_string(),
+            (true, ModuleOrigin::Root) => "/".to_string(),
+            (true, _) => "./".to_string(),
+        };
+        let replace_from = if typed.is_empty() { 0 } else { typed.len() };
 
-        let base = if partial.starts_with('/') {
-            match &self.root {
-                Some(root) => root.join(typed.trim_start_matches('/')),
+        let base = match origin {
+            ModuleOrigin::Root => match &self.root {
+                Some(root) => root.join(written.trim_start_matches('/')),
                 None => return Vec::new(),
-            }
-        } else {
-            match self.file(from).source.as_path().and_then(Path::parent) {
-                Some(directory) => directory.join(typed),
+            },
+            _ => match self.file(from).source.as_path().and_then(Path::parent) {
+                Some(directory) => directory.join(&written),
                 None => return Vec::new(),
-            }
+            },
+            
         };
 
         let Ok(entries) = std::fs::read_dir(&base) else { return Vec::new() };
@@ -293,11 +351,22 @@ impl Db {
                 if IGNORED_DIRECTORIES.contains(&name.as_str()) {
                     continue;
                 }
+                let importable = path.join("index.pi").is_file();
+                // A plain directory has to be descended into, so it completes
+                // with the separator already typed.
+                let leaf = if importable { name.clone() } else { format!("{name}/") };
+                let specifier = format!("{written}{leaf}");
                 out.push(ModuleCandidate {
-                    specifier: format!("{written}{name}"),
+                    // Replacing from `replace_from` has to reproduce the
+                    // specifier, which is what supplies `./` or `/` when
+                    // nothing has been typed yet.
+                    insert: specifier[replace_from..].to_string(),
+                    specifier,
                     name,
-                    importable: path.join("index.pi").is_file(),
+                    replace_from,
+                    importable,
                     directory: true,
+                    origin,
                 });
             } else if path.extension().is_some_and(|ext| ext == "pi") {
                 // Specifiers omit the extension, and `index.pi` is the directory.
@@ -305,15 +374,18 @@ impl Db {
                 if stem == "index" || current.as_deref() == Some(&canonical(&path)) {
                     continue;
                 }
+                let specifier = format!("{written}{stem}");
                 out.push(ModuleCandidate {
-                    specifier: format!("{written}{stem}"),
+                    insert: specifier[replace_from..].to_string(),
+                    specifier,
                     name: stem,
+                    replace_from,
                     importable: true,
                     directory: false,
+                    origin,
                 });
             }
         }
-        out.sort_by(|a, b| a.specifier.cmp(&b.specifier));
         out
     }
 }

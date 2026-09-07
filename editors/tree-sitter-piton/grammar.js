@@ -168,10 +168,11 @@ module.exports = grammar({
     ),
 
     // The sigil and its brace are one token so that `reference{` cannot be
-    // mistaken for the word `reference`.
+    // mistaken for the word `reference`. Any run of prose may be a sigil, so
+    // the token is longer than the word it would otherwise lex as and wins.
     interpolation: $ => seq($.sigil, optional($.expression), '}'),
 
-    sigil: $ => token(seq(optional(choice('$', '@', /[a-z][a-z0-9-]*/)), '{')),
+    sigil: $ => token(seq(optional(/[^\s{}\[\](),"\\]+/), '{')),
 
     // Inside `{ }` bare words are references, so identifiers replace prose.
     expression: $ => repeat1(choice(

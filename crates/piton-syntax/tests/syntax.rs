@@ -311,3 +311,31 @@ fn blank_lines_are_significant_but_comment_lines_are_not() {
     let with_comment = tree("x:\n    one\n    // note\n    two\n");
     assert!(!with_comment.contains("BLANK_LINE"), "{with_comment}");
 }
+
+#[test]
+fn any_word_immediately_before_a_brace_is_a_sigil() {
+    use SyntaxKind::*;
+    let sigils = |source: &str| -> Vec<String> {
+        tokens(source)
+            .into_iter()
+            .filter(|(kind, _)| *kind == SIGIL)
+            .map(|(_, text)| text)
+            .collect()
+    };
+    // The two the language ships with, a framework's own word, and shapes a
+    // stricter rule would have rejected.
+    assert_eq!(sigils("x: ${a}\n"), vec!["$"]);
+    assert_eq!(sigils("x: @{a}\n"), vec!["@"]);
+    assert_eq!(sigils("x: reference{a}\n"), vec!["reference"]);
+    assert_eq!(sigils("x: link-to{a}\n"), vec!["link-to"]);
+    assert_eq!(sigils("x: SeeAlso{a}\n"), vec!["SeeAlso"]);
+    assert_eq!(sigils("x: doc.ref{a}\n"), vec!["doc.ref"]);
+    assert_eq!(sigils("x: !{a}\n"), vec!["!"]);
+    assert_eq!(sigils("x: Hello${a}\n"), vec!["$"], "`$` still wins over the word before it");
+
+    // A brace with nothing against it is an expression, not an interpolation.
+    assert!(sigils("x: {a}\n").is_empty());
+    assert!(sigils("x: see {a}\n").is_empty(), "whitespace separates, so there is no sigil");
+    // And a sigil-looking thing with no brace is just prose.
+    assert!(sigils("x: this costs $5 plus tax\n").is_empty());
+}

@@ -198,23 +198,143 @@ fn a_type_position_offers_types_and_extends_only_in_an_abstract() {
     assert!(!labels.iter().any(|it| it == "extends"), "`extends` is abstract-only: {labels:?}");
 }
 
+/// The full completion items at the position just after `marker`.
+fn items_after(
+    files: &[(&str, &str)],
+    file: &str,
+    marker: &str,
+) -> Vec<tower_lsp::lsp_types::CompletionItem> {
+    let (root, mut workspace) = workspace(files);
+    let snapshot = workspace.snapshot();
+    let id = snapshot.file_for(&root.join(file)).expect("file is analysed");
+    let text = snapshot.text(id).to_string();
+    let at = text.find(marker).unwrap_or_else(|| panic!("{marker:?} not in:\n{text}"))
+        + marker.len();
+    completion::complete(&snapshot, id, piton_syntax::TextSize::new(at as u32))
+}
+
+/// The text a completion item actually writes.
+fn insert_text(item: &tower_lsp::lsp_types::CompletionItem) -> String {
+    match &item.text_edit {
+        Some(tower_lsp::lsp_types::CompletionTextEdit::Edit(edit)) => edit.new_text.clone(),
+        _ => item.insert_text.clone().unwrap_or_else(|| item.label.clone()),
+    }
+}
+
+const PATH_FILES: &[(&str, &str)] = &[
+    ("piton.config.pi", "use @piton/config
+
+export piton-config Config:
+    root: .
+"),
+    ("main.pi", "from ./
+"),
+    ("Sibling.pi", "export anchor Sibling:
+    x: 1
+"),
+    ("nested/index.pi", "from ./Inner export *
+"),
+    ("nested/Inner.pi", "export anchor Inner:
+    x: 1
+"),
+    ("loose/Thing.pi", "export anchor Thing:
+    x: 1
+"),
+];
+
 #[test]
 fn a_module_specifier_offers_real_files_and_directories() {
-    let files = &[
-        ("main.pi", "from ./\n"),
-        ("Sibling.pi", "export anchor Sibling:\n    x: 1\n"),
-        ("nested/index.pi", "from ./Inner export *\n"),
-        ("nested/Inner.pi", "export anchor Inner:\n    x: 1\n"),
-        ("loose/Thing.pi", "export anchor Thing:\n    x: 1\n"),
-    ];
-    let labels = labels_after(files, "main.pi", "from ./");
-    assert!(labels.iter().any(|it| it == "./Sibling"), "{labels:?}");
-    assert!(labels.iter().any(|it| it == "./nested"), "{labels:?}");
-    assert!(labels.iter().any(|it| it == "./loose"), "{labels:?}");
-    // `index.pi` is the directory, never a specifier of its own.
+    let items = items_after(PATH_FILES, "main.pi", "from ./");
+    let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+
+    // The label is the leaf, so the list reads like a file browser.
+    assert!(labels.iter().any(|it| it == "Sibling"), "{labels:?}");
+    // A directory that is importable shows as itself; one that is not shows
+    // that there is more to type.
+    assert!(labels.iter().any(|it| it == "nested"), "{labels:?}");
+    assert!(labels.iter().any(|it| it == "loose/"), "{labels:?}");
+    // `index.pi` is the directory, never a specifier of its own, and a file
+    // cannot import itself.
     assert!(!labels.iter().any(|it| it.contains("index")), "{labels:?}");
-    // The file being edited is not a module to import.
-    assert!(!labels.iter().any(|it| it == "./main"), "{labels:?}");
+    assert!(!labels.iter().any(|it| it == "main"), "{labels:?}");
+
+    // The detail says what will be written, so the choice is obvious.
+    let sibling = items.iter().find(|item| item.label == "Sibling").unwrap();
+    let detail = sibling.detail.clone().unwrap_or_default();
+    assert!(detail.contains("./Sibling"), "{detail}");
+    assert!(detail.contains("module"), "{detail}");
+    assert_eq!(insert_text(sibling), "Sibling", "only the leaf is replaced");
+
+    // A plain directory completes with its separator, ready to continue.
+    let loose = items.iter().find(|item| item.label == "loose/").unwrap();
+    assert_eq!(insert_text(loose), "loose/");
+}
+
+#[test]
+fn an_empty_specifier_offers_every_way_of_addressing_a_module() {
+    let mut files = PATH_FILES.to_vec();
+    files[1] = ("main.pi", "from \n");
+    let items = items_after(&files, "main.pi", "from ");
+    let details: Vec<String> =
+        items.iter().map(|item| item.detail.clone().unwrap_or_default()).collect();
+
+    // Relative, so the file beside this one is reachable.
+    assert!(details.iter().any(|it| it.starts_with("./Sibling")), "{details:?}");
+    // The project root, which is otherwise not discoverable at all.
+    assert!(
+        details.iter().any(|it| it.starts_with("/Sibling") && it.contains("project root")),
+        "{details:?}"
+    );
+    // And the modules built into the compiler.
+    assert!(details.iter().any(|it| it.starts_with("@piton/config")), "{details:?}");
+
+    // With nothing typed, the candidate supplies its own prefix.
+    let root_entry = items
+        .iter()
+        .find(|item| item.detail.as_deref().is_some_and(|it| it.starts_with("/Sibling")))
+        .unwrap();
+    assert_eq!(insert_text(root_entry), "/Sibling");
+
+    // Relative first, then root, then builtin.
+    let order: Vec<&str> = items
+        .iter()
+        .filter_map(|item| item.sort_text.as_deref())
+        .map(|it| &it[..1])
+        .collect();
+    let mut sorted = order.clone();
+    sorted.sort();
+    assert_eq!(order, sorted, "the list is grouped by how it addresses the module");
+}
+
+#[test]
+fn a_root_relative_specifier_lists_the_project_root() {
+    let mut files = PATH_FILES.to_vec();
+    files[1] = ("main.pi", "from /\n");
+    let items = items_after(&files, "main.pi", "from /");
+    let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+    assert!(labels.iter().any(|it| it == "Sibling"), "{labels:?}");
+    assert!(labels.iter().any(|it| it == "nested"), "{labels:?}");
+    for item in &items {
+        assert!(
+            item.detail.as_deref().is_some_and(|it| it.contains("project root")),
+            "{:?}",
+            item.detail
+        );
+    }
+}
+
+#[test]
+fn a_deeper_specifier_replaces_only_its_last_segment() {
+    let mut files = PATH_FILES.to_vec();
+    files[1] = ("main.pi", "from ./nested/In\n");
+    let items = items_after(&files, "main.pi", "from ./nested/In");
+    let inner = items.iter().find(|item| item.label == "Inner").expect("Inner is offered");
+    assert_eq!(insert_text(inner), "Inner", "the directory already typed is left alone");
+    assert!(
+        inner.detail.as_deref().is_some_and(|it| it.starts_with("./nested/Inner")),
+        "{:?}",
+        inner.detail
+    );
 }
 
 #[test]

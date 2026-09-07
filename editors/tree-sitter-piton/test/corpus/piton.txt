@@ -36,7 +36,7 @@ note: see https://example.com for details, or e.g. (this) one
 Interpolation and sigils
 ================
 
-message: Hello, ${name} and @{Anchor} and reference{Other}
+message: ${name} @{Anchor} reference{Other} SeeAlso{X} !{X} {bare}
 
 ---
 
@@ -44,11 +44,11 @@ message: Hello, ${name} and @{Anchor} and reference{Other}
   (property
     key: (key)
     (value
-      (word)
       (interpolation (sigil) (expression (identifier)))
-      (word)
       (interpolation (sigil) (expression (identifier)))
-      (word)
+      (interpolation (sigil) (expression (identifier)))
+      (interpolation (sigil) (expression (identifier)))
+      (interpolation (sigil) (expression (identifier)))
       (interpolation (sigil) (expression (identifier))))))
 
 ================

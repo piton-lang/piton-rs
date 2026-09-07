@@ -340,9 +340,10 @@ autoclose_before = "}]),"
 tab_size = 4
 hard_tabs = false
 
-# Piton is indentation-structured: a line ending in `:` opens a block.
+# A line ending in `:` opens a block, so the next line starts indented. There is
+# deliberately no decrease pattern: dedenting is the author's decision, and the
+# editor should not undo it on the next keystroke.
 increase_indent_pattern = ":\\s*(//.*)?$"
-decrease_indent_pattern = "^\\s*$" 
 
 brackets = [
   { start = "{", end = "}", close = true, newline = false },

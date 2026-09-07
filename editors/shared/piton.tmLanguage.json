@@ -99,7 +99,7 @@
       ]
     },
     "interpolation": {
-      "begin": "(\\$|@|[a-z][a-z0-9-]*)?(\\{)",
+      "begin": "([^\\s{}\\[\\](),\"\\\\]+)?(\\{)",
       "beginCaptures": {
         "1": { "name": "keyword.other.sigil.piton" },
         "2": { "name": "punctuation.section.embedded.begin.piton" }

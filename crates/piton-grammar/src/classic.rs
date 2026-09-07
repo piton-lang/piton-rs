@@ -64,7 +64,7 @@ syntax match pitonPath "\%(\<\%(from\|use\)\s\+\)\@<=\S\+"
 syntax match pitonNumber "\<\d[0-9_]*\%(\.\d[0-9_]*\)\?\>"
 syntax region pitonString start=+"+ skip=+\\.+ end=+"+ contains=pitonEscape
 syntax match pitonEscape "\\." contained
-syntax region pitonInterp matchgroup=pitonSigil start="\%(\$\|@\|\<[a-z][a-z0-9-]*\)\?{{" end="}}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
+syntax region pitonInterp matchgroup=pitonSigil start="[^ \t{{}}[\](),\"]*{{" end="}}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
 syntax match pitonOperator "\%(\s\|^\|(\|\[\|,\)\@<=\%(++\|&&\|||\|==\|!=\|>=\|<=\|[-+*/%<>?:]\)\%(\s\|$\|)\|\]\|,\)\@="
 
 highlight default link pitonKeyword Keyword
@@ -256,7 +256,7 @@ fn emacs_mode(vocabulary: &Vocabulary) -> String {
    `(,(concat "::[[:space:]]*\\(?:extends[[:space:]]+\\)?\\("
               (regexp-opt piton--types) "\\|[A-Za-z_][A-Za-z0-9_-]*\\)")
      1 font-lock-type-face)
-   '("\\(?:\\$\\|@\\|\\_<[a-z][a-z0-9-]*\\)?{{\\([^}}]*\\)}}" 0 font-lock-preprocessor-face keep)
+   '("[^ \t{{}}\\[\\](),\"]*{{[^}}]*}}" 0 font-lock-preprocessor-face keep)
    '("\\_<[0-9][0-9_]*\\(?:\\.[0-9][0-9_]*\\)?\\_>" . font-lock-constant-face)
    '("^[[:space:]]*\\(-\\)[[:space:]]" 1 font-lock-negation-char-face)
    '("^[[:space:]]*\\(\\+\\+?\\)[[:space:]]" 1 font-lock-warning-face))
@@ -406,7 +406,7 @@ contexts:
       scope: keyword.operator.piton
 
   value:
-    - match: '(\$|@|\b[a-z][a-z0-9-]*)?(\{{)'
+    - match: '([^\s{{}}\[\](),"]*)(\{{)'
       captures:
         1: keyword.other.sigil.piton
         2: punctuation.section.embedded.begin.piton
@@ -552,7 +552,7 @@ fn kate_syntax(vocabulary: &Vocabulary) -> String {
         <keyword String="constants" attribute="Constant"/>
         <keyword String="types" attribute="Data Type"/>
         <RegExpr String="^\s*[A-Za-z_][A-Za-z0-9_-]*(?=\s*(::|:)(\s|$))" attribute="Property"/>
-        <RegExpr String="(\$|@|\b[a-z][a-z0-9-]*)?\{{" attribute="Sigil" context="Interpolation"/>
+        <RegExpr String="[^\s{{}}\[\](),&quot;]*\{{" attribute="Sigil" context="Interpolation"/>
         <DetectChar char="&quot;" attribute="String" context="String"/>
         <RegExpr String="\b\d[\d_]*(\.\d[\d_]*)?\b" attribute="Number"/>
         <RegExpr String="^\s*-(?=\s)" attribute="Operator"/>

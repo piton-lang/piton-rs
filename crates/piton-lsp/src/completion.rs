@@ -5,7 +5,7 @@
 //! name can appear, so each place offers only what is valid there — and prose,
 //! which is most of a Piton file, offers nothing at all.
 
-use piton_core::db::ModuleCandidate;
+use piton_core::db::{ModuleCandidate, ModuleOrigin};
 use piton_core::resolve::Symbol;
 use piton_core::value::Value;
 use piton_core::FileId;
@@ -297,14 +297,18 @@ fn module_items(
     range: TextRange,
 ) -> Vec<CompletionItem> {
     let index = snapshot.line_index(file);
-    let replace = index.range(range);
     snapshot
         .compilation
         .analysis
         .db
         .complete_specifier(file, typed)
         .into_iter()
-        .map(|candidate| module_item(candidate, replace))
+        .map(|candidate| {
+            // Only the leaf is replaced once a directory has been typed, so the
+            // client filters on what the reader is actually looking at.
+            let start = range.end() - TextSize::new((typed.len() - candidate.replace_from) as u32);
+            module_item(candidate, index.range(TextRange::new(start, range.end())))
+        })
         .collect()
 }
 
@@ -312,26 +316,39 @@ fn module_item(
     candidate: ModuleCandidate,
     replace: tower_lsp::lsp_types::Range,
 ) -> CompletionItem {
-    let (kind, detail) = match (candidate.directory, candidate.importable) {
-        (true, true) => (CompletionItemKind::MODULE, "directory module (index.pi)"),
+    let (kind, what) = match (candidate.directory, candidate.importable) {
+        (true, true) => (CompletionItemKind::MODULE, "module directory"),
         (true, false) => (CompletionItemKind::FOLDER, "directory"),
         (false, _) => (CompletionItemKind::FILE, "module"),
     };
-    // Replacing the whole specifier keeps `/` and `.` from confusing the client.
-    let insert = if candidate.directory && !candidate.importable {
-        format!("{}/", candidate.specifier)
-    } else {
-        candidate.specifier.clone()
+    let where_from = match candidate.origin {
+        ModuleOrigin::Relative => "beside this file",
+        ModuleOrigin::Root => "from the project root",
+        ModuleOrigin::Builtin => "built in",
     };
+    // A trailing slash says "there is more to type" at a glance.
+    let label =
+        if candidate.directory && !candidate.importable {
+            format!("{}/", candidate.name)
+        } else {
+            candidate.name.clone()
+        };
     CompletionItem {
-        label: candidate.specifier.clone(),
+        label,
         kind: Some(kind),
-        detail: Some(detail.to_string()),
-        filter_text: Some(candidate.specifier.clone()),
-        sort_text: Some(format!("{}{}", u8::from(!candidate.importable), candidate.name)),
+        // The full specifier, so it is obvious what will be written.
+        detail: Some(format!("{}  —  {what} {where_from}", candidate.specifier)),
+        filter_text: Some(candidate.name.clone()),
+        // Relative, then root, then builtin; importable before directories.
+        sort_text: Some(format!(
+            "{}{}{}",
+            candidate.origin as u8,
+            u8::from(!candidate.importable),
+            candidate.name.to_lowercase()
+        )),
         text_edit: Some(tower_lsp::lsp_types::CompletionTextEdit::Edit(TextEdit {
             range: replace,
-            new_text: insert,
+            new_text: candidate.insert,
         })),
         ..CompletionItem::default()
     }

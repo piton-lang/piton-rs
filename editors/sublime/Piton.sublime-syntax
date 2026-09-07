@@ -39,7 +39,7 @@ contexts:
       scope: keyword.operator.piton
 
   value:
-    - match: '(\$|@|\b[a-z][a-z0-9-]*)?(\{)'
+    - match: '([^\s{}\[\](),"]*)(\{)'
       captures:
         1: keyword.other.sigil.piton
         2: punctuation.section.embedded.begin.piton

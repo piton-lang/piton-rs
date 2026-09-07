@@ -18,6 +18,8 @@ anchor Example:
     greeting: Hello, ${name}
 //            ^ string
 //                   ^ keyword.operator
+    referenced: SeeAlso{name}
+//              ^ keyword.operator
     url: https://example.com/a//b
 //       ^ string.special.url
     hyphen: a well-known thing
