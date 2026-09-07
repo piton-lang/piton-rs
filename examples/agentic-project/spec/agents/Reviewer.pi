@@ -1,6 +1,6 @@
 use @piton/belay
 
-from ../shape/components/button import ButtonComponent
+from ../shape/components/button import Button
 
 // Reviews changes against the recorded design intent.
 export agent CodeReviewer:
@@ -12,7 +12,7 @@ export agent CodeReviewer:
         Review the diff. For every component you touch, read its shape document
         before commenting.
 
-        Reference for the button: @{ButtonComponent}
+        Reference for the button: @{Button}
 
     checklist:
         - Does the change match the recorded intent?

@@ -33,7 +33,11 @@
 (builtin_type) @type.builtin
 (type name: (word) @type)
 
+; The sigil token carries its own `{`, because the lexer needs it to beat the
+; word it would otherwise be. The closing brace has to be given the same scope
+; explicitly, or an interpolation is bright at one end and dim at the other.
 (sigil) @keyword.operator
+(interpolation "}" @keyword.operator)
 (expression (identifier) @variable)
 (self_reference) @variable.builtin
 (constant) @constant.builtin
@@ -47,7 +51,7 @@
 (spread_item ["+" "++"] @operator)
 
 [":" "::" ","] @punctuation.delimiter
-["[" "]" "(" ")" "}"] @punctuation.bracket
+["[" "]" "(" ")"] @punctuation.bracket
 
 ; Prose, last so that nothing more specific is overwritten.
 (value (word) @string)

@@ -3,7 +3,7 @@ use @piton/belay
 from ./ButtonDesign import ButtonDesign
 
 // Guidance that lands next to src/components/button.
-export instruction ButtonComponent:
+export instruction Button:
     description: The clickable button component
 
     prompt:

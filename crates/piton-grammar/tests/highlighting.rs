@@ -177,6 +177,26 @@ fn any_sigil_opens_an_embedded_region() {
 }
 
 #[test]
+fn an_interpolation_is_delimited_the_same_at_both_ends() {
+    let grammar = grammar();
+    let rule = &grammar["repository"]["interpolation"];
+
+    // The opening brace and the closing brace have to land in the same scope
+    // family, or an interpolation is bright at one end and dim at the other.
+    let opening = rule["beginCaptures"]["2"]["name"].as_str().expect("the `{` is captured");
+    let closing = rule["endCaptures"]["1"]["name"].as_str().expect("the `}` is captured");
+    assert_eq!(
+        opening.trim_end_matches(".begin.piton"),
+        closing.trim_end_matches(".end.piton"),
+        "{opening} and {closing} would be themed differently"
+    );
+
+    let end = pattern(&grammar, "interpolation", "end");
+    assert!(matches(&end, "}"), "the region has to close");
+    assert!(!matches(&end, "no brace here"));
+}
+
+#[test]
 fn declarations_capture_their_names() {
     let grammar = grammar();
     let anchor = pattern(&grammar, "anchor-declaration", "match");

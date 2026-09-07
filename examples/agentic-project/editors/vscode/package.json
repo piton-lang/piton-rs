@@ -1,0 +1,52 @@
+{
+  "name": "piton",
+  "displayName": "Piton",
+  "description": "Syntax highlighting and language server support for the Piton language",
+  "version": "0.1.0",
+  "publisher": "piton-lang",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "main": "./src/extension.js",
+  "activationEvents": ["onLanguage:piton", "workspaceContains:**/piton.config.pi"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "piton",
+        "aliases": ["Piton", "piton"],
+        "extensions": [".pi"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "piton",
+        "scopeName": "source.piton",
+        "path": "./syntaxes/piton.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Piton",
+      "properties": {
+        "piton.serverPath": {
+          "type": "string",
+          "default": "piton",
+          "description": "Path to the piton executable. The extension runs `piton lsp`."
+        },
+        "piton.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace the communication with the Piton language server."
+        }
+      }
+    },
+    "commands": [
+      { "command": "piton.restartServer", "title": "Piton: Restart Language Server" },
+      { "command": "piton.build", "title": "Piton: Build Project" }
+    ]
+  },
+  "dependencies": { "vscode-languageclient": "^9.0.1" },
+  "devDependencies": { "@types/vscode": "^1.85.0", "@vscode/vsce": "^3.0.0" },
+  "scripts": { "package": "vsce package" }
+}

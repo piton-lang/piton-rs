@@ -2,7 +2,7 @@ use @piton/belay
 
 from @piton/belay import __BELAY_SHAPE__
 
-from /shape import ButtonComponent
+from /shape import Button
 
 // Builds code from the shape tree.
 export skill BuildFromShape:
@@ -16,4 +16,4 @@ export skill BuildFromShape:
         match it. Do not invent behaviour the shape does not describe.
 
     components:
-        - @{ButtonComponent}
+        - @{Button}

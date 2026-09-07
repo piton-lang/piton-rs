@@ -15,11 +15,13 @@ anchor Example:
     computed: {self.name}
 //            ^ keyword.operator
 //             ^ variable.builtin
+//                      ^ keyword.operator
     greeting: Hello, ${name}
 //            ^ string
 //                   ^ keyword.operator
     referenced: SeeAlso{name}
 //              ^ keyword.operator
+//                          ^ keyword.operator
     url: https://example.com/a//b
 //       ^ string.special.url
     hyphen: a well-known thing

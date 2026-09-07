@@ -527,6 +527,27 @@ shape Concrete:
 }
 
 #[test]
+fn an_interpolation_is_delimited_the_same_at_both_ends() {
+    let source = "x: Hello ${name} and @{Other}\ny: {a + b}\n";
+    let (root, mut workspace) = workspace(&[("main.pi", source)]);
+    let snapshot = workspace.snapshot();
+    let file = snapshot.file_for(&root.join("main.pi")).unwrap();
+    let produced = decoded_tokens(&snapshot, file);
+
+    let braces: Vec<(String, String)> = produced
+        .iter()
+        .filter(|(_, _, text, _)| text == "{" || text == "}")
+        .map(|(_, _, text, kind)| (text.clone(), kind.clone()))
+        .collect();
+    assert_eq!(braces.len(), 6, "three interpolations, two braces each: {produced:#?}");
+    // Whatever they are, both ends have to agree.
+    let opening = &braces[0].1;
+    for (text, kind) in &braces {
+        assert_eq!(kind, opening, "the `{text}` of an interpolation differs from its partner");
+    }
+}
+
+#[test]
 fn semantic_tokens_mark_a_declaration_as_one() {
     let source = "abstract anchor Shape:\n    x:: string\n";
     let (root, mut workspace) = workspace(&[("main.pi", source)]);
