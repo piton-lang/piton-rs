@@ -30,8 +30,8 @@ function M.setup(opts)
   if ok then
     parsers.get_parser_configs().piton = {
       install_info = {
-        url = opts.grammar_url or 'https://example.invalid/tree-sitter-piton.git',
-        revision = opts.grammar_revision or '0000000000000000000000000000000000000000',
+        url = opts.grammar_url or 'ssh://dev.mdynx.net/piton/tree-sitter-piton.git',
+        revision = opts.grammar_revision or 'fa5f404e6ee1c5cacc819c2d069eee52e636e4b9',
         files = { 'src/parser.c' },
       },
       filetype = 'piton',
