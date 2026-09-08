@@ -6,10 +6,10 @@ Every command the editor has is one row in one table. Menus, toolbar buttons and
 
 ## Parts
 
-- @../shape/app/ActionCatalogue.md — the table itself, grouped the way the menus are
-- @../shape/ui/header/MenuBar.md — renders the groups as menus
-- @../shape/ui/header/Toolbar.md — renders the handful marked as common
-- @../shape/ui/footer/StatusBar.md — reports what the last action did, when it has something to say
+- @../shape/app/ActionCatalogue.md - the table itself, grouped the way the menus are
+- @../shape/ui/header/MenuBar.md - renders the groups as menus
+- @../shape/ui/header/Toolbar.md - renders the handful marked as common
+- @../shape/ui/footer/StatusBar.md - reports what the last action did, when it has something to say
 
 ## Rules
 

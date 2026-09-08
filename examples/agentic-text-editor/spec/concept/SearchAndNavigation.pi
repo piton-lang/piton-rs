@@ -14,10 +14,10 @@ export concept SearchAndNavigation:
         of its own, because it does not.
 
     parts:
-        - @{FindReplacePanel} — the docked panel, in either of its two modes
-        - @{GoToLineDialog} — the modal for jumping to a line number
-        - @{EditorSurface} — what scrolls, highlights and takes the caret back afterwards
-        - @{StatusBar} — where a wrapped search or a count of replacements is reported
+        - @{FindReplacePanel} - the docked panel, in either of its two modes
+        - @{GoToLineDialog} - the modal for jumping to a line number
+        - @{EditorSurface} - what scrolls, highlights and takes the caret back afterwards
+        - @{StatusBar} - where a wrapped search or a count of replacements is reported
 
     rules:
         - The query survives the panel being closed and reopened, and survives switching between find and replace

@@ -16,11 +16,7 @@ struct Built {
 
 /// Write a throwaway project rooted at `root` and compile `entry`.
 fn build(files: &[(&str, &str)], entry: &str) -> Built {
-    let root: PathBuf = std::env::temp_dir().join(format!(
-        "piton-modules-{}-{:?}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let root: PathBuf = unique_directory("piton-modules");
     for (path, contents) in files {
         let target = root.join(path);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -281,4 +277,157 @@ fn a_broken_value_is_reported_where_the_value_is_written() {
         file.source.display()
     );
     assert_eq!(&file.text[diagnostic.range], "description");
+}
+
+#[test]
+fn reaching_is_transitive_and_stops_at_the_first_gap() {
+    // The entry imports `a`, which imports `b`, which uses `c`. Everything on
+    // that chain is reached. `orphan` imports `only-orphan-imports-me`, but
+    // nothing imports `orphan`, so neither is reached: being imported is not
+    // enough, it has to be imported by something that was itself reached.
+    let built = build(
+        &[
+            ("main.pi", "from ./a import A
+
+x: {A.v}
+"),
+            ("a.pi", "from ./b import B
+
+export anchor A:
+    v: {B.v}
+"),
+            ("b.pi", "use ./c
+
+export anchor B:
+    v: 1
+"),
+            ("c.pi", "export abstract anchor K as kw:
+    v:: number
+"),
+            ("orphan.pi", "from ./only_orphan_imports_me import Hidden
+"),
+            ("only_orphan_imports_me.pi", "export anchor Hidden:
+    v: 1
+"),
+        ],
+        "main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+
+    let name = |file: piton_core::FileId| {
+        built
+            .compilation
+            .analysis
+            .db
+            .file(file)
+            .source
+            .as_path()
+            .and_then(|path| path.file_name())
+            .map(|it| it.to_string_lossy().to_string())
+            .unwrap_or_default()
+    };
+    let reached: Vec<String> = built
+        .compilation
+        .reached_paths()
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|it| it.to_string_lossy().to_string())
+        .collect();
+
+    for expected in ["main.pi", "a.pi", "b.pi", "c.pi"] {
+        assert!(reached.contains(&expected.to_string()), "{expected} is on the chain: {reached:?}");
+    }
+    for absent in ["orphan.pi", "only_orphan_imports_me.pi"] {
+        assert!(!reached.contains(&absent.to_string()), "{absent} should not be reached");
+    }
+
+    // The chain names every hop, entry first.
+    let target = built
+        .compilation
+        .analysis
+        .db
+        .files()
+        .find(|file| name(file.id) == "c.pi")
+        .expect("c.pi was loaded");
+    let chain: Vec<String> =
+        built.compilation.reach_chain(target.id).into_iter().map(name).collect();
+    assert_eq!(chain, vec!["main.pi", "a.pi", "b.pi", "c.pi"], "`use` is a hop like any other");
+}
+
+#[test]
+fn a_chain_takes_the_shortest_route_when_there_are_several() {
+    let built = build(
+        &[
+            ("main.pi", "from ./shared import S
+from ./long import L
+
+x: {S.v}
+y: {L.v}
+"),
+            ("shared.pi", "export anchor S:
+    v: 1
+"),
+            ("long.pi", "from ./shared import S
+
+export anchor L:
+    v: {S.v}
+"),
+        ],
+        "main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    let name = |file: piton_core::FileId| {
+        built.compilation.analysis.db.file(file).source.as_path()
+            .and_then(|p| p.file_name()).map(|it| it.to_string_lossy().to_string()).unwrap_or_default()
+    };
+    let shared = built
+        .compilation
+        .analysis
+        .db
+        .files()
+        .find(|file| name(file.id) == "shared.pi")
+        .expect("shared.pi was loaded");
+    let chain: Vec<String> =
+        built.compilation.reach_chain(shared.id).into_iter().map(name).collect();
+    assert_eq!(chain, vec!["main.pi", "shared.pi"], "the direct route wins over the long one");
+}
+
+#[test]
+fn only_files_reachable_from_the_entry_are_compiled() {
+    let built = build(
+        &[
+            ("main.pi", "from ./used import Thing\n\nx: {Thing.value}\n"),
+            ("used.pi", "export anchor Thing:\n    value: 1\n"),
+            // Never imported by anything, and full of problems nobody will see.
+            ("orphan.pi", "broken: {nonexistent}\nalso: {missing.thing}\n"),
+        ],
+        "main.pi",
+    );
+    assert!(built.errors.is_empty(), "the orphan's problems are not reported: {:?}", built.errors);
+
+    let reached: Vec<String> = built
+        .compilation
+        .reached_paths()
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().to_string())
+        .collect();
+    assert!(reached.contains(&"main.pi".to_string()));
+    assert!(reached.contains(&"used.pi".to_string()));
+    assert!(!reached.contains(&"orphan.pi".to_string()), "{reached:?}");
+
+    let root = built.compilation.analysis.db.root().expect("a root").to_path_buf();
+    assert!(built.compilation.reaches(&root.join("used.pi")));
+    assert!(!built.compilation.reaches(&root.join("orphan.pi")));
+}
+
+/// A directory no other test can collide with.
+///
+/// Tests run in parallel threads of one process, so a timestamp alone is not
+/// enough: two of them can start within the same nanosecond and then fight over
+/// the same files.
+fn unique_directory(prefix: &str) -> std::path::PathBuf {
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let ordinal = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{}-{ordinal}", std::process::id()))
 }

@@ -17,9 +17,9 @@ export concept Layout:
         everything that is left over.
 
     parts:
-        - Header — @{MenuBar}, and @{Toolbar} underneath it
-        - Body — @{EditorSurface}, with @{FindReplacePanel} docked above it and @{GoToLineDialog} floating over it
-        - Footer — @{StatusBar}, one line tall
+        - Header - @{MenuBar}, and @{Toolbar} underneath it
+        - Body - @{EditorSurface}, with @{FindReplacePanel} docked above it and @{GoToLineDialog} floating over it
+        - Footer - @{StatusBar}, one line tall
 
     rules:
         - The body is the only band that scrolls, and it scrolls the text, not the layout

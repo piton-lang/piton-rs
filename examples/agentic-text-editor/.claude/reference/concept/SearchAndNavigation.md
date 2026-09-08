@@ -6,10 +6,10 @@ Three ways of moving the caret somewhere it is not. Find and replace share one p
 
 ## Parts
 
-- @../shape/ui/body/FindReplacePanel.md — the docked panel, in either of its two modes
-- @../shape/ui/body/GoToLineDialog.md — the modal for jumping to a line number
-- @../shape/ui/body/EditorSurface.md — what scrolls, highlights and takes the caret back afterwards
-- @../shape/ui/footer/StatusBar.md — where a wrapped search or a count of replacements is reported
+- @../shape/ui/body/FindReplacePanel.md - the docked panel, in either of its two modes
+- @../shape/ui/body/GoToLineDialog.md - the modal for jumping to a line number
+- @../shape/ui/body/EditorSurface.md - what scrolls, highlights and takes the caret back afterwards
+- @../shape/ui/footer/StatusBar.md - where a wrapped search or a count of replacements is reported
 
 ## Rules
 

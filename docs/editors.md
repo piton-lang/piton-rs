@@ -62,12 +62,43 @@ Everything else works without it.
 
 ## JetBrains IDEs
 
-For highlighting in any IDE, free or paid: Settings → Editor → TextMate Bundles
-→ `+` → select `editors/jetbrains/bundles/piton`.
+There are two ways in, and which one you want depends on your IDE. The LSP API
+is only in the paid IDEs — IntelliJ IDEA Ultimate, WebStorm, PyCharm
+Professional, GoLand, RustRover — which is why the TextMate bundle ships
+separately and needs no build at all.
 
-For the language server as well, build the plugin with
-`cd editors/jetbrains && ./gradlew buildPlugin`. The JetBrains LSP API is only
-available in the paid IDEs, which is why the TextMate bundle ships separately.
+### Highlighting, in any IDE, with no build
+
+1. Settings → Editor → TextMate Bundles
+2. `+`, and select `editors/jetbrains/bundles/piton`
+3. Apply
+
+`.pi` files are highlighted from then on.
+
+### The full plugin, in a paid IDE
+
+This adds diagnostics, completion, hover, go to definition, find references,
+rename, and formatting.
+
+You need a JDK 17 or newer and Gradle. The Gradle wrapper script is not checked
+in, because it ships as a binary, so generate it once:
+
+```sh
+cd editors/jetbrains
+gradle wrapper        # once — or use `gradle` in place of `./gradlew` below
+./gradlew buildPlugin
+```
+
+That writes `build/distributions/piton-0.1.0.zip`. To install it:
+
+1. Settings → Plugins
+2. The gear icon → **Install Plugin from Disk…**
+3. Choose the zip, and restart when asked
+
+The plugin starts `piton lsp`, so the binary has to be on your `PATH`.
+
+Opening `editors/jetbrains` in a JetBrains IDE works too: it imports the Gradle
+project and offers to generate the wrapper for you.
 
 ## Neovim
 

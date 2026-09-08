@@ -27,6 +27,72 @@ The project is looked for beside the files you name, not beside your shell, so
 checking a subdirectory that is its own project uses that project's `root` and
 frameworks.
 
+## `piton reach`
+
+Lists which `.pi` files under the project root are reached from the entry point,
+and which are not.
+
+A file is reached if the entry point imports it, or something the entry point
+reached imports it, all the way down. `from` and `use` both count. Being
+imported is not enough on its own: if nothing reaches the file doing the
+importing, neither of them is reached.
+
+Only reached files are compiled. An unreached file is invisible — its errors are
+never reported and nothing it declares exists — which is easy to do by accident,
+by renaming a file or forgetting an `index.pi` entry, and hard to notice,
+because nothing goes wrong.
+
+```sh
+piton reach                      # both halves, with a summary
+piton reach --show unreached     # just the ones that are not compiled
+piton reach --show reached
+piton reach --chains             # explicit chains instead of a tree
+piton reach --strict             # exit non-zero if anything is unreached
+piton reach --entry FILE         # measure from a file instead of the project entry
+```
+
+The answer is always measured from an entry point, and the entry point is
+printed first so it cannot be misread. Outside a project there is no entry
+point, so the command says so rather than treating every file as its own and
+reporting that everything is reached.
+
+Watch for a directory import pulling in more than you expect: `from /concept`
+resolves to `concept/index.pi`, and if that re-exports every file beside it,
+importing one name reaches all of them. `--chains` shows exactly which edge did
+it.
+
+By default each file is printed under the file that pulled it in, so the
+indentation is the chain read downwards:
+
+```
+reached (5)
+  index.pi
+    agent/index.pi
+      agent/agents/index.pi
+        agent/agents/InteractionAuditor.pi
+          concept/index.pi
+
+unreached (1)
+  scratch/Draft.pi
+
+5 of 6 file(s) reached from the entry point
+an unreached file is never compiled, so its errors are never reported
+```
+
+`--chains` prints each route in full instead, which is easier to quote:
+
+```
+  index.pi  (entry point)
+  index.pi -> agent/index.pi
+  index.pi -> agent/index.pi -> agent/agents/index.pi
+  index.pi -> agent/index.pi -> agent/agents/index.pi -> agent/agents/InteractionAuditor.pi
+```
+
+A file reachable several ways is shown by its shortest route.
+
+`--strict` is for CI, where an orphaned file usually means someone forgot to add
+it to an `index.pi`.
+
 ## `piton compile <path>...`
 
 Compiles files to data. Each file becomes one document keyed by its top-level
@@ -63,7 +129,8 @@ file already used.
 ## `piton lsp`
 
 Runs the language server over stdio. Editors start this for you; see
-[editor setup](editors.md).
+[editor setup](editors.md). `--stdio` is accepted and ignored, because several
+editor clients append it to the command they are configured with.
 
 ## `piton docs`
 

@@ -16,13 +16,13 @@ export concept Application:
         tabs, no projects, no plugins.
 
     parts:
-        - @{Layout} — the three bands the window is made of
-        - @{DocumentModel} — the text being edited, and what is known about it
-        - @{ActionSystem} — the one table that every menu, button and shortcut reads
-        - @{FileLifecycle} — new, open, save, save as, and never losing work
-        - @{SearchAndNavigation} — find, replace and go to line
-        - @{ViewSettings} — word wrap, font, zoom, and which bands are showing
-        - @{ModernStyle} — how all of it should look
+        - @{Layout} - the three bands the window is made of
+        - @{DocumentModel} - the text being edited, and what is known about it
+        - @{ActionSystem} - the one table that every menu, button and shortcut reads
+        - @{FileLifecycle} - new, open, save, save as, and never losing work
+        - @{SearchAndNavigation} - find, replace and go to line
+        - @{ViewSettings} - word wrap, font, zoom, and which bands are showing
+        - @{ModernStyle} - how all of it should look
 
     principles:
         - The document is the only state that matters; every other field is a view of it or a preference about it

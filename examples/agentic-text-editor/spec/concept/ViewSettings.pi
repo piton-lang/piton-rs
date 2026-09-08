@@ -13,9 +13,9 @@ export concept ViewSettings:
         each one is a single value.
 
     parts:
-        - @{EditorSurface} — where wrap, font and zoom actually take effect
-        - @{StatusBar} — reports the zoom level, and can be switched off
-        - @{Theme} — light, dark, or whatever the system is set to
+        - @{EditorSurface} - where wrap, font and zoom actually take effect
+        - @{StatusBar} - reports the zoom level, and can be switched off
+        - @{Theme} - light, dark, or whatever the system is set to
 
     settings:
         wordWrap: Off by default. Off means the surface scrolls sideways.

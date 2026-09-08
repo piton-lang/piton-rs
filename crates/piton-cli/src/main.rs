@@ -53,6 +53,21 @@ enum Command {
         #[command(subcommand)]
         command: Option<BuildCommand>,
     },
+    /// List which files under the project root are compiled, and which are not.
+    Reach {
+        /// Show only one half of the answer.
+        #[arg(long, value_enum, default_value_t = commands::Reach::All)]
+        show: commands::Reach,
+        /// Exit non-zero when any file is unreached.
+        #[arg(long)]
+        strict: bool,
+        /// Print one explicit `a -> b -> c` per file instead of a tree.
+        #[arg(long)]
+        chains: bool,
+        /// Measure from this file instead of the project's entry point.
+        #[arg(long, value_name = "FILE")]
+        entry: Option<PathBuf>,
+    },
     /// Apply the canonical formatting.
     Format {
         /// Files, directories, globs, or `-` for stdin.
@@ -63,7 +78,14 @@ enum Command {
         check: bool,
     },
     /// Run the language server over stdio.
-    Lsp,
+    Lsp {
+        /// Accepted and ignored: the server only ever speaks over stdio.
+        ///
+        /// Clients built on `vscode-languageclient` append this to the command
+        /// they were configured with, so the server has to tolerate it.
+        #[arg(long)]
+        stdio: bool,
+    },
     /// Generate editor grammars and extensions.
     Grammar {
         /// Where to write them.
@@ -114,8 +136,11 @@ fn main() -> Result<()> {
         }
         Command::Check { paths } => commands::compile(&paths, Format::Json, None, false, false)?,
         Command::Build { command } => commands::build(command.is_some())?,
+        Command::Reach { show, strict, chains, entry } => {
+            commands::reach(show, strict, chains, entry)?
+        }
         Command::Format { paths, check } => commands::format(&paths, check)?,
-        Command::Lsp => {
+        Command::Lsp { stdio: _ } => {
             piton_lsp::run(session::registry)?;
             0
         }

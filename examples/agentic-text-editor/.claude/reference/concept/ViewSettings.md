@@ -6,9 +6,9 @@ Word wrap, font, zoom, theme and whether the footer is showing. None of them tou
 
 ## Parts
 
-- @../shape/ui/body/EditorSurface.md — where wrap, font and zoom actually take effect
-- @../shape/ui/footer/StatusBar.md — reports the zoom level, and can be switched off
-- @../shape/theme/Theme.md — light, dark, or whatever the system is set to
+- @../shape/ui/body/EditorSurface.md - where wrap, font and zoom actually take effect
+- @../shape/ui/footer/StatusBar.md - reports the zoom level, and can be switched off
+- @../shape/theme/Theme.md - light, dark, or whatever the system is set to
 
 ## Settings
 

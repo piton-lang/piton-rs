@@ -11,9 +11,9 @@ export concept DocumentModel:
         got this way.
 
     parts:
-        - @{Document} — the buffer, the path, the dirty flag and the caret
-        - @{UndoHistory} — the record of edits, and how they are grouped
-        - @{Encoding} — how the bytes on disk became this string, and how they go back
+        - @{Document} - the buffer, the path, the dirty flag and the caret
+        - @{UndoHistory} - the record of edits, and how they are grouped
+        - @{Encoding} - how the bytes on disk became this string, and how they go back
 
     rules:
         - The buffer is the truth; the widget renders it and hands back edits, it does not own the text

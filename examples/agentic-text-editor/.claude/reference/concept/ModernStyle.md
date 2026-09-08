@@ -6,9 +6,9 @@ Quiet, flat and roomy. The text is the only thing with contrast; the chrome arou
 
 ## Parts
 
-- @../shape/theme/Tokens.md — the colours, spacing steps, radii and type scale, as values
-- @../shape/theme/Theme.md — how the tokens become an egui style, in light and in dark
-- @../shape/ui/UiConventions.md — how a widget is expected to use them
+- @../shape/theme/Tokens.md - the colours, spacing steps, radii and type scale, as values
+- @../shape/theme/Theme.md - how the tokens become an egui style, in light and in dark
+- @../shape/ui/UiConventions.md - how a widget is expected to use them
 
 ## Rules
 

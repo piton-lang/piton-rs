@@ -12,10 +12,10 @@ export concept ActionSystem:
         three lists that have to be kept in step.
 
     parts:
-        - @{ActionCatalogue} — the table itself, grouped the way the menus are
-        - @{MenuBar} — renders the groups as menus
-        - @{Toolbar} — renders the handful marked as common
-        - @{StatusBar} — reports what the last action did, when it has something to say
+        - @{ActionCatalogue} - the table itself, grouped the way the menus are
+        - @{MenuBar} - renders the groups as menus
+        - @{Toolbar} - renders the handful marked as common
+        - @{StatusBar} - reports what the last action did, when it has something to say
 
     rules:
         - An action has an id, a label, a group, an optional shortcut, an enabled rule and one function that performs it

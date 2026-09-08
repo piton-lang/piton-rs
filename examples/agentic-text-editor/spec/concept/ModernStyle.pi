@@ -11,9 +11,9 @@ export concept ModernStyle:
         could just be spaced properly instead.
 
     parts:
-        - @{Tokens} — the colours, spacing steps, radii and type scale, as values
-        - @{Theme} — how the tokens become an egui style, in light and in dark
-        - @{UiConventions} — how a widget is expected to use them
+        - @{Tokens} - the colours, spacing steps, radii and type scale, as values
+        - @{Theme} - how the tokens become an egui style, in light and in dark
+        - @{UiConventions} - how a widget is expected to use them
 
     rules:
         - No widget hard-codes a colour, a size or a corner radius; every one of them comes from @{Tokens}

@@ -15,10 +15,10 @@ export concept FileLifecycle:
         every time, in the same words.
 
     parts:
-        - @{FileDialogs} — the native open and save dialogs, and the confirmation
-        - @{Encoding} — reading and writing bytes, and what to do when they are not text
-        - @{RecentFiles} — the list under the File menu, and where it is kept
-        - @{Document} — what actually changes when any of this succeeds
+        - @{FileDialogs} - the native open and save dialogs, and the confirmation
+        - @{Encoding} - reading and writing bytes, and what to do when they are not text
+        - @{RecentFiles} - the list under the File menu, and where it is kept
+        - @{Document} - what actually changes when any of this succeeds
 
     guard:
         New, Open, opening a recent file and quitting all pass through the same

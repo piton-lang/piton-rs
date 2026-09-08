@@ -127,4 +127,83 @@ impl Compilation {
     pub fn has_errors(&self) -> bool {
         self.diagnostics.has_errors()
     }
+
+    /// Every file on disk that the entry points reach.
+    ///
+    /// Loading only follows `from` and `use`, so this is exactly the set that
+    /// was compiled. A `.pi` file that is not in here is never looked at: its
+    /// errors are not reported and its declarations do not exist.
+    pub fn reached_paths(&self) -> Vec<&Path> {
+        let mut paths: Vec<&Path> =
+            self.analysis.db.files().filter_map(|file| file.source.as_path()).collect();
+        paths.sort();
+        paths
+    }
+
+    /// True when `path` was reached from an entry point.
+    pub fn reaches(&self, path: &Path) -> bool {
+        self.analysis.db.file_id(path).is_some()
+    }
+
+    /// Which file first reached each file, breadth-first from the entries.
+    ///
+    /// An entry point maps to `None`. Because the search is breadth-first, a
+    /// file reached several ways is recorded under the shortest route, which is
+    /// the one worth showing someone asking how it got here.
+    pub fn reached_by(&self) -> HashMap<FileId, Option<FileId>> {
+        let mut parents: HashMap<FileId, Option<FileId>> = HashMap::new();
+        let mut queue: std::collections::VecDeque<FileId> = std::collections::VecDeque::new();
+        for entry in &self.entries {
+            if parents.insert(*entry, None).is_none() {
+                queue.push_back(*entry);
+            }
+        }
+        while let Some(file) = queue.pop_front() {
+            for target in self.imports_of(file) {
+                if let std::collections::hash_map::Entry::Vacant(slot) = parents.entry(target) {
+                    slot.insert(Some(file));
+                    queue.push_back(target);
+                }
+            }
+        }
+        parents
+    }
+
+    /// The chain of files from an entry point to `file`, `file` last.
+    ///
+    /// Empty when the file was never reached.
+    pub fn reach_chain(&self, file: FileId) -> Vec<FileId> {
+        let parents = self.reached_by();
+        if !parents.contains_key(&file) {
+            return Vec::new();
+        }
+        let mut chain = vec![file];
+        let mut current = file;
+        while let Some(Some(parent)) = parents.get(&current) {
+            chain.push(*parent);
+            current = *parent;
+        }
+        chain.reverse();
+        chain
+    }
+
+    /// Every file this one pulls in, through `from` or `use`, in source order.
+    fn imports_of(&self, file: FileId) -> Vec<FileId> {
+        let hir = &self.analysis.db.file(file).hir;
+        let specifiers = hir
+            .imports
+            .iter()
+            .map(|it| &it.path.value)
+            .chain(hir.reexports.iter().map(|it| &it.path.value))
+            .chain(hir.uses.iter().map(|it| &it.value));
+        let mut out = Vec::new();
+        for specifier in specifiers {
+            if let Some(target) = self.analysis.module(file, specifier) {
+                if !out.contains(&target) {
+                    out.push(target);
+                }
+            }
+        }
+        out
+    }
 }

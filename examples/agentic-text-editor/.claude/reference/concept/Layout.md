@@ -6,9 +6,9 @@ The window is a header, a body and a footer, stacked in that order. The header a
 
 ## Parts
 
-- Header — @../shape/ui/header/MenuBar.md, and @../shape/ui/header/Toolbar.md underneath it
-- Body — @../shape/ui/body/EditorSurface.md, with @../shape/ui/body/FindReplacePanel.md docked above it and @../shape/ui/body/GoToLineDialog.md floating over it
-- Footer — @../shape/ui/footer/StatusBar.md, one line tall
+- Header - @../shape/ui/header/MenuBar.md, and @../shape/ui/header/Toolbar.md underneath it
+- Body - @../shape/ui/body/EditorSurface.md, with @../shape/ui/body/FindReplacePanel.md docked above it and @../shape/ui/body/GoToLineDialog.md floating over it
+- Footer - @../shape/ui/footer/StatusBar.md, one line tall
 
 ## Rules
 

@@ -172,11 +172,25 @@ cp -r editors/vim/{syntax,ftdetect,ftplugin} ~/.vim/
 
 `piton-mode` registers itself with both `eglot` and `lsp-mode`.
 
-**JetBrains IDEs** — for highlighting in any of them, free or paid:
+**JetBrains IDEs** — there are two ways in, because the LSP API only exists in
+the paid IDEs.
+
+For highlighting in *any* of them, free or paid, with no build:
 Settings → Editor → TextMate Bundles → `+` → select
-`editors/jetbrains/bundles/piton`. For the language server as well, build the
-plugin with `cd editors/jetbrains && ./gradlew buildPlugin`; the JetBrains LSP
-API is only in the paid IDEs.
+`editors/jetbrains/bundles/piton` → Apply.
+
+For the language server as well, in IntelliJ IDEA Ultimate, WebStorm, PyCharm
+Professional and friends, build the plugin. You need a JDK 17 or newer and
+Gradle; the wrapper script is not checked in because it ships as a binary:
+
+```sh
+cd editors/jetbrains
+gradle wrapper        # once — or use `gradle` in place of `./gradlew` below
+./gradlew buildPlugin
+```
+
+Then Settings → Plugins → the gear icon → **Install Plugin from Disk…** and
+choose `build/distributions/piton-0.1.0.zip`.
 
 **Sublime Text**:
 
@@ -217,6 +231,7 @@ More detail, and what to do when the binary is not on your `PATH`, is in
 | `piton build` | Build the project described by `piton.config.pi` |
 | `piton build check` | Build and report problems without writing |
 | `piton check <path>` | Report problems in specific files |
+| `piton reach` | Show which files the entry point reaches, and how, and which it does not |
 | `piton compile <path>` | Compile to JSON, or YAML with `--format yaml` |
 | `piton format <path>` | Apply the canonical style; `--check` to only report |
 | `piton lsp` | Run the language server |

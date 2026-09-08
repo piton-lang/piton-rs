@@ -6,9 +6,9 @@ The editor holds exactly one document. It is a string, a path that may not exist
 
 ## Parts
 
-- @../shape/document/Document.md — the buffer, the path, the dirty flag and the caret
-- @../shape/document/UndoHistory.md — the record of edits, and how they are grouped
-- @../shape/files/Encoding.md — how the bytes on disk became this string, and how they go back
+- @../shape/document/Document.md - the buffer, the path, the dirty flag and the caret
+- @../shape/document/UndoHistory.md - the record of edits, and how they are grouped
+- @../shape/files/Encoding.md - how the bytes on disk became this string, and how they go back
 
 ## Rules
 

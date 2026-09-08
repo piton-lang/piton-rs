@@ -5,5 +5,4 @@
 // how the editor fits together and why. `shape` mirrors `src`, one document per
 // directory of code, and says what each part actually is.
 from ./agent export *
-from ./concept export *
 from ./shape export *

@@ -11,11 +11,7 @@ use crate::{actions, completion, hover, navigation, tokens};
 
 /// Write a throwaway project and analyse it.
 fn workspace(files: &[(&str, &str)]) -> (PathBuf, Workspace) {
-    let root = std::env::temp_dir().join(format!(
-        "piton-lsp-test-{}-{:?}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-    ));
+    let root = unique_directory("piton-lsp-test");
     for (path, contents) in files {
         let target = root.join(path);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -863,4 +859,15 @@ fn workspace_symbols_find_declarations_across_files() {
     found.sort();
     assert_eq!(found, vec!["ButtonThing".to_string(), "buttonCount".to_string()]);
     let _ = root;
+}
+
+/// A directory no other test can collide with.
+///
+/// Tests run in parallel threads of one process, so a timestamp alone is not
+/// enough: two of them can start within the same nanosecond and then fight over
+/// the same files.
+fn unique_directory(prefix: &str) -> std::path::PathBuf {
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let ordinal = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{}-{ordinal}", std::process::id()))
 }

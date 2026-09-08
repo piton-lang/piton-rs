@@ -1,11 +1,13 @@
 //! The behaviour behind each `piton` subcommand.
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use piton_core::serialize::{to_json_string, to_yaml};
 use piton_core::value::Value;
+use piton_core::FileId;
 
 use crate::files;
 use crate::report::report;
@@ -107,6 +109,175 @@ pub fn build(check_only: bool) -> Result<i32> {
     }
     eprintln!("wrote {} file{}", outputs.len(), if outputs.len() == 1 { "" } else { "s" });
     Ok(0)
+}
+
+/// `piton reach`: which files under the project root are compiled, and which
+/// are not.
+///
+/// Only files reachable from the entry point are compiled at all, so an
+/// unreached file is invisible: its errors are never reported and nothing it
+/// declares exists. That is easy to do by accident and hard to notice.
+pub fn reach(
+    show: Reach,
+    strict: bool,
+    chains: bool,
+    entry: Option<PathBuf>,
+) -> Result<i32> {
+    let cwd = std::env::current_dir()?;
+    let session = match &entry {
+        Some(path) => Session::files(&cwd, std::slice::from_ref(path))?,
+        None => {
+            let session = Session::project(&cwd)?;
+            // Without a config there is no entry point, and "reached" is
+            // measured from one. Answering anyway would mean treating every
+            // file as its own entry and reporting that everything is reached,
+            // which is true and useless.
+            if session.project.config_path.is_none() {
+                bail!(
+                    "reachability is measured from an entry point, and there is no \
+                     piton.config.pi here.\n  Run this from a project directory, or name \
+                     one file to measure from:\n    piton reach --entry spec/index.pi"
+                );
+            }
+            session
+        }
+    };
+    let compilation = &session.compilation;
+    let root = &session.project.root;
+
+    let under_root: Vec<PathBuf> = files::walk(root);
+    let unreached: Vec<String> = under_root
+        .iter()
+        .filter(|path| !compilation.reaches(path))
+        .map(|path| relative(path, root))
+        .collect();
+    let reached = under_root.len() - unreached.len();
+
+    // Say what the answer is measured from, so it cannot be misread.
+    let entries: Vec<String> = compilation
+        .entries
+        .iter()
+        .filter_map(|file| compilation.analysis.db.file(*file).source.as_path())
+        .map(|path| relative(path, root))
+        .collect();
+    match entries.len() {
+        1 => eprintln!("entry point: {}", entries[0]),
+        count => eprintln!(
+            "warning: {count} entry points — every file under {} is its own, so everything \
+             is trivially reached.\n  Give the project an `entry` in piton.config.pi, or an \
+             index.pi at its root.",
+            root.display()
+        ),
+    }
+
+    if show != Reach::Unreached {
+        println!("reached ({reached})");
+        if chains {
+            print_chains(&session, root);
+        } else {
+            print_reach_tree(&session, root);
+        }
+    }
+    if show != Reach::Reached {
+        if show == Reach::All && reached > 0 && !unreached.is_empty() {
+            println!();
+        }
+        println!("unreached ({})", unreached.len());
+        for path in &unreached {
+            println!("  {path}");
+        }
+    }
+
+    if show == Reach::All {
+        eprintln!(
+            "\n{reached} of {} file(s) reached from the entry point",
+            under_root.len()
+        );
+        if !unreached.is_empty() {
+            eprintln!("an unreached file is never compiled, so its errors are never reported");
+        }
+    }
+    Ok(i32::from(strict && !unreached.is_empty()))
+}
+
+/// Each reached file under the one that pulled it in, so the indentation is
+/// the chain read downwards.
+fn print_reach_tree(session: &Session, root: &Path) {
+    let compilation = &session.compilation;
+    let parents = compilation.reached_by();
+    let mut children: BTreeMap<Option<FileId>, Vec<FileId>> = BTreeMap::new();
+    for (file, parent) in &parents {
+        children.entry(*parent).or_default().push(*file);
+    }
+    let label = |file: FileId| match compilation.analysis.db.file(file).source.as_path() {
+        Some(path) => relative(path, root),
+        None => compilation.analysis.db.file(file).source.display(),
+    };
+    for list in children.values_mut() {
+        list.sort_by_key(|file| label(*file));
+    }
+
+    fn walk(
+        parent: Option<FileId>,
+        depth: usize,
+        children: &BTreeMap<Option<FileId>, Vec<FileId>>,
+        label: &dyn Fn(FileId) -> String,
+        root: &Path,
+        session: &Session,
+    ) {
+        let Some(list) = children.get(&parent) else { return };
+        for file in list {
+            // Builtin modules are reached but are not files anyone can open.
+            if session.compilation.analysis.db.file(*file).source.as_path().is_none() {
+                continue;
+            }
+            let _ = root;
+            println!("{}{}", "  ".repeat(depth + 1), label(*file));
+            walk(Some(*file), depth + 1, children, label, root, session);
+        }
+    }
+    walk(None, 0, &children, &label, root, session);
+}
+
+/// One explicit `a -> b -> c` per reached file, for copying out.
+fn print_chains(session: &Session, root: &Path) {
+    let compilation = &session.compilation;
+    let label = |file: FileId| match compilation.analysis.db.file(file).source.as_path() {
+        Some(path) => relative(path, root),
+        None => compilation.analysis.db.file(file).source.display(),
+    };
+    let mut lines: Vec<String> = Vec::new();
+    for file in compilation.analysis.db.files() {
+        if file.source.as_path().is_none() {
+            continue;
+        }
+        let chain = compilation.reach_chain(file.id);
+        if chain.is_empty() {
+            continue;
+        }
+        let rendered: Vec<String> = chain.iter().map(|it| label(*it)).collect();
+        lines.push(match rendered.len() {
+            1 => format!("  {}  (entry point)", rendered[0]),
+            _ => format!("  {}", rendered.join(" -> ")),
+        });
+    }
+    lines.sort();
+    for line in lines {
+        println!("{line}");
+    }
+}
+
+/// Which half of the answer to print.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum Reach {
+    All,
+    Reached,
+    Unreached,
+}
+
+/// A path shown relative to the project root, for readability.
+fn relative(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root).unwrap_or(path).display().to_string()
 }
 
 /// `piton format`.

@@ -6,10 +6,10 @@ Four commands move a document in and out of the editor, and one question guards 
 
 ## Parts
 
-- @../shape/files/FileDialogs.md — the native open and save dialogs, and the confirmation
-- @../shape/files/Encoding.md — reading and writing bytes, and what to do when they are not text
-- @../shape/files/RecentFiles.md — the list under the File menu, and where it is kept
-- @../shape/document/Document.md — what actually changes when any of this succeeds
+- @../shape/files/FileDialogs.md - the native open and save dialogs, and the confirmation
+- @../shape/files/Encoding.md - reading and writing bytes, and what to do when they are not text
+- @../shape/files/RecentFiles.md - the list under the File menu, and where it is kept
+- @../shape/document/Document.md - what actually changes when any of this succeeds
 
 ## Guard
 
