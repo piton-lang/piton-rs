@@ -1,0 +1,12 @@
+// A named idea, and the parts that carry it.
+//
+// A concept says how pieces fit together and why they are arranged that way.
+// The shape documents it points at say what each piece is. Anything specific
+// enough to be an implementation note belongs in the shape tree instead, so a
+// concept can stay readable when the code underneath it changes.
+export abstract anchor Concept as concept:
+    // One or two sentences. What is this idea?
+    summary:: string
+
+    // The parts that realise it, each pointing at its shape document.
+    parts:: list

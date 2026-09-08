@@ -1,0 +1,7 @@
+// This tree mirrors `src`. A document here compiles to the `AGENTS.md` sitting
+// in the matching directory of code, so the guidance for a part is next to it.
+from ./app export *
+from ./document export *
+from ./files export *
+from ./theme export *
+from ./ui export *

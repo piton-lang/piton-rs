@@ -19,3 +19,5 @@ editor at once. Edit `crates/piton-grammar`, not these files.
 | `shared/` | The TextMate grammar and language configuration everything else reuses | |
 
 Every integration launches the same language server: `piton lsp`.
+
+Installation instructions for each editor are in `docs/editors.md`.

@@ -1,0 +1,18 @@
+---
+description: Builds and runs the editor, then lists what to exercise by hand
+allowed-tools: Bash, Read
+model: sonnet
+---
+
+Run `cargo run` and leave it running. Report the first warning, panic or blank window and stop. If it starts cleanly, print the list below for the user to walk through, and say which actions in @../reference/shape/app/ActionCatalogue.md the change touched.
+
+# Smoke Test
+
+- Type a line; the title gains a bullet and the footer moves to Ln 1, Col 2
+- Ctrl and S on the untitled buffer opens the save dialog; saving clears the bullet
+- Ctrl and F, type something present, press Enter twice, and watch it wrap with the footer saying so
+- Ctrl and H, replace all, then one undo, and check the buffer is back and the caret with it
+- Toggle word wrap, then zoom out and back in, and check the caret has not moved
+- Toggle the theme, and check nothing in the window kept its old colour
+- Hide the status bar and bring it back, and check the body gave back exactly the height it took
+- Drag a text file onto the window with unsaved changes, and check it asks before opening

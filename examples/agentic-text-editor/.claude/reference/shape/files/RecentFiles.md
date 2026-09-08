@@ -1,0 +1,14 @@
+# Recent Files
+
+The list of recently opened paths, and where it is kept
+
+A short list of absolute paths, newest first, kept beside the settings in the platform's configuration directory and written whenever it changes.
+
+## Rules
+
+- At most ten entries, and a path that is opened again moves to the front rather than repeating
+- Only a successful open or save adds an entry; a cancelled dialog and a failed read do not
+- The menu shows the file name, with the containing directory dimmed beside it, and the whole path as a tooltip
+- Two entries with the same file name both show enough of their directories to tell them apart
+- An entry whose file has gone is still shown, and choosing it reports that it is missing and drops it from the list
+- The list ends with a separator and `Clear Recent`, which empties it after no confirmation, because nothing is lost

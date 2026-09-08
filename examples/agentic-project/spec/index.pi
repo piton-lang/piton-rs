@@ -1,5 +1,0 @@
-// The entry point. Everything reachable from here is compiled.
-from ./agents export *
-from ./commands export *
-from ./skills export *
-from ./shape export *

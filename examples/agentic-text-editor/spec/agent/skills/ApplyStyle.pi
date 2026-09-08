@@ -1,0 +1,33 @@
+use @piton/belay
+
+from /concept import ModernStyle
+from /shape/theme import
+    DarkTokens,
+    LightTokens,
+    Theme,
+    Tokens
+from /shape/ui import UiConventions
+
+// Makes a widget look like the rest of the editor.
+export skill ApplyStyle:
+    description: Applies the editor's visual language to a widget, a panel or a whole band
+    useWhen: the user asks for styling, spacing, colour, or says that something looks wrong
+
+    prompt:
+        Read @{ModernStyle} for what the editor is trying to look like, then
+        @{Theme} for how that reaches egui. Everything you need is already a
+        value in @{Tokens}; the work is picking the right one, not choosing a
+        colour.
+
+    order:
+        - Find the token that means what you want, by meaning and not by how it looks
+        - If no token means it, add it to @{LightTokens} and @{DarkTokens} together, or do not add it
+        - Change the mapping in @{Theme} rather than the widget, whenever the change should apply to more than one widget
+        - Check it in both palettes before you say it is done
+
+    rules:
+        - Never a literal colour, size or radius in a widget; see @{UiConventions}
+        - Space things apart before you draw a line between them
+        - Hover and focus change the tint, never the size or the position
+        - Only opacity animates, and never for longer than a tenth of a second
+        - Contrast is checked, not judged by eye, in light and in dark

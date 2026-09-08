@@ -1,17 +1,16 @@
 # Piton
 
-Piton is a declarative, whitespace-structured language for describing systems in
-a mix of prose and structure. It has no runtime: a Piton program compiles to
-data, or — through a framework — to documents. **Belay** is the framework
-bundled here; it turns Piton declarations into the Markdown that agentic coding
-tools read.
+Piton is a language for writing the instructions that agentic coding tools read.
+You describe your system once — in prose where prose is right, in structure
+where structure is right — and the compiler produces the agents, skills,
+commands, and per-directory `CLAUDE.md` files that Claude Code and its cousins
+actually load.
 
 ```piton
 use @piton/belay
 
 from ./ButtonDesign import ButtonDesign
 
-// A skill an agent can reach for.
 export skill BuildButton:
     description: Implements the button component
     useWhen: the user asks to build or change the button
@@ -22,42 +21,64 @@ export skill BuildButton:
         For details about the design, read @{ButtonDesign}.
 ```
 
-```sh
-piton build          # compile the project described by piton.config.pi
-piton check src/     # report problems without writing anything
-piton format .       # apply the canonical style
-piton lsp            # run the language server
-piton claude         # start Claude Code already fluent in Piton
-```
+Piton has no runtime. It compiles to data — JSON, YAML — or, through a
+framework, to documents. **Belay** is the framework bundled here, and it is what
+turns the file above into `.claude/skills/build-button/SKILL.md`.
 
-## Getting started
+Why bother, instead of writing the Markdown by hand? Because Markdown has no way
+to say "this is the same thing I described over there". Piton has inheritance,
+imports, and references, so a design decision lives in one place and every
+document that needs it points at it.
+
+---
+
+## Install
 
 ```sh
+git clone <this repository> piton
+cd piton
 cargo xtask install
 ```
 
-That builds the release binary and copies it into Cargo's binary directory,
-then runs it to check that it works. `--dest DIR` installs somewhere else,
-`--debug` installs an unoptimised build, and `cargo xtask uninstall` removes it
-again.
+That builds the release binary, copies it into Cargo's binary directory
+(`~/.cargo/bin` by default), and runs it to check that it works. You need a
+recent stable Rust toolchain and nothing else.
 
-Then, in a project:
+```sh
+piton --version
+```
+
+If that fails, the binary is not on your `PATH`. `cargo xtask install --dest DIR`
+puts it somewhere else, and `cargo xtask uninstall` removes it.
+
+## Your first project
+
+Make a directory with somewhere to put your descriptions and somewhere for your
+code to live:
+
+```sh
+mkdir -p my-project/spec my-project/src
+cd my-project
+```
+
+**1. Tell Piton what this project is.** Every project has a `piton.config.pi`:
 
 ```piton
-// piton.config.pi
 use @piton/config
 use @piton/belay
 
 from @piton/belay import ClaudeAdapter
 
 export piton-config Config:
+    // Where your Piton sources live. Absolute imports like `/shapes/Button`
+    // resolve from here.
     root: ./spec
-    entry: ./spec/index.pi
 
     frameworks:
-        - {BelayConfiguration}
+        - {Belay}
 
-belay-config BelayConfiguration:
+// Belay needs to know where your code is, and where to write.
+belay-config Belay:
     codeRoot: ./src
     shapeRoot: ./spec/shape
 
@@ -65,162 +86,162 @@ belay-config BelayConfiguration:
         - {ClaudeAdapter}
 ```
 
-`examples/agentic-project` is a complete, working project of exactly this shape.
+**2. Write something for the agent to read.** `spec/index.pi` is the entry
+point — everything reachable from it gets compiled:
 
-## The language in one page
+```piton
+use @piton/belay
 
-`piton docs` prints the full reference, generated from the compiler's own
-tables. The short version:
+export skill ReviewChange:
+    description: Reviews a change against the recorded design intent
+    useWhen: the user asks for a review
 
-- A value is an expression only when the *whole* value parses as one over
-  literal atoms. `1 + 2` is `3`; `a + b` is the string `a + b`; `{a + b}` is `3`.
-- `+` on lists concatenates and deduplicates with the right operand winning;
-  `++` keeps duplicates. On dictionaries, `+` merges shallowly and `++` deeply.
-- A block that mixes prose, `- ` items, and `key:` pairs becomes an implicit
-  list, and the keys written directly in it stay addressable.
-- `anchor` is the only user-defined type. Inheritance is structural and resolves
-  left to right, with the right-most base winning.
-- `this` pins to the anchor an expression was written in; `self` follows the
-  most-derived anchor.
-- An `abstract anchor Name as keyword:` declares a shape and a keyword;
-  `keyword Child:` is sugar for `extends Name`.
-- `${}` interpolates. Frameworks register other sigils, such as Belay's `@{}`.
+    prompt:
+        Read the diff. For anything you touch, read its shape document first.
+```
+
+**3. Build it.**
+
+```sh
+piton build
+```
+
+```
+.claude/skills/review-change/SKILL.md
+wrote 1 file
+```
+
+Open that file and you will find front matter and prose that Claude Code loads
+as a skill. Change the Piton, run `piton build` again, and the Markdown follows.
+
+`examples/agentic-text-editor` in this repository is a complete project of this
+shape: the specification for a Rust and egui text editor, split into an `agent`
+tree of agents, commands and skills; a `concept` tree that says how the editor
+fits together; and a `shape` tree mirrored onto `src/`.
+
+## Set up your editor
+
+Every editor integration lives in `editors/` and is generated from the compiler
+itself. They all start the same language server, `piton lsp`, which gives you
+diagnostics, completion, hover, go to definition, find references, rename,
+formatting, and inlay hints. The `piton` binary must be on your `PATH` first —
+step 1 above did that.
+
+Run these from the repository you cloned.
+
+**VS Code** (also Cursor and Windsurf):
+
+```sh
+cd editors/vscode
+npm install
+npx vsce package
+code --install-extension piton-0.1.0.vsix
+```
+
+**Zed** — Zed compiles the extension itself, so add the WebAssembly target
+first, then install it from the command palette:
+
+```sh
+rustup target add wasm32-wasip1
+```
+
+Command palette → `zed: install dev extension` → choose `editors/zed`.
+
+Highlighting needs the Tree-sitter grammar, which Zed fetches over git; see
+[publishing the grammar](docs/development.md#publishing-the-tree-sitter-grammar).
+Everything the language server provides works without it.
+
+**Neovim** — add `editors/vim` to your `runtimepath`, then:
+
+```lua
+require('piton').setup()
+```
+
+**Vim** — copy the syntax files in, or point a plugin manager at `editors/vim`:
+
+```sh
+cp -r editors/vim/{syntax,ftdetect,ftplugin} ~/.vim/
+```
+
+**Emacs**:
+
+```elisp
+(add-to-list 'load-path "/path/to/piton/editors/emacs")
+(require 'piton-mode)
+```
+
+`piton-mode` registers itself with both `eglot` and `lsp-mode`.
+
+**JetBrains IDEs** — for highlighting in any of them, free or paid:
+Settings → Editor → TextMate Bundles → `+` → select
+`editors/jetbrains/bundles/piton`. For the language server as well, build the
+plugin with `cd editors/jetbrains && ./gradlew buildPlugin`; the JetBrains LSP
+API is only in the paid IDEs.
+
+**Sublime Text**:
+
+```sh
+cp -r editors/sublime "$HOME/.config/sublime-text/Packages/Piton"
+```
+
+Install the `LSP` package and the bundled settings start the server.
+
+**Helix** — merge `editors/helix/languages.toml` into
+`~/.config/helix/languages.toml`, then `hx --grammar fetch && hx --grammar build`.
+
+**Kate**:
+
+```sh
+mkdir -p ~/.local/share/org.kde.syntax-highlighting/syntax
+cp editors/kate/piton.xml ~/.local/share/org.kde.syntax-highlighting/syntax/
+```
+
+Enable Kate's LSP Client plugin and point it at `piton lsp`.
+
+More detail, and what to do when the binary is not on your `PATH`, is in
+[editor setup](docs/editors.md).
+
+## What to reach for next
+
+- **Give the agent guidance per directory.** An `instruction` compiles into a
+  `CLAUDE.md` beside the code it applies to. See [the Belay guide](docs/belay.md).
+- **Stop repeating yourself.** An `anchor` is a named, inheritable block; `@{}`
+  points one document at another instead of copying it.
+- **Read the language reference**, which is generated from the compiler, so it
+  cannot drift: [`docs/language.md`](docs/language.md).
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `piton compile <file\|glob>` | Compile to JSON (`--format yaml` for YAML, `--stdout` to print) |
-| `piton check <file\|glob>` | Report problems without writing |
 | `piton build` | Build the project described by `piton.config.pi` |
-| `piton build check` | Build and report without writing |
-| `piton format <file\|glob>` | Apply the canonical style; `--check` to only report |
-| `piton lsp` | Run the language server over stdio |
-| `piton grammar [dir]` | Regenerate the editor grammars and extensions |
-| `piton docs` | Print the generated language reference |
-| `piton claude` | Launch Claude Code with Piton fluency preloaded |
-| `piton ast <file>` | Print a file's concrete syntax tree |
+| `piton build check` | Build and report problems without writing |
+| `piton check <path>` | Report problems in specific files |
+| `piton compile <path>` | Compile to JSON, or YAML with `--format yaml` |
+| `piton format <path>` | Apply the canonical style; `--check` to only report |
+| `piton lsp` | Run the language server |
+| `piton docs` | Print the language reference |
+| `piton claude` | Launch Claude Code already fluent in Piton |
 
-## Editors
+Full detail in [the CLI reference](docs/cli.md).
 
-Every integration in `editors/` is generated by `piton grammar` from the
-compiler's own token tables, so a change to the language reaches all of them at
-once. They all launch the same language server, `piton lsp`, which supports
-diagnostics, workspace diagnostics, semantic highlighting, completion, hover,
-go to definition, go to implementation, find references, rename, document and
-workspace symbols, type hierarchy, folding, formatting, code actions, inlay
-hints, and document links.
+## Documentation
 
-| Directory | Editor |
+| | |
 | --- | --- |
-| `editors/vscode` | VS Code, Cursor, Windsurf |
-| `editors/zed` | Zed (a WebAssembly extension; see its README) |
-| `editors/jetbrains` | IntelliJ IDEA, WebStorm, PyCharm, … |
-| `editors/vim` | Vim, Neovim |
-| `editors/emacs` | Emacs (`eglot` and `lsp-mode`) |
-| `editors/sublime` | Sublime Text |
-| `editors/helix` | Helix |
-| `editors/kate` | Kate, KWrite |
-| `editors/tree-sitter-piton` | The Tree-sitter grammar the last three share |
+| [Language reference](docs/language.md) | Every rule, generated from the compiler itself |
+| [The Belay framework](docs/belay.md) | Agents, skills, commands, instructions, and what they compile to |
+| [CLI reference](docs/cli.md) | Every command and flag |
+| [Editor setup](docs/editors.md) | VS Code, Zed, JetBrains, Vim, Emacs, Sublime, Helix, Kate |
+| [Architecture](docs/architecture.md) | How the compiler is put together, and why |
+| [Development](docs/development.md) | Building, testing, and publishing the grammar |
 
-See `editors/README.md` for installation.
+Two more documents live at the repository root because they are about this
+implementation rather than about using it: [`.spec.md`](.spec.md) restates the
+language specification as one checkable claim per line, and
+[`.decisions.md`](.decisions.md) records every choice made where the
+specification left room.
 
-### Publishing the Tree-sitter grammar
+## Licence
 
-Zed, Helix, and nvim-treesitter fetch Tree-sitter grammars over git rather than
-from a directory, so `editors/tree-sitter-piton` is published as its own
-repository. This repository stays the source of truth; the published one is a
-`git subtree` of it.
-
-Tell git where it lives, once per clone — the URL is not stored in this
-repository:
-
-```sh
-git remote add grammar <url>
-```
-
-Then:
-
-```sh
-cargo xtask publish-grammar                 # push to the `grammar` remote
-cargo xtask publish-grammar --dry-run       # show what would be pushed
-cargo xtask publish-grammar --remote URL    # a one-off, somewhere else
-```
-
-That regenerates `editors/`, refreshes the checked-in `src/parser.c`, commits
-the grammar prefix, runs `git subtree push`, asks the remote what commit it now
-has, and writes that commit into the Zed, Helix, and Neovim configurations so
-they fetch exactly what was pushed. `--no-commit` makes it refuse rather than
-commit on your behalf.
-
-`src/parser.c` is committed on purpose: the editors compile it, they do not run
-the Tree-sitter CLI.
-
-## How the compiler is put together
-
-```
-xtask/            development tasks, run as `cargo xtask <command>`
-crates/
-  piton-syntax    lexer, chumsky grammar, rowan CST, typed AST
-  piton-core      resolution, evaluation, diagnostics, framework interface
-  piton-fmt       the canonical formatter, over the same CST
-  piton-belay     the Belay framework — a plugin, not part of the compiler
-  piton-grammar   editor grammars, generated from the compiler's kind tables
-  piton-docs      language reference, generated from the same tables
-  piton-lsp       the language server, over the same compilation
-  piton-cli       the `piton` binary; the only place a framework is named
-```
-
-Two properties are worth stating because they are enforced by the crate graph:
-
-- **Frameworks are plugins.** `piton-core` defines a `Framework` trait and never
-  names a concrete framework. `piton-cli` is the only crate that links
-  `piton-belay`, and it registers it in one function.
-- **The grammars, docs, and language server are the compiler.** Editor word
-  lists come from `piton_syntax::kind`; framework keywords and sigils are read
-  out of each framework's own module source; the language server answers from
-  the same `Compilation` that `piton build` produces.
-
-Parsing works in two stages. A hand-written, line-oriented lexer turns
-indentation into zero-width `INDENT`/`DEDENT` markers, which makes the grammar
-context free; a `chumsky` parser over that token stream produces a lightweight
-tree of node kinds and token indices, which is then replayed over the full
-token stream to build a lossless `rowan` green node. Trivia handling lives in
-one place, and `parse(src).syntax().text() == src` for every input.
-
-## Development
-
-```sh
-cargo test           # 141 tests: syntax, language, formatter, Belay, grammars, LSP
-cargo clippy --all-targets
-cargo xtask grammar-test      # the Tree-sitter parse corpus and highlight assertions
-cargo xtask build    # build the CLI and print where the binary landed
-cargo xtask install  # build it and put it on your PATH
-cargo xtask zed      # check the Zed extension compiles to WebAssembly
-cargo xtask grammar  # regenerate editors/, including the Tree-sitter parser
-cargo xtask publish-grammar   # push the grammar subtree and pin the editors to it
-cargo run -p piton-cli -- grammar editors     # regenerate editor support
-```
-
-`xtask/` holds the workspace's development tasks; `cargo xtask` is an alias
-defined in `.cargo/config.toml`.
-
-Where the tests live, and what each one is asserting against:
-
-| Suite | Correctness means |
-| --- | --- |
-| `piton-syntax/tests/syntax.rs` | Parsing is lossless, total, and never panics; the tree has the shape the compiler reads |
-| `piton-core/tests/language.rs` | The Piton specification, one test per rule |
-| `piton-core/tests/modules.rs` | Imports, exports, `use`, and path resolution against real files |
-| `piton-fmt` | The canonical style, and that formatting is idempotent |
-| `piton-belay/tests/conformance.rs` | The rules Claude Code enforces on the files it loads |
-| `piton-belay/tests/project.rs` | The output layout the Belay specification describes |
-| `piton-grammar/tests/highlighting.rs` | TextMate patterns compiled and executed against real lines |
-| `piton-lsp/src/tests.rs` | Every advertised capability, including what completion must *not* offer |
-| `editors/tree-sitter-piton/test` | `tree-sitter test`: a parse corpus and highlight assertions |
-
-## Project documents
-
-- `.spec.md` — the implementer's restatement of the language specification, one
-  checkable claim per line, for diffing against the human-authored spec.
-- `.decisions.md` — every choice made where the specification left room.
+MIT.

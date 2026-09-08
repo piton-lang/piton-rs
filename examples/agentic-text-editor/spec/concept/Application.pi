@@ -1,0 +1,38 @@
+use ./Concept
+
+from ./ActionSystem import ActionSystem
+from ./DocumentModel import DocumentModel
+from ./FileLifecycle import FileLifecycle
+from ./Layout import Layout
+from ./ModernStyle import ModernStyle
+from ./SearchAndNavigation import SearchAndNavigation
+from ./ViewSettings import ViewSettings
+
+// The whole editor on one page, and the way in to every other concept.
+export concept Application:
+    summary:
+        A single-window plain text editor that does what Notepad does and looks
+        like something written this decade. One window, one open document, no
+        tabs, no projects, no plugins.
+
+    parts:
+        - @{Layout} — the three bands the window is made of
+        - @{DocumentModel} — the text being edited, and what is known about it
+        - @{ActionSystem} — the one table that every menu, button and shortcut reads
+        - @{FileLifecycle} — new, open, save, save as, and never losing work
+        - @{SearchAndNavigation} — find, replace and go to line
+        - @{ViewSettings} — word wrap, font, zoom, and which bands are showing
+        - @{ModernStyle} — how all of it should look
+
+    principles:
+        - The document is the only state that matters; every other field is a view of it or a preference about it
+        - Nothing is reachable by the mouse alone
+        - No edit is lost without the user being asked first
+        - A frame does not block; anything that touches the disk finishes before the next frame or reports why it could not
+        - The editor opens on an empty buffer in under a second and stays that quick with a large file open
+
+    outOfScope:
+        - Tabs, split panes and more than one document at a time
+        - Syntax highlighting, completion and anything that parses the text
+        - Printing, macros and plugins
+        - Remote or networked files

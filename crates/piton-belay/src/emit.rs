@@ -45,6 +45,14 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// True when the project declares anything for Belay to emit.
+    pub fn is_empty(&self) -> bool {
+        self.agents.is_empty()
+            && self.skills.is_empty()
+            && self.commands.is_empty()
+            && self.instructions.is_empty()
+    }
+
     pub fn discover(compilation: &Compilation) -> Plan {
         let of = |kind: Kind| {
             compilation

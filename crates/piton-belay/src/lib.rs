@@ -14,11 +14,32 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use piton_core::compile::Compilation;
+use piton_core::diag::Diagnostic;
 use piton_core::framework::{Emitted, Framework, Interpolation, VirtualModule};
 use piton_core::project::Project;
 use piton_core::value::{AnchorId, Value};
 
 use settings::Settings;
+
+/// Belay found work to do but was never configured to do it.
+fn unconfigured(compilation: &Compilation, project: &Project) -> Diagnostic {
+    let file = compilation
+        .analysis
+        .db
+        .files()
+        .find(|file| Some(file.source.display()) == project.config_path.as_ref().map(|it| it.display().to_string()))
+        .map(|file| file.id)
+        .or_else(|| compilation.entries.first().copied())
+        .unwrap_or(piton_core::FileId(0));
+    Diagnostic::warning(
+        "belay-unconfigured",
+        file,
+        Default::default(),
+        "this project declares agents, skills, commands, or instructions, but Belay is not \
+         configured, so nothing was written. List the `belay-config` anchor under `frameworks` \
+         in piton.config.pi:\n    frameworks:\n        - {BelayConfiguration}",
+    )
+}
 
 /// The Belay framework plugin.
 pub struct Belay {
@@ -121,10 +142,19 @@ impl Framework for Belay {
         messages
     }
 
-    fn emit(&self, compilation: &Compilation, _project: &Project) -> Emitted {
+    fn emit(&self, compilation: &Compilation, project: &Project) -> Emitted {
         let plan = emit::Plan::discover(compilation);
         let referenced = self.referenced.lock().unwrap().clone();
         let mut emitted = Emitted::default();
+
+        // Declaring a `belay-config` without listing it under `frameworks`
+        // leaves Belay unconfigured, which used to mean a silent `wrote 0
+        // files`. Say so instead.
+        if self.settings.adapters.is_empty() && !plan.is_empty() {
+            emitted.diagnostics.push(unconfigured(compilation, project));
+            return emitted;
+        }
+
         for adapter in &self.settings.adapters {
             emitted.files.extend(emit::emit_adapter(
                 compilation,

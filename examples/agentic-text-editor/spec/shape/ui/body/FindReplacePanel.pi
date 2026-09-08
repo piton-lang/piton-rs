@@ -1,0 +1,28 @@
+use @piton/belay
+
+from /shape/ui/body/EditorSurface import EditorSurface
+
+// Guidance for the find and replace panel, in src/ui/body.
+export instruction FindReplacePanel:
+    description: The docked panel that holds find, and replace when it is asked for
+
+    prompt:
+        One panel with two modes. Find shows a query field; replace shows the
+        query field and a replacement field underneath it. Switching mode keeps
+        the query, and closing the panel keeps it too.
+
+    layout:
+        - Docked at the top of the body, above @{EditorSurface}, pushing it down rather than covering it
+        - The query field takes the width that is left after the buttons
+        - Find mode buttons, in order, are previous, next, and close
+        - Replace mode adds Replace and Replace All beside the replacement field
+        - The match count sits inside the right end of the query field, reading like `3 of 17`, or `No results`
+
+    behaviour:
+        - Opening with a selection of one line or less fills the query with it and selects the field contents
+        - The query is applied as it is typed, and the first match at or after the caret becomes the active one
+        - Enter is next, Shift and Enter is previous, and Escape closes the panel
+        - Case sensitivity and whole word are two toggles inside the field, remembered for the session
+        - Wrapping past the last match is allowed, and the footer says that the search wrapped
+        - Replace All is a single undo step, and the footer reports how many it changed
+        - Closing puts the caret and the scroll position back where the surface had them when the panel opened

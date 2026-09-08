@@ -92,6 +92,7 @@ fn vscode_package() -> String {
   "version": "0.1.0",
   "publisher": "piton-lang",
   "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/piton-lang/piton.git" },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages"],
   "main": "./src/extension.js",

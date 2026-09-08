@@ -1,0 +1,26 @@
+# Menu Bar
+
+The menu bar, rendered from the action table
+
+The top strip of the header. It renders @../../app/ActionCatalogue.md as menus, in the order the table gives, and does nothing else. Adding a menu item means adding a row to the table; it does not mean editing this file.
+
+## Structure
+
+- Draw it inside the header panel, above the toolbar, using a horizontal menu bar
+- One top level menu per group in the table, labelled File, Edit, Format, View and Help
+- Items in a group keep the table's order, and a run of dashes in the table becomes a separator
+- An item that opens a dialog shows a trailing ellipsis; the ellipsis is added here, not stored in the label
+- A checkable item, such as word wrap or the status bar, draws a check mark from the setting it reflects
+- Open Recent is a submenu built from the recent files list, and is disabled when the list is empty
+
+## Behaviour
+
+- Every item shows its shortcut, right aligned and dimmed, from the same row that provides its label
+- An item whose enabled rule is false is drawn greyed and does not respond
+- Choosing an item queues the action and closes the menu in the same frame
+- Alt opens the first menu and the arrow keys walk them; Escape closes without running anything
+
+## Notes
+
+- The bar keeps no state of its own beyond which menu is open, and egui owns even that
+- The labels are the only strings this file holds, and they come from the table

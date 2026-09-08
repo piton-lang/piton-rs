@@ -1,0 +1,24 @@
+# Encoding
+
+How bytes become the buffer, and how the buffer goes back to bytes
+
+The editor understands UTF-8, with or without a byte order mark, and nothing else. Whatever it read, it writes back the same way, because a text editor that silently converts a file is worse than one that refuses to open it.
+
+## Reading
+
+- A leading byte order mark is recorded and stripped from the buffer
+- CRLF, LF and a mixture are all accepted; the buffer keeps LF only
+- The line ending recorded is the one that appeared most in the file, and LF when the file has no line breaks
+- Bytes that are not valid UTF-8 stop the read and produce a message naming the first offset that failed
+- A file with no trailing newline stays that way, and one with a trailing newline keeps it
+
+## Writing
+
+- The recorded byte order mark is written back if it was there, and not added if it was not
+- Every LF becomes the recorded line ending
+- A new document is UTF-8 without a mark, and uses the platform's line ending
+
+## Rules
+
+- The two readouts in the footer show these two recorded values, and clicking either changes it and marks the document dirty
+- Changing the encoding or the line ending is an edit like any other, and is undoable

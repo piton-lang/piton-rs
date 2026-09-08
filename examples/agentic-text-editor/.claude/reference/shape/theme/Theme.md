@@ -1,0 +1,25 @@
+# Theme
+
+How the tokens become the style egui draws with, in light and dark
+
+One function that takes a palette and returns the visuals and the spacing for the whole application, applied to the context once at startup and again whenever the theme changes. Nothing outside this directory constructs a style.
+
+## Palettes
+
+- @LightTokens.md for light, @DarkTokens.md for dark, and both share the shape in @Tokens.md
+- System follows what the window reports, and follows it again if it changes while running
+- The two palettes have exactly the same names, so a widget written against one works in the other
+
+## Mapping
+
+- The body and the editor surface take the surface colour; the header and the footer take the muted one
+- Widget backgrounds are transparent until hovered, and then take the hover surface
+- Every stroke that is not the focus ring is the hairline colour, one physical pixel wide
+- Selected text takes the selection colour, and the caret takes the accent
+- The focus ring is the accent, drawn outside the widget's rectangle so it cannot change a layout
+
+## Rules
+
+- Changing the theme rebuilds the style and requests one repaint; it does not restart anything or lose state
+- Body text against its background clears a contrast ratio of seven to one in both palettes, and dimmed text clears four and a half
+- A colour that is needed and not in the palette is added to both palettes at once, or it is not added
