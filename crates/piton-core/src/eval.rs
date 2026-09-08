@@ -162,8 +162,18 @@ impl<'a> Evaluator<'a> {
         // one, so there is nothing to check the constraint against.
         if !property.node.is_empty() {
             if let Some((constraint_owner, constraints)) = &slot.constraints {
-                let file = self.analysis.anchor_loc(*constraint_owner).file;
-                value = self.apply_constraints(value, constraints, file, property.name_range);
+                // The constraint's names resolve where the constraint was
+                // written, but the problem is where the *value* was written.
+                // Reporting it against the base's file would point at an
+                // offset in a document the author may never have opened.
+                let scope = self.analysis.anchor_loc(*constraint_owner).file;
+                value = self.constrain(
+                    value,
+                    constraints,
+                    scope,
+                    owner_file,
+                    property.name_range,
+                );
             }
         }
         self.stack.pop();
@@ -183,7 +193,30 @@ impl<'a> Evaluator<'a> {
                 Value::List(List::implicit(items))
             }
             Node::List(elements) => self.list(elements, context),
+            Node::Merge(parts) => self.merge(parts, context),
         }
+    }
+
+    /// Fold a block's parts left to right.
+    ///
+    /// The spread is the only place the author writes `+` or `++`, so its
+    /// operator governs the properties merged alongside it too: `++ {super.x}`
+    /// beside a nested property means the author wanted a deep merge, not a
+    /// deep merge followed by a shallow one that undoes it.
+    fn merge(&mut self, parts: &[Element], context: Context) -> Value {
+        let mut accumulated: Option<Value> = None;
+        let mut shallow = true;
+        for part in parts {
+            if let Some(dedup) = part.spread {
+                shallow = dedup;
+            }
+            let value = self.node(&part.node, context);
+            accumulated = Some(match accumulated {
+                None => value,
+                Some(current) => value::concat(current, value, shallow),
+            });
+        }
+        accumulated.unwrap_or(Value::Null)
     }
 
     fn dict(&mut self, properties: &[Property], context: Context) -> Dict {
@@ -519,6 +552,7 @@ impl<'a> Evaluator<'a> {
 
     // ---- plumbing --------------------------------------------------------------------
 
+    /// Check a constraint written and reported in the same file.
     fn apply_constraints(
         &mut self,
         value: Value,
@@ -526,14 +560,31 @@ impl<'a> Evaluator<'a> {
         file: FileId,
         range: TextRange,
     ) -> Value {
+        self.constrain(value, constraints, file, file, range)
+    }
+
+    /// Check a constraint, resolving its names in `scope` and reporting any
+    /// problem at `range` in `report_in`.
+    ///
+    /// The two differ whenever a constraint is inherited: `string` means what
+    /// the base's file says it means, but the author who broke it is reading a
+    /// different file.
+    fn constrain(
+        &mut self,
+        value: Value,
+        constraints: &[TypeExpr],
+        scope: FileId,
+        report_in: FileId,
+        range: TextRange,
+    ) -> Value {
         if constraints.is_empty() {
             return value;
         }
-        let types = Types { analysis: self.analysis, file };
+        let types = Types { analysis: self.analysis, file: scope };
         match constrain(value.clone(), constraints, &types) {
             Ok(coerced) => coerced,
             Err(message) => {
-                self.error(file, range, message);
+                self.error(report_in, range, message);
                 value
             }
         }
@@ -584,6 +635,10 @@ fn collect_properties(node: &Node, out: &mut Vec<Property>) {
     match node {
         Node::Dict(properties) => out.extend(properties.iter().cloned()),
         Node::Mixed(nodes) => nodes.iter().for_each(|node| collect_properties(node, out)),
+        // A block that folds still declares the properties written in it.
+        Node::List(elements) | Node::Merge(elements) => {
+            elements.iter().for_each(|element| collect_properties(&element.node, out))
+        }
         _ => {}
     }
 }

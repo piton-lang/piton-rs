@@ -16,11 +16,18 @@ pub const MAX_WIDTH: usize = 80;
 pub const MAX_INLINE_IMPORTS: usize = 2;
 
 /// Format a Piton source file.
+///
+/// The file's own line endings are kept: rewriting every line of a CRLF file
+/// would turn a formatting change into a whole-file diff.
 pub fn format(source: &str) -> String {
     let parse = piton_syntax::parse(source);
     let mut out = Printer::default();
     out.container(parse.syntax(), 0);
-    out.finish()
+    let formatted = out.finish();
+    match source.contains("\r\n") {
+        true => formatted.replace('\n', "\r\n"),
+        false => formatted,
+    }
 }
 
 #[derive(Default)]

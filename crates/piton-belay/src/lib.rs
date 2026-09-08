@@ -74,15 +74,22 @@ impl Framework for Belay {
         match interpolation.sigil {
             "@" => {
                 self.note_reference(interpolation.value);
-                let source = interpolation.anchor_source.as_ref()?;
                 let Value::Anchor(anchor) = interpolation.value else { return None };
-                let path = settings::reference_path(
-                    &self.settings,
-                    self.settings.adapters.first()?,
-                    source,
-                    &anchor.name,
-                );
-                Some(Value::string(format!("@{}", path.display())))
+                // Without a configured adapter there is no compiled file to
+                // point at, but a reference must still render as text: letting
+                // it fall through would splice the whole anchor into the
+                // document and break the `:: string` it sits in.
+                let path = interpolation
+                    .anchor_source
+                    .as_ref()
+                    .zip(self.settings.adapters.first())
+                    .map(|(source, adapter)| {
+                        settings::reference_path(&self.settings, adapter, source, &anchor.name)
+                    });
+                Some(Value::string(match path {
+                    Some(path) => format!("@{}", path.display()),
+                    None => anchor.name.clone(),
+                }))
             }
             "$" if interpolation.value.is_complex() => {
                 self.note_reference(interpolation.value);

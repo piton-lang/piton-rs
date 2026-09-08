@@ -15,3 +15,4 @@ rowan.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+piton-fmt.workspace = true

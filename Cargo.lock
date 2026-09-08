@@ -662,6 +662,7 @@ name = "piton-core"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "piton-fmt",
  "piton-syntax",
  "rowan",
  "serde_json",

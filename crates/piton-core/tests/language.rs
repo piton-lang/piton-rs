@@ -640,3 +640,42 @@ same: {holder.design.surface}
     assert_eq!(eval(source, "same"), json!("blue"));
     assert_eq!(eval(source, "holder"), json!({ "design": { "surface": "blue" } }));
 }
+
+#[test]
+fn a_spread_beside_properties_merges_the_dictionary() {
+    let base = "anchor Base:\n    settings:\n        a: 1\n        b: 2\n\n";
+
+    // `+` merges shallowly, and the properties written beside it win.
+    assert_eq!(
+        eval(
+            &format!("{base}anchor Child extends Base:\n    settings:\n        + {{super.settings}}\n        c: 3\n"),
+            "Child"
+        ),
+        json!({ "settings": { "a": 1.0, "b": 2.0, "c": 3.0 } })
+    );
+    // Order decides who wins: a spread after the properties overrides them.
+    assert_eq!(
+        eval(
+            &format!("{base}anchor Child extends Base:\n    settings:\n        b: 20\n        + {{super.settings}}\n"),
+            "Child"
+        ),
+        json!({ "settings": { "b": 2.0, "a": 1.0 } })
+    );
+    // `++` merges deeply.
+    let nested = "anchor Base:\n    settings:\n        deep:\n            a: 1\n\n";
+    assert_eq!(
+        eval(
+            &format!("{nested}anchor Child extends Base:\n    settings:\n        ++ {{super.settings}}\n        deep:\n            b: 2\n"),
+            "Child"
+        ),
+        json!({ "settings": { "deep": { "a": 1.0, "b": 2.0 } } })
+    );
+    // A list block with a spread still builds a list, not a merge.
+    assert_eq!(
+        eval(
+            "anchor Base:\n    items:\n        - a\n\nanchor Child extends Base:\n    items:\n        + {super.items}\n        - b\n",
+            "Child"
+        ),
+        json!({ "items": ["a", "b"] })
+    );
+}

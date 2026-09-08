@@ -70,6 +70,52 @@ fn diagnostics_come_from_the_compiler() {
     assert!(messages.iter().any(|it| it.contains("cannot find `nope`")), "{messages:?}");
 }
 
+const SCOPED_PROJECT: &[(&str, &str)] = &[
+    ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n"),
+    ("spec/index.pi", "from ./Real export *\n"),
+    ("spec/Real.pi", "export anchor Real:\n    x: 1\n"),
+    // Generated output, and a fixture that is deliberately not a valid program.
+    ("editors/fixture/highlight.pi", "unknown-keyword Broken:\n    x: {missing}\n"),
+];
+
+#[test]
+fn a_project_root_says_what_belongs_to_the_project() {
+    let (root, mut workspace) = workspace(SCOPED_PROJECT);
+    let snapshot = workspace.snapshot();
+
+    // The declared root is analysed.
+    assert!(snapshot.file_for(&root.join("spec/Real.pi")).is_some());
+    // The configuration is too, even though it sits outside that root.
+    assert!(snapshot.file_for(&root.join("piton.config.pi")).is_some());
+    // Generated output outside the root is not, so its problems stay quiet.
+    assert!(
+        snapshot.file_for(&root.join("editors/fixture/highlight.pi")).is_none(),
+        "a file outside the project root is not a project source"
+    );
+    assert!(
+        !snapshot.compilation.diagnostics.iter().any(|it| it.message.contains("unknown-keyword")),
+        "nothing outside the root should be reported"
+    );
+}
+
+#[test]
+fn a_file_that_is_open_is_analysed_wherever_it_lives() {
+    let (root, mut workspace) = workspace(SCOPED_PROJECT);
+    let outside = root.join("editors/fixture/highlight.pi");
+    workspace.open(outside.clone(), std::fs::read_to_string(&outside).unwrap());
+    let snapshot = workspace.snapshot();
+
+    let file = snapshot.file_for(&outside).expect("an open file is always analysed");
+    let messages: Vec<&str> = snapshot
+        .compilation
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.file == file)
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect();
+    assert!(messages.iter().any(|it| it.contains("is not a keyword here")), "{messages:?}");
+}
+
 #[test]
 fn definition_and_references_cross_files() {
     let (root, mut workspace) = workspace(&[("shapes.pi", SHAPES), ("main.pi", MAIN)]);

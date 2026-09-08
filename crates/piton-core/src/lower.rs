@@ -152,8 +152,13 @@ fn lower_block(inline: Option<ast::Value>, block: &ast::Block) -> Node {
     // A `+`/`++` line says the block builds a list, so prose beside it becomes
     // list content rather than turning the block into an implicit list.
     let entries: Vec<ast::Entry> = block.entries().collect();
-    let list_mode = entries.iter().any(|it| matches!(it, ast::Entry::Spread(_)))
-        && !entries.iter().any(|it| matches!(it, ast::Entry::Property(_)));
+    let has_spread = entries.iter().any(|it| matches!(it, ast::Entry::Spread(_)));
+    let has_property = entries.iter().any(|it| matches!(it, ast::Entry::Property(_)));
+    let has_item = entries.iter().any(|it| matches!(it, ast::Entry::ListItem(_)));
+    let list_mode = has_spread && !has_property;
+    // A spread beside `key: value` pairs merges dictionaries, exactly as `+`
+    // and `++` do between two of them.
+    let merge_mode = has_spread && has_property && !has_item;
 
     if let Some(value) = inline {
         push_text(&mut groups, lower_value(&value));
@@ -203,6 +208,22 @@ fn lower_block(inline: Option<ast::Value>, block: &ast::Block) -> Node {
                 }
             }
         }
+    }
+
+    if merge_mode {
+        let range = block.range();
+        let mut parts = Vec::new();
+        for group in groups {
+            match group {
+                Group::List(items) => parts.extend(items),
+                other => {
+                    if let Some(node) = finish_group(other) {
+                        parts.push(Element { node, spread: None, range });
+                    }
+                }
+            }
+        }
+        return Node::Merge(parts);
     }
 
     if list_mode {

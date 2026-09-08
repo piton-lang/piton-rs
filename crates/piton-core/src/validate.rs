@@ -157,7 +157,7 @@ fn check_node_types(
         Node::Mixed(nodes) => {
             nodes.iter().for_each(|node| check_node_types(analysis, file, node, diagnostics))
         }
-        Node::List(elements) => elements
+        Node::List(elements) | Node::Merge(elements) => elements
             .iter()
             .for_each(|element| check_node_types(analysis, file, &element.node, diagnostics)),
         _ => {}
@@ -338,6 +338,9 @@ fn collect(node: &Node, out: &mut Vec<Property>) {
     match node {
         Node::Dict(properties) => out.extend(properties.iter().cloned()),
         Node::Mixed(nodes) => nodes.iter().for_each(|node| collect(node, out)),
+        Node::List(elements) | Node::Merge(elements) => {
+            elements.iter().for_each(|element| collect(&element.node, out))
+        }
         _ => {}
     }
 }

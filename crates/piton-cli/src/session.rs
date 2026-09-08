@@ -55,9 +55,14 @@ impl Session {
     }
 
     /// Compile a specific set of files, using the project only for its root.
+    ///
+    /// The project is looked for beside the files being checked, not beside the
+    /// shell: `piton check some/project/src` should use that project's config,
+    /// which is where its `root` and its frameworks are declared.
     pub fn files(cwd: &Path, paths: &[PathBuf]) -> Result<Session> {
         let mut frameworks = registry();
-        let loaded = Project::load(cwd, &frameworks);
+        let search = project_directory(cwd, paths);
+        let loaded = Project::load(&search, &frameworks);
         let mut notes = Vec::new();
         if let Some(configuration) = &loaded.compilation {
             notes = frameworks.configure(
@@ -91,6 +96,34 @@ impl Session {
         }
         (files, diagnostics)
     }
+}
+
+/// Where to start looking for `piton.config.pi`.
+///
+/// The deepest directory that contains every path being compiled, so a project
+/// is found from inside it however the command was invoked.
+fn project_directory(cwd: &Path, paths: &[PathBuf]) -> PathBuf {
+    let mut shared: Option<PathBuf> = None;
+    for path in paths {
+        let directory = if path.is_dir() { path.clone() } else { path.parent().unwrap_or(path).to_path_buf() };
+        let directory = piton_core::db::canonical(&directory);
+        shared = Some(match shared {
+            None => directory,
+            Some(current) => common_ancestor(&current, &directory),
+        });
+    }
+    shared.filter(|path| path.components().count() > 1).unwrap_or_else(|| cwd.to_path_buf())
+}
+
+fn common_ancestor(left: &Path, right: &Path) -> PathBuf {
+    let mut shared = PathBuf::new();
+    for (a, b) in left.components().zip(right.components()) {
+        if a != b {
+            break;
+        }
+        shared.push(a);
+    }
+    shared
 }
 
 /// A database preloaded with every builtin and framework module.

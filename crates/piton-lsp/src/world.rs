@@ -152,11 +152,19 @@ impl Workspace {
         Snapshot { compilation, project: loaded.project, line_indices }
     }
 
-    /// Everything worth analysing: the project tree, the roots, and open files.
+    /// Everything worth analysing.
+    ///
+    /// A project that declares a `root` has said what belongs to it. Nothing
+    /// outside is a project source — generated output and test fixtures very
+    /// much included — so reporting problems in those files would be noise
+    /// about code the project does not build.
     fn source_files(&self, project: &Project) -> Vec<PathBuf> {
         let mut paths: Vec<PathBuf> = Vec::new();
-        let mut search_roots = vec![project.root.clone(), project.base.clone()];
-        search_roots.extend(self.roots.iter().cloned());
+        let search_roots = match project.config_path {
+            Some(_) => vec![project.root.clone()],
+            None if !self.roots.is_empty() => self.roots.clone(),
+            None => vec![project.root.clone()],
+        };
         for root in search_roots {
             if !root.is_dir() {
                 continue;
@@ -173,6 +181,10 @@ impl Workspace {
                 }
             }
         }
+        // The configuration sits outside the root it declares, and is still
+        // worth diagnostics while it is being edited.
+        paths.extend(project.config_path.clone());
+        // A file someone has open is always analysed, wherever it lives.
         paths.extend(self.open.keys().cloned());
         paths.sort();
         paths.dedup();

@@ -8,4 +8,4 @@ Read the shape document for the component first, then write the code to match it
 
 # Components
 
-- @../../reference/shape/components/button/ButtonComponent.md
+- @../../reference/shape/components/button/Button.md

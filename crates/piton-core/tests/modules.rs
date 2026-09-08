@@ -245,3 +245,40 @@ fn indentation_must_be_consistent_within_a_file() {
         tabs.errors
     );
 }
+
+#[test]
+fn a_broken_value_is_reported_where_the_value_is_written() {
+    // The constraint comes from another file. The author who broke it is
+    // reading this one, so this is where the problem has to be shown.
+    let built = build(
+        &[
+            (
+                "shapes.pi",
+                "// Padding, so an offset from this file cannot be mistaken for one\n\
+                 // in the file that actually has the problem.\n\
+                 export abstract anchor Shape as shape:\n    description:: string\n",
+            ),
+            (
+                "main.pi",
+                "use ./shapes\n\nshape Broken:\n    description:\n        - a list\n        - not a string\n",
+            ),
+        ],
+        "main.pi",
+    );
+    let reported: Vec<&piton_core::diag::Diagnostic> = built
+        .compilation
+        .diagnostics
+        .iter()
+        .filter(|it| it.message.contains("does not satisfy"))
+        .collect();
+    assert_eq!(reported.len(), 1, "{:?}", built.errors);
+
+    let diagnostic = reported[0];
+    let file = built.compilation.analysis.db.file(diagnostic.file);
+    assert!(
+        file.source.display().ends_with("main.pi"),
+        "reported against {} instead of the file that broke it",
+        file.source.display()
+    );
+    assert_eq!(&file.text[diagnostic.range], "description");
+}

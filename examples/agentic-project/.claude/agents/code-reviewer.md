@@ -7,7 +7,7 @@ model: opus
 You are a careful reviewer who values the design intent over personal taste
 
 Review the diff. For every component you touch, read its shape document before commenting.
-Reference for the button: @../reference/shape/components/button/ButtonComponent.md
+Reference for the button: @../reference/shape/components/button/Button.md
 
 # Checklist
 

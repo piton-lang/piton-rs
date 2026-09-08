@@ -115,29 +115,54 @@ pub fn emit_adapter(
     // anyone knows which files the text lands in. Now that it is known, each
     // reference is rewritten relative to its own document.
     for file in &mut files {
-        file.contents = localise_references(&file.contents, &file.path, base, adapter);
+        file.contents = localise_references(&file.contents, &file.path, settings, adapter);
     }
     files
 }
 
-/// Rewrite `@<agent-dir>/...` references to be relative to `file`.
-fn localise_references(contents: &str, file: &Path, base: &Path, adapter: &Adapter) -> String {
+/// Point every reference at this adapter's copy, relative to `file`.
+///
+/// Evaluation produced one path per reference, using whichever adapter happened
+/// to be first, because it runs before anyone knows which files the text lands
+/// in. Every adapter writes its own copy of everything, so the leading agent
+/// directory is swapped for this one before the path is made relative.
+fn localise_references(
+    contents: &str,
+    file: &Path,
+    settings: &Settings,
+    adapter: &Adapter,
+) -> String {
     let Some(directory) = file.parent() else { return contents.to_string() };
-    let marker = format!("@{}/", adapter.directory.display());
-    if !contents.contains(&marker) {
-        return contents.to_string();
-    }
+    let agent_directories: Vec<String> = settings
+        .adapters
+        .iter()
+        .map(|it| format!("{}/", it.directory.display()))
+        .collect();
 
     let mut out = String::with_capacity(contents.len());
     let mut rest = contents;
-    while let Some(at) = rest.find(&marker) {
+    while let Some(at) = rest.find('@') {
         out.push_str(&rest[..at]);
         let tail = &rest[at + 1..];
         let end = tail.find(char::is_whitespace).unwrap_or(tail.len());
         // A reference at the end of a sentence keeps its full stop.
         let path = tail[..end].trim_end_matches(['.', ',', ';', ':', ')', '!', '?']);
-        out.push('@');
-        out.push_str(&relative_to(directory, &base.join(path)));
+        let within = agent_directories
+            .iter()
+            .find_map(|prefix| path.strip_prefix(prefix.as_str()));
+        match within {
+            Some(inside) => {
+                let target = settings.base.join(&adapter.directory).join(inside);
+                out.push('@');
+                out.push_str(&relative_to(directory, &target));
+            }
+            // Not one of ours — `@AGENTS.md`, or prose that happens to have an
+            // `@` in it — so it is left exactly as written.
+            None => {
+                out.push('@');
+                out.push_str(path);
+            }
+        }
         rest = &tail[path.len()..];
     }
     out.push_str(rest);

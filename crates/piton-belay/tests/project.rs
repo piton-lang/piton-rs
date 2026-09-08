@@ -234,3 +234,102 @@ export agent Confused extends Skill:
         "{errors:?}"
     );
 }
+
+#[test]
+fn a_reference_stays_text_even_with_no_adapter_configured() {
+    // No `belay-config`, so there is no compiled file to point at. The
+    // reference still has to render as text: letting it fall through would
+    // splice the anchor into the document and break the `:: string` around it.
+    let (root, outputs, errors) = build(&[
+        (
+            "piton.config.pi",
+            "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+        ),
+        ("spec/index.pi", "from ./Doc export *\n"),
+        (
+            "spec/Doc.pi",
+            "\
+use @piton/belay
+
+export anchor Design:
+    surface: Blue
+
+export skill Build:
+    description: Builds a component
+    useWhen: asked to build
+    prompt: Follow @{Design}.
+",
+        ),
+    ]);
+    assert!(errors.is_empty(), "{errors:?}");
+    // Nothing is emitted without an adapter, but the compile has to be clean.
+    let _ = (root, outputs);
+}
+
+#[test]
+fn every_adapter_points_at_its_own_copy_of_a_reference() {
+    let (root, outputs, errors) = build(&[
+        (
+            "piton.config.pi",
+            "\
+use @piton/config
+use @piton/belay
+
+from @piton/belay import ClaudeAdapter, OpenCodeAdapter
+
+export piton-config Config:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    frameworks:
+        - {BelayConfiguration}
+
+belay-config BelayConfiguration:
+    codeRoot: ./src
+    shapeRoot: ./spec
+
+    adapters:
+        - {ClaudeAdapter}
+        - {OpenCodeAdapter}
+",
+        ),
+        ("src/.keep", ""),
+        (
+            "spec/index.pi",
+            "\
+use @piton/belay
+
+export anchor Design:
+    surface: Blue
+
+export skill Build:
+    description: Builds it
+    useWhen: asked
+    prompt: Follow @{Design}.
+",
+        ),
+    ]);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    // Each adapter writes its own copy of everything, so each has to point at
+    // the copy beside it rather than at whichever adapter compiled first.
+    for directory in [".claude", ".opencode"] {
+        let skill = find(&outputs, &root, &format!("{directory}/skills/build/SKILL.md"));
+        let reference = skill
+            .split_whitespace()
+            .find_map(|word| word.strip_prefix('@'))
+            .expect("the skill carries a reference")
+            .trim_end_matches('.');
+        assert!(
+            !reference.contains(".claude") && !reference.contains(".opencode"),
+            "{directory} still names an agent directory: {reference}"
+        );
+        let resolved =
+            normalise(&root.join(directory).join("skills/build").join(reference));
+        assert!(
+            outputs.iter().any(|output| normalise(&output.path) == resolved),
+            "{directory} points at {}, which is never written",
+            resolved.display()
+        );
+    }
+}

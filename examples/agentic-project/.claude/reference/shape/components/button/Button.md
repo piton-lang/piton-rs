@@ -1,4 +1,4 @@
-# Button Component
+# Button
 
 The clickable button component
 

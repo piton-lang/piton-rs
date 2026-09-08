@@ -307,6 +307,9 @@ pub fn collect(node: &Node, out: &mut Vec<Property>) {
     match node {
         Node::Dict(properties) => out.extend(properties.iter().cloned()),
         Node::Mixed(nodes) => nodes.iter().for_each(|node| collect(node, out)),
+        Node::List(elements) | Node::Merge(elements) => {
+            elements.iter().for_each(|element| collect(&element.node, out))
+        }
         _ => {}
     }
 }

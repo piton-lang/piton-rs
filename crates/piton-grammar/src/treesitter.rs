@@ -536,6 +536,21 @@ fn gitignore() -> String {
 /// value, and a keyword only means something at the head of a line.
 fn highlight_test() -> String {
     r#"// A highlight corpus for `tree-sitter test`.
+//
+// It is a real Piton program as well as a fixture, so that opening it does not
+// produce a page of errors. The one thing it cannot avoid is the warning for an
+// unregistered sigil, which is the behaviour the last case is demonstrating.
+
+use @piton/config
+
+name: a plain sentence
+// <- property
+
+abstract anchor Skill as skill:
+// <- keyword
+//              ^ type.definition
+//                       ^ keyword.function
+    prompt:: string
 
 anchor Example:
 // <- keyword
@@ -567,11 +582,12 @@ anchor Example:
 skill BuildIt:
 // <- keyword.function
 //    ^ type.definition
+    prompt: build the thing
 
-from ./other import Thing
+from @piton/config import PitonConfig
 // <- keyword
 //   ^ string.special.path
-//                  ^ variable
+//                        ^ variable
 "#
     .to_string()
 }

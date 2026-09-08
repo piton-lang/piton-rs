@@ -1,3 +1,67 @@
-/target
-**/node_modules
-**/*.vsix
+# ---- Rust / Cargo ----
+# Workspace build output, plus the nested cargo projects under editors/.
+target/
+**/*.rs.bk
+*.pdb
+# Coverage / profiling
+*.profraw
+*.profdata
+
+# ---- Node (tree-sitter grammar, VS Code extension) ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.pnpm-store/
+
+# ---- tree-sitter ----
+# `src/` is committed on purpose (Zed and Helix compile it directly),
+# but the generator's scratch output is not.
+log.html
+.tree-sitter/
+
+# ---- VS Code extension ----
+*.vsix
+.vscode-test/
+
+# ---- JetBrains plugin (Gradle) ----
+# Trailing slashes: `build.gradle.kts` is a file and must stay tracked.
+build/
+.gradle/
+*.iml
+
+# ---- Editor / IDE local state ----
+.idea/
+.vscode/
+.zed/
+.helix/
+# Emacs
+*~
+\#*\#
+.\#*
+*.elc
+# Vim
+*.swp
+*.swo
+Session.vim
+.netrwhist
+
+# ---- OS cruft ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ---- Local environment / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Scratch ----
+*.orig
+*.rej

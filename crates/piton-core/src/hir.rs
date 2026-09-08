@@ -141,6 +141,9 @@ pub enum Node {
     List(Vec<Element>),
     /// A block of `key: value` pairs.
     Dict(Vec<Property>),
+    /// A block whose parts are folded together left to right, which is what a
+    /// `+`/`++` line means beside `key: value` pairs.
+    Merge(Vec<Element>),
     /// A block that mixed shapes and therefore became an implicit list.
     Mixed(Vec<Node>),
 }

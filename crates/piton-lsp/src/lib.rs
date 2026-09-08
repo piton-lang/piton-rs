@@ -40,8 +40,12 @@ pub fn run(registry: Registry) -> anyhow::Result<()> {
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         let (service, socket) =
-            LspService::build(move |client| Backend { client, workspace: Mutex::new(Workspace::new(registry)) })
-                .finish();
+            LspService::build(move |client| Backend {
+                client,
+                workspace: Mutex::new(Workspace::new(registry)),
+                published: Mutex::new(std::collections::HashSet::new()),
+            })
+            .finish();
         Server::new(stdin, stdout, socket).serve(service).await;
     });
     Ok(())
@@ -50,6 +54,11 @@ pub fn run(registry: Registry) -> anyhow::Result<()> {
 struct Backend {
     client: Client,
     workspace: Mutex<Workspace>,
+    /// The files the client currently holds diagnostics for.
+    ///
+    /// A file whose last problem was fixed needs an explicit empty publish, or
+    /// the editor keeps showing a squiggle nothing will ever clear.
+    published: Mutex<std::collections::HashSet<Url>>,
 }
 
 impl Backend {
@@ -68,6 +77,8 @@ impl Backend {
         for diagnostic in snapshot.compilation.diagnostics.iter() {
             per_file.entry(diagnostic.file).or_default().push(convert(&snapshot, diagnostic));
         }
+
+        let mut current = std::collections::HashSet::new();
         for file in snapshot.compilation.analysis.db.files() {
             let Some(path) = file.source.as_path() else { continue };
             let Ok(url) = Url::from_file_path(path) else { continue };
@@ -75,7 +86,22 @@ impl Backend {
             if diagnostics.is_empty() && !open.iter().any(|it| it == path) {
                 continue;
             }
+            if !diagnostics.is_empty() {
+                current.insert(url.clone());
+            }
             self.client.publish_diagnostics(url, diagnostics, None).await;
+        }
+
+        // Anything that had problems last time and has none now has to be told
+        // so explicitly; the editor will not work it out.
+        let stale: Vec<Url> = {
+            let mut published = self.published.lock().await;
+            let stale = published.difference(&current).cloned().collect();
+            *published = current;
+            stale
+        };
+        for url in stale {
+            self.client.publish_diagnostics(url, Vec::new(), None).await;
         }
     }
 
