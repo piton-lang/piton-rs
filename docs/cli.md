@@ -44,11 +44,58 @@ because nothing goes wrong.
 
 ```sh
 piton reach                      # both halves, with a summary
+piton reach <FILE>               # how this one file is reached, or why it is not
 piton reach --show unreached     # just the ones that are not compiled
 piton reach --show reached
 piton reach --chains             # explicit chains instead of a tree
 piton reach --strict             # exit non-zero if anything is unreached
 piton reach --entry FILE         # measure from a file instead of the project entry
+```
+
+### Asking about one file
+
+Naming a file answers a different question: not what is reached, but how *this*
+got here. Every hop names the file and line that made it, so you can go and
+change one:
+
+```
+$ piton reach spec/concept/ViewSettings.pi
+concept/ViewSettings.pi is reached by 5 import(s):
+
+  index.pi:7
+      ./agent  ->  agent/index.pi
+  agent/index.pi:1
+      ./agents  ->  agent/agents/index.pi
+  agent/agents/index.pi:1
+      ./InteractionAuditor  ->  agent/agents/InteractionAuditor.pi
+  agent/agents/InteractionAuditor.pi:3
+      /concept  ->  concept/index.pi
+  concept/index.pi:10
+      ./ViewSettings  ->  concept/ViewSettings.pi
+```
+
+That last pair of hops is worth reading twice: one `from /concept import
+SearchAndNavigation` reaches `ViewSettings.pi`, because `/concept` resolves to
+`concept/index.pi` and that file re-exports everything beside it.
+
+A file that is not reached gets the opposite answer — what would have had to
+import it:
+
+```
+$ piton reach spec/concept/Draft.pi
+concept/Draft.pi is NOT reached, so it is never compiled.
+
+  It is imported by, none of which is reached either:
+
+  concept/Scratch.pi:1    ./Draft
+
+  Follow one of those up with `piton reach <that file>`.
+```
+
+or, when nothing imports it at all:
+
+```
+  Nothing imports it. Add it to an index.pi, or import it where it is needed.
 ```
 
 The answer is always measured from an entry point, and the entry point is

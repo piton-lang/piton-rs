@@ -118,6 +118,7 @@ pub fn build(check_only: bool) -> Result<i32> {
 /// unreached file is invisible: its errors are never reported and nothing it
 /// declares exists. That is easy to do by accident and hard to notice.
 pub fn reach(
+    target: Option<PathBuf>,
     show: Reach,
     strict: bool,
     chains: bool,
@@ -144,6 +145,12 @@ pub fn reach(
     };
     let compilation = &session.compilation;
     let root = &session.project.root;
+
+    // Asking about one file is a different question: not "what is reached" but
+    // "how did this get here", or "why did it not".
+    if let Some(target) = &target {
+        return explain(&session, target);
+    }
 
     let under_root: Vec<PathBuf> = files::walk(root);
     let unreached: Vec<String> = under_root
@@ -198,6 +205,86 @@ pub fn reach(
         }
     }
     Ok(i32::from(strict && !unreached.is_empty()))
+}
+
+/// Explain how one file is reached, or why it is not.
+fn explain(session: &Session, target: &Path) -> Result<i32> {
+    let compilation = &session.compilation;
+    let root = &session.project.root;
+    let absolute = piton_core::db::canonical(target);
+    let shown = relative(&absolute, root);
+
+    let Some(file) = compilation.analysis.db.file_id(&absolute) else {
+        return explain_unreached(session, &absolute, &shown);
+    };
+
+    let steps = compilation.reach_steps(file);
+    if steps.is_empty() {
+        println!("{shown} is the entry point");
+        return Ok(0);
+    }
+
+    println!("{shown} is reached by {} import(s):\n", steps.len());
+    for step in &steps {
+        let source = compilation.analysis.db.file(step.from);
+        let (line, _) = crate::report::position(&source.text, step.range);
+        let from = source
+            .source
+            .as_path()
+            .map(|path| relative(path, root))
+            .unwrap_or_else(|| source.source.display());
+        println!("  {from}:{line}");
+        println!("      {}  ->  {}", step.specifier, label(session, step.to, root));
+    }
+    Ok(0)
+}
+
+/// A file that was not reached: say what would have had to import it.
+fn explain_unreached(session: &Session, absolute: &Path, shown: &str) -> Result<i32> {
+    let root = &session.project.root;
+    if !absolute.is_file() {
+        bail!("no such file: {}", absolute.display());
+    }
+    println!("{shown} is NOT reached, so it is never compiled.\n");
+
+    // The file is not in this compilation, so nothing here can name it. Load
+    // the whole tree to find out who imports it, and whether they are reached.
+    let cwd = std::env::current_dir()?;
+    let everything = files::walk(root);
+    let full = Session::files(&cwd, &everything)?;
+    let Some(file) = full.compilation.analysis.db.file_id(absolute) else {
+        bail!("{shown} could not be loaded");
+    };
+
+    let importers = full.compilation.importers(file);
+    if importers.is_empty() {
+        println!("  Nothing imports it. Add it to an index.pi, or import it where it is needed.");
+        return Ok(0);
+    }
+
+    println!("  It is imported by, none of which is reached either:\n");
+    for step in &importers {
+        let source = full.compilation.analysis.db.file(step.from);
+        let Some(path) = source.source.as_path() else { continue };
+        let (line, _) = crate::report::position(&source.text, step.range);
+        let reached = session.compilation.reaches(path);
+        println!(
+            "  {}:{line}    {}{}",
+            relative(path, root),
+            step.specifier,
+            if reached { "   (reached — this is a bug, please report it)" } else { "" }
+        );
+    }
+    println!("\n  Follow one of those up with `piton reach <that file>`.");
+    Ok(0)
+}
+
+fn label(session: &Session, file: FileId, root: &Path) -> String {
+    let source = &session.compilation.analysis.db.file(file).source;
+    match source.as_path() {
+        Some(path) => relative(path, root),
+        None => source.display(),
+    }
 }
 
 /// Each reached file under the one that pulled it in, so the indentation is

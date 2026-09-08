@@ -231,7 +231,7 @@ More detail, and what to do when the binary is not on your `PATH`, is in
 | `piton build` | Build the project described by `piton.config.pi` |
 | `piton build check` | Build and report problems without writing |
 | `piton check <path>` | Report problems in specific files |
-| `piton reach` | Show which files the entry point reaches, and how, and which it does not |
+| `piton reach [file]` | Show what the entry point reaches, or how one file got reached |
 | `piton compile <path>` | Compile to JSON, or YAML with `--format yaml` |
 | `piton format <path>` | Apply the canonical style; `--check` to only report |
 | `piton lsp` | Run the language server |

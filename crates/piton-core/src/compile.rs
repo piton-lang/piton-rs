@@ -12,6 +12,19 @@ use crate::validate::validate;
 use crate::value::{Anchor, AnchorId, Value};
 use crate::{hir, FileId};
 
+/// One hop of an import chain: a `from` or `use` and what it resolved to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReachStep {
+    /// The file that does the importing.
+    pub from: FileId,
+    /// The specifier exactly as written.
+    pub specifier: String,
+    /// Where it is written, so a line can be reported.
+    pub range: piton_syntax::TextRange,
+    /// The file it resolves to.
+    pub to: FileId,
+}
+
 /// Everything one build produced.
 pub struct Compilation {
     pub analysis: Analysis,
@@ -189,21 +202,58 @@ impl Compilation {
 
     /// Every file this one pulls in, through `from` or `use`, in source order.
     fn imports_of(&self, file: FileId) -> Vec<FileId> {
-        let hir = &self.analysis.db.file(file).hir;
-        let specifiers = hir
-            .imports
-            .iter()
-            .map(|it| &it.path.value)
-            .chain(hir.reexports.iter().map(|it| &it.path.value))
-            .chain(hir.uses.iter().map(|it| &it.value));
         let mut out = Vec::new();
-        for specifier in specifiers {
-            if let Some(target) = self.analysis.module(file, specifier) {
-                if !out.contains(&target) {
-                    out.push(target);
-                }
+        for step in self.edges_from(file) {
+            if !out.contains(&step.to) {
+                out.push(step.to);
             }
         }
         out
+    }
+
+    /// Every `from` and `use` in a file that resolves to something.
+    pub fn edges_from(&self, file: FileId) -> Vec<ReachStep> {
+        let hir = &self.analysis.db.file(file).hir;
+        hir.imports
+            .iter()
+            .map(|it| &it.path)
+            .chain(hir.reexports.iter().map(|it| &it.path))
+            .chain(hir.uses.iter())
+            .filter_map(|path| {
+                self.analysis.module(file, &path.value).map(|to| ReachStep {
+                    from: file,
+                    specifier: path.value.clone(),
+                    range: path.range,
+                    to,
+                })
+            })
+            .collect()
+    }
+
+    /// The import chain from an entry point to `file`, one hop per step.
+    ///
+    /// Empty when the file is an entry point or was never reached; the chain of
+    /// files is [`Compilation::reach_chain`].
+    pub fn reach_steps(&self, file: FileId) -> Vec<ReachStep> {
+        let chain = self.reach_chain(file);
+        chain
+            .windows(2)
+            .filter_map(|pair| {
+                self.edges_from(pair[0]).into_iter().find(|step| step.to == pair[1])
+            })
+            .collect()
+    }
+
+    /// Every file in this compilation that imports `file`, and how.
+    ///
+    /// Answers "why is this here", and — when nothing reached imports it —
+    /// "why is it not".
+    pub fn importers(&self, file: FileId) -> Vec<ReachStep> {
+        self.analysis
+            .db
+            .files()
+            .flat_map(|other| self.edges_from(other.id))
+            .filter(|step| step.to == file)
+            .collect()
     }
 }

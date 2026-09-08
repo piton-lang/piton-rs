@@ -54,7 +54,11 @@ enum Command {
         command: Option<BuildCommand>,
     },
     /// List which files under the project root are compiled, and which are not.
+    ///
+    /// Name a file to see how that one file is reached, or why it is not.
     Reach {
+        /// Explain this one file instead of listing everything.
+        path: Option<PathBuf>,
         /// Show only one half of the answer.
         #[arg(long, value_enum, default_value_t = commands::Reach::All)]
         show: commands::Reach,
@@ -136,8 +140,8 @@ fn main() -> Result<()> {
         }
         Command::Check { paths } => commands::compile(&paths, Format::Json, None, false, false)?,
         Command::Build { command } => commands::build(command.is_some())?,
-        Command::Reach { show, strict, chains, entry } => {
-            commands::reach(show, strict, chains, entry)?
+        Command::Reach { path, show, strict, chains, entry } => {
+            commands::reach(path, show, strict, chains, entry)?
         }
         Command::Format { paths, check } => commands::format(&paths, check)?,
         Command::Lsp { stdio: _ } => {

@@ -431,3 +431,56 @@ fn unique_directory(prefix: &str) -> std::path::PathBuf {
     let ordinal = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!("{prefix}-{}-{ordinal}", std::process::id()))
 }
+
+#[test]
+fn a_reach_chain_names_the_import_that_made_each_hop() {
+    let built = build(
+        &[
+            ("main.pi", "from ./a import A\n\nx: {A.v}\n"),
+            ("a.pi", "// a comment first\nfrom ./nested/b import B\n\nexport anchor A:\n    v: {B.v}\n"),
+            ("nested/b.pi", "export anchor B:\n    v: 1\n"),
+        ],
+        "main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    let name = |file: piton_core::FileId| {
+        built.compilation.analysis.db.file(file).source.as_path()
+            .and_then(|p| p.file_name()).map(|it| it.to_string_lossy().to_string()).unwrap_or_default()
+    };
+    let target = built
+        .compilation
+        .analysis
+        .db
+        .files()
+        .find(|file| name(file.id) == "b.pi")
+        .expect("b.pi was loaded");
+
+    let steps = built.compilation.reach_steps(target.id);
+    let described: Vec<(String, String, String)> = steps
+        .iter()
+        .map(|step| (name(step.from), step.specifier.clone(), name(step.to)))
+        .collect();
+    assert_eq!(
+        described,
+        vec![
+            ("main.pi".to_string(), "./a".to_string(), "a.pi".to_string()),
+            ("a.pi".to_string(), "./nested/b".to_string(), "b.pi".to_string()),
+        ]
+    );
+
+    // The range has to point at the specifier, so a line number can be shown.
+    let hop = &steps[1];
+    let text = &built.compilation.analysis.db.file(hop.from).text;
+    assert_eq!(&text[hop.range], "./nested/b");
+    assert_eq!(text[..usize::from(hop.range.start())].matches('\n').count(), 1, "on line 2");
+
+    // An entry point is reached by nothing.
+    let entry = built.compilation.entries[0];
+    assert!(built.compilation.reach_steps(entry).is_empty());
+
+    // And the reverse question: who imports this?
+    let importers = built.compilation.importers(target.id);
+    assert_eq!(importers.len(), 1);
+    assert_eq!(name(importers[0].from), "a.pi");
+    assert_eq!(importers[0].specifier, "./nested/b");
+}
