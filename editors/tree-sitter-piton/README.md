@@ -18,7 +18,7 @@ compiler grammar.
 ## Where this comes from
 
 This directory is generated from the Piton compiler and published as its own
-repository at `git@github.com:mctavishdynamics/tree-sitter-piton.git`, because Zed, Helix, and nvim-treesitter all fetch
+repository at `git@github.com:piton-lang/tree-sitter-piton.git`, because Zed, Helix, and nvim-treesitter all fetch
 grammars over git. The Piton repository is the source of truth; run
 `cargo xtask publish-grammar` there rather than committing here.
 
