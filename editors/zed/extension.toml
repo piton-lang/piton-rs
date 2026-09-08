@@ -13,5 +13,5 @@ languages = ["Piton"]
 
 # Zed fetches grammars over git and wants a full commit SHA, not a branch.
 [grammars.piton]
-repository = "git@github.com:mctavishdynamics/tree-sitter-piton.git"
-commit = "5b5455ac3c2a8d408293037be23e68fb59559f82"
+repository = "git@github.com:piton-lang/tree-sitter-piton.git"
+commit = "efd68e6b279774d975c60a5fb6fc84ac4460da00"
