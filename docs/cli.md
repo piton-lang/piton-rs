@@ -140,6 +140,46 @@ A file reachable several ways is shown by its shortest route.
 `--strict` is for CI, where an orphaned file usually means someone forgot to add
 it to an `index.pi`.
 
+## `piton loc`
+
+Counts lines, separating the prose from the structure around it.
+
+```sh
+piton loc                        # every reachable .pi file under the project
+piton loc 'spec/shape/**/*.pi'   # a glob, or any number of paths
+piton loc spec/Button.pi
+piton loc --by-file              # a row per file, largest first
+piton loc --reached              # only files the entry point reaches
+```
+
+```
+  lines   code  prose  comment  blank  files
+   1010    315    480       56    159  47
+```
+
+Every line falls into exactly one column, so the four always sum to `lines`.
+
+| Column | What it counts |
+| --- | --- |
+| `prose` | A line carrying words: a line of a text value, `label: Save the file`, `- file.new - New - Ctrl+N` |
+| `code` | Structure: `anchor Button:`, a bare key, an import, a number, a literal, `{super.size + 2}` |
+| `comment` | A line holding only a comment |
+| `blank` | Nothing but whitespace |
+
+Lines are classified from the syntax tree rather than by matching text, so a
+`//` inside a URL is not a comment and a sentence containing a colon is not a
+key.
+
+A line that holds both counts as prose. `label: Save the file` is a line of
+words however it is filed, and a list item is a row of a table, not scaffolding
+— which is the number worth watching. Piton documents are meant to be mostly
+prose; a file that has drifted to mostly `code` is usually one that has started
+encoding a structure instead of describing one.
+
+Without arguments the count covers the whole project, including files nothing
+imports. Add `--reached` to count only what actually compiles — the difference
+is the same one [`piton reach`](#piton-reach) reports.
+
 ## `piton compile <path>...`
 
 Compiles files to data. Each file becomes one document keyed by its top-level

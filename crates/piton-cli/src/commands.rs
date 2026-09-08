@@ -12,6 +12,7 @@ use piton_core::FileId;
 use crate::files;
 use crate::report::report;
 use crate::session::{registry, Session};
+use piton_core::project::Project;
 
 /// What `piton compile` writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -398,6 +399,84 @@ pub fn format(patterns: &[String], check_only: bool) -> Result<i32> {
         return Ok(1);
     }
     Ok(0)
+}
+
+/// `piton loc`: how many lines, and of what.
+///
+/// With no argument it counts the whole project. Prose and structure are
+/// reported separately, because in a language written mostly in prose a single
+/// number says very little.
+pub fn loc(patterns: &[String], by_file: bool, reached_only: bool) -> Result<i32> {
+    let cwd = std::env::current_dir()?;
+    let paths = if patterns.is_empty() {
+        project_files(&cwd, reached_only)?
+    } else {
+        if reached_only {
+            bail!("--reached counts the project; it cannot be combined with a path");
+        }
+        files::resolve(patterns)?
+    };
+
+    let mut totals = piton_syntax::loc::Counts::default();
+    let mut rows: Vec<(piton_syntax::loc::Counts, String)> = Vec::new();
+    for path in &paths {
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let counts = piton_syntax::loc::count(&source);
+        totals.add(counts);
+        rows.push((counts, display_path(path, &cwd)));
+    }
+
+    if by_file {
+        // Biggest first: the question behind a per-file count is usually
+        // "what is the large one".
+        rows.sort_by(|a, b| b.0.total.cmp(&a.0.total).then_with(|| a.1.cmp(&b.1)));
+        println!("{}", loc_header("file"));
+        for (counts, name) in &rows {
+            println!("{}", loc_row(*counts, name));
+        }
+        println!();
+    }
+
+    println!("{}", loc_header("files"));
+    println!("{}", loc_row(totals, &paths.len().to_string()));
+    Ok(0)
+}
+
+/// The `.pi` files of the project in `cwd`.
+/// The heading above a line count. The last column names what the rows are.
+fn loc_header(last: &str) -> String {
+    format!("{:>7} {:>6} {:>6} {:>8} {:>6}  {last}", "lines", "code", "prose", "comment", "blank")
+}
+
+/// One row of a line count, laid out under `loc_header`.
+fn loc_row(counts: piton_syntax::loc::Counts, last: &str) -> String {
+    format!(
+        "{:>7} {:>6} {:>6} {:>8} {:>6}  {last}",
+        counts.total, counts.code, counts.prose, counts.comment, counts.blank
+    )
+}
+
+fn project_files(cwd: &Path, reached_only: bool) -> Result<Vec<PathBuf>> {
+    let loaded = Project::load(cwd, &registry());
+    let root = if loaded.project.config_path.is_some() { loaded.project.root.clone() } else { cwd.to_path_buf() };
+    let all = files::walk(&root);
+    if all.is_empty() {
+        bail!("no .pi files under {}", root.display());
+    }
+    if !reached_only {
+        return Ok(all);
+    }
+    if loaded.project.config_path.is_none() {
+        bail!("--reached needs a piton.config.pi, because reachability starts at an entry point");
+    }
+    let session = Session::project(cwd)?;
+    Ok(all.into_iter().filter(|path| session.compilation.reaches(path)).collect())
+}
+
+/// A path relative to the working directory when that is shorter.
+fn display_path(path: &Path, cwd: &Path) -> String {
+    path.strip_prefix(cwd).unwrap_or(path).display().to_string()
 }
 
 /// `piton grammar`: write every editor integration.

@@ -339,3 +339,38 @@ fn any_word_immediately_before_a_brace_is_a_sigil() {
     // And a sigil-looking thing with no brace is just prose.
     assert!(sigils("x: this costs $5 plus tax\n").is_empty());
 }
+
+/// A realistic document counts the way a reader would count it.
+///
+/// The unit tests in `loc` cover one construct at a time; this one checks the
+/// shape a real anchor takes, where a table of rows and a block of prose sit
+/// under the same declaration.
+#[test]
+fn counting_a_real_document_separates_what_is_written_from_what_is_built() {
+    let source = "\
+// Every command the editor has, in one place.
+//
+// Each row is `id - label - shortcut - what it does`.
+export anchor ActionCatalogue:
+    file:
+        - file.new - New - Ctrl+N - empties the buffer, after the unsaved check
+        - file.open - Open - Ctrl+O - native open dialog, after the unsaved check
+
+    row:
+        id: Stable, lower case, `group.verb`, and never reused
+        limit: 64
+        run:
+            One function, taking the application state.
+            It returns nothing.
+";
+    let counts = piton_syntax::loc::count(source);
+    assert_eq!(counts.total, 14);
+    assert_eq!(counts.comment, 3);
+    assert_eq!(counts.blank, 1);
+    // `export anchor ActionCatalogue:`, `file:`, `row:`, `run:`, and the one
+    // numeric value. Everything filed under them is what the document says.
+    assert_eq!(counts.code, 5, "{counts:?}");
+    // Two rows, one key with a sentence, and two lines of a text block.
+    assert_eq!(counts.prose, 5, "{counts:?}");
+    assert_eq!(counts.code + counts.prose + counts.comment + counts.blank, counts.total);
+}

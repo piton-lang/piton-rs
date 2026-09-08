@@ -232,6 +232,7 @@ More detail, and what to do when the binary is not on your `PATH`, is in
 | `piton build check` | Build and report problems without writing |
 | `piton check <path>` | Report problems in specific files |
 | `piton reach [file]` | Show what the entry point reaches, or how one file got reached |
+| `piton loc [path]` | Count lines, separating prose from structure |
 | `piton compile <path>` | Compile to JSON, or YAML with `--format yaml` |
 | `piton format <path>` | Apply the canonical style; `--check` to only report |
 | `piton lsp` | Run the language server |

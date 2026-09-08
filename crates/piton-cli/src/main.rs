@@ -72,6 +72,17 @@ enum Command {
         #[arg(long, value_name = "FILE")]
         entry: Option<PathBuf>,
     },
+    /// Count lines, separating prose from structure.
+    Loc {
+        /// Files, directories, or globs. Defaults to the whole project.
+        paths: Vec<String>,
+        /// Print a row per file as well as the total.
+        #[arg(long)]
+        by_file: bool,
+        /// Count only the files reached from the project's entry point.
+        #[arg(long)]
+        reached: bool,
+    },
     /// Apply the canonical formatting.
     Format {
         /// Files, directories, globs, or `-` for stdin.
@@ -143,6 +154,7 @@ fn main() -> Result<()> {
         Command::Reach { path, show, strict, chains, entry } => {
             commands::reach(path, show, strict, chains, entry)?
         }
+        Command::Loc { paths, by_file, reached } => commands::loc(&paths, by_file, reached)?,
         Command::Format { paths, check } => commands::format(&paths, check)?,
         Command::Lsp { stdio: _ } => {
             piton_lsp::run(session::registry)?;
