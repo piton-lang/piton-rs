@@ -17,7 +17,7 @@ pub fn files(vocabulary: &Vocabulary, source: &GrammarSource) -> Vec<GeneratedFi
         GeneratedFile::new("zed/languages/piton/config.toml", zed_language_config()),
         GeneratedFile::new("zed/Cargo.toml", zed_cargo()),
         GeneratedFile::new("zed/src/lib.rs", zed_extension()),
-        GeneratedFile::new("zed/.gitignore", "/target\n"),
+        GeneratedFile::new("zed/.gitignore", ZED_GITIGNORE),
         GeneratedFile::new("zed/README.md", zed_readme(source)),
         GeneratedFile::new("jetbrains/build.gradle.kts", jetbrains_gradle()),
         GeneratedFile::new("jetbrains/settings.gradle.kts", jetbrains_settings()),
@@ -216,6 +216,15 @@ The extension contributes the TextMate grammar and starts `piton lsp`. Point
 "#
     .to_string()
 }
+
+/// Zed's own build output, which lands inside the extension directory.
+///
+/// Zed compiles the extension to `extension.wasm` and clones the Tree-sitter
+/// grammar into `grammars/`. Committing the clone records it as a stray
+/// gitlink, and a fresh checkout then materialises an empty `grammars/piton`
+/// that Zed refuses to overwrite: "grammar directory already exists, but is
+/// not a git clone of ...".
+const ZED_GITIGNORE: &str = "/target\n/extension.wasm\n/grammars/\n";
 
 // ---- Zed ---------------------------------------------------------------------
 
