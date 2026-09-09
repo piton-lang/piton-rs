@@ -1,26 +1,63 @@
 # Light Tokens
 
-spacing:
-  step: 4
-  gutter: 12
-  band: 8
-radius:
-  control: 6
-  panel: 10
-type:
-  ui: 13
-  editor: 14
-  small: 11
-motion:
-  hover: 80
-  panel: 120
-units: Spacing, radius and type in points; motion in milliseconds
-surface: #ffffff
-surfaceMuted: #f4f5f7
-surfaceHover: #e9ebef
-foreground: #16181d
-foregroundMuted: #5f6672
-hairline: #dfe2e8
-accent: #2f6feb
-selection: #cfe0ff
-danger: #c0392b
+## Spacing
+
+step: 4
+gutter: 12
+band: 8
+
+## Radius
+
+control: 6
+panel: 10
+
+## Type
+
+ui: 13
+editor: 14
+small: 11
+
+## Motion
+
+hover: 80
+panel: 120
+
+## Units
+
+Spacing, radius and type in points; motion in milliseconds
+
+## Surface
+
+#ffffff
+
+## Surface Muted
+
+#f4f5f7
+
+## Surface Hover
+
+#e9ebef
+
+## Foreground
+
+#16181d
+
+## Foreground Muted
+
+#5f6672
+
+## Hairline
+
+#dfe2e8
+
+## Accent
+
+#2f6feb
+
+## Selection
+
+#cfe0ff
+
+## Danger
+
+#c0392b

@@ -188,9 +188,16 @@ Everything Belay writes is prose, so every value is serialised:
 | --- | --- |
 | A simple value | Its literal text |
 | A list | `- item` lines |
-| A dictionary of scalars | Indented `key: value` lines |
-| Anything with structure | Headers, one level per depth |
+| A pure dictionary of key/value pairs | Indented `key: value` lines |
+| An anchor, or anything else with structure | Headers, one level per depth |
 | Depth past six | **Bold**, because Markdown has six heading levels |
+
+The dictionary and anchor rules are easy to confuse. A *dictionary* that holds
+nothing but scalars indents, because it is data. An *anchor* never does, however
+flat it looks: its properties are the sections of a document, so they are always
+headers. So an anchor with one prose property becomes a heading and a paragraph,
+while a dictionary of design tokens nested under one of those properties still
+indents beneath its heading.
 
 Property names are split into words and title-cased, so `useWhen` becomes
 `Use When`.

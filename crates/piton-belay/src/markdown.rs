@@ -1,9 +1,14 @@
 //! Turning Piton values into the Markdown that agents read.
 //!
 //! Everything Belay emits is prose, so every value has to become text. Simple
-//! values render as themselves, lists become bullets, a dictionary of scalars
-//! becomes an indented block, and anything with structure becomes headers whose
-//! level tracks depth — falling back to bold past the sixth level.
+//! values render as themselves, lists become bullets, a *pure dictionary* — one
+//! nesting only more key/value pairs — becomes an indented block, and anything
+//! else becomes headers whose level tracks depth, falling back to bold past the
+//! sixth level.
+//!
+//! An anchor is never indented, however flat it looks: its properties are a
+//! document's sections. That is the one place the two rules differ, and
+//! conflating them is what the indented-anchor branch used to get wrong.
 
 use piton_core::value::{Dict, Value};
 
@@ -26,7 +31,10 @@ pub fn block(value: &Value, depth: usize) -> String {
         Value::Dict(dict) if is_flat(dict) => indented(dict, 0),
         Value::Dict(dict) => headers(dict, depth),
         Value::Anchor(anchor) if anchor.props.is_empty() => String::new(),
-        Value::Anchor(anchor) if is_flat(&anchor.props) => indented(&anchor.props, 0),
+        // No flatness exception here, unlike a dictionary: an anchor's
+        // properties are a document's sections, so they are always headers.
+        // Collapsing them to `key: value` turned a document whose properties
+        // were all prose into one unreadable line.
         Value::Anchor(anchor) => headers(&anchor.props, depth),
         simple => simple.to_literal(),
     }
@@ -265,6 +273,37 @@ mod tests {
         assert!(rendered.contains("String item"), "{rendered}");
         assert!(rendered.contains("- List\n- of\n- items"), "{rendered}");
         assert!(rendered.contains("and:\n  even:\n    nested: objects"), "{rendered}");
+    }
+
+    fn anchor(entries: Vec<(&str, Value)>) -> Value {
+        Value::Anchor(piton_core::value::Anchor {
+            id: piton_core::value::AnchorId(0),
+            name: "ThemeEngine".to_string(),
+            props: std::sync::Arc::new(dict(entries)),
+        })
+    }
+
+    #[test]
+    fn anchor_properties_are_headers_even_when_every_value_is_scalar() {
+        // Spec 25.5: anchor properties serialize as headers whose level matches
+        // depth — with no exception for an anchor that happens to look flat.
+        // This used to collapse to `pitch: A single source ...`.
+        let value = anchor(vec![("pitch", Value::string("A single source for UI styling rules."))]);
+        assert_eq!(block(&value, 2), "## Pitch\n\nA single source for UI styling rules.");
+    }
+
+    #[test]
+    fn a_pure_dictionary_inside_an_anchor_still_indents() {
+        // Spec 25.4 still applies to a dictionary *nested* in an anchor.
+        let spacing = dict(vec![("step", Value::number(4.0)), ("gutter", Value::number(12.0))]);
+        let value = anchor(vec![
+            ("spacing", Value::Dict(spacing)),
+            ("units", Value::string("points")),
+        ]);
+        assert_eq!(
+            block(&value, 2),
+            "## Spacing\n\nstep: 4\ngutter: 12\n\n## Units\n\npoints"
+        );
     }
 
     #[test]
