@@ -2,7 +2,7 @@
 
 The single row of common actions under the menu bar
 
-The lower strip of the header. It shows the few actions that are worth a button, as icon and label pairs, and nothing that is not already in @../../app/ActionCatalogue.md.
+The lower strip of the header. It shows the few actions that are worth a button, as icon and label pairs, and nothing that is not already in [ActionCatalogue](../../app/ActionCatalogue.md).
 
 ## Contents
 
@@ -22,6 +22,8 @@ The lower strip of the header. It shows the few actions that are worth a button,
 
 ## Notes
 
-- Line icons at one weight, sized to the token type scale, tinted with the foreground colour from @../../theme/Tokens.md
+- Line icons at one weight, sized to the token type scale, tinted with the foreground colour from [Tokens](../../theme/Tokens.md)
 - The separator is a hairline with the token spacing step either side of it, not a gap alone
 - The zoom readout at the right end is a button too, and clicking it resets the zoom
+
+Links in this document point at reference files. Read one when the work touches what it describes.

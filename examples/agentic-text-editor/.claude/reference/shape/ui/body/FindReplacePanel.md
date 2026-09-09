@@ -6,7 +6,7 @@ One panel with two modes. Find shows a query field; replace shows the query fiel
 
 ## Layout
 
-- Docked at the top of the body, above @EditorSurface.md, pushing it down rather than covering it
+- Docked at the top of the body, above [EditorSurface](EditorSurface.md), pushing it down rather than covering it
 - The query field takes the width that is left after the buttons
 - Find mode buttons, in order, are previous, next, and close
 - Replace mode adds Replace and Replace All beside the replacement field
@@ -21,3 +21,5 @@ One panel with two modes. Find shows a query field; replace shows the query fiel
 - Wrapping past the last match is allowed, and the footer says that the search wrapped
 - Replace All is a single undo step, and the footer reports how many it changed
 - Closing puts the caret and the scroll position back where the surface had them when the panel opened
+
+Links in this document point at reference files. Read one when the work touches what it describes.

@@ -6,13 +6,13 @@ A single-window plain text editor that does what Notepad does and looks like som
 
 ## Parts
 
-- @Layout.md - the three bands the window is made of
-- @DocumentModel.md - the text being edited, and what is known about it
-- @ActionSystem.md - the one table that every menu, button and shortcut reads
-- @FileLifecycle.md - new, open, save, save as, and never losing work
-- @SearchAndNavigation.md - find, replace and go to line
-- @ViewSettings.md - word wrap, font, zoom, and which bands are showing
-- @ModernStyle.md - how all of it should look
+- [Layout](Layout.md) - the three bands the window is made of
+- [DocumentModel](DocumentModel.md) - the text being edited, and what is known about it
+- [ActionSystem](ActionSystem.md) - the one table that every menu, button and shortcut reads
+- [FileLifecycle](FileLifecycle.md) - new, open, save, save as, and never losing work
+- [SearchAndNavigation](SearchAndNavigation.md) - find, replace and go to line
+- [ViewSettings](ViewSettings.md) - word wrap, font, zoom, and which bands are showing
+- [ModernStyle](ModernStyle.md) - how all of it should look
 
 ## Principles
 
@@ -28,3 +28,5 @@ A single-window plain text editor that does what Notepad does and looks like som
 - Syntax highlighting, completion and anything that parses the text
 - Printing, macros and plugins
 - Remote or networked files
+
+Links in this document point at reference files. Read one when the work touches what it describes.

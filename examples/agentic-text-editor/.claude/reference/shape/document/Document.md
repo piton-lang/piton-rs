@@ -11,7 +11,7 @@ path: Where it came from, or none for an untitled document
 dirty: Set by any edit, cleared only by a successful save or a new document
 caret: A byte offset into the buffer
 selection: The other end of the selection, or none when the caret is alone
-encoding: How it was read and how it will be written; see @../files/Encoding.md
+encoding: How it was read and how it will be written; see [Encoding](../files/Encoding.md)
 lineEnding: CRLF or LF, taken from the file and kept for the write
 
 ## Rules
@@ -26,3 +26,5 @@ lineEnding: CRLF or LF, taken from the file and kept for the write
 
 - Edits go through methods that record themselves in the undo history; nothing mutates the string directly
 - Insert and delete take byte ranges and are the only two primitives; everything else is written in terms of them
+
+Links in this document point at reference files. Read one when the work touches what it describes.

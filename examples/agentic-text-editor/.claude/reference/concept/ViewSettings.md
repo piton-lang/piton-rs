@@ -6,9 +6,9 @@ Word wrap, font, zoom, theme and whether the footer is showing. None of them tou
 
 ## Parts
 
-- @../shape/ui/body/EditorSurface.md - where wrap, font and zoom actually take effect
-- @../shape/ui/footer/StatusBar.md - reports the zoom level, and can be switched off
-- @../shape/theme/Theme.md - light, dark, or whatever the system is set to
+- [EditorSurface](../shape/ui/body/EditorSurface.md) - where wrap, font and zoom actually take effect
+- [StatusBar](../shape/ui/footer/StatusBar.md) - reports the zoom level, and can be switched off
+- [Theme](../shape/theme/Theme.md) - light, dark, or whatever the system is set to
 
 ## Settings
 
@@ -25,4 +25,6 @@ showStatusBar: On by default
 - Zoom is separate from font size, so zooming out and back lands exactly where it started
 - A setting file that is missing, unreadable or from an older version falls back to the defaults without a dialog
 - Changing a setting never moves the caret or the scroll position
-- What the settings look like once applied is @ModernStyle.md
+- What the settings look like once applied is [ModernStyle](ModernStyle.md)
+
+Links in this document point at reference files. Read one when the work touches what it describes.

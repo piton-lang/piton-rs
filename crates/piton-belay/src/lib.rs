@@ -90,7 +90,12 @@ impl Framework for Belay {
         vec!["@".to_string()]
     }
 
-    /// `@{X}` points the agent at the compiled file; `${X}` names it.
+    /// `@{X}` links the agent to the compiled file; `${X}` names it.
+    ///
+    /// The link is project-relative here, because evaluation runs before anyone
+    /// knows which document the text lands in. The emitter rewrites it relative
+    /// to that document, and anything else that renders a value — `piton
+    /// compile`, an editor hover — still shows a path that means something.
     fn interpolate(&self, interpolation: &Interpolation<'_>) -> Option<Value> {
         match interpolation.sigil {
             "@" => {
@@ -108,7 +113,7 @@ impl Framework for Belay {
                         settings::reference_path(&self.settings, adapter, source, &anchor.name)
                     });
                 Some(Value::string(match path {
-                    Some(path) => format!("@{}", path.display()),
+                    Some(path) => format!("[{}]({})", anchor.name, path.display()),
                     None => anchor.name.clone(),
                 }))
             }

@@ -2,7 +2,7 @@
 
 The text area itself, and everything that happens inside it
 
-The surface is a multiline text edit that fills the body, backed by the buffer in @../../../.claude/reference/shape/document/Document.md. It renders the text and reports edits; it does not own the text and it does not decide what an edit means.
+The surface is a multiline text edit that fills the body, backed by the buffer in [Document](../../../.claude/reference/shape/document/Document.md). It renders the text and reports edits; it does not own the text and it does not decide what an edit means.
 
 ## Construction
 
@@ -10,7 +10,7 @@ The surface is a multiline text edit that fills the body, backed by the buffer i
 - The frame is off; the surface is the same colour as the body, with the token gutter of padding around the text
 - Word wrap follows the setting, and with wrap off the scroll area scrolls horizontally too
 - The font is the configured monospace family at the configured size, multiplied by the zoom
-- The caret and the selection use the accent colour from @../../../.claude/reference/shape/theme/Tokens.md, and the selection stays visible when focus is elsewhere
+- The caret and the selection use the accent colour from [Tokens](../../../.claude/reference/shape/theme/Tokens.md), and the selection stays visible when focus is elsewhere
 
 ## Responsibilities
 
@@ -35,7 +35,7 @@ One panel with two modes. Find shows a query field; replace shows the query fiel
 
 ## Layout
 
-- Docked at the top of the body, above @../../../.claude/reference/shape/ui/body/EditorSurface.md, pushing it down rather than covering it
+- Docked at the top of the body, above [EditorSurface](../../../.claude/reference/shape/ui/body/EditorSurface.md), pushing it down rather than covering it
 - The query field takes the width that is left after the buttons
 - Find mode buttons, in order, are previous, next, and close
 - Replace mode adds Replace and Replace All beside the replacement field
@@ -64,5 +64,7 @@ A modal window centred over the body, holding one number field, a Go button and 
 - Accepts digits only, and Go is disabled while the field is empty
 - Enter is Go and Escape is Cancel
 - A number past the end of the document goes to the last line, and the footer says which line it landed on
-- Going moves the caret to the start of the line and scrolls @../../../.claude/reference/shape/ui/body/EditorSurface.md so the line sits in the middle third
+- Going moves the caret to the start of the line and scrolls [EditorSurface](../../../.claude/reference/shape/ui/body/EditorSurface.md) so the line sits in the middle third
 - The rest of the window is dimmed while it is open and does not respond to the keyboard
+
+Links in this document point at reference files. Read one when the work touches what it describes.

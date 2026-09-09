@@ -98,8 +98,14 @@ export command Ship:
             "\
 use @piton/belay
 
+export anchor ButtonTokens:
+    blue: The one blue, defined once
+
+// A reference inside a reference: the chain has to resolve and both ends have
+// to be published, which is what an `@` import could not promise past its
+// fourth hop.
 export anchor ButtonDesign:
-    surface: Blue with contrasting text
+    surface: Contrasting text on @{ButtonTokens}
 
     states:
         - Default
@@ -287,14 +293,9 @@ fn every_reference_points_at_a_file_that_is_written() {
 
     for output in &outputs {
         let directory = output.path.parent().unwrap();
-        for word in output.contents.split_whitespace() {
-            let Some(reference) = word.strip_prefix('@') else { continue };
-            let reference = reference.trim_end_matches(['.', ',', ';', ':', ')', '!', '?']);
-            if reference.is_empty() {
-                continue;
-            }
+        for target in links(&output.contents) {
             checked += 1;
-            let target = normalise(&directory.join(reference));
+            let target = normalise(&directory.join(&target));
             assert!(
                 written.contains(&target),
                 "{} points at {}, which is never written",
@@ -304,6 +305,40 @@ fn every_reference_points_at_a_file_that_is_written() {
         }
     }
     assert!(checked >= 4, "the fixture should exercise several references, saw {checked}");
+}
+
+/// The target of every `[text](target)` link in a document.
+fn links(contents: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut rest = contents;
+    while let Some(open) = rest.find("](") {
+        rest = &rest[open + 2..];
+        let Some(close) = rest.find(')') else { break };
+        targets.push(rest[..close].to_string());
+        rest = &rest[close + 1..];
+    }
+    targets
+}
+
+/// `@` survives in exactly one place: the import a `CLAUDE.md` is made of.
+///
+/// Everywhere else it would be dead text, because no agent but Claude Code
+/// implements it and Claude Code implements it only in memory files.
+#[test]
+fn no_output_points_at_a_file_with_an_import() {
+    let (root, outputs) = everything();
+    for output in &outputs {
+        let path = relative(output, &root);
+        if path.ends_with("CLAUDE.md") {
+            continue;
+        }
+        for word in output.contents.split_whitespace() {
+            assert!(
+                !word.starts_with('@'),
+                "{path} uses an `@` import, which only resolves in a memory file: {word}"
+            );
+        }
+    }
 }
 
 #[test]

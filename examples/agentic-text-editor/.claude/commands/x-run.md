@@ -4,7 +4,7 @@ allowed-tools: Bash, Read
 model: sonnet
 ---
 
-Run `cargo run` and leave it running. Report the first warning, panic or blank window and stop. If it starts cleanly, print the list below for the user to walk through, and say which actions in @../reference/shape/app/ActionCatalogue.md the change touched.
+Run `cargo run` and leave it running. Report the first warning, panic or blank window and stop. If it starts cleanly, print the list below for the user to walk through, and say which actions in [ActionCatalogue](../reference/shape/app/ActionCatalogue.md) the change touched.
 
 # Smoke Test
 
@@ -16,3 +16,5 @@ Run `cargo run` and leave it running. Report the first warning, panic or blank w
 - Toggle the theme, and check nothing in the window kept its old colour
 - Hide the status bar and bring it back, and check the body gave back exactly the height it took
 - Drag a text file onto the window with unsaved changes, and check it asks before opening
+
+Links in this document point at reference files. Read one when the work touches what it describes.

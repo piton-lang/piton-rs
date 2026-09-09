@@ -6,7 +6,7 @@ One function that takes a palette and returns the visuals and the spacing for th
 
 ## Palettes
 
-- @../../.claude/reference/shape/theme/LightTokens.md for light, @../../.claude/reference/shape/theme/DarkTokens.md for dark, and both share the shape in @../../.claude/reference/shape/theme/Tokens.md
+- [LightTokens](../../.claude/reference/shape/theme/LightTokens.md) for light, [DarkTokens](../../.claude/reference/shape/theme/DarkTokens.md) for dark, and both share the shape in [Tokens](../../.claude/reference/shape/theme/Tokens.md)
 - System follows what the window reports, and follows it again if it changes while running
 - The two palettes have exactly the same names, so a widget written against one works in the other
 
@@ -23,3 +23,5 @@ One function that takes a palette and returns the visuals and the spacing for th
 - Changing the theme rebuilds the style and requests one repaint; it does not restart anything or lose state
 - Body text against its background clears a contrast ratio of seven to one in both palettes, and dimmed text clears four and a half
 - A colour that is needed and not in the palette is added to both palettes at once, or it is not added
+
+Links in this document point at reference files. Read one when the work touches what it describes.

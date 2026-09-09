@@ -10,5 +10,7 @@ A modal window centred over the body, holding one number field, a Go button and 
 - Accepts digits only, and Go is disabled while the field is empty
 - Enter is Go and Escape is Cancel
 - A number past the end of the document goes to the last line, and the footer says which line it landed on
-- Going moves the caret to the start of the line and scrolls @EditorSurface.md so the line sits in the middle third
+- Going moves the caret to the start of the line and scrolls [EditorSurface](EditorSurface.md) so the line sits in the middle third
 - The rest of the window is dimmed while it is open and does not respond to the keyboard
+
+Links in this document point at reference files. Read one when the work touches what it describes.

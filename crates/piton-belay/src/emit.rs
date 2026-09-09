@@ -119,7 +119,7 @@ pub fn emit_adapter(
     files.extend(instruction_files(compilation, settings, adapter, plan));
     files.extend(reference_files(compilation, settings, adapter, plan, referenced));
 
-    // `@{}` produced project-relative paths, because evaluation happens before
+    // `@{}` produced project-relative links, because evaluation happens before
     // anyone knows which files the text lands in. Now that it is known, each
     // reference is rewritten relative to its own document.
     for file in &mut files {
@@ -128,12 +128,28 @@ pub fn emit_adapter(
     files
 }
 
+/// Said once per document, because no agent follows a link on its own.
+///
+/// Claude Code's `@import` is the only inlining syntax any of these tools has,
+/// and it works in memory files alone. Everywhere else a path is inert text, so
+/// the document has to ask for the read.
+const REFERENCE_NOTE: &str = "Links in this document point at reference files. \
+Read one when the work touches what it describes.";
+
 /// Point every reference at this adapter's copy, relative to `file`.
 ///
-/// Evaluation produced one path per reference, using whichever adapter happened
+/// Evaluation produced one link per reference, using whichever adapter happened
 /// to be first, because it runs before anyone knows which files the text lands
 /// in. Every adapter writes its own copy of everything, so the leading agent
 /// directory is swapped for this one before the path is made relative.
+///
+/// A reference is a Markdown link rather than Claude Code's `@` import. The
+/// import is a memory file feature that no other agent implements, and even
+/// where it works it pulls the whole reachable reference tree into context at
+/// launch, four hops deep and silently truncated past that — the opposite of
+/// what publishing references as separate files is for. The one import Belay
+/// still writes is the `@AGENTS.md` in a generated `CLAUDE.md`, which is the
+/// payload you do want loaded eagerly.
 fn localise_references(
     contents: &str,
     file: &Path,
@@ -149,31 +165,36 @@ fn localise_references(
 
     let mut out = String::with_capacity(contents.len());
     let mut rest = contents;
-    while let Some(at) = rest.find('@') {
-        out.push_str(&rest[..at]);
-        let tail = &rest[at + 1..];
-        let end = tail.find(char::is_whitespace).unwrap_or(tail.len());
-        // A reference at the end of a sentence keeps its full stop.
-        let path = tail[..end].trim_end_matches(['.', ',', ';', ':', ')', '!', '?']);
-        let within = agent_directories
-            .iter()
-            .find_map(|prefix| path.strip_prefix(prefix.as_str()));
+    let mut linked = false;
+    while let Some(open) = rest.find("](") {
+        let (head, tail) = rest.split_at(open + 2);
+        out.push_str(head);
+        // Link syntax delimits itself, so unlike a bare path there is no
+        // trailing punctuation to guess at.
+        let Some(close) = tail.find(')') else { break };
+        let target = &tail[..close];
+        let within =
+            agent_directories.iter().find_map(|prefix| target.strip_prefix(prefix.as_str()));
         match within {
             Some(inside) => {
                 let target = settings.base.join(&adapter.directory).join(inside);
-                out.push('@');
                 out.push_str(&relative_to(directory, &target));
+                linked = true;
             }
-            // Not one of ours — `@AGENTS.md`, or prose that happens to have an
-            // `@` in it — so it is left exactly as written.
-            None => {
-                out.push('@');
-                out.push_str(path);
-            }
+            // Not one of ours — a link someone wrote by hand — so it is left
+            // exactly as written.
+            None => out.push_str(target),
         }
-        rest = &tail[path.len()..];
+        rest = &tail[close..];
     }
     out.push_str(rest);
+
+    if linked {
+        while out.ends_with('\n') {
+            out.pop();
+        }
+        out.push_str(&format!("\n\n{REFERENCE_NOTE}\n"));
+    }
     out
 }
 

@@ -6,9 +6,9 @@ The editor holds exactly one document. It is a string, a path that may not exist
 
 ## Parts
 
-- @../shape/document/Document.md - the buffer, the path, the dirty flag and the caret
-- @../shape/document/UndoHistory.md - the record of edits, and how they are grouped
-- @../shape/files/Encoding.md - how the bytes on disk became this string, and how they go back
+- [Document](../shape/document/Document.md) - the buffer, the path, the dirty flag and the caret
+- [UndoHistory](../shape/document/UndoHistory.md) - the record of edits, and how they are grouped
+- [Encoding](../shape/files/Encoding.md) - how the bytes on disk became this string, and how they go back
 
 ## Rules
 
@@ -17,3 +17,5 @@ The editor holds exactly one document. It is a string, a path that may not exist
 - A document with no path is untitled, is dirty from its first keystroke, and cannot be saved without asking where
 - Reloading, closing and replacing the document all go through the file lifecycle, never straight through the buffer
 - The caret and the selection are part of the document's state, so navigating and editing can be reasoned about together
+
+Links in this document point at reference files. Read one when the work touches what it describes.

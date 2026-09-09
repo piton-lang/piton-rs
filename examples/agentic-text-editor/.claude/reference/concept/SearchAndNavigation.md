@@ -6,10 +6,10 @@ Three ways of moving the caret somewhere it is not. Find and replace share one p
 
 ## Parts
 
-- @../shape/ui/body/FindReplacePanel.md - the docked panel, in either of its two modes
-- @../shape/ui/body/GoToLineDialog.md - the modal for jumping to a line number
-- @../shape/ui/body/EditorSurface.md - what scrolls, highlights and takes the caret back afterwards
-- @../shape/ui/footer/StatusBar.md - where a wrapped search or a count of replacements is reported
+- [FindReplacePanel](../shape/ui/body/FindReplacePanel.md) - the docked panel, in either of its two modes
+- [GoToLineDialog](../shape/ui/body/GoToLineDialog.md) - the modal for jumping to a line number
+- [EditorSurface](../shape/ui/body/EditorSurface.md) - what scrolls, highlights and takes the caret back afterwards
+- [StatusBar](../shape/ui/footer/StatusBar.md) - where a wrapped search or a count of replacements is reported
 
 ## Rules
 
@@ -19,3 +19,5 @@ Three ways of moving the caret somewhere it is not. Find and replace share one p
 - Replace All is one undo step, and reports how many it changed
 - Go To rejects a line number outside the document by clamping to the nearest end and saying which
 - Closing either panel restores the caret and the scroll position the surface had before it opened
+
+Links in this document point at reference files. Read one when the work touches what it describes.

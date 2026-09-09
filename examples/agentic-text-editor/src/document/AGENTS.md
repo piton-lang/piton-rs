@@ -11,7 +11,7 @@ path: Where it came from, or none for an untitled document
 dirty: Set by any edit, cleared only by a successful save or a new document
 caret: A byte offset into the buffer
 selection: The other end of the selection, or none when the caret is alone
-encoding: How it was read and how it will be written; see @../../.claude/reference/shape/files/Encoding.md
+encoding: How it was read and how it will be written; see [Encoding](../../.claude/reference/shape/files/Encoding.md)
 lineEnding: CRLF or LF, taken from the file and kept for the write
 
 ## Rules
@@ -52,3 +52,5 @@ A stack of edits and a position in it. Undo walks back, redo walks forward, and 
 ## Notes
 
 - Store the text that was removed and the text that was inserted, with the offset, and nothing else; a whole buffer per step is not affordable
+
+Links in this document point at reference files. Read one when the work touches what it describes.

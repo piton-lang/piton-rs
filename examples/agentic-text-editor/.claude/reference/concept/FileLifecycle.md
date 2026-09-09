@@ -6,10 +6,10 @@ Four commands move a document in and out of the editor, and one question guards 
 
 ## Parts
 
-- @../shape/files/FileDialogs.md - the native open and save dialogs, and the confirmation
-- @../shape/files/Encoding.md - reading and writing bytes, and what to do when they are not text
-- @../shape/files/RecentFiles.md - the list under the File menu, and where it is kept
-- @../shape/document/Document.md - what actually changes when any of this succeeds
+- [FileDialogs](../shape/files/FileDialogs.md) - the native open and save dialogs, and the confirmation
+- [Encoding](../shape/files/Encoding.md) - reading and writing bytes, and what to do when they are not text
+- [RecentFiles](../shape/files/RecentFiles.md) - the list under the File menu, and where it is kept
+- [Document](../shape/document/Document.md) - what actually changes when any of this succeeds
 
 ## Guard
 
@@ -22,4 +22,6 @@ New, Open, opening a recent file and quitting all pass through the same check. I
 - Opening a file that is already open reloads it, and still asks first if there are unsaved edits
 - A file dropped onto the window is an Open, guard and all
 - Quitting is the only command that can be refused; every other failure is reported and survivable
-- The document's state after any of this is described by @DocumentModel.md
+- The document's state after any of this is described by [DocumentModel](DocumentModel.md)
+
+Links in this document point at reference files. Read one when the work touches what it describes.

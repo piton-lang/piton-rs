@@ -142,12 +142,24 @@ export instruction ButtonComponent:
 becomes, in `src/components/button/AGENTS.md`:
 
 ```markdown
-For details about the design, read @../../../.claude/reference/shape/components/button/ButtonDesign.md.
+For details about the design, read [ButtonDesign](../../../.claude/reference/shape/components/button/ButtonDesign.md).
 ```
 
-The path is relative to the document that contains it, because Claude Code
-resolves an `@` import against the importing file's directory. The same
-reference written into a different document gets a different path.
+The path is relative to the document that contains it, so the same reference
+written into a different document gets a different path. Every document holding
+at least one reference ends with a line telling the agent to follow its links.
+
+A reference is a Markdown link rather than Claude Code's `@` import for two
+reasons. The import is a memory file feature that no other agent implements,
+since opencode and Codex both treat `@path` as plain text, so it would only ever
+work in one adapter, and only in the `AGENTS.md` reached through a `CLAUDE.md`
+at that. And where it does work it inlines the whole reachable reference tree
+into context at launch, up to a limit of four hops, past which files are dropped
+without warning. Publishing references as separate files is meant to let an
+agent read what it needs, which is the opposite of that.
+
+The one import Belay still writes is the `@AGENTS.md` in a generated
+`CLAUDE.md`: that payload you do want loaded eagerly, and it is one hop deep.
 
 `${Anchor}` inserts the anchor's *name* rather than a path, for when you want to
 mention something without sending the agent to read it.

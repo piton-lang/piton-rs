@@ -134,11 +134,13 @@ export skill Build:
         ),
     ]);
     assert!(errors.is_empty(), "{errors:?}");
-    // The reference is relative to the file it lands in: Claude Code resolves
-    // an `@import` against the importing file's directory, not the project root.
+    // A Markdown link, not an `@` import: every agent can follow one, and it is
+    // relative to the file it lands in rather than to the project root.
     let skill = find(&outputs, &root, ".claude/skills/build/SKILL.md");
-    assert!(skill.contains("@../../reference/Design.md"), "{skill}");
-    assert!(!skill.contains("@.claude/"), "a project-relative reference would not resolve");
+    assert!(skill.contains("[Design](../../reference/Design.md)"), "{skill}");
+    assert!(!skill.contains("(.claude/"), "a project-relative reference would not resolve");
+    // And the document says what to do with the link, since nothing expands it.
+    assert!(skill.contains("Read one when the work touches"), "{skill}");
     // `${}` on a complex value inserts the compiled name, not the structure.
     assert!(skill.contains("name it Design"), "{skill}");
     // The referenced anchor is published so the agent can actually read it.
@@ -175,7 +177,7 @@ export instruction ButtonComponent:
     ];
     for (file, expected) in cases {
         let contents = find(&outputs, &root, file);
-        assert!(contents.contains(&format!("@{expected}")), "{file}:\n{contents}");
+        assert!(contents.contains(&format!("[ButtonDesign]({expected})")), "{file}:\n{contents}");
         // And the path has to actually land on a file that gets written.
         let resolved = normalise(&root.join(file).parent().unwrap().join(expected));
         let published = outputs.iter().any(|output| normalise(&output.path) == resolved);
@@ -316,10 +318,10 @@ export skill Build:
     for directory in [".claude", ".opencode"] {
         let skill = find(&outputs, &root, &format!("{directory}/skills/build/SKILL.md"));
         let reference = skill
-            .split_whitespace()
-            .find_map(|word| word.strip_prefix('@'))
-            .expect("the skill carries a reference")
-            .trim_end_matches('.');
+            .split_once("](")
+            .and_then(|(_, tail)| tail.split_once(')'))
+            .map(|(target, _)| target)
+            .expect("the skill carries a reference");
         assert!(
             !reference.contains(".claude") && !reference.contains(".opencode"),
             "{directory} still names an agent directory: {reference}"

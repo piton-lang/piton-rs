@@ -2,7 +2,7 @@
 
 The menu bar, rendered from the action table
 
-The top strip of the header. It renders @../../app/ActionCatalogue.md as menus, in the order the table gives, and does nothing else. Adding a menu item means adding a row to the table; it does not mean editing this file.
+The top strip of the header. It renders [ActionCatalogue](../../app/ActionCatalogue.md) as menus, in the order the table gives, and does nothing else. Adding a menu item means adding a row to the table; it does not mean editing this file.
 
 ## Structure
 
@@ -24,3 +24,5 @@ The top strip of the header. It renders @../../app/ActionCatalogue.md as menus, 
 
 - The bar keeps no state of its own beyond which menu is open, and egui owns even that
 - The labels are the only strings this file holds, and they come from the table
+
+Links in this document point at reference files. Read one when the work touches what it describes.
