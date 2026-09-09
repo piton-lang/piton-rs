@@ -9,6 +9,9 @@ hx --grammar fetch
 hx --grammar build
 ```
 
-Point the `[[grammar]]` source at wherever you published
-`editors/tree-sitter-piton`, or at a local path with
-`source = { path = "/abs/path/to/editors/tree-sitter-piton" }`.
+The `[[grammar]]` entry already names the published grammar, so
+`hx --grammar fetch` has somewhere to fetch from:
+
+    git@github.com:piton-lang/tree-sitter-piton.git
+
+Everything except highlighting comes from `piton lsp` and needs no grammar.

@@ -53,10 +53,12 @@ rustup target add wasm32-wasip1
 Then open the command palette, run `zed: install dev extension`, and choose
 `editors/zed`.
 
-Highlighting comes from the Tree-sitter grammar, which Zed fetches over git.
-That means the grammar has to be published: see
+Highlighting comes from the Tree-sitter grammar, which Zed fetches over git
+from the repository and commit `editors/zed/extension.toml` pins:
+`git@github.com:piton-lang/tree-sitter-piton.git`. That happens on install, so
+there is nothing to set up. Everything else works even if the fetch fails.
+Re-pinning after a language change is a maintainer's job — see
 [publishing the grammar](development.md#publishing-the-tree-sitter-grammar).
-Everything else works without it.
 
 `cargo xtask zed` checks the extension compiles before you hand it to Zed.
 
@@ -117,8 +119,8 @@ require('piton').setup()
 
 That registers the `piton` filetype and starts `piton lsp` for it. Pass
 `cmd = { '/path/to/piton', 'lsp' }` if the binary is elsewhere. If you use
-nvim-treesitter, the setup also registers the parser, which you can then install
-with `:TSInstall piton` once the grammar is published.
+nvim-treesitter, the setup also registers the parser, pinned to the same
+published grammar, so `:TSInstall piton` installs it.
 
 ## Vim
 
@@ -129,7 +131,7 @@ cp -r editors/vim/{syntax,ftdetect,ftplugin} ~/.vim/
 Or point a plugin manager at the directory:
 
 ```vim
-Plug 'piton-lang/piton', { 'rtp': 'editors/vim' }
+Plug 'piton-lang/piton-rs', { 'rtp': 'editors/vim' }
 ```
 
 That gives you highlighting, `.pi` filetype detection, four-space indentation,
@@ -173,8 +175,10 @@ hx --grammar fetch
 hx --grammar build
 ```
 
-The `[[grammar]]` entry names the published Tree-sitter repository. Until the
-grammar is published you can point it at this checkout instead:
+The `[[grammar]]` entry already names the published Tree-sitter repository,
+`git@github.com:piton-lang/tree-sitter-piton.git`, so `hx --grammar fetch` has
+somewhere to fetch from. To build against this checkout instead — when you are
+changing the grammar — point it at a path:
 
 ```toml
 [[grammar]]

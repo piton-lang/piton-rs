@@ -20,4 +20,5 @@ editor at once. Edit `crates/piton-grammar`, not these files.
 
 Every integration launches the same language server: `piton lsp`.
 
-Installation instructions for each editor are in `docs/editors.md`.
+Installation instructions for each editor are in
+[`docs/editors.md`](../docs/editors.md).

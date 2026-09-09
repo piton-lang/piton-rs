@@ -35,7 +35,7 @@ document that needs it points at it.
 ## Install
 
 ```sh
-git clone <this repository> piton
+git clone git@github.com:piton-lang/piton-rs.git piton
 cd piton
 cargo xtask install
 ```
@@ -147,9 +147,9 @@ rustup target add wasm32-wasip1
 
 Command palette → `zed: install dev extension` → choose `editors/zed`.
 
-Highlighting needs the Tree-sitter grammar, which Zed fetches over git; see
-[publishing the grammar](docs/development.md#publishing-the-tree-sitter-grammar).
-Everything the language server provides works without it.
+Highlighting comes from the Tree-sitter grammar, which Zed fetches over git
+from the commit `editors/zed/extension.toml` pins, so there is nothing more to
+do. Everything the language server provides works even without it.
 
 **Neovim** — add `editors/vim` to your `runtimepath`, then:
 
@@ -238,6 +238,8 @@ More detail, and what to do when the binary is not on your `PATH`, is in
 | `piton lsp` | Run the language server |
 | `piton docs` | Print the language reference |
 | `piton claude` | Launch Claude Code already fluent in Piton |
+| `piton grammar [dir]` | Regenerate the editor integrations in `editors/` |
+| `piton ast <path>` | Print a file's concrete syntax tree |
 
 Full detail in [the CLI reference](docs/cli.md).
 
@@ -252,12 +254,16 @@ Full detail in [the CLI reference](docs/cli.md).
 | [Architecture](docs/architecture.md) | How the compiler is put together, and why |
 | [Development](docs/development.md) | Building, testing, and publishing the grammar |
 
-Two more documents live at the repository root because they are about this
-implementation rather than about using it: [`.spec.md`](.spec.md) restates the
-language specification as one checkable claim per line, and
+[`REFERENCE.md`](REFERENCE.md) is the human-authored language specification —
+the essay the implementation is written against, and the place to look for why
+Piton is shaped the way it is rather than for how to use it.
+
+Two further documents live at the repository root because they are about this
+implementation rather than about using it: [`.spec.md`](.spec.md) restates
+`REFERENCE.md` as one checkable claim per line, so the two can be diffed, and
 [`.decisions.md`](.decisions.md) records every choice made where the
 specification left room.
 
 ## Licence
 
-MIT.
+MIT — see [`LICENSE.md`](LICENSE.md).

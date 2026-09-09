@@ -20,22 +20,16 @@ start `piton lsp`, plus the language configuration and Tree-sitter queries.
    rustup target add wasm32-wasip1
    ```
 
-3. **Publish the grammar.** Zed fetches Tree-sitter grammars over git and wants
-   a full commit SHA, so the grammar has to exist as its own repository:
+3. **The grammar comes with it.** Zed fetches the Tree-sitter grammar over
+   git, from the repository and commit pinned in `extension.toml`:
 
-   ```sh
-   cargo xtask publish-grammar
+   ```
+   git@github.com:piton-lang/tree-sitter-piton.git
    ```
 
-   That pushes the `editors/tree-sitter-piton` subtree to whatever the `grammar`
-   git remote points at, and writes the resulting commit into `[grammars.piton]`
-   below. Tell git where that is once, per clone:
-
-   ```sh
-   git remote add grammar <url>
-   ```
-
-   The URL is not stored in this repository's source; `--remote` overrides it.
+   Nothing to do here — that is only a maintainer's concern, and
+   [publishing the grammar](../../docs/development.md#publishing-the-tree-sitter-grammar)
+   says how a new commit gets pinned.
 
 4. **Install the extension.** In Zed, open the command palette and run
    `zed: install dev extension`, then choose this directory. Zed builds the
@@ -64,7 +58,6 @@ The extension looks for `piton` on `$PATH`. If yours lives elsewhere:
 
 ## Without the grammar
 
-Highlighting comes from the Tree-sitter grammar, so step 3 is required for
-colour. Everything else — diagnostics, completion, hover, go to definition,
-rename, formatting — comes from `piton lsp` and works as soon as the extension
-is installed.
+Highlighting comes from the Tree-sitter grammar. Everything else — diagnostics,
+completion, hover, go to definition, rename, formatting — comes from `piton lsp`
+and works whether or not Zed managed to fetch it.

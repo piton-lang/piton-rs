@@ -189,7 +189,8 @@ editor at once. Edit `crates/piton-grammar`, not these files.
 
 Every integration launches the same language server: `piton lsp`.
 
-Installation instructions for each editor are in `docs/editors.md`.
+Installation instructions for each editor are in
+[`docs/editors.md`](../docs/editors.md).
 "#
     .to_string()
 }
@@ -239,11 +240,14 @@ mod tests {
         let files = generate(&Vocabulary::from_compiler(), &GrammarSource::default());
         assert!(!GrammarSource::default().is_published());
         for file in &files {
-            assert!(
-                !file.contents.contains("dev.mdynx.net"),
-                "{} hard-codes a publishing host",
-                file.path.display()
-            );
+            for line in file.contents.lines().filter(|line| line.contains("tree-sitter-piton.git"))
+            {
+                assert!(
+                    line.contains(UNPUBLISHED_REPOSITORY),
+                    "{} hard-codes a publishing host: {line}",
+                    file.path.display()
+                );
+            }
         }
         let zed = files.iter().find(|file| file.path.ends_with("zed/extension.toml")).unwrap();
         assert!(zed.contents.contains("NOT PUBLISHED"), "{}", zed.contents);

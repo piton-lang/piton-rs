@@ -53,10 +53,15 @@ Zed, Helix, and nvim-treesitter fetch grammars over git rather than from a
 directory, so `editors/tree-sitter-piton` is published as its own repository — a
 `git subtree` of this one. This repository stays the source of truth.
 
-Tell git where it lives, once per clone. No URL is stored in the source:
+It is already published, and every editor integration in `editors/` is pinned
+to a commit of it, so nothing below is needed to *use* Piton — only to publish a
+new grammar after a language change.
+
+No URL is stored in the source; only the name of the remote is. Tell git where
+it lives, once per clone:
 
 ```sh
-git remote add grammar <url>
+git remote add grammar git@github.com:piton-lang/tree-sitter-piton.git
 ```
 
 Then:
@@ -74,7 +79,7 @@ was pushed. `--no-commit` makes it refuse rather than commit on your behalf.
 
 ## Project documents
 
-[`.spec.md`](../.spec.md) restates the language specification as one checkable
-claim per line, so it can be diffed against the human-authored spec.
-[`.decisions.md`](../.decisions.md) records every choice made where that
-specification left room, and why.
+[`REFERENCE.md`](../REFERENCE.md) is the human-authored language specification.
+[`.spec.md`](../.spec.md) restates it as one checkable claim per line, so the two
+can be diffed. [`.decisions.md`](../.decisions.md) records every choice made
+where that specification left room, and why.

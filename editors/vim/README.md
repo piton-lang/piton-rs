@@ -8,7 +8,7 @@ Copy `syntax/`, `ftdetect/`, and `ftplugin/` into `~/.vim`, or point a plugin
 manager at this directory:
 
 ```vim
-Plug 'piton-lang/piton', { 'rtp': 'editors/vim' }
+Plug 'piton-lang/piton-rs', { 'rtp': 'editors/vim' }
 ```
 
 ## Neovim
