@@ -319,6 +319,10 @@
       "required": false,
       "types": [
         {
+          "type": "property",
+          "named": true
+        },
+        {
           "type": "value",
           "named": true
         }

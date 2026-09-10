@@ -768,8 +768,17 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "SYMBOL",
-                "name": "value"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "property"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "value"
+                  }
+                ]
               },
               {
                 "type": "BLANK"
