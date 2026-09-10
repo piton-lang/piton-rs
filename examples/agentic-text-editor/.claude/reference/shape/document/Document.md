@@ -6,6 +6,7 @@ One struct, holding one document. Everything else in the editor reads it and ask
 
 ## Fields
 
+```
 text: The whole buffer as one string
 path: Where it came from, or none for an untitled document
 dirty: Set by any edit, cleared only by a successful save or a new document
@@ -13,6 +14,7 @@ caret: A byte offset into the buffer
 selection: The other end of the selection, or none when the caret is alone
 encoding: How it was read and how it will be written; see [Encoding](../files/Encoding.md)
 lineEnding: CRLF or LF, taken from the file and kept for the write
+```
 
 ## Rules
 

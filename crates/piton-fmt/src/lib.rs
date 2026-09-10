@@ -85,7 +85,16 @@ impl Printer {
                 self.declaration(&node, depth, head)
             }
             PROPERTY => self.declaration(&node, depth, key_head(&node)),
-            LIST_ITEM => self.declaration(&node, depth, "-".to_string()),
+            LIST_ITEM => match node.children().find(|it| it.kind() == PROPERTY) {
+                // `- key: value` is a dictionary written as one element, so
+                // the key head joins the marker and the value and the block
+                // are the property's, not the item's.
+                Some(property) => {
+                    let head = format!("- {}", key_head(&property));
+                    self.declaration(&property, depth, head)
+                }
+                None => self.declaration(&node, depth, "-".to_string()),
+            },
             SPREAD_ITEM => {
                 let marker = if token_of(&node, PLUS2).is_some() { "++" } else { "+" };
                 self.declaration(&node, depth, marker.to_string())

@@ -85,6 +85,10 @@ const CORPUS: &[&str] = &[
     "negative: -5\n",
     "list:\n    - one\n    - two\n",
     "nested:\n    - one\n        - two\n            - three\n",
+    "dict_in_list:\n    - key: value\n    - other: thing\n",
+    "dict_in_list:\n  - outer:\n      nested: value\n",
+    "typed_in_list:\n    - key:: string: value\n",
+    "inset_block:\n  key:\n      prose inset past one unit\n",
     "inline: [a, b, c]\n",
     "inline_nested: [a, [b, [c]]]\n",
     "trailing_comma: [a, b,]\n",
@@ -127,7 +131,8 @@ const CORPUS: &[&str] = &[
 /// Inputs that must be reported, but must not stop the file being parsed.
 const INVALID: &[&str] = &[
     "x::number: 42\n",
-    "a:\n  b: 1\nc:\n    d: 2\n",
+    // A width that is not a whole number of the file's indent unit.
+    "a:\n    b: 1\nc:\n      d: 2\n",
     "a:\n \tb: 1\n",
     "!!! nonsense\n",
     "expr: {unclosed\n",

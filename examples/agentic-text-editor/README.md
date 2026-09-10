@@ -2,7 +2,7 @@
 
 A complete Piton project. It describes a plain text editor — Notepad's feature
 set, written in Rust with egui — and compiles to the agents, skills, commands
-and per-directory `CLAUDE.md` files that a coding tool loads before it writes
+and per-directory `AGENTS.md` files that a coding tool loads before it writes
 any of it.
 
 The `src/` tree is empty on purpose. It is where the editor gets built, and the
@@ -46,12 +46,10 @@ describes:
 ```
 spec/shape/ui/header/MenuBar.pi  ->  src/ui/header/AGENTS.md
 spec/shape/ui/header/Toolbar.pi  ->  src/ui/header/AGENTS.md
-                                     src/ui/header/CLAUDE.md
 ```
 
-Both documents written at that scope concatenate into the one `AGENTS.md`, and
-the `CLAUDE.md` beside it imports that file, so an agent working in
-`src/ui/header` reads both without being asked to.
+Both documents written at that scope concatenate into the one `AGENTS.md`, so an
+agent working in `src/ui/header` reads both without being asked to.
 
 ## What is worth copying
 

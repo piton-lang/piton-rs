@@ -6,9 +6,11 @@ The only place in the editor that opens a dialog the operating system owns, and 
 
 ## Dialogs
 
+```
 open: Native, filtered to text files with an all files entry, starting in the current document's directory
 save: Native, defaulting to the current name or `Untitled.txt`, appending `.txt` when no extension is given
 confirm: Three buttons, Save, Discard and Cancel, with Cancel as the default and Escape
+```
 
 ## Wording
 

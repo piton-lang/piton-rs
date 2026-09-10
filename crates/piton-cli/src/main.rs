@@ -42,10 +42,9 @@ enum Command {
         #[arg(long)]
         stdout: bool,
     },
-    /// Check Piton files for errors without writing anything.
+    /// Check Piton files, or the whole project, without writing anything.
     Check {
-        /// Files, directories, or globs.
-        #[arg(required = true)]
+        /// Files, directories, or globs. With none, the project is checked.
         paths: Vec<String>,
     },
     /// Build the project described by piton.config.pi.
@@ -149,6 +148,9 @@ fn main() -> Result<()> {
         Command::Compile { paths, format, out_dir, stdout } => {
             commands::compile(&paths, format, out_dir.as_deref(), stdout, true)?
         }
+        // Named files are checked on their own; named nothing, the thing the
+        // author meant to check is the project.
+        Command::Check { paths } if paths.is_empty() => commands::build(true)?,
         Command::Check { paths } => commands::compile(&paths, Format::Json, None, false, false)?,
         Command::Build { command } => commands::build(command.is_some())?,
         Command::Reach { path, show, strict, chains, entry } => {

@@ -443,6 +443,11 @@ impl ListItem {
     pub fn block(&self) -> Option<Block> {
         child(&self.syntax)
     }
+    /// `- key: value` carries a property instead of a value: the element is a
+    /// dictionary rather than the text `key: value`.
+    pub fn property(&self) -> Option<Property> {
+        child(&self.syntax)
+    }
 }
 
 impl SpreadItem {

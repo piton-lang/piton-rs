@@ -166,27 +166,24 @@ fn lower_block(inline: Option<ast::Value>, block: &ast::Block) -> Node {
     for entry in entries {
         match entry {
             ast::Entry::Property(property) => {
-                let lowered = Property {
-                    name: property.name().unwrap_or_default(),
-                    name_range: property
-                        .name_token()
-                        .map(|it| it.text_range())
-                        .unwrap_or_else(|| property.range()),
-                    range: property.range(),
-                    constraints: property
-                        .type_annotations()
-                        .filter_map(|it| lower_type(&it))
-                        .collect(),
-                    node: lower_body(property.value(), property.block()),
-                    doc: doc_comment(property.syntax()),
-                };
+                let lowered = lower_property(&property);
                 match groups.last_mut() {
                     Some(Group::Dict(items)) => items.push(lowered),
                     _ => groups.push(Group::Dict(vec![lowered])),
                 }
             }
             ast::Entry::ListItem(item) => {
-                let element = list_element(item.value(), item.block(), None, item.range());
+                // `- key: value` is one element that happens to be a
+                // dictionary, not a run of `key: value` properties: the
+                // dictionary belongs to the list, not to the enclosing block.
+                let element = match item.property() {
+                    Some(property) => vec![Element {
+                        node: Node::Dict(vec![lower_property(&property)]),
+                        spread: None,
+                        range: item.range(),
+                    }],
+                    None => list_element(item.value(), item.block(), None, item.range()),
+                };
                 push_elements(&mut groups, element);
             }
             ast::Entry::Spread(item) => {
@@ -247,6 +244,20 @@ fn lower_block(inline: Option<ast::Value>, block: &ast::Block) -> Node {
         0 => Node::Empty,
         1 => nodes.pop().unwrap(),
         _ => Node::Mixed(nodes),
+    }
+}
+
+fn lower_property(property: &ast::Property) -> Property {
+    Property {
+        name: property.name().unwrap_or_default(),
+        name_range: property
+            .name_token()
+            .map(|it| it.text_range())
+            .unwrap_or_else(|| property.range()),
+        range: property.range(),
+        constraints: property.type_annotations().filter_map(|it| lower_type(&it)).collect(),
+        node: lower_body(property.value(), property.block()),
+        doc: doc_comment(property.syntax()),
     }
 }
 

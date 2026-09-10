@@ -87,7 +87,6 @@ fn instructions_mirror_the_shape_tree_onto_the_code_tree() {
     let agents = find(&outputs, &root, "src/components/button/AGENTS.md");
     assert!(agents.contains("Make it clickable"), "{agents}");
     assert!(agents.contains("Handle hover and disabled"), "{agents}");
-    assert_eq!(find(&outputs, &root, "src/components/button/CLAUDE.md"), "@AGENTS.md\n");
 
     // And each instruction is also published under the agent directory.
     find(&outputs, &root, ".claude/reference/shape/components/button/ButtonComponent.md");
@@ -108,7 +107,6 @@ fn instructions_fall_back_to_the_nearest_real_directory() {
     assert!(errors.is_empty(), "{errors:?}");
     let agents = find(&outputs, &root, "src/AGENTS.md");
     assert!(agents.contains("Applies to the whole project"), "{agents}");
-    find(&outputs, &root, "src/CLAUDE.md");
 }
 
 #[test]
@@ -206,8 +204,10 @@ export skill Build:
         ),
     ]);
     assert!(errors.is_empty(), "{errors:?}");
+    // The path is relative to the document that ended up carrying it, which
+    // is what makes it usable from wherever the agent reads it.
     let skill = find(&outputs, &root, ".claude/skills/build/SKILL.md");
-    assert!(skill.contains(".claude/reference/shape"), "{skill}");
+    assert!(skill.contains("../../reference/shape"), "{skill}");
 }
 
 #[test]

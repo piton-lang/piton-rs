@@ -3,7 +3,7 @@
 Piton is a language for writing the instructions that agentic coding tools read.
 You describe your system once — in prose where prose is right, in structure
 where structure is right — and the compiler produces the agents, skills,
-commands, and per-directory `CLAUDE.md` files that Claude Code and its cousins
+commands, and per-directory `AGENTS.md` files that Claude Code and its cousins
 actually load.
 
 ```piton
@@ -217,8 +217,8 @@ More detail, and what to do when the binary is not on your `PATH`, is in
 
 ## What to reach for next
 
-- **Give the agent guidance per directory.** An `instruction` compiles into a
-  `CLAUDE.md` beside the code it applies to. See [the Belay guide](docs/belay.md).
+- **Give the agent guidance per directory.** An `instruction` compiles into an
+  `AGENTS.md` beside the code it applies to. See [the Belay guide](docs/belay.md).
 - **Stop repeating yourself.** An `anchor` is a named, inheritable block; `@{}`
   points one document at another instead of copying it.
 - **Read the language reference**, which is generated from the compiler, so it

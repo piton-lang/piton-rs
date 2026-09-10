@@ -44,9 +44,11 @@
 
 ## Row
 
+```
 id: Stable, lower case, `group.verb`, and never reused for something else
 label: Title case, no trailing ellipsis in the data; the menu adds one where a dialog follows
 group: The menu it belongs to, and the order within the menu is the order here
 shortcut: One chord, or none; matched before the editor surface sees the key
 enabled: A function of the document, evaluated fresh each frame
 run: One function, taking the application state, returning nothing
+```

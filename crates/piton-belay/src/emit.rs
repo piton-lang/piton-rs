@@ -147,9 +147,7 @@ Read one when the work touches what it describes.";
 /// import is a memory file feature that no other agent implements, and even
 /// where it works it pulls the whole reachable reference tree into context at
 /// launch, four hops deep and silently truncated past that — the opposite of
-/// what publishing references as separate files is for. The one import Belay
-/// still writes is the `@AGENTS.md` in a generated `CLAUDE.md`, which is the
-/// payload you do want loaded eagerly.
+/// what publishing references as separate files is for.
 fn localise_references(
     contents: &str,
     file: &Path,
@@ -168,7 +166,7 @@ fn localise_references(
     let mut linked = false;
     while let Some(open) = rest.find("](") {
         let (head, tail) = rest.split_at(open + 2);
-        out.push_str(head);
+        out.push_str(&localise_shape(head, directory, settings, adapter));
         // Link syntax delimits itself, so unlike a bare path there is no
         // trailing punctuation to guess at.
         let Some(close) = tail.find(')') else { break };
@@ -187,13 +185,38 @@ fn localise_references(
         }
         rest = &tail[close..];
     }
-    out.push_str(rest);
+    out.push_str(&localise_shape(rest, directory, settings, adapter));
 
     if linked {
         while out.ends_with('\n') {
             out.pop();
         }
         out.push_str(&format!("\n\n{REFERENCE_NOTE}\n"));
+    }
+    out
+}
+
+/// Point every mention of the compiled shape directory at this adapter's copy,
+/// relative to `directory`.
+///
+/// `__BELAY_SHAPE__` is a bare path rather than a link, and it is specified to
+/// be relative to the file using it. Evaluation cannot know which file that is,
+/// so it binds the project-relative directory and the rewrite happens here.
+/// Only prose is passed in: a link's target is already being made relative by
+/// the caller, and a relative target still spells the shape directory inside
+/// itself, so rewriting it again would corrupt it.
+fn localise_shape(
+    prose: &str,
+    directory: &Path,
+    settings: &Settings,
+    adapter: &Adapter,
+) -> String {
+    let target = settings.base.join(&adapter.directory).join("reference").join("shape");
+    let here = relative_to(directory, &target);
+    let mut out = prose.to_string();
+    for other in &settings.adapters {
+        let written = other.directory.join("reference").join("shape");
+        out = out.replace(&written.display().to_string(), &here);
     }
     out
 }
@@ -318,10 +341,6 @@ fn instruction_files(
         files.push(OutputFile {
             path: directory.join("AGENTS.md"),
             contents: format!("{}\n", bodies.join("\n\n").trim_end()),
-        });
-        files.push(OutputFile {
-            path: directory.join("CLAUDE.md"),
-            contents: "@AGENTS.md\n".to_string(),
         });
     }
     files

@@ -46,12 +46,30 @@ pub fn coerce(value: Value, constraint: &TypeExpr, ctx: &dyn TypeContext) -> Opt
             }
             Some(Value::List(List { items, implicit: list.implicit }))
         }
-        TypeExpr::Extends { base, .. } => {
-            let TypeExpr::Named { name, .. } = base.as_ref() else { return None };
-            let target = ctx.resolve_anchor(name)?;
-            let Value::Anchor(anchor) = &value else { return None };
-            (anchor.id == target || ctx.ancestors(anchor.id).contains(&target)).then_some(value)
-        }
+        // `extends A[]` parses as `extends (A[])`, because `[]` binds to the
+        // name it follows. A list constraint constrains the elements, so the
+        // `extends` belongs on the element type: `extends A[]` is a list of
+        // things whose chain includes `A`, not a list that itself extends one.
+        TypeExpr::Extends { base, range } => match base.as_ref() {
+            TypeExpr::ListOf { element, range: list_range } => coerce(
+                value,
+                &TypeExpr::ListOf {
+                    element: Box::new(TypeExpr::Extends {
+                        base: element.clone(),
+                        range: *range,
+                    }),
+                    range: *list_range,
+                },
+                ctx,
+            ),
+            TypeExpr::Named { name, .. } => {
+                let target = ctx.resolve_anchor(name)?;
+                let Value::Anchor(anchor) = &value else { return None };
+                (anchor.id == target || ctx.ancestors(anchor.id).contains(&target))
+                    .then_some(value)
+            }
+            TypeExpr::Extends { .. } => None,
+        },
         TypeExpr::Named { name, .. } => coerce_named(value, name, ctx),
     }
 }

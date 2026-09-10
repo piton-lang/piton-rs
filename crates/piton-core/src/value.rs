@@ -34,6 +34,12 @@ impl Num {
         let clean = text.replace('_', "");
         Num { value: clean.parse().unwrap_or(f64::NAN), text: Some(clean) }
     }
+
+    /// True when the author wrote this number with a fractional part, so that
+    /// `1.0` stays `1.0` everywhere rather than collapsing to `1`.
+    pub fn spelled_as_float(&self) -> bool {
+        self.text.as_ref().is_some_and(|text| text.contains(['.', 'e', 'E']))
+    }
 }
 
 impl fmt::Display for Num {

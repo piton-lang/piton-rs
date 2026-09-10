@@ -6,12 +6,14 @@ This directory holds the `eframe::App` implementation and the one struct that ow
 
 ## State
 
+```
 document: The buffer, path, dirty flag and caret; see the document module
 history: The undo stack that belongs to that document
 settings: The view preferences, loaded once at startup
 search: The current query, its mode, and where the last match was
 pending: The command waiting on an unsaved-changes answer, if any
 toast: The message the footer is currently showing, and when it expires
+```
 
 ## Frame Order
 

@@ -2,13 +2,16 @@
 //!
 //! Everything Belay emits is prose, so every value has to become text. Simple
 //! values render as themselves, lists become bullets, a *pure dictionary* — one
-//! nesting only more key/value pairs — becomes an indented block, and anything
-//! else becomes headers whose level tracks depth, falling back to bold past the
-//! sixth level.
+//! nesting only more key/value pairs — becomes a fenced indented block, and
+//! anything else becomes headers whose level tracks depth, falling back to bold
+//! past the sixth level.
 //!
-//! An anchor is never indented, however flat it looks: its properties are a
-//! document's sections. That is the one place the two rules differ, and
-//! conflating them is what the indented-anchor branch used to get wrong.
+//! Two things are never indented, however flat they look. An anchor's
+//! properties are a document's sections. So are the keys of a dictionary
+//! written *among prose*, inside an implicit list: the author put it there as
+//! content, not as data, so it reads as a section unless it nests further
+//! dictionaries — at which point the shape is the information again and has to
+//! be shown as a shape.
 
 use piton_core::value::{Dict, Value};
 
@@ -22,13 +25,13 @@ pub fn block(value: &Value, depth: usize) -> String {
         Value::List(list) if list.implicit => list
             .items
             .iter()
-            .map(|item| block(item, depth))
+            .map(|item| content(item, depth))
             .filter(|text| !text.trim().is_empty())
             .collect::<Vec<_>>()
             .join("\n\n"),
         Value::List(list) => bullets(&list.items, 0),
         Value::Dict(dict) if dict.is_empty() => String::new(),
-        Value::Dict(dict) if is_flat(dict) => indented(dict, 0),
+        Value::Dict(dict) if is_flat(dict) => fenced(&indented(dict, 0)),
         Value::Dict(dict) => headers(dict, depth),
         Value::Anchor(anchor) if anchor.props.is_empty() => String::new(),
         // No flatness exception here, unlike a dictionary: an anchor's
@@ -38,6 +41,29 @@ pub fn block(value: &Value, depth: usize) -> String {
         Value::Anchor(anchor) => headers(&anchor.props, depth),
         simple => simple.to_literal(),
     }
+}
+
+/// Render one element of an implicit list — a value written among prose.
+///
+/// A dictionary here is a section of the document rather than a block of data,
+/// so its keys become headings. It goes back to being data as soon as it nests
+/// another dictionary, because then the nesting itself is what it has to say.
+fn content(value: &Value, depth: usize) -> String {
+    match value {
+        Value::Dict(dict) if !dict.is_empty() && !nests_dictionaries(dict) => {
+            headers(dict, depth)
+        }
+        other => block(other, depth),
+    }
+}
+
+/// Wrap an indentation block in a fence.
+///
+/// Markdown throws leading whitespace away, so the two spaces before `second:`
+/// would render as nothing at all and the shape would be lost. The fence is
+/// what makes the structure survive being read as Markdown.
+fn fenced(body: &str) -> String {
+    format!("```\n{}\n```", body.trim_end())
 }
 
 /// Render only the properties a caller has not already consumed.
@@ -87,11 +113,14 @@ fn bullets(items: &[Value], indent: usize) -> String {
             Value::List(nested) if !nested.items.is_empty() => {
                 lines.push(bullets(&nested.items, indent + 1));
             }
+            // `- key: value` is one element, so the marker sits on the first
+            // key rather than on a line of its own. A fence cannot be used
+            // here: it would end the list.
             Value::Dict(dict) if !dict.is_empty() => {
-                lines.push(format!("{pad}-\n{}", indented(dict, indent + 1)));
+                lines.push(marked(&pad, &indented(dict, indent + 1)));
             }
             Value::Anchor(anchor) if !anchor.props.is_empty() => {
-                lines.push(format!("{pad}-\n{}", indented(&anchor.props, indent + 1)));
+                lines.push(marked(&pad, &indented(&anchor.props, indent + 1)));
             }
             other => {
                 let text = block(other, MAX_HEADER + 1);
@@ -100,6 +129,17 @@ fn bullets(items: &[Value], indent: usize) -> String {
         }
     }
     lines.join("\n")
+}
+
+/// Put a `- ` marker over the indentation of an already-indented block's first
+/// line, so the block reads as one list element.
+fn marked(pad: &str, body: &str) -> String {
+    // `indented` opened the block one level in, which is exactly the width of
+    // the `- ` the marker needs.
+    match body.strip_prefix(&format!("{pad}  ")) {
+        Some(rest) => format!("{pad}- {rest}"),
+        None => format!("{pad}-\n{body}"),
+    }
 }
 
 /// `key:` lines whose indentation mirrors the structure.
@@ -131,6 +171,15 @@ fn is_flat(dict: &Dict) -> bool {
     dict.values().all(|value| match value {
         Value::Dict(nested) => is_flat(nested),
         other => other.is_simple(),
+    })
+}
+
+/// True when a dictionary holds another dictionary, so its shape is the point.
+fn nests_dictionaries(dict: &Dict) -> bool {
+    dict.values().any(|value| match value {
+        Value::Dict(nested) => !nested.is_empty(),
+        Value::Anchor(anchor) => !anchor.props.is_empty(),
+        _ => false,
     })
 }
 
@@ -248,13 +297,16 @@ mod tests {
     }
 
     #[test]
-    fn a_dictionary_of_scalars_indents() {
-        let inner = dict(vec![("thirdProperty", Value::string("value"))]);
-        let middle = dict(vec![("secondProperty", Value::Dict(inner))]);
-        let outer = dict(vec![("firstProperty", Value::Dict(middle))]);
+    fn a_pure_dictionary_indents_inside_a_fence() {
+        // A pure dictionary "will compile down into text that follows that
+        // exact shape inside a code block". Without the fence Markdown eats
+        // the indentation and the shape is gone.
+        let inner = dict(vec![("third", Value::string("Hello, World"))]);
+        let middle = dict(vec![("second", Value::Dict(inner))]);
+        let outer = dict(vec![("first", Value::Dict(middle))]);
         assert_eq!(
             block(&Value::Dict(outer), 1),
-            "firstProperty:\n  secondProperty:\n    thirdProperty: value"
+            "```\nfirst:\n  second:\n    third: Hello, World\n```"
         );
     }
 
@@ -302,7 +354,53 @@ mod tests {
         ]);
         assert_eq!(
             block(&value, 2),
-            "## Spacing\n\nstep: 4\ngutter: 12\n\n## Units\n\npoints"
+            "## Spacing\n\n```\nstep: 4\ngutter: 12\n```\n\n## Units\n\npoints"
+        );
+    }
+
+    fn implicit(items: Vec<Value>) -> Value {
+        Value::List(piton_core::value::List::implicit(items))
+    }
+
+    #[test]
+    fn a_dictionary_written_among_prose_becomes_a_section() {
+        // The specification's `MyAnchor` example: `third:` sits beside prose
+        // inside `second:`, and comes out as a heading with its text beneath,
+        // not as a `third: Third Text` line.
+        let third = Value::Dict(dict(vec![("third", Value::string("Third Text"))]));
+        let second =
+            Value::Dict(dict(vec![("second", implicit(vec![Value::string("Second Text"), third]))]));
+        let first = implicit(vec![Value::string("First Text"), second]);
+        let value = anchor(vec![("first", first)]);
+        assert_eq!(
+            block(&value, 2),
+            "## First\n\nFirst Text\n\n### Second\n\nSecond Text\n\n#### Third\n\nThird Text"
+        );
+    }
+
+    #[test]
+    fn a_nested_dictionary_among_prose_stays_a_shape() {
+        // The specification's kitchen-sink example: `with:` nests further, so
+        // the nesting is the information and it is shown as a fenced shape.
+        let nested = dict(vec![("nested", Value::string("dictionary"))]);
+        let a = dict(vec![("a", Value::Dict(nested))]);
+        let with = Value::Dict(dict(vec![("with", Value::Dict(a))]));
+        let value = anchor(vec![("third", implicit(vec![Value::string("This is the third"), with]))]);
+        assert_eq!(
+            block(&value, 2),
+            "## Third\n\nThis is the third\n\n```\nwith:\n  a:\n    nested: dictionary\n```"
+        );
+    }
+
+    #[test]
+    fn a_dictionary_list_element_carries_the_marker() {
+        let entry = Value::Dict(dict(vec![
+            ("name", Value::string("Save")),
+            ("key", Value::string("Ctrl+S")),
+        ]));
+        assert_eq!(
+            block(&Value::list(vec![entry, Value::string("plain")]), 1),
+            "- name: Save\n  key: Ctrl+S\n- plain"
         );
     }
 

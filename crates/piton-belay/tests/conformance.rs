@@ -217,22 +217,22 @@ fn commands_are_prefixed_and_carry_the_right_front_matter() {
 }
 
 #[test]
-fn instructions_pair_a_claude_file_with_an_agents_file() {
+fn instructions_compile_into_the_code_tree_as_agents_files() {
     let (root, outputs) = everything();
-    let claude: Vec<&OutputFile> =
-        outputs.iter().filter(|it| relative(it, &root).ends_with("CLAUDE.md")).collect();
-    assert!(!claude.is_empty());
+    let agents: Vec<&OutputFile> = outputs
+        .iter()
+        .filter(|it| relative(it, &root).starts_with("src/"))
+        .collect();
+    assert!(!agents.is_empty());
 
-    for file in claude {
+    for file in agents {
         let path = relative(file, &root);
-        // A relative `@import` resolves against the importing file, so a bare
-        // `@AGENTS.md` is the sibling.
-        assert_eq!(file.contents, "@AGENTS.md\n", "{path}");
-        let sibling = file.path.parent().unwrap().join("AGENTS.md");
-        assert!(
-            outputs.iter().any(|it| it.path == sibling),
-            "{path} imports an AGENTS.md that is never written"
-        );
+        // An instruction compiles into `codeRoot` as the equivalent of an
+        // `AGENTS.md`. Belay writes no companion `CLAUDE.md`: an `@import`
+        // pulls the whole reachable tree in at launch, which is the opposite
+        // of what publishing references as separate files is for.
+        assert!(path.ends_with("/AGENTS.md"), "{path}: instructions write AGENTS.md");
+        assert!(!file.contents.trim().is_empty(), "{path}");
     }
 }
 

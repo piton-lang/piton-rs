@@ -210,13 +210,19 @@ fn block_parser<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>>
         ))
         .map(|parts| Tree::new(PROPERTY, parts));
 
-        let list_item = group((
-            tok(DASH),
-            value.clone().or_not(),
-            tok(NEWLINE).or_not(),
-            block.clone().or_not(),
+        // `- key: value` and `- key:` with a block are a dictionary written as
+        // one list element, which is why the property alternative comes first.
+        let list_item = choice((
+            group((tok(DASH), property.clone())).map(children),
+            group((
+                tok(DASH),
+                value.clone().or_not(),
+                tok(NEWLINE).or_not(),
+                block.clone().or_not(),
+            ))
+            .map(children),
         ))
-        .map(|parts| Tree::new(LIST_ITEM, children(parts)));
+        .map(|parts| Tree::new(LIST_ITEM, parts));
 
         let spread_item = group((
             kind_in(&[PLUS, PLUS2]),

@@ -170,7 +170,9 @@ module.exports = grammar({{
 
     builtin_type: $ => choice({types}),
 
-    list_item: $ => prec.right(2, seq('-', optional($.value))),
+    // `- key: value` is a dictionary written as one element, so a list item
+    // takes a property as readily as a value.
+    list_item: $ => prec.right(2, seq('-', optional(choice($.property, $.value)))),
 
     spread_item: $ => prec.right(2, seq(choice('++', '+'), optional($.value))),
 

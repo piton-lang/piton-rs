@@ -168,7 +168,13 @@ impl<'a> Lexer<'a> {
                     let tab = self.src.as_bytes().get(at.saturating_sub(1)) == Some(&b'\t');
                     self.style = Some(IndentStyle { tab, width: step });
                 }
-                Some(style) if style.width != step => {
+                // A step is any whole number of the file's indent unit, not
+                // exactly one. A block opened under a `- ` list item sits past
+                // the marker, so `  - key:` with its body at column 6 is two
+                // units deep while still being one level deeper; so is a string
+                // block the author chose to inset further. Both are consistent
+                // with the file's unit, which is all the language promises.
+                Some(style) if style.width == 0 || step % style.width != 0 => {
                     self.error(
                         &format!(
                             "inconsistent indentation: this file indents by {} but this line indents by {}",
@@ -246,6 +252,11 @@ impl<'a> Lexer<'a> {
         if at_marker(self, "-") {
             self.emit(SyntaxKind::DASH, 1);
             self.eat_inline_space();
+            // `- key:` is a dictionary written as a list element, so the same
+            // key head a bare line would get is recognised after the marker.
+            if self.key_head().is_some() {
+                self.eat_key_head();
+            }
             return self.value_region();
         }
         if at_marker(self, "++") {

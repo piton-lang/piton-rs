@@ -38,7 +38,7 @@ macro_rules! json {
 
 #[test]
 fn scalars_and_inference() {
-    assert_eq!(eval("a: 42\n", "a"), json!(42.0));
+    assert_eq!(eval("a: 42\n", "a"), json!(42));
     assert_eq!(eval("a: 42 things\n", "a"), json!("42 things"));
     assert_eq!(eval("a: true\n", "a"), json!(true));
     assert_eq!(eval("a: true story\n", "a"), json!("true story"));
@@ -50,7 +50,7 @@ fn scalars_and_inference() {
     assert_eq!(eval("a: \\// Just Text\n", "a"), json!("// Just Text"));
     assert_eq!(eval("a: \"// Also Just Text\"\n", "a"), json!("// Also Just Text"));
     assert_eq!(eval("a: \"false\"\n", "a"), json!("false"));
-    assert_eq!(eval("a: 42 // trailing comment\n", "a"), json!(42.0));
+    assert_eq!(eval("a: 42 // trailing comment\n", "a"), json!(42));
 }
 
 #[test]
@@ -111,32 +111,32 @@ reached: {combined.nestedDictionary.deeplyNestedDictionary}
 
 #[test]
 fn expressions_only_evaluate_with_literal_atoms() {
-    assert_eq!(eval("a: 1 + 2\n", "a"), json!(3.0));
-    assert_eq!(eval("a: 2.71 - 2.71\n", "a"), json!(0.0));
+    assert_eq!(eval("a: 1 + 2\n", "a"), json!(3));
+    assert_eq!(eval("a: 2.71 - 2.71\n", "a"), json!(0));
     assert_eq!(eval("a: 2 + Hello\n", "a"), json!("2 + Hello"));
     assert_eq!(eval("a: 1\nb: 2\nresult: a + b\n", "result"), json!("a + b"));
-    assert_eq!(eval("a: 1\nb: 2\nresult: {a + b}\n", "result"), json!(3.0));
+    assert_eq!(eval("a: 1\nb: 2\nresult: {a + b}\n", "result"), json!(3));
     assert_eq!(eval("a: \"This is a\" + \" string\"\n", "a"), json!("This is a string"));
     assert_eq!(eval("a: \"The number is \" + 5\n", "a"), json!("The number is 5"));
-    assert_eq!(eval("a: \"Hello, World\" + [1, 2, 3]\n", "a"), json!(["Hello, World", [1.0, 2.0, 3.0]]));
+    assert_eq!(eval("a: \"Hello, World\" + [1, 2, 3]\n", "a"), json!(["Hello, World", [1, 2, 3]]));
 }
 
 #[test]
 fn concatenation_deduplicates_with_plus_only() {
-    assert_eq!(eval("a: [1, 2, 3] + [1, 2, 3]\n", "a"), json!([1.0, 2.0, 3.0]));
-    assert_eq!(eval("a: [1, 2, 3, 4] + [1, 2, 3]\n", "a"), json!([4.0, 1.0, 2.0, 3.0]));
+    assert_eq!(eval("a: [1, 2, 3] + [1, 2, 3]\n", "a"), json!([1, 2, 3]));
+    assert_eq!(eval("a: [1, 2, 3, 4] + [1, 2, 3]\n", "a"), json!([4, 1, 2, 3]));
     assert_eq!(
         eval("a: [1, 2, 3] ++ [1, 2, 3]\n", "a"),
-        json!([1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
+        json!([1, 2, 3, 1, 2, 3])
     );
 }
 
 #[test]
 fn operators_follow_precedence() {
-    assert_eq!(eval("a: {1 + 2 * 3}\n", "a"), json!(7.0));
-    assert_eq!(eval("a: {(1 + 2) * 3}\n", "a"), json!(9.0));
-    assert_eq!(eval("a: {7 % 3}\n", "a"), json!(1.0));
-    assert_eq!(eval("a: {-7 % 3}\n", "a"), json!(2.0));
+    assert_eq!(eval("a: {1 + 2 * 3}\n", "a"), json!(7));
+    assert_eq!(eval("a: {(1 + 2) * 3}\n", "a"), json!(9));
+    assert_eq!(eval("a: {7 % 3}\n", "a"), json!(1));
+    assert_eq!(eval("a: {-7 % 3}\n", "a"), json!(2));
     assert_eq!(eval("a: {true && false}\n", "a"), json!(false));
     assert_eq!(eval("a: {false || true}\n", "a"), json!(true));
     assert_eq!(eval("a: {1 == 1 ? \"yes\" : \"no\"}\n", "a"), json!("yes"));
@@ -145,13 +145,13 @@ fn operators_follow_precedence() {
 
 #[test]
 fn type_constraints_pick_the_first_that_fits() {
-    assert_eq!(eval("a:: number: 42\n", "a"), json!(42.0));
-    assert_eq!(eval("a:: number:: string: 42\n", "a"), json!(42.0));
+    assert_eq!(eval("a:: number: 42\n", "a"), json!(42));
+    assert_eq!(eval("a:: number:: string: 42\n", "a"), json!(42));
     assert_eq!(eval("a:: string:: number: 42\n", "a"), json!("42"));
     assert_eq!(eval("a:: boolean:: number:: string: \"false\"\n", "a"), json!("false"));
     assert_eq!(eval("a:: string[]: [foo, bar]\n", "a"), json!(["foo", "bar"]));
-    assert_eq!(eval("a:: simple: 1\n", "a"), json!(1.0));
-    assert_eq!(eval("a:: complex: [1, 2, 3]\n", "a"), json!([1.0, 2.0, 3.0]));
+    assert_eq!(eval("a:: simple: 1\n", "a"), json!(1));
+    assert_eq!(eval("a:: complex: [1, 2, 3]\n", "a"), json!([1, 2, 3]));
     assert_eq!(eval("a:: any: Hello, World\n", "a"), json!("Hello, World"));
 
     let (_, diagnostics) = eval_with_diagnostics("a:: number: not a number\n", "a");
@@ -194,7 +194,7 @@ anchor MyFirstAnchor:
             "whatIsAnAnchor": "An anchor is a kind of object or document that is structured via properties and values.",
             "stringValue": "String types are supported.",
             "listTypes": ["List types", "are", "supported."],
-            "numberTypes": 0.0,
+            "numberTypes": 0,
             "booleanTypes": true,
             "nullType": null,
             "booleanOperatorsAnd": false,
@@ -350,7 +350,7 @@ anchor Broken extends Skill:
 #[test]
 fn references_and_cycles() {
     let source = "myList: [1, 2, 3]\n\nmyDictionary:\n    list: {myList}\n\nnewList: {myDictionary.list + [4, 5, 6]}\n";
-    assert_eq!(eval(source, "newList"), json!([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
+    assert_eq!(eval(source, "newList"), json!([1, 2, 3, 4, 5, 6]));
 
     let (_, diagnostics) = eval_with_diagnostics("a: {b}\nb: {a}\n", "a");
     assert!(diagnostics.iter().any(|it| it.contains("refers to itself")), "{diagnostics:?}");
@@ -386,6 +386,45 @@ abstract anchor C extends A, B:
     let (_, diagnostics) = eval_with_diagnostics(source, "C");
     assert!(
         diagnostics.iter().any(|it| it.contains("is constrained to")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn an_extends_list_constraint_accepts_the_whole_chain() {
+    // `extends A[]` reads as a list of things whose chain includes `A`. The
+    // `[]` binds to the name, so the `extends` has to be pushed down onto the
+    // element type or the constraint can never be satisfied at all.
+    let source = "\
+abstract anchor A:
+    description:: string
+
+abstract anchor B extends A:
+    name:: string
+
+anchor ImplementsA extends A:
+    description: a
+
+anchor ImplementsB extends B:
+    description: b
+    name: b
+
+anchor Unrelated:
+    description: neither
+
+abstract anchor Holder:
+    chain:: extends A[]
+
+anchor Uses extends Holder:
+    chain: [{ImplementsA}, {ImplementsB}]
+";
+    let (_, diagnostics) = eval_with_diagnostics(source, "Uses");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    let rejected = source.replace("[{ImplementsA}, {ImplementsB}]", "[{Unrelated}]");
+    let (_, diagnostics) = eval_with_diagnostics(&rejected, "Uses");
+    assert!(
+        diagnostics.iter().any(|it| it.contains("does not satisfy extends A[]")),
         "{diagnostics:?}"
     );
 }
@@ -481,10 +520,10 @@ fn logical_operators_short_circuit() {
 
 #[test]
 fn modulo_takes_the_divisors_sign() {
-    assert_eq!(eval("a: {7 % 3}\n", "a"), json!(1.0));
-    assert_eq!(eval("a: {-7 % 3}\n", "a"), json!(2.0));
-    assert_eq!(eval("a: {7 % -3}\n", "a"), json!(-2.0));
-    assert_eq!(eval("a: {6 % 3}\n", "a"), json!(0.0));
+    assert_eq!(eval("a: {7 % 3}\n", "a"), json!(1));
+    assert_eq!(eval("a: {-7 % 3}\n", "a"), json!(2));
+    assert_eq!(eval("a: {7 % -3}\n", "a"), json!(-2));
+    assert_eq!(eval("a: {6 % 3}\n", "a"), json!(0));
 }
 
 #[test]
@@ -515,22 +554,60 @@ deep: {left ++ right}
 ";
     assert_eq!(
         eval(source, "shallow"),
-        json!({ "keep": 1.0, "nested": { "b": 20.0, "c": 30.0 } }),
+        json!({ "keep": 1, "nested": { "b": 20, "c": 30 } }),
         "`+` replaces the nested dictionary"
     );
     assert_eq!(
         eval(source, "deep"),
-        json!({ "keep": 1.0, "nested": { "a": 1.0, "b": 20.0, "c": 30.0 } }),
+        json!({ "keep": 1, "nested": { "a": 1, "b": 20, "c": 30 } }),
         "`++` merges into it"
     );
 }
 
 #[test]
+fn a_dictionary_may_be_written_as_a_list_element() {
+    // "I'm just pointing this out because it is syntactically possible."
+    // The key is a key, not the text `dictionaryInsideAList:`, and its block
+    // belongs to it rather than becoming a sibling element.
+    let source = "\
+combined:
+  - dictionaryInsideAList:
+      nested: value
+";
+    assert_eq!(
+        eval(source, "combined"),
+        json!([{ "dictionaryInsideAList": { "nested": "value" } }])
+    );
+    assert_eq!(
+        eval("a:\n    - key: value\n    - other: thing\n", "a"),
+        json!([{ "key": "value" }, { "other": "thing" }])
+    );
+    // And the dictionary is not addressable, because the list is explicit.
+    let (_, diagnostics) =
+        eval_with_diagnostics("combined:\n    - key: value\nreach: {combined.key}\n", "reach");
+    assert!(
+        diagnostics.iter().any(|it| it.contains("has no property `key`")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn whole_numbers_serialize_as_integers() {
+    // Piton has one number type, but the compiled JSON should read the way the
+    // specification writes it: `0`, not `0.0`.
+    assert_eq!(eval("a: 1 + 2\n", "a").to_string(), "3");
+    assert_eq!(eval("a: 3.14 - 3.14\n", "a").to_string(), "0");
+    // A number the author spelled with a fraction keeps it.
+    assert_eq!(eval("a: 1.0\n", "a").to_string(), "1.0");
+    assert_eq!(eval("a: 1_200_000.00\n", "a").to_string(), "1200000.0");
+}
+
+#[test]
 fn list_deduplication_is_shallow() {
     // Equal nested lists are the same value, so they deduplicate.
-    assert_eq!(eval("a: {[[1, 2]] + [[1, 2]]}\n", "a"), json!([[1.0, 2.0]]));
+    assert_eq!(eval("a: {[[1, 2]] + [[1, 2]]}\n", "a"), json!([[1, 2]]));
     // Different ones do not.
-    assert_eq!(eval("a: {[[1, 2]] + [[3]]}\n", "a"), json!([[1.0, 2.0], [3.0]]));
+    assert_eq!(eval("a: {[[1, 2]] + [[3]]}\n", "a"), json!([[1, 2], [3]]));
 }
 
 #[test]
@@ -555,7 +632,7 @@ reached: {combined.key.deep}
 #[test]
 fn special_constraints_accept_and_reject_the_right_shapes() {
     assert_eq!(eval("a:: simple: false\n", "a"), json!(false));
-    assert_eq!(eval("a:: any:\n    - 1\n", "a"), json!([1.0]));
+    assert_eq!(eval("a:: any:\n    - 1\n", "a"), json!([1]));
     assert_eq!(eval("a:: null: null\n", "a"), json!(null));
 
     for (source, name) in [
@@ -621,7 +698,7 @@ fn an_anchor_may_not_inherit_from_itself() {
 
 #[test]
 fn forward_references_resolve() {
-    assert_eq!(eval("first: {second}\nsecond: 42\n", "first"), json!(42.0));
+    assert_eq!(eval("first: {second}\nsecond: 42\n", "first"), json!(42));
     let source = "anchor A:\n    x: {B.y}\n\nanchor B:\n    y: found\n";
     assert_eq!(eval(source, "A"), json!({ "x": "found" }));
 }
@@ -651,7 +728,7 @@ fn a_spread_beside_properties_merges_the_dictionary() {
             &format!("{base}anchor Child extends Base:\n    settings:\n        + {{super.settings}}\n        c: 3\n"),
             "Child"
         ),
-        json!({ "settings": { "a": 1.0, "b": 2.0, "c": 3.0 } })
+        json!({ "settings": { "a": 1, "b": 2, "c": 3 } })
     );
     // Order decides who wins: a spread after the properties overrides them.
     assert_eq!(
@@ -659,7 +736,7 @@ fn a_spread_beside_properties_merges_the_dictionary() {
             &format!("{base}anchor Child extends Base:\n    settings:\n        b: 20\n        + {{super.settings}}\n"),
             "Child"
         ),
-        json!({ "settings": { "b": 2.0, "a": 1.0 } })
+        json!({ "settings": { "b": 2, "a": 1 } })
     );
     // `++` merges deeply.
     let nested = "anchor Base:\n    settings:\n        deep:\n            a: 1\n\n";
@@ -668,7 +745,7 @@ fn a_spread_beside_properties_merges_the_dictionary() {
             &format!("{nested}anchor Child extends Base:\n    settings:\n        ++ {{super.settings}}\n        deep:\n            b: 2\n"),
             "Child"
         ),
-        json!({ "settings": { "deep": { "a": 1.0, "b": 2.0 } } })
+        json!({ "settings": { "deep": { "a": 1, "b": 2 } } })
     );
     // A list block with a spread still builds a list, not a merge.
     assert_eq!(

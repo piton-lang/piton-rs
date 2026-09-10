@@ -115,13 +115,11 @@ The `shapeRoot` tree mirrors `codeRoot`:
 
 ```
 spec/shape/components/button/Button.pi   ->   src/components/button/AGENTS.md
-                                              src/components/button/CLAUDE.md
 ```
 
 Every instruction written at one scope is concatenated into the one `AGENTS.md`
-for the matching code directory, and a `CLAUDE.md` beside it imports that file.
-If no code directory matches, the instructions move up to the nearest one that
-does, ending at `codeRoot/AGENTS.md`.
+for the matching code directory. If no code directory matches, the instructions
+move up to the nearest one that does, ending at `codeRoot/AGENTS.md`.
 
 Instructions are also published under `<agent-dir>/reference/shape/`, keeping
 their structure, so an agent can read the whole shape tree.
@@ -152,14 +150,10 @@ at least one reference ends with a line telling the agent to follow its links.
 A reference is a Markdown link rather than Claude Code's `@` import for two
 reasons. The import is a memory file feature that no other agent implements,
 since opencode and Codex both treat `@path` as plain text, so it would only ever
-work in one adapter, and only in the `AGENTS.md` reached through a `CLAUDE.md`
-at that. And where it does work it inlines the whole reachable reference tree
-into context at launch, up to a limit of four hops, past which files are dropped
-without warning. Publishing references as separate files is meant to let an
-agent read what it needs, which is the opposite of that.
-
-The one import Belay still writes is the `@AGENTS.md` in a generated
-`CLAUDE.md`: that payload you do want loaded eagerly, and it is one hop deep.
+work in one adapter. And where it does work it inlines the whole reachable
+reference tree into context at launch, up to a limit of four hops, past which
+files are dropped without warning. Publishing references as separate files is
+meant to let an agent read what it needs, which is the opposite of that.
 
 `${Anchor}` inserts the anchor's *name* rather than a path, for when you want to
 mention something without sending the agent to read it.
@@ -180,6 +174,10 @@ export skill BuildFromShape:
     prompt: Build following the structure outlined in {__BELAY_SHAPE__}.
 ```
 
+The path is written relative to the document that ends up carrying it, so the
+same variable reads correctly from a skill, an agent, or an `AGENTS.md` sitting
+at a different depth.
+
 ## How values become Markdown
 
 Everything Belay writes is prose, so every value is serialised:
@@ -188,16 +186,22 @@ Everything Belay writes is prose, so every value is serialised:
 | --- | --- |
 | A simple value | Its literal text |
 | A list | `- item` lines |
-| A pure dictionary of key/value pairs | Indented `key: value` lines |
+| A pure dictionary of key/value pairs | Indented `key: value` lines, in a fenced block |
 | An anchor, or anything else with structure | Headers, one level per depth |
 | Depth past six | **Bold**, because Markdown has six heading levels |
 
 The dictionary and anchor rules are easy to confuse. A *dictionary* that holds
-nothing but scalars indents, because it is data. An *anchor* never does, however
-flat it looks: its properties are the sections of a document, so they are always
-headers. So an anchor with one prose property becomes a heading and a paragraph,
-while a dictionary of design tokens nested under one of those properties still
-indents beneath its heading.
+nothing but scalars indents, because it is data — and the indentation is fenced,
+because Markdown throws leading whitespace away and the shape is the whole
+point. An *anchor* never indents, however flat it looks: its properties are the
+sections of a document, so they are always headers. So an anchor with one prose
+property becomes a heading and a paragraph, while a dictionary of design tokens
+nested under one of those properties still indents beneath its heading.
+
+A dictionary written *among prose* — inside an implicit list, beside the text it
+belongs to — is the exception. The author put it there as content, so its keys
+become headings like an anchor's, and it goes back to being fenced data only
+once it nests another dictionary and the nesting is itself the information.
 
 Property names are split into words and title-cased, so `useWhen` becomes
 `Use When`.

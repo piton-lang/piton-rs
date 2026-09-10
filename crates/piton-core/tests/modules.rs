@@ -199,7 +199,7 @@ fn imports_may_span_lines() {
         "main.pi",
     );
     assert!(built.errors.is_empty(), "{:?}", built.errors);
-    assert_eq!(built.value("a"), serde_json::json!(6.0));
+    assert_eq!(built.value("a"), serde_json::json!(6));
 }
 
 #[test]
@@ -224,10 +224,8 @@ fn numbers_keep_the_spelling_they_were_written_with() {
 
 #[test]
 fn indentation_must_be_consistent_within_a_file() {
-    let built = build(
-        &[("main.pi", "a:\n  b: 1\nc:\n    d: 2\n")],
-        "main.pi",
-    );
+    // A width that is not the file's unit at all.
+    let built = build(&[("main.pi", "a:\n    b: 1\nc:\n      d: 2\n")], "main.pi");
     assert!(
         built.errors.iter().any(|it| it.contains("inconsistent indentation")),
         "{:?}",
@@ -240,6 +238,18 @@ fn indentation_must_be_consistent_within_a_file() {
         "{:?}",
         tabs.errors
     );
+}
+
+#[test]
+fn a_block_may_be_inset_by_a_whole_number_of_indent_units() {
+    // The specification's own anchor example is a two-space file whose last
+    // string block is inset by four. Consistency is about the unit, not about
+    // every block stepping exactly once: a body under a `- ` marker has to
+    // clear the marker, and an over-indented string block is harmless because
+    // its leading whitespace is discarded anyway.
+    let built = build(&[("main.pi", "a:\n  b: 1\nc:\n    d: 2\n")], "main.pi");
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("c"), serde_json::json!({ "d": 2 }));
 }
 
 #[test]

@@ -12,12 +12,14 @@ Word wrap, font, zoom, theme and whether the footer is showing. None of them tou
 
 ## Settings
 
+```
 wordWrap: Off by default. Off means the surface scrolls sideways.
 fontFamily: A monospace family, chosen from those the system has
 fontSize: Points, from eight to seventy-two
 zoom: A multiplier over the font size, from a quarter to five times
 theme: Light, Dark, or System
 showStatusBar: On by default
+```
 
 ## Rules
 
