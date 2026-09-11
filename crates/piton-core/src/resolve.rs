@@ -29,6 +29,13 @@ pub enum Symbol {
     Var { file: FileId, index: usize },
 }
 
+/// Whether a scope pass is still settling or is the one that reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Report {
+    Silent,
+    Diagnostics,
+}
+
 /// What one file can see.
 #[derive(Clone, Debug, Default)]
 pub struct FileScope {
@@ -106,9 +113,7 @@ impl Analysis {
         let mut analysis =
             Analysis { db, anchors, anchor_ids, scopes: HashMap::new(), modules, diagnostics: Diagnostics::default() };
         let files: Vec<FileId> = analysis.db.files().map(|file| file.id).collect();
-        for file in &files {
-            analysis.compute_exports(*file, &mut HashSet::new());
-        }
+        analysis.resolve_scopes(&files);
         for file in files {
             analysis.compute_keywords(file);
         }
@@ -191,19 +196,61 @@ impl Analysis {
 
     // ---- scope construction ---------------------------------------------
 
-    /// Resolve one file's visible names and then what it publishes.
+    /// Resolve every file's names and exports, growing them until a round
+    /// changes nothing.
+    ///
+    /// Imports do not form a tree. A file may import from a module that imports
+    /// it back, and the specification says a circular import is legal. Walking
+    /// the graph depth-first has to cut such a loop somewhere, and the file it
+    /// cuts at then sees the other half as not yet published and reports a name
+    /// that is really there as missing. Growing every scope one hop at a time
+    /// avoids choosing where to cut: each round resolves imports against what
+    /// the previous round published, and only the final round — once nothing
+    /// more can be learned — reports what is genuinely unresolved.
+    fn resolve_scopes(&mut self, files: &[FileId]) {
+        // A chain of re-exports settles one hop per round, so the longest chain
+        // a workspace can hold is one hop per file. The loop normally exits
+        // long before that, as soon as a round changes nothing.
+        for _ in 0..files.len() {
+            let mut changed = false;
+            for file in files {
+                changed |= self.compute_scope(*file, Report::Silent);
+            }
+            if !changed {
+                break;
+            }
+        }
+        for file in files {
+            self.compute_scope(*file, Report::Diagnostics);
+        }
+    }
+
+    /// Recompute one file's visible names and then what it publishes, saying
+    /// whether either changed.
     ///
     /// Imports are resolved first because `export Name` may republish an
     /// imported name, so exports depend on the file's own bindings.
-    fn compute_exports(&mut self, file: FileId, visiting: &mut HashSet<FileId>) {
-        if self.scopes.contains_key(&file) || !visiting.insert(file) {
-            return;
-        }
-        let names = self.compute_names(file, visiting);
+    fn compute_scope(&mut self, file: FileId, report: Report) -> bool {
+        let names = self.compute_names(file, report);
+        let exports = self.compute_exports(file, &names, report);
+        let scope = self.scopes.entry(file).or_default();
+        let changed = scope.names != names || scope.exports != exports;
+        scope.names = names;
+        scope.exports = exports;
+        changed
+    }
+
+    /// The names a file publishes, given what it can currently see.
+    fn compute_exports(
+        &mut self,
+        file: FileId,
+        names: &IndexMap<String, Symbol>,
+        report: Report,
+    ) -> IndexMap<String, Symbol> {
         let mut exports: IndexMap<String, Symbol> = IndexMap::new();
 
         // Anything declared with `export` in this file.
-        for (name, symbol) in &names {
+        for (name, symbol) in names {
             let exported = match symbol {
                 Symbol::Anchor(id) => {
                     let location = self.anchor_loc(*id);
@@ -224,19 +271,21 @@ impl Analysis {
                 Some(symbol) => {
                     exports.insert(name.value.clone(), *symbol);
                 }
-                None => self.diagnostics.push(Diagnostic::error(
-                    "unknown-export",
-                    file,
-                    name.range,
-                    format!("`{}` is not declared or imported in this file", name.value),
-                )),
+                None => self.report(
+                    report,
+                    Diagnostic::error(
+                        "unknown-export",
+                        file,
+                        name.range,
+                        format!("`{}` is not declared or imported in this file", name.value),
+                    ),
+                ),
             }
         }
 
         // `from PATH export ...` imports and republishes in one statement.
         for reexport in self.db.file(file).hir.reexports.clone() {
             let Some(target) = self.module(file, &reexport.path.value) else { continue };
-            self.compute_exports(target, visiting);
             let from = self.exports_of(target);
             if reexport.glob {
                 exports.extend(from);
@@ -247,36 +296,31 @@ impl Analysis {
                     Some(symbol) => {
                         exports.insert(item.local().to_string(), *symbol);
                     }
-                    None => self.diagnostics.push(Diagnostic::error(
-                        "unknown-import",
-                        file,
-                        item.name.range,
-                        format!(
-                            "`{}` is not exported by `{}`",
-                            item.name.value, reexport.path.value
+                    None => self.report(
+                        report,
+                        Diagnostic::error(
+                            "unknown-import",
+                            file,
+                            item.name.range,
+                            format!(
+                                "`{}` is not exported by `{}`",
+                                item.name.value, reexport.path.value
+                            ),
                         ),
-                    )),
+                    ),
                 }
             }
         }
 
-        visiting.remove(&file);
-        let scope = self.scopes.entry(file).or_default();
-        scope.names = names;
-        scope.exports = exports;
+        exports
     }
 
     /// The file's own declarations plus everything it imports.
-    fn compute_names(
-        &mut self,
-        file: FileId,
-        visiting: &mut HashSet<FileId>,
-    ) -> IndexMap<String, Symbol> {
+    fn compute_names(&mut self, file: FileId, report: Report) -> IndexMap<String, Symbol> {
         let mut names = self.locals(file);
         let mut import_ranges = HashMap::new();
         for import in self.db.file(file).hir.imports.clone() {
             let Some(target) = self.module(file, &import.path.value) else { continue };
-            self.compute_exports(target, visiting);
             let exports = self.exports_of(target);
             for item in &import.items {
                 match exports.get(&item.name.value) {
@@ -284,17 +328,31 @@ impl Analysis {
                         names.insert(item.local().to_string(), *symbol);
                         import_ranges.insert(item.local().to_string(), item.name.range);
                     }
-                    None => self.diagnostics.push(Diagnostic::error(
-                        "unknown-import",
-                        file,
-                        item.name.range,
-                        format!("`{}` is not exported by `{}`", item.name.value, import.path.value),
-                    )),
+                    None => self.report(
+                        report,
+                        Diagnostic::error(
+                            "unknown-import",
+                            file,
+                            item.name.range,
+                            format!(
+                                "`{}` is not exported by `{}`",
+                                item.name.value, import.path.value
+                            ),
+                        ),
+                    ),
                 }
             }
         }
         self.scopes.entry(file).or_default().import_ranges = import_ranges;
         names
+    }
+
+    /// Record a diagnostic, unless this is one of the rounds that is still
+    /// learning what the workspace publishes.
+    fn report(&mut self, report: Report, diagnostic: Diagnostic) {
+        if matches!(report, Report::Diagnostics) {
+            self.diagnostics.push(diagnostic);
+        }
     }
 
     fn exports_of(&self, file: FileId) -> IndexMap<String, Symbol> {

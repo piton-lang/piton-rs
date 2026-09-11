@@ -147,6 +147,53 @@ export skill Build:
 }
 
 #[test]
+fn two_documents_may_reference_each_other() {
+    // The pair that the specification calls out: each file imports the other
+    // and each skill points at the other's compiled document. Nothing here is
+    // a cycle, because a reference settles to a name and a link.
+    let (root, outputs, errors) = build(&[
+        ("piton.config.pi", CONFIG),
+        ("src/.keep", ""),
+        ("spec/index.pi", "from ./Build export *\n"),
+        (
+            "spec/Build.pi",
+            "\
+use @piton/belay
+
+from ./Ship import Ship
+
+export skill Build:
+    description: Builds the change
+    useWhen: asked to build
+    prompt: Build it, then hand over to ${Ship}, which is at @{Ship}.
+",
+        ),
+        (
+            "spec/Ship.pi",
+            "\
+use @piton/belay
+
+from ./Build import Build
+
+export skill Ship:
+    description: Ships the change
+    useWhen: asked to ship
+    prompt: Ship it, after ${Build}, which is at @{Build}.
+",
+        ),
+    ]);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let build_skill = find(&outputs, &root, ".claude/skills/build/SKILL.md");
+    assert!(build_skill.contains("hand over to Ship"), "{build_skill}");
+    assert!(build_skill.contains("[Ship]("), "{build_skill}");
+
+    let ship_skill = find(&outputs, &root, ".claude/skills/ship/SKILL.md");
+    assert!(ship_skill.contains("after Build"), "{ship_skill}");
+    assert!(ship_skill.contains("[Build]("), "{ship_skill}");
+}
+
+#[test]
 fn references_resolve_from_every_document_that_carries_them() {
     let (root, outputs, errors) = build(&[
         ("piton.config.pi", CONFIG),

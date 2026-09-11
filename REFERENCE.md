@@ -872,7 +872,7 @@ expecting, huh? In order for this to evaluate to `3` you'll need to use the
 result: {a + b}
 ```
 
-This makes the job of the compiler much easier, and let's us avoid the
+This makes the job of the compiler much easier, and lets us avoid the
 problematic situation of string fallback in case a symbol isn't recognized.
 
 Forward references are fully resolved. Unresolved references are a compiler
@@ -1480,6 +1480,33 @@ from ./FirstFile import pi SliceOf, MyAnchor MyAliasedAnchor
 Worth clarifying that `pi` will be imported as and only as `SliceOf` (i.e. `pi`
 will not be available in scope).
 
+###### Circular Imports
+
+Circular imports are supported and will not throw a compiler error. Circular
+references are fine as well as long as it does not create something impossible
+to resolve.
+
+For example:
+
+```piton
+anchor A:
+    This anchor talks about ${B}
+
+anchor B:
+    This anchor talks about ${A}
+```
+
+Is perfectly fine because `${A}` and `${B}` both settle to a string.
+
+However
+
+```piton
+A: {B}
+B: {A}
+```
+
+Is a compile error because it simply cannot resolve.
+
 #### Use
 
 When you want to use a user-defined keyword, you'll need to apply the `use`
@@ -1493,7 +1520,7 @@ my-custom-keyword Wow:
     description: amazing
 ```
 
-`use` only brings in keywords. It does not imports anything else that was
+`use` only brings in keywords. It does not import anything else that was
 exported, just as `from...import` does not import keywords.
 
 #### Modules

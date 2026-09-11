@@ -203,6 +203,67 @@ fn imports_may_span_lines() {
 }
 
 #[test]
+fn two_files_may_import_from_each_other() {
+    // A circular import is legal. Each file sees what the other publishes, and
+    // the prose references settle to the anchors' names.
+    let built = build(
+        &[
+            (
+                "main.pi",
+                "from ./other import Other\n\nexport anchor Main:\n    mate: ${Other}\n\nboth: {Other.label}\n",
+            ),
+            (
+                "other.pi",
+                "from ./main import Main\n\nexport anchor Other:\n    label: other\n    mate: ${Main}\n",
+            ),
+        ],
+        "main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("Main"), serde_json::json!({ "mate": "Other" }));
+    assert_eq!(built.value("both"), serde_json::json!("other"));
+}
+
+#[test]
+fn a_circular_import_still_reaches_through_a_module_index() {
+    // The cycle runs through an `index.pi`, and the keyword it publishes has to
+    // survive the round trip along with the base it declares.
+    let built = build(
+        &[
+            ("main.pi", "from ./shapes import Child\n\nlabel: {Child.description}\n"),
+            ("shapes/index.pi", "from ./Base export *\nfrom ./Child export *\n"),
+            (
+                "shapes/Base.pi",
+                "from ./index import Extra\n\nexport anchor Base as base:\n    description: from base ${Extra}\n",
+            ),
+            (
+                "shapes/Child.pi",
+                "use ./index\n\nexport anchor Extra:\n    note: extra\n\nexport base Child:\n    description:\n        + {super.description}\n",
+            ),
+        ],
+        "main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("label"), serde_json::json!(["from base Extra"]));
+}
+
+#[test]
+fn a_name_that_no_file_exports_is_still_reported() {
+    // Scopes settle before anything is reported, so the rounds that make a
+    // circular import work do not hide a name that genuinely is not there.
+    let built = build(
+        &[
+            ("main.pi", "from ./other import Missing\n"),
+            ("other.pi", "from ./main import Nothing\n"),
+        ],
+        "main.pi",
+    );
+    let reported: Vec<&String> =
+        built.errors.iter().filter(|it| it.contains("is not exported by")).collect();
+    assert_eq!(reported.len(), 2, "{:?}", built.errors);
+}
+
+#[test]
 fn an_unresolvable_module_is_reported_once() {
     let built = build(&[("main.pi", "from ./nowhere import Thing\n")], "main.pi");
     assert!(

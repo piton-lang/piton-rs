@@ -385,7 +385,13 @@ impl<'a> Evaluator<'a> {
                     let self_id = self_id.unwrap_or(slot.owner);
                     return self.property(slot.owner, name, self_id);
                 }
-                _ => None,
+                // A named anchor answers one property at a time as well, so
+                // two anchors that each read a property of the other resolve;
+                // only a property that truly depends on itself is a cycle.
+                _ => match self.analysis.scope(context.file).names.get(root.as_str()) {
+                    Some(Symbol::Anchor(id)) => Some((*id, *id)),
+                    _ => None,
+                },
             };
             if let Some((scope, self_id)) = scope {
                 if self.property_map(scope).contains_key(name) {
@@ -428,7 +434,7 @@ impl<'a> Evaluator<'a> {
                     match segment {
                         Segment::Literal(literal) => parts.push(Value::string(literal.clone())),
                         Segment::Interpolation(interpolation) => {
-                            let value = self.expr(&interpolation.expr, context);
+                            let value = self.interpolated(&interpolation.expr, context);
                             parts.push(self.interpolate(
                                 &interpolation.sigil,
                                 value,
@@ -441,6 +447,47 @@ impl<'a> Evaluator<'a> {
             }
         }
         join_parts(parts)
+    }
+
+    /// Evaluate what sits inside a `${...}`.
+    ///
+    /// A bare anchor name — including `self` — is answered with the anchor
+    /// itself rather than with its compiled body. Interpolation only ever
+    /// renders an anchor's name, so compiling the body would be work nobody
+    /// reads, and it is what lets two anchors mention each other in prose, or
+    /// an anchor mention itself: the reference settles to a string, so there is
+    /// nothing circular left to resolve.
+    fn interpolated(&mut self, expr: &Expr, context: Context) -> Value {
+        if let Expr::Name { name, .. } = expr {
+            if name == "self" {
+                if let Some(id) = context.self_anchor {
+                    return Value::Anchor(self.anchor_ref(id));
+                }
+            }
+            // A framework builtin still wins the name, as it does everywhere.
+            if self.frameworks.builtin_value(name).is_none() {
+                if let Some(Symbol::Anchor(id)) =
+                    self.analysis.scope(context.file).names.get(name).copied()
+                {
+                    return Value::Anchor(self.anchor_ref(id));
+                }
+            }
+        }
+        self.expr(expr, context)
+    }
+
+    /// An anchor as a reference: its identity and its name, with its body left
+    /// unexpanded.
+    ///
+    /// The body is never filled in here, even when it happens to be compiled
+    /// already, so that what a reference carries does not depend on the order
+    /// the workspace was compiled in.
+    fn anchor_ref(&mut self, id: AnchorId) -> Anchor {
+        if !self.reached.contains(&id) {
+            self.reached.push(id);
+        }
+        let name = self.analysis.anchor_def(id).name.clone();
+        Anchor { id, name, props: Arc::new(Dict::new()) }
     }
 
     fn interpolate(
@@ -474,10 +521,12 @@ impl<'a> Evaluator<'a> {
         if let Some(rendered) = self.frameworks.interpolate(&request) {
             return rendered;
         }
-        if value.is_simple() {
-            Value::Str(value.to_literal())
-        } else {
-            value
+        match value {
+            // No framework claimed it, and an anchor has no text of its own:
+            // it names itself, which is what every target can say about it.
+            Value::Anchor(anchor) => Value::Str(anchor.name.clone()),
+            value if value.is_simple() => Value::Str(value.to_literal()),
+            value => value,
         }
     }
 

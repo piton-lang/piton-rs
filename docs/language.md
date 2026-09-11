@@ -78,6 +78,9 @@ Literals: `true`, `false`, `null`
   `string`.
 - Modulo uses floor semantics; division by zero and comparing mismatched types
   are compile errors.
+- Two files may import from each other. A circular reference is an error only
+  when it cannot settle: `${A}` and `${B}` naming each other is fine, because an
+  interpolated anchor renders as its name, while `A: {B}` and `B: {A}` is not.
 - Indentation must be consistent within a file; the canonical style is four
   spaces.
 

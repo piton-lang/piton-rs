@@ -360,6 +360,44 @@ fn references_and_cycles() {
 }
 
 #[test]
+fn anchors_may_refer_to_each_other_in_prose() {
+    // A circular reference is only an error when it cannot be resolved. Two
+    // anchors that mention each other settle to a string each, so they compile.
+    let prose = "\
+anchor A:
+    description: This anchor talks about ${B}
+
+anchor B:
+    description: This anchor talks about ${A}
+";
+    assert_eq!(eval(prose, "A"), json!({ "description": "This anchor talks about B" }));
+    assert_eq!(eval(prose, "B"), json!({ "description": "This anchor talks about A" }));
+
+    // An anchor naming itself settles the same way.
+    assert_eq!(
+        eval("anchor A:\n    name: A Anchor\n    mention: This is ${self}\n", "A"),
+        json!({ "name": "A Anchor", "mention": "This is A" })
+    );
+
+    // Reading one property of each other resolves too, because properties are
+    // resolved one at a time.
+    assert_eq!(
+        eval("anchor A:\n    x: 1\n    y: {B.z}\n\nanchor B:\n    z: {A.x}\n", "A"),
+        json!({ "x": 1, "y": 1 })
+    );
+
+    // A property that depends on itself, the long way round, still cannot.
+    let (_, diagnostics) =
+        eval_with_diagnostics("anchor A:\n    x: {B.z}\n\nanchor B:\n    z: {A.x}\n", "A");
+    assert!(diagnostics.iter().any(|it| it.contains("refers to itself")), "{diagnostics:?}");
+
+    // Nor can a value that *is* the other anchor: that structure has no end.
+    let (_, diagnostics) =
+        eval_with_diagnostics("anchor A:\n    b: {B}\n\nanchor B:\n    a: {A}\n", "A");
+    assert!(diagnostics.iter().any(|it| it.contains("refers to itself")), "{diagnostics:?}");
+}
+
+#[test]
 fn division_by_zero_is_an_error() {
     let (_, diagnostics) = eval_with_diagnostics("a: {1 / 0}\n", "a");
     assert!(diagnostics.iter().any(|it| it.contains("division by zero")), "{diagnostics:?}");
