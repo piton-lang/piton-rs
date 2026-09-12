@@ -9,9 +9,9 @@ use anyhow::{bail, Context, Result};
 use piton_belay::Belay;
 use piton_core::compile::{compile, Compilation};
 use piton_core::db::Db;
-use piton_core::diag::{Diagnostic, Diagnostics};
+use piton_core::diag::Diagnostic;
 use piton_core::framework::{Frameworks, OutputFile};
-use piton_core::project::Project;
+use piton_core::project::{Loaded, Project};
 use piton_core::{builtin, FileId};
 
 /// The frameworks compiled into this binary.
@@ -26,6 +26,13 @@ pub struct Session {
     pub compilation: Compilation,
     /// Messages frameworks reported about their own configuration.
     pub notes: Vec<String>,
+    /// True when the configuration is itself the problem.
+    ///
+    /// `compilation` then holds the configuration file and nothing else. A
+    /// project whose `root`, `entry` or libraries do not resolve has not
+    /// finished saying where its code is or what a rooted import means, so
+    /// there is nothing trustworthy to compile the code against.
+    pub misconfigured: bool,
 }
 
 impl Session {
@@ -33,7 +40,6 @@ impl Session {
     pub fn project(cwd: &Path) -> Result<Session> {
         let mut frameworks = registry();
         let loaded = Project::load(cwd, &frameworks);
-        let mut diagnostics = loaded.diagnostics;
         let mut notes = Vec::new();
         if let Some(configuration) = &loaded.compilation {
             notes = frameworks.configure(
@@ -42,16 +48,48 @@ impl Session {
                 &loaded.project.framework_configs,
             );
         }
+        if loaded.diagnostics.has_errors() {
+            return Session::misconfigured(loaded, frameworks, notes);
+        }
         let mut db = database(&frameworks);
-        db.set_root(&loaded.project.root);
+        if loaded.project.has_root() {
+            db.set_root(&loaded.project.root);
+        }
+        db.set_libraries(loaded.project.libraries.clone());
+        db.set_shared_root(loaded.project.shared_root.clone());
         let entries = entry_files(&mut db, &loaded.project)?;
-        let mut compilation = compile(db, entries, &frameworks);
-        for diagnostic in diagnostics.iter().cloned().collect::<Vec<Diagnostic>>() {
+        let compilation = compile(db, entries, &frameworks);
+        Ok(Session {
+            project: loaded.project,
+            frameworks,
+            compilation,
+            notes,
+            misconfigured: false,
+        })
+    }
+
+    /// A session holding nothing but a configuration that cannot be honoured.
+    ///
+    /// The configuration has already been compiled — reading it meant
+    /// evaluating it — so reporting from that compilation puts each message on
+    /// the line that caused it. A bare error string cannot do that, and the
+    /// editor and the compiler would then be describing the same mistake
+    /// differently.
+    fn misconfigured(loaded: Loaded, frameworks: Frameworks, notes: Vec<String>) -> Result<Session> {
+        let Some(configuration) = &loaded.compilation else {
+            // The file could not be read at all, so there is no compilation for
+            // a message to be anchored in.
+            let messages: Vec<&str> =
+                loaded.diagnostics.iter().map(|it| it.message.as_str()).collect();
+            bail!("{}", messages.join("\n"));
+        };
+        let reported = loaded.diagnostics_in(&configuration.analysis.db);
+        let Loaded { project, compilation, .. } = loaded;
+        let mut compilation = compilation.expect("just matched as present");
+        for diagnostic in reported {
             compilation.diagnostics.push(diagnostic);
         }
-        diagnostics = Diagnostics::default();
-        let _ = diagnostics;
-        Ok(Session { project: loaded.project, frameworks, compilation, notes })
+        Ok(Session { project, frameworks, compilation, notes, misconfigured: true })
     }
 
     /// Compile a specific set of files, using the project only for its root.
@@ -71,8 +109,18 @@ impl Session {
                 &loaded.project.framework_configs,
             );
         }
+        // Named files are still a project's files: they resolve their rooted
+        // imports against its root, so a configuration that does not resolve
+        // stops this as surely as it stops a build.
+        if loaded.diagnostics.has_errors() {
+            return Session::misconfigured(loaded, frameworks, notes);
+        }
         let mut db = database(&frameworks);
-        db.set_root(&loaded.project.root);
+        if loaded.project.has_root() {
+            db.set_root(&loaded.project.root);
+        }
+        db.set_libraries(loaded.project.libraries.clone());
+        db.set_shared_root(loaded.project.shared_root.clone());
         let mut entries = Vec::new();
         for path in paths {
             let id = db
@@ -82,7 +130,18 @@ impl Session {
             entries.push(id);
         }
         let compilation = compile(db, entries, &frameworks);
-        Ok(Session { project: loaded.project, frameworks, compilation, notes })
+        Ok(Session {
+            project: loaded.project,
+            frameworks,
+            compilation,
+            notes,
+            misconfigured: false,
+        })
+    }
+
+    /// Everything the compilation has to say, ready to report.
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        self.compilation.diagnostics.iter().cloned().collect()
     }
 
     /// Run every framework's emitter.
@@ -156,5 +215,106 @@ fn entry_files(db: &mut Db, project: &Project) -> Result<Vec<FileId>> {
         }
         return Ok(entries);
     }
-    bail!("entry point {} does not exist", entry.display())
+    bail!("entry point {} does not exist", piton_core::db::canonical(entry).display())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Write a throwaway project and load it the way `piton build` would.
+    fn project(files: &[(&str, &str)]) -> (PathBuf, Session) {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let ordinal = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root =
+            std::env::temp_dir().join(format!("piton-cli-test-{}-{ordinal}", std::process::id()));
+        for (path, contents) in files {
+            let target = root.join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(&target, contents).unwrap();
+        }
+        let session = Session::project(&root).expect("the project loads");
+        (root, session)
+    }
+
+    const GOOD: &[(&str, &str)] = &[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n"),
+        ("spec/index.pi", "from /Thing export *\n"),
+        ("spec/Thing.pi", "export anchor Thing:\n    x: 1\n"),
+    ];
+
+    #[test]
+    fn a_project_that_resolves_compiles() {
+        let (root, session) = project(GOOD);
+        assert!(!session.misconfigured);
+        assert!(session.diagnostics().is_empty(), "{:?}", session.diagnostics());
+        assert!(session.compilation.analysis.db.file_id(&root.join("spec/Thing.pi")).is_some());
+    }
+
+    /// The message has to name a file and a line, because that is what the
+    /// editor shows for the same mistake. A bare error string cannot.
+    #[test]
+    fn an_entry_that_is_not_there_is_reported_on_the_config() {
+        let (root, session) = project(&[
+            (
+                "piton.config.pi",
+                "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    \
+                 entry: ./spec/index.pi\n",
+            ),
+            ("spec/Thing.pi", "use /nowhere\n\nthing Broken:\n    x: 1\n"),
+        ]);
+        assert!(session.misconfigured);
+        let diagnostics = session.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "only the configuration: {diagnostics:?}");
+        let config = session.compilation.analysis.db.file_id(&root.join("piton.config.pi"));
+        assert_eq!(config, Some(diagnostics[0].file), "reported on the config file");
+        assert!(diagnostics[0].message.contains("`entry` is `./spec/index.pi`"), "{diagnostics:?}");
+        let text = &session.compilation.analysis.db.file(diagnostics[0].file).text;
+        assert!(text[diagnostics[0].range].starts_with("entry:"), "on the line that set it");
+        // Nothing was compiled, so the pile of unresolved imports the bad
+        // configuration would cause is not reported over the top of it.
+        assert!(session.compilation.analysis.db.file_id(&root.join("spec/Thing.pi")).is_none());
+    }
+
+    #[test]
+    fn a_root_that_is_not_there_is_reported_on_the_config() {
+        let (_, session) = project(&[(
+            "piton.config.pi",
+            "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n",
+        )]);
+        assert!(session.misconfigured);
+        let diagnostics = session.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("`root` is `./spec`"), "{diagnostics:?}");
+    }
+
+    /// Named files resolve their rooted imports against the project root too,
+    /// so `piton check one/file.pi` stops for the same reason a build does.
+    #[test]
+    fn checking_named_files_stops_at_a_broken_configuration() {
+        let (root, _) = project(GOOD);
+        std::fs::write(
+            root.join("piton.config.pi"),
+            "use @piton/config\n\nexport piton-config Config:\n    root: ./nowhere\n",
+        )
+        .unwrap();
+        let session = Session::files(&root, &[root.join("spec/Thing.pi")]).expect("loads");
+        assert!(session.misconfigured);
+        assert!(session.diagnostics().iter().any(|it| it.message.contains("`root` is `./nowhere`")));
+    }
+
+    #[test]
+    fn a_library_is_reachable_from_a_build() {
+        let (_, session) = project(&[
+            (
+                "piton.config.pi",
+                "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n\n    \
+                 libraries:\n        customLib: ./lib\n",
+            ),
+            ("spec/index.pi", "from /customLib/Tool import Tool\n\na: {Tool.kind}\n"),
+            ("lib/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+        ]);
+        assert!(!session.misconfigured);
+        assert!(session.diagnostics().is_empty(), "{:?}", session.diagnostics());
+    }
 }

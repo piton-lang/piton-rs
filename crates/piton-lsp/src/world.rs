@@ -1,8 +1,12 @@
 //! The language server's view of the workspace.
 //!
-//! There is no incremental engine: a change re-analyses the project. Piton
+//! There is no incremental engine: a change re-analyses the workspace. Piton
 //! projects are documents, not million-line codebases, and a full rebuild keeps
 //! every feature answering from exactly the state the compiler would produce.
+//!
+//! A workspace is not a project. A directory an editor is pointed at may hold
+//! several of them side by side, or none at all, so the projects in it are
+//! discovered rather than assumed, and each is analysed on its own.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,9 +14,9 @@ use std::sync::Arc;
 
 use piton_core::builtin;
 use piton_core::compile::{compile, Compilation};
-use piton_core::db::Db;
+use piton_core::db::{canonical, Db};
 use piton_core::framework::Frameworks;
-use piton_core::project::Project;
+use piton_core::project::{Loaded, Project, CONFIG_FILE};
 use piton_core::FileId;
 
 use crate::line_index::LineIndex;
@@ -20,15 +24,23 @@ use crate::line_index::LineIndex;
 /// Builds the set of frameworks this server should use.
 pub type Registry = fn() -> Frameworks;
 
-/// One fully analysed view of the workspace.
-pub struct Snapshot {
+/// How deep a workspace is searched, both for projects and for their sources.
+const MAX_DEPTH: usize = 24;
+
+/// One project, fully analysed.
+///
+/// A project is a closed world: its own module root, its own frameworks, its
+/// own database. Two projects in one workspace therefore never see each
+/// other's files, which is what lets `/lib/Tool` mean a different file in each
+/// of them — and what stops a symbol in one resolving against the other.
+pub struct View {
     pub compilation: Compilation,
-    /// The project this snapshot was analysed against.
+    /// The project this view was analysed against.
     pub project: Project,
     line_indices: HashMap<FileId, LineIndex>,
 }
 
-impl Snapshot {
+impl View {
     /// Shorten a path for display, relative to the project when possible.
     pub fn display_path(&self, path: &std::path::Path) -> String {
         path.strip_prefix(&self.project.base)
@@ -37,9 +49,7 @@ impl Snapshot {
             .display()
             .to_string()
     }
-}
 
-impl Snapshot {
     pub fn line_index(&self, file: FileId) -> &LineIndex {
         &self.line_indices[&file]
     }
@@ -54,6 +64,29 @@ impl Snapshot {
 
     pub fn text(&self, file: FileId) -> &str {
         &self.compilation.analysis.db.file(file).text
+    }
+}
+
+/// One fully analysed view of the workspace: a compilation per project.
+pub struct Snapshot {
+    /// Most specific project first, so the innermost owner of a nested path
+    /// answers before the outer one.
+    views: Vec<Arc<View>>,
+}
+
+impl Snapshot {
+    pub fn views(&self) -> &[Arc<View>] {
+        &self.views
+    }
+
+    /// The project that analysed `path`, and the id the file has there.
+    ///
+    /// Source sets do not overlap — a project owns what lies under its own
+    /// root, and the rootless fallback takes only what is left over — so one
+    /// view knows any given path. A file no project analysed has no view at
+    /// all, and every feature that needs one declines to answer.
+    pub fn locate(&self, path: &Path) -> Option<(&Arc<View>, FileId)> {
+        self.views.iter().find_map(|view| Some((view, view.file_for(path)?)))
     }
 }
 
@@ -105,91 +138,229 @@ impl Workspace {
     }
 
     fn analyze(&self) -> Snapshot {
-        let cwd = self
+        let workspace_root = self
             .roots
             .first()
             .cloned()
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
 
-        let mut frameworks = (self.registry)();
-        let loaded = Project::load(&cwd, &frameworks);
-        if let Some(configuration) = &loaded.compilation {
-            frameworks.configure(
-                &loaded.project,
-                configuration,
-                &loaded.project.framework_configs,
-            );
+        // Every configuration is read before anything is compiled: which open
+        // buffer belongs to which project cannot be decided until every
+        // declared root is known.
+        let mut loaded: Vec<(Loaded, Frameworks)> = Vec::new();
+        for config in self.configs(&workspace_root) {
+            let directory = config.parent().unwrap_or(&workspace_root).to_path_buf();
+            let mut frameworks = (self.registry)();
+            let project = Project::load(&directory, &frameworks);
+            if let Some(configuration) = &project.compilation {
+                frameworks.configure(
+                    &project.project,
+                    configuration,
+                    &project.project.framework_configs,
+                );
+            }
+            loaded.push((project, frameworks));
         }
 
+        let claims: Vec<Claim> = loaded
+            .iter()
+            .map(|(it, _)| Claim {
+                root: canonical(&it.project.root),
+                config: it.project.config_path.as_deref().map(canonical),
+            })
+            .collect();
+
+        let mut views: Vec<Arc<View>> = Vec::new();
+        for (index, (project, frameworks)) in loaded.into_iter().enumerate() {
+            // A configuration the compiler would refuse says nothing reliable
+            // about where this project's code lives or what its rooted imports
+            // mean. Analysing the sources anyway buries the one problem the
+            // author can act on under every import it breaks, so the project
+            // reports its configuration and nothing else until that is fixed.
+            let mut sources = match project.diagnostics.has_errors() {
+                true => Vec::new(),
+                false => {
+                    let mut sources = walk(&project.project.root);
+                    sources.extend(
+                        self.open
+                            .keys()
+                            .filter(|path| owner(&claims, path) == Some(index))
+                            .cloned(),
+                    );
+                    sources
+                }
+            };
+            // The configuration sits outside the root it declares, and is still
+            // worth diagnostics while it is being edited.
+            sources.extend(project.project.config_path.clone());
+            views.push(Arc::new(self.build(project, frameworks, sources)));
+        }
+
+        // What belongs to no project: a buffer open outside every root, and —
+        // when the workspace declares no project at all — the whole tree. This
+        // is the fallback, so it takes only what the projects left behind.
+        //
+        // These files are analysed without a root. A directory an editor
+        // happened to open is not a project, and treating it as one would make
+        // `/a/b` mean whatever that directory contains; the compiler already
+        // says what it should say here, which is that a rooted import needs a
+        // piton.config.pi.
+        let mut orphans: Vec<PathBuf> =
+            self.open.keys().filter(|path| owner(&claims, path).is_none()).cloned().collect();
+        if claims.is_empty() {
+            let search: &[PathBuf] = match self.roots.is_empty() {
+                true => std::slice::from_ref(&workspace_root),
+                false => &self.roots,
+            };
+            for root in search {
+                orphans.extend(walk(root));
+            }
+        }
+        if !orphans.is_empty() {
+            let bare = Loaded::bare(&workspace_root);
+            views.push(Arc::new(self.build(bare, (self.registry)(), orphans)));
+        }
+
+        // A nested project answers for its own files before the project it sits
+        // inside does, and the rootless fallback answers last of all.
+        views.sort_by_key(|view| std::cmp::Reverse(view.project.root.components().count()));
+        Snapshot { views }
+    }
+
+    /// Compile one project's sources into a view.
+    fn build(&self, loaded: Loaded, frameworks: Frameworks, sources: Vec<PathBuf>) -> View {
         let mut db = Db::new();
         for module in builtin::modules().into_iter().chain(frameworks.modules()) {
             db.add_virtual_module(module.name, module.source);
         }
-        db.set_root(&loaded.project.root);
+        if loaded.project.has_root() {
+            db.set_root(&loaded.project.root);
+        }
+        db.set_libraries(loaded.project.libraries.clone());
+        db.set_shared_root(loaded.project.shared_root.clone());
+
+        let mut sources = sources;
+        sources.sort();
+        sources.dedup();
 
         // Unsaved buffers win over the disk.
-        for (path, text) in &self.open {
-            db.set_overlay(path, text.clone());
+        for path in &sources {
+            if let Some(text) = self.open.get(path) {
+                db.set_overlay(path, text.clone());
+            }
         }
 
         let mut entries: Vec<FileId> = Vec::new();
-        for path in self.source_files(&loaded.project) {
-            if let Ok(id) = db.load(&path) {
+        for path in &sources {
+            if let Ok(id) = db.load(path) {
                 entries.push(id);
             }
         }
         entries.sort();
         entries.dedup();
 
-        let compilation = compile(db, entries, &frameworks);
+        let mut compilation = compile(db, entries, &frameworks);
+        // A configuration that cannot be honoured is reported where it is
+        // written, rather than as the pile of unresolved imports it causes.
+        for diagnostic in loaded.diagnostics_in(&compilation.analysis.db) {
+            compilation.diagnostics.push(diagnostic);
+        }
+
         let line_indices = compilation
             .analysis
             .db
             .files()
             .map(|file| (file.id, LineIndex::new(&file.text)))
             .collect();
-        Snapshot { compilation, project: loaded.project, line_indices }
+        View { compilation, project: loaded.project, line_indices }
     }
 
-    /// Everything worth analysing.
+    /// Every project configuration the workspace contains.
     ///
-    /// A project that declares a `root` has said what belongs to it. Nothing
-    /// outside is a project source — generated output and test fixtures very
-    /// much included — so reporting problems in those files would be noise
-    /// about code the project does not build.
-    fn source_files(&self, project: &Project) -> Vec<PathBuf> {
-        let mut paths: Vec<PathBuf> = Vec::new();
-        let search_roots = match project.config_path {
-            Some(_) => vec![project.root.clone()],
-            None if !self.roots.is_empty() => self.roots.clone(),
-            None => vec![project.root.clone()],
+    /// A workspace root may sit inside a project, hold one, or hold several
+    /// side by side, so the search goes both ways. Downward it stops at each
+    /// configuration it finds: everything below that directory belongs to the
+    /// project declared there, not to a third one.
+    fn configs(&self, workspace_root: &Path) -> Vec<PathBuf> {
+        let roots: Vec<&Path> = match self.roots.is_empty() {
+            true => vec![workspace_root],
+            false => self.roots.iter().map(PathBuf::as_path).collect(),
         };
-        for root in search_roots {
-            if !root.is_dir() {
-                continue;
-            }
-            for entry in walkdir::WalkDir::new(&root)
-                .max_depth(24)
-                .into_iter()
-                .filter_entry(|entry| !is_ignored(entry.file_name().to_string_lossy().as_ref()))
-                .filter_map(Result::ok)
-            {
-                let path = entry.path();
-                if path.is_file() && path.extension().is_some_and(|ext| ext == "pi") {
-                    paths.push(path.to_path_buf());
-                }
-            }
+        let mut found = Vec::new();
+        for root in roots {
+            found.extend(Project::find_config(root));
+            configs_below(root, MAX_DEPTH, &mut found);
         }
-        // The configuration sits outside the root it declares, and is still
-        // worth diagnostics while it is being edited.
-        paths.extend(project.config_path.clone());
-        // A file someone has open is always analysed, wherever it lives.
-        paths.extend(self.open.keys().cloned());
-        paths.sort();
-        paths.dedup();
-        paths
+        found.sort();
+        found.dedup();
+        found
     }
+}
+
+/// What one project claims as its own.
+struct Claim {
+    root: PathBuf,
+    /// The configuration declaring the project, which may sit outside the root
+    /// it declares and still belong to nothing else.
+    config: Option<PathBuf>,
+}
+
+/// The project a path belongs to: the one whose root is its longest prefix.
+///
+/// Projects can nest, and the deeper one owns the file; a path under no root at
+/// all belongs to none of them, which is what leaves it to the bare fallback.
+fn owner(claims: &[Claim], path: &Path) -> Option<usize> {
+    let path = canonical(path);
+    if let Some(index) = claims.iter().position(|it| it.config.as_deref() == Some(&*path)) {
+        return Some(index);
+    }
+    claims
+        .iter()
+        .enumerate()
+        .filter(|(_, claim)| path.starts_with(&claim.root))
+        .max_by_key(|(_, claim)| claim.root.components().count())
+        .map(|(index, _)| index)
+}
+
+/// Collect the configurations at or below `dir`.
+fn configs_below(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    let config = dir.join(CONFIG_FILE);
+    if config.is_file() {
+        out.push(config);
+        return;
+    }
+    if depth == 0 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if !is_ignored(entry.file_name().to_string_lossy().as_ref())
+            && entry.path().is_dir()
+        {
+            configs_below(&entry.path(), depth - 1, out);
+        }
+    }
+}
+
+/// Every `.pi` file under `root`.
+///
+/// A project that declares a `root` has said what belongs to it. Nothing
+/// outside is a project source — generated output and test fixtures very much
+/// included — so reporting problems in those files would be noise about code
+/// the project does not build.
+fn walk(root: &Path) -> Vec<PathBuf> {
+    if !root.is_dir() {
+        return Vec::new();
+    }
+    walkdir::WalkDir::new(root)
+        .max_depth(MAX_DEPTH)
+        .into_iter()
+        .filter_entry(|entry| !is_ignored(entry.file_name().to_string_lossy().as_ref()))
+        .filter_map(Result::ok)
+        .map(|entry| entry.into_path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "pi"))
+        .collect()
 }
 
 fn is_ignored(name: &str) -> bool {

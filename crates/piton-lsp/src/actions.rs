@@ -12,28 +12,28 @@ use tower_lsp::lsp_types::{
 };
 
 use crate::tokens::collect;
-use crate::world::Snapshot;
+use crate::world::View;
 
 /// Offer actions for the diagnostics overlapping `range`.
 pub fn actions(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     url: &Url,
     range: TextRange,
 ) -> Vec<CodeActionOrCommand> {
     let mut out = Vec::new();
-    for diagnostic in snapshot.compilation.diagnostics.iter() {
+    for diagnostic in view.compilation.diagnostics.iter() {
         if diagnostic.file != file || !overlaps(diagnostic.range, range) {
             continue;
         }
         match diagnostic.code {
-            "unimplemented" => out.extend(implement_missing(snapshot, file, url, diagnostic)),
-            "eval" => out.extend(add_import(snapshot, file, url, diagnostic)),
-            "unknown-keyword" => out.extend(add_use(snapshot, file, url, diagnostic)),
+            "unimplemented" => out.extend(implement_missing(view, file, url, diagnostic)),
+            "eval" => out.extend(add_import(view, file, url, diagnostic)),
+            "unknown-keyword" => out.extend(add_use(view, file, url, diagnostic)),
             _ => {}
         }
     }
-    out.push(format_action(snapshot, file, url));
+    out.push(format_action(view, file, url));
     out
 }
 
@@ -54,12 +54,12 @@ fn action(title: String, url: &Url, edits: Vec<TextEdit>, kind: CodeActionKind) 
 
 /// Write stubs for every abstract property a concrete anchor still owes.
 fn implement_missing(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     url: &Url,
     diagnostic: &Diagnostic,
 ) -> Vec<CodeActionOrCommand> {
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let hir = &analysis.db.file(file).hir;
     let Some(position) = hir.anchors.iter().position(|it| it.name_range == diagnostic.range) else {
         return Vec::new();
@@ -90,8 +90,8 @@ fn implement_missing(
         return Vec::new();
     }
 
-    let index = snapshot.line_index(file);
-    let text = snapshot.text(file);
+    let index = view.line_index(file);
+    let text = view.text(file);
     let indent = " ".repeat(body_indent(text, anchor.range));
     let mut insertion = String::new();
     for (name, constraint) in &required {
@@ -129,21 +129,21 @@ fn body_indent(text: &str, range: TextRange) -> usize {
 
 /// Offer an import for an unresolved name that some module does export.
 fn add_import(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     url: &Url,
     diagnostic: &Diagnostic,
 ) -> Vec<CodeActionOrCommand> {
     let Some(name) = quoted_name(&diagnostic.message, "cannot find `") else { return Vec::new() };
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let mut out = Vec::new();
     for other in analysis.db.files() {
         if other.id == file || !analysis.scope(other.id).exports.contains_key(&name) {
             continue;
         }
-        let Some(specifier) = specifier(snapshot, file, other.id) else { continue };
+        let Some(specifier) = specifier(view, file, other.id) else { continue };
         out.push(insert_line(
-            snapshot,
+            view,
             file,
             url,
             format!("from {specifier} import {name}"),
@@ -155,13 +155,13 @@ fn add_import(
 
 /// Offer a `use` for a keyword some module exports.
 fn add_use(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     url: &Url,
     diagnostic: &Diagnostic,
 ) -> Vec<CodeActionOrCommand> {
     let Some(keyword) = quoted_name(&diagnostic.message, "`") else { return Vec::new() };
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let mut out = Vec::new();
     for other in analysis.db.files() {
         if other.id == file {
@@ -176,9 +176,9 @@ fn add_use(
         if !provides {
             continue;
         }
-        let Some(specifier) = specifier(snapshot, file, other.id) else { continue };
+        let Some(specifier) = specifier(view, file, other.id) else { continue };
         out.push(insert_line(
-            snapshot,
+            view,
             file,
             url,
             format!("use {specifier}"),
@@ -190,14 +190,14 @@ fn add_use(
 
 /// Insert a statement above the first declaration in a file.
 fn insert_line(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     url: &Url,
     line: String,
     title: String,
 ) -> CodeActionOrCommand {
-    let index = snapshot.line_index(file);
-    let hir = &snapshot.compilation.analysis.db.file(file).hir;
+    let index = view.line_index(file);
+    let hir = &view.compilation.analysis.db.file(file).hir;
     let after = hir
         .imports
         .iter()
@@ -220,9 +220,9 @@ fn insert_line(
 }
 
 /// Rewrite the whole document with `piton format`.
-fn format_action(snapshot: &Snapshot, file: FileId, url: &Url) -> CodeActionOrCommand {
-    let index = snapshot.line_index(file);
-    let formatted = piton_fmt::format(snapshot.text(file));
+fn format_action(view: &View, file: FileId, url: &Url) -> CodeActionOrCommand {
+    let index = view.line_index(file);
+    let formatted = piton_fmt::format(view.text(file));
     action(
         "Format with piton format".to_string(),
         url,
@@ -232,12 +232,12 @@ fn format_action(snapshot: &Snapshot, file: FileId, url: &Url) -> CodeActionOrCo
 }
 
 /// The import specifier that reaches `target` from `file`.
-fn specifier(snapshot: &Snapshot, file: FileId, target: FileId) -> Option<String> {
-    let source = snapshot.compilation.analysis.db.file(target).source.clone();
+fn specifier(view: &View, file: FileId, target: FileId) -> Option<String> {
+    let source = view.compilation.analysis.db.file(target).source.clone();
     match source {
         piton_core::db::Source::Virtual(name) => Some(name),
         piton_core::db::Source::Disk(path) => {
-            let from = snapshot.path_of(file)?.parent()?.to_path_buf();
+            let from = view.path_of(file)?.parent()?.to_path_buf();
             let stem = path.with_extension("");
             Some(format!("./{}", relative(&from, &stem)?))
         }

@@ -48,11 +48,10 @@ pub fn compile(
     let paths = files::resolve(patterns)?;
     let cwd = std::env::current_dir()?;
     let session = Session::files(&cwd, &paths)?;
-    let failed = report(
-        &session.compilation.analysis.db,
-        &session.compilation.diagnostics.iter().cloned().collect::<Vec<_>>(),
-    );
-    if failed {
+    if let Some(code) = misconfigured(&session) {
+        return Ok(code);
+    }
+    if report(&session.compilation.analysis.db, &session.diagnostics()) {
         return Ok(1);
     }
     if !write {
@@ -94,8 +93,11 @@ pub fn build(check_only: bool) -> Result<i32> {
     for note in &session.notes {
         eprintln!("warning[framework]: {note}");
     }
+    if let Some(code) = misconfigured(&session) {
+        return Ok(code);
+    }
     let (outputs, emit_diagnostics) = session.emit();
-    let mut diagnostics = session.compilation.diagnostics.iter().cloned().collect::<Vec<_>>();
+    let mut diagnostics = session.diagnostics();
     diagnostics.extend(emit_diagnostics);
     if report(&session.compilation.analysis.db, &diagnostics) {
         return Ok(1);
@@ -130,6 +132,9 @@ pub fn reach(
         Some(path) => Session::files(&cwd, std::slice::from_ref(path))?,
         None => {
             let session = Session::project(&cwd)?;
+            if let Some(code) = misconfigured(&session) {
+                return Ok(code);
+            }
             // Without a config there is no entry point, and "reached" is
             // measured from one. Answering anyway would mean treating every
             // file as its own entry and reporting that everything is reached,
@@ -457,6 +462,21 @@ fn loc_row(counts: piton_syntax::loc::Counts, last: &str) -> String {
     )
 }
 
+/// Report a configuration that cannot be honoured, and say so with an exit code.
+///
+/// Every command asks this before it uses a session. A project that has not
+/// finished saying where its code lives has nothing reliable to say about the
+/// code, and the one line the author can fix should not arrive underneath every
+/// import it broke. This is the language server's rule too, so the editor and
+/// the compiler describe a broken configuration the same way.
+fn misconfigured(session: &Session) -> Option<i32> {
+    if !session.misconfigured {
+        return None;
+    }
+    report(&session.compilation.analysis.db, &session.diagnostics());
+    Some(1)
+}
+
 fn project_files(cwd: &Path, reached_only: bool) -> Result<Vec<PathBuf>> {
     let loaded = Project::load(cwd, &registry());
     let root = if loaded.project.config_path.is_some() { loaded.project.root.clone() } else { cwd.to_path_buf() };
@@ -471,6 +491,10 @@ fn project_files(cwd: &Path, reached_only: bool) -> Result<Vec<PathBuf>> {
         bail!("--reached needs a piton.config.pi, because reachability starts at an entry point");
     }
     let session = Session::project(cwd)?;
+    if session.misconfigured {
+        report(&session.compilation.analysis.db, &session.diagnostics());
+        bail!("reachability is measured from an entry point, and this project has no usable one");
+    }
     Ok(all.into_iter().filter(|path| session.compilation.reaches(path)).collect())
 }
 

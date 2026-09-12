@@ -19,7 +19,7 @@ use tower_lsp::lsp_types::{
 };
 
 use crate::navigation::{enclosing_anchor, visible_properties};
-use crate::world::Snapshot;
+use crate::world::View;
 
 /// What the cursor is in the middle of writing.
 enum Context {
@@ -46,38 +46,38 @@ enum Context {
 }
 
 /// Suggest completions at an offset.
-pub fn complete(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
-    match context(snapshot, file, offset) {
+pub fn complete(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
+    match context(view, file, offset) {
         Context::Nothing => Vec::new(),
-        Context::ModulePath { typed, range } => module_items(snapshot, file, &typed, range),
-        Context::ImportNames { module } => export_items(snapshot, module),
+        Context::ModulePath { typed, range } => module_items(view, file, &typed, range),
+        Context::ImportNames { module } => export_items(view, module),
         Context::ImportVerb => vec![
             item("import", CompletionItemKind::KEYWORD, "bring names into this file"),
             item("export", CompletionItemKind::KEYWORD, "import and republish in one line"),
         ],
-        Context::Type { in_abstract } => type_items(snapshot, file, in_abstract),
-        Context::Base => anchor_items(snapshot, file),
-        Context::Member { path } => member_items(snapshot, file, offset, &path),
-        Context::Expression => expression_items(snapshot, file, offset),
-        Context::PropertyKey => property_items(snapshot, file, offset),
+        Context::Type { in_abstract } => type_items(view, file, in_abstract),
+        Context::Base => anchor_items(view, file),
+        Context::Member { path } => member_items(view, file, offset, &path),
+        Context::Expression => expression_items(view, file, offset),
+        Context::PropertyKey => property_items(view, file, offset),
         Context::Declaration { after_export, after_abstract } => {
-            declaration_items(snapshot, file, after_export, after_abstract)
+            declaration_items(view, file, after_export, after_abstract)
         }
     }
 }
 
 // ---- working out where the cursor is ---------------------------------------
 
-fn context(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Context {
-    let root = snapshot.compilation.analysis.db.file(file).parse.syntax();
-    let text = snapshot.text(file);
+fn context(view: &View, file: FileId, offset: TextSize) -> Context {
+    let root = view.compilation.analysis.db.file(file).parse.syntax();
+    let text = view.text(file);
     let cursor = usize::from(offset).min(text.len());
     let line_start = text[..cursor].rfind('\n').map_or(0, |it| it + 1);
     let prefix = &text[line_start..cursor];
 
     // A half-typed `from`/`use` line does not parse, which is exactly when
     // completion runs, so it is read from the line rather than from the tree.
-    if let Some(context) = import_line_context(snapshot, file, offset, prefix) {
+    if let Some(context) = import_line_context(view, file, offset, prefix) {
         return context;
     }
 
@@ -92,7 +92,7 @@ fn context(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Context {
     for ancestor in node.ancestors() {
         match ancestor.kind() {
             IMPORT_DECL | REEXPORT_DECL | USE_DECL => {
-                return import_context(snapshot, file, &ancestor, offset, prefix)
+                return import_context(view, file, &ancestor, offset, prefix)
             }
             TYPE_ANNOTATION | TYPE_REF | TYPE_LIST | TYPE_EXTENDS => {
                 return Context::Type { in_abstract: in_abstract_anchor(&ancestor) }
@@ -110,14 +110,14 @@ fn context(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Context {
         return expression_context(prefix);
     }
 
-    line_start_context(snapshot, file, offset, prefix)
+    line_start_context(view, file, offset, prefix)
 }
 
 /// Read a `from`/`use` line straight from the text.
 ///
 /// Returns `None` when the line is not one, so the tree still decides.
 fn import_line_context(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     offset: TextSize,
     prefix: &str,
@@ -155,7 +155,7 @@ fn import_line_context(
             if !names.is_empty() && !names.starts_with([' ', '\t']) {
                 continue;
             }
-            let module = snapshot.compilation.analysis.db.lookup_module(file, specifier)?;
+            let module = view.compilation.analysis.db.lookup_module(file, specifier)?;
             return Some(Context::ImportNames { module });
         }
         return Some(if tail.is_empty() { Context::ImportVerb } else { Context::Nothing });
@@ -165,7 +165,7 @@ fn import_line_context(
 
 /// `from PATH import a, b` — the path, then the names it exports.
 fn import_context(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     declaration: &SyntaxNode,
     offset: TextSize,
@@ -181,7 +181,7 @@ fn import_context(
     if let Some(verb) = &verb {
         if offset > verb.text_range().end() {
             let module = token_of(PATH)
-                .and_then(|path| snapshot.compilation.analysis.module(file, path.text()));
+                .and_then(|path| view.compilation.analysis.module(file, path.text()));
             return match module {
                 Some(module) => Context::ImportNames { module },
                 None => Context::Nothing,
@@ -228,7 +228,7 @@ fn expression_context(prefix: &str) -> Context {
 
 /// A line that has only whitespace, or a partial word, before the cursor.
 fn line_start_context(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     offset: TextSize,
     prefix: &str,
@@ -250,7 +250,7 @@ fn line_start_context(
             Context::Declaration { after_export: false, after_abstract: true }
         }
         _ => {
-            let _ = (snapshot, file, offset);
+            let _ = (view, file, offset);
             Context::Nothing
         }
     }
@@ -291,13 +291,13 @@ fn snippet(label: &str, insert: &str, detail: &str, docs: &str) -> CompletionIte
 
 /// Files and directories that could finish a `from`/`use` specifier.
 fn module_items(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     typed: &str,
     range: TextRange,
 ) -> Vec<CompletionItem> {
-    let index = snapshot.line_index(file);
-    snapshot
+    let index = view.line_index(file);
+    view
         .compilation
         .analysis
         .db
@@ -324,6 +324,7 @@ fn module_item(
     let where_from = match candidate.origin {
         ModuleOrigin::Relative => "beside this file",
         ModuleOrigin::Root => "from the project root",
+        ModuleOrigin::Shared => "from the shared root",
         ModuleOrigin::Builtin => "built in",
     };
     // A trailing slash says "there is more to type" at a glance.
@@ -355,8 +356,8 @@ fn module_item(
 }
 
 /// What a module actually exports, so an import list cannot be wrong.
-fn export_items(snapshot: &Snapshot, module: FileId) -> Vec<CompletionItem> {
-    let analysis = &snapshot.compilation.analysis;
+fn export_items(view: &View, module: FileId) -> Vec<CompletionItem> {
+    let analysis = &view.compilation.analysis;
     analysis
         .scope(module)
         .exports
@@ -375,7 +376,7 @@ fn export_items(snapshot: &Snapshot, module: FileId) -> Vec<CompletionItem> {
         .collect()
 }
 
-fn type_items(snapshot: &Snapshot, file: FileId, in_abstract: bool) -> Vec<CompletionItem> {
+fn type_items(view: &View, file: FileId, in_abstract: bool) -> Vec<CompletionItem> {
     let mut items: Vec<CompletionItem> = BUILTIN_TYPES
         .iter()
         .map(|name| item(name, CompletionItemKind::KEYWORD, "built-in type"))
@@ -388,12 +389,12 @@ fn type_items(snapshot: &Snapshot, file: FileId, in_abstract: bool) -> Vec<Compl
             "any anchor whose chain includes this one",
         ));
     }
-    items.extend(anchor_items(snapshot, file));
+    items.extend(anchor_items(view, file));
     items
 }
 
-fn anchor_items(snapshot: &Snapshot, file: FileId) -> Vec<CompletionItem> {
-    let analysis = &snapshot.compilation.analysis;
+fn anchor_items(view: &View, file: FileId) -> Vec<CompletionItem> {
+    let analysis = &view.compilation.analysis;
     analysis
         .scope(file)
         .names
@@ -410,8 +411,8 @@ fn anchor_items(snapshot: &Snapshot, file: FileId) -> Vec<CompletionItem> {
 }
 
 /// Names visible in an expression, plus the self-reference keywords.
-fn expression_items(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
-    let analysis = &snapshot.compilation.analysis;
+fn expression_items(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
+    let analysis = &view.compilation.analysis;
     let mut items: Vec<CompletionItem> = analysis
         .scope(file)
         .names
@@ -425,7 +426,7 @@ fn expression_items(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Vec<
             Symbol::Var { .. } => item(name, CompletionItemKind::VARIABLE, "variable"),
         })
         .collect();
-    if enclosing(snapshot, file, offset).is_some() {
+    if enclosing(view, file, offset).is_some() {
         for keyword in SELF_KEYWORDS {
             items.push(item(keyword, CompletionItemKind::KEYWORD, "self reference"));
         }
@@ -435,35 +436,35 @@ fn expression_items(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Vec<
 
 /// The members of whatever `path` resolves to, for completion after a `.`.
 fn member_items(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     offset: TextSize,
     path: &[String],
 ) -> Vec<CompletionItem> {
     let Some((root, rest)) = path.split_first() else { return Vec::new() };
-    let anchor = enclosing(snapshot, file, offset);
+    let anchor = enclosing(view, file, offset);
 
     // `self`, `this`, and `super` are answered from the inheritance chain
     // rather than from a value, so they work before anything compiles.
     let value = match root.as_str() {
         "self" | "this" if rest.is_empty() => {
-            return anchor.map(|id| property_completions(snapshot, id)).unwrap_or_default()
+            return anchor.map(|id| property_completions(view, id)).unwrap_or_default()
         }
         "super" if rest.is_empty() => {
             let Some(id) = anchor else { return Vec::new() };
-            return snapshot
+            return view
                 .compilation
                 .analysis
                 .bases(id)
                 .into_iter()
-                .flat_map(|base| property_completions(snapshot, base))
+                .flat_map(|base| property_completions(view, base))
                 .collect();
         }
         "self" | "this" | "super" => {
             let Some(id) = anchor else { return Vec::new() };
-            snapshot.compilation.anchor(id).map(|it| Value::Anchor(it.clone()))
+            view.compilation.anchor(id).map(|it| Value::Anchor(it.clone()))
         }
-        name => resolve_value(snapshot, file, name),
+        name => resolve_value(view, file, name),
     };
 
     let Some(mut value) = value else { return Vec::new() };
@@ -474,8 +475,8 @@ fn member_items(
     members_of(&value)
 }
 
-fn property_completions(snapshot: &Snapshot, anchor: piton_core::value::AnchorId) -> Vec<CompletionItem> {
-    visible_properties(snapshot, anchor)
+fn property_completions(view: &View, anchor: piton_core::value::AnchorId) -> Vec<CompletionItem> {
+    visible_properties(view, anchor)
         .into_iter()
         .map(|property| {
             let detail = property
@@ -509,24 +510,24 @@ fn members_of(value: &Value) -> Vec<CompletionItem> {
         .collect()
 }
 
-fn resolve_value(snapshot: &Snapshot, file: FileId, name: &str) -> Option<Value> {
-    match snapshot.compilation.analysis.scope(file).names.get(name)? {
+fn resolve_value(view: &View, file: FileId, name: &str) -> Option<Value> {
+    match view.compilation.analysis.scope(file).names.get(name)? {
         Symbol::Anchor(id) => {
-            snapshot.compilation.anchor(*id).map(|anchor| Value::Anchor(anchor.clone()))
+            view.compilation.anchor(*id).map(|anchor| Value::Anchor(anchor.clone()))
         }
-        Symbol::Var { file, index } => snapshot.compilation.vars.get(&(*file, *index)).cloned(),
+        Symbol::Var { file, index } => view.compilation.vars.get(&(*file, *index)).cloned(),
     }
 }
 
 /// Inside an anchor body: the properties it inherits but has not written yet.
-fn property_items(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
-    let Some(anchor) = enclosing(snapshot, file, offset) else { return Vec::new() };
-    let analysis = &snapshot.compilation.analysis;
+fn property_items(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
+    let Some(anchor) = enclosing(view, file, offset) else { return Vec::new() };
+    let analysis = &view.compilation.analysis;
     let mut written = Vec::new();
     crate::tokens::collect(&analysis.anchor_def(anchor).body, &mut written);
     let written: Vec<String> = written.into_iter().map(|property| property.name).collect();
 
-    visible_properties(snapshot, anchor)
+    visible_properties(view, anchor)
         .into_iter()
         .filter(|property| !written.contains(&property.name))
         .map(|property| {
@@ -544,12 +545,12 @@ fn property_items(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Vec<Co
 
 /// The start of a top-level line: only what can begin a declaration.
 fn declaration_items(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     after_export: bool,
     after_abstract: bool,
 ) -> Vec<CompletionItem> {
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let mut items = Vec::new();
 
     if after_abstract {
@@ -625,21 +626,21 @@ fn declaration_items(
 /// empty body there is no block yet — the indentation is still just an empty
 /// line — so the anchor is found by looking back instead.
 fn enclosing(
-    snapshot: &Snapshot,
+    view: &View,
     file: FileId,
     offset: TextSize,
 ) -> Option<piton_core::value::AnchorId> {
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let root = analysis.db.file(file).parse.syntax();
     let node = match root.covering_element(TextRange::empty(offset)) {
         piton_syntax::NodeOrToken::Node(node) => node,
         piton_syntax::NodeOrToken::Token(token) => token.parent()?,
     };
-    if let Some(anchor) = enclosing_anchor(snapshot, file, &node) {
+    if let Some(anchor) = enclosing_anchor(view, file, &node) {
         return Some(anchor);
     }
 
-    let text = snapshot.text(file);
+    let text = view.text(file);
     let cursor = usize::from(offset).min(text.len());
     let (index, _) = analysis.db.file(file).hir.anchors.iter().enumerate().rfind(
         |(_, anchor)| {

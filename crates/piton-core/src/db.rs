@@ -64,6 +64,11 @@ pub struct Db {
     virtual_sources: HashMap<String, String>,
     /// The project root, used for `/`-prefixed absolute imports.
     root: Option<PathBuf>,
+    /// Directories outside the root that a rooted import may also name, by the
+    /// name the project gave them.
+    libraries: Vec<(String, PathBuf)>,
+    /// The directory `//`-prefixed shared imports resolve against.
+    shared_root: Option<PathBuf>,
 }
 
 /// Why a module path could not be resolved.
@@ -83,6 +88,48 @@ impl Db {
 
     pub fn root(&self) -> Option<&Path> {
         self.root.as_deref()
+    }
+
+    /// Name the directories outside the root that rooted imports may reach.
+    ///
+    /// A library is shared code the project does not own — it lives beside the
+    /// project rather than under its root — and naming it keeps a rooted import
+    /// meaning one thing: the first segment of `/name/rest` either is a
+    /// directory in the root or is a library the project asked for.
+    pub fn set_libraries(&mut self, libraries: Vec<(String, PathBuf)>) {
+        self.libraries = libraries;
+    }
+
+    /// Name the directory shared imports resolve against.
+    ///
+    /// Where a library is one of several borrowed directories and is spelled
+    /// into the path that reaches it, this is the single place a set of sibling
+    /// projects share, and `//rest` reaches it without naming it.
+    pub fn set_shared_root(&mut self, shared_root: Option<PathBuf>) {
+        self.shared_root = shared_root;
+    }
+
+    pub fn shared_root(&self) -> Option<&Path> {
+        self.shared_root.as_deref()
+    }
+
+    /// Every directory a rooted specifier could mean, in order of preference.
+    ///
+    /// The root answers first: a project's own code wins over a library it
+    /// borrows, so declaring a library can never change what an import that
+    /// already resolved means.
+    fn rooted_bases(&self, rest: &str) -> Vec<PathBuf> {
+        let mut bases = Vec::new();
+        if let Some(root) = &self.root {
+            bases.push(root.join(rest));
+        }
+        let (name, remainder) = rest.split_once('/').unwrap_or((rest, ""));
+        for (library, path) in &self.libraries {
+            if library == name {
+                bases.push(if remainder.is_empty() { path.clone() } else { path.join(remainder) });
+            }
+        }
+        bases
     }
 
     /// Register a module reachable as `@name`.
@@ -161,24 +208,35 @@ impl Db {
 
     /// Resolve an import specifier written in `from`.
     ///
-    /// `@name` is a builtin module, `/a/b` is relative to the project root, and
-    /// anything else is relative to the importing file. A directory resolves to
-    /// its `index.pi`.
+    /// `@name` is a builtin module, `//a` is relative to the project's shared
+    /// root, `/a/b` is relative to the project root, and anything else is
+    /// relative to the importing file. A directory resolves to its `index.pi`.
     pub fn resolve(&mut self, from: FileId, spec: &str) -> Result<FileId, ResolveError> {
         if let Some(name) = spec.strip_prefix('@') {
             return self.load_source(Source::Virtual(format!("@{name}")));
         }
-        let base = if let Some(rest) = spec.strip_prefix('/') {
-            match &self.root {
-                Some(root) => root.join(rest),
-                None => {
-                    return Err(ResolveError {
-                        message: format!(
-                            "absolute import `{spec}` needs a project root; add a piton.config.pi"
-                        ),
-                    })
-                }
+        // Before the rooted case, because `//a` is also `/`-prefixed and the
+        // two would otherwise both claim it.
+        let bases = if let Some(rest) = spec.strip_prefix("//") {
+            let Some(shared) = &self.shared_root else {
+                return Err(ResolveError {
+                    message: format!(
+                        "shared import `{spec}` needs a shared root; add `sharedRoot` to \
+                         piton.config.pi"
+                    ),
+                });
+            };
+            vec![shared.join(rest)]
+        } else if let Some(rest) = spec.strip_prefix('/') {
+            let bases = self.rooted_bases(rest);
+            if bases.is_empty() {
+                return Err(ResolveError {
+                    message: format!(
+                        "absolute import `{spec}` needs a project root; add a piton.config.pi"
+                    ),
+                });
             }
+            bases
         } else {
             let dir = match self.file(from).source.as_path().and_then(Path::parent) {
                 Some(dir) => dir.to_path_buf(),
@@ -188,11 +246,13 @@ impl Db {
                     })
                 }
             };
-            dir.join(spec)
+            vec![dir.join(spec)]
         };
-        for candidate in module_candidates(&base) {
-            if self.overlays.contains_key(&candidate) || candidate.is_file() {
-                return self.load_source(Source::Disk(canonical(&candidate)));
+        for base in &bases {
+            for candidate in module_candidates(base) {
+                if self.overlays.contains_key(&candidate) || candidate.is_file() {
+                    return self.load_source(Source::Disk(canonical(&candidate)));
+                }
             }
         }
         Err(ResolveError { message: format!("cannot find module `{spec}`") })
@@ -206,6 +266,8 @@ pub enum ModuleOrigin {
     Relative,
     /// `/x`, resolved against the project root.
     Root,
+    /// `//x`, resolved against the project's shared root.
+    Shared,
     /// `@piton/x`, a module built into the compiler or a framework.
     Builtin,
 }
@@ -245,13 +307,14 @@ impl Db {
         if let Some(name) = spec.strip_prefix('@') {
             return self.by_source.get(&Source::Virtual(format!("@{name}"))).copied();
         }
-        let base = if let Some(rest) = spec.strip_prefix('/') {
-            self.root.as_ref()?.join(rest)
-        } else {
-            self.file(from).source.as_path()?.parent()?.join(spec)
+        let bases = match (spec.strip_prefix("//"), spec.strip_prefix('/')) {
+            (Some(rest), _) => vec![self.shared_root.as_ref()?.join(rest)],
+            (None, Some(rest)) => self.rooted_bases(rest),
+            (None, None) => vec![self.file(from).source.as_path()?.parent()?.join(spec)],
         };
-        module_candidates(&base)
-            .into_iter()
+        bases
+            .iter()
+            .flat_map(|base| module_candidates(base))
             .find_map(|candidate| self.by_source.get(&Source::Disk(canonical(&candidate))).copied())
     }
 
@@ -267,7 +330,17 @@ impl Db {
         let mut out = Vec::new();
         match partial.chars().next() {
             Some('@') => out.extend(self.builtin_candidates(partial)),
-            Some('/') => out.extend(self.path_candidates(from, partial, ModuleOrigin::Root)),
+            Some('/') if partial.starts_with("//") => {
+                out.extend(self.path_candidates(from, partial, ModuleOrigin::Shared));
+            }
+            Some('/') => {
+                out.extend(self.path_candidates(from, partial, ModuleOrigin::Root));
+                // A second `/` is one keystroke further on, and until it is
+                // typed nothing on the line says the shared root is reachable.
+                if partial == "/" && self.shared_root.is_some() {
+                    out.extend(self.path_candidates(from, partial, ModuleOrigin::Shared));
+                }
+            }
             Some('.') => out.extend(self.path_candidates(from, partial, ModuleOrigin::Relative)),
             Some(_) => {
                 // Something is typed but it names no prefix; treat it as a leaf
@@ -278,6 +351,9 @@ impl Db {
                 out.extend(self.path_candidates(from, partial, ModuleOrigin::Relative));
                 if self.root.is_some() {
                     out.extend(self.path_candidates(from, partial, ModuleOrigin::Root));
+                }
+                if self.shared_root.is_some() {
+                    out.extend(self.path_candidates(from, partial, ModuleOrigin::Shared));
                 }
                 out.extend(self.builtin_candidates(partial));
             }
@@ -319,71 +395,107 @@ impl Db {
         };
         // With no prefix typed, the candidate has to supply one itself.
         let written = match (typed.is_empty(), origin) {
+            // A shared specifier is `//` and then the path, so both "nothing
+            // typed" and the single `/` of a specifier still being written
+            // supply the whole prefix.
+            (_, ModuleOrigin::Shared) if !typed.starts_with("//") => "//".to_string(),
             (false, _) => typed.to_string(),
             (true, ModuleOrigin::Root) => "/".to_string(),
             (true, _) => "./".to_string(),
         };
         let replace_from = if typed.is_empty() { 0 } else { typed.len() };
 
-        let base = match origin {
-            ModuleOrigin::Root => match &self.root {
-                Some(root) => root.join(written.trim_start_matches('/')),
+        let bases = match origin {
+            ModuleOrigin::Root => self.rooted_bases(written.trim_start_matches('/')),
+            ModuleOrigin::Shared => match &self.shared_root {
+                Some(shared) => vec![shared.join(written.trim_start_matches('/'))],
                 None => return Vec::new(),
             },
             _ => match self.file(from).source.as_path().and_then(Path::parent) {
-                Some(directory) => directory.join(&written),
+                Some(directory) => vec![directory.join(&written)],
                 None => return Vec::new(),
             },
-            
         };
+        if bases.is_empty() {
+            return Vec::new();
+        }
 
-        let Ok(entries) = std::fs::read_dir(&base) else { return Vec::new() };
         // A file cannot import itself, so it is never a candidate.
         let current = self.file(from).source.as_path().map(canonical);
-        let mut out = Vec::new();
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || !name.starts_with(leaf) {
-                continue;
-            }
-            let path = entry.path();
-            if path.is_dir() {
-                if IGNORED_DIRECTORIES.contains(&name.as_str()) {
+        let mut out: Vec<ModuleCandidate> = Vec::new();
+        // At the top of a rooted path the libraries are offered beside the
+        // root's own directories; nothing else would reveal that they exist.
+        if origin == ModuleOrigin::Root && written.trim_start_matches('/').is_empty() {
+            for (library, path) in &self.libraries {
+                if !library.starts_with(leaf) {
                     continue;
                 }
                 let importable = path.join("index.pi").is_file();
-                // A plain directory has to be descended into, so it completes
-                // with the separator already typed.
-                let leaf = if importable { name.clone() } else { format!("{name}/") };
-                let specifier = format!("{written}{leaf}");
+                let tail =
+                    if importable { library.clone() } else { format!("{library}/") };
+                let specifier = format!("{written}{tail}");
                 out.push(ModuleCandidate {
-                    // Replacing from `replace_from` has to reproduce the
-                    // specifier, which is what supplies `./` or `/` when
-                    // nothing has been typed yet.
                     insert: specifier[replace_from..].to_string(),
                     specifier,
-                    name,
+                    name: library.clone(),
                     replace_from,
                     importable,
                     directory: true,
                     origin,
                 });
-            } else if path.extension().is_some_and(|ext| ext == "pi") {
-                // Specifiers omit the extension, and `index.pi` is the directory.
-                let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                if stem == "index" || current.as_deref() == Some(&canonical(&path)) {
+            }
+        }
+        for base in &bases {
+            let Ok(entries) = std::fs::read_dir(base) else { continue };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || !name.starts_with(leaf) {
                     continue;
                 }
-                let specifier = format!("{written}{stem}");
-                out.push(ModuleCandidate {
-                    insert: specifier[replace_from..].to_string(),
-                    specifier,
-                    name: stem,
-                    replace_from,
-                    importable: true,
-                    directory: false,
-                    origin,
-                });
+                // The root is read before any library, so a name the project owns
+                // is never replaced by one it borrowed.
+                if out.iter().any(|it| it.name == name) {
+                    continue;
+                }
+                let path = entry.path();
+                if path.is_dir() {
+                    if IGNORED_DIRECTORIES.contains(&name.as_str()) {
+                        continue;
+                    }
+                    let importable = path.join("index.pi").is_file();
+                    // A plain directory has to be descended into, so it completes
+                    // with the separator already typed.
+                    let leaf = if importable { name.clone() } else { format!("{name}/") };
+                    let specifier = format!("{written}{leaf}");
+                    out.push(ModuleCandidate {
+                        // Replacing from `replace_from` has to reproduce the
+                        // specifier, which is what supplies `./` or `/` when
+                        // nothing has been typed yet.
+                        insert: specifier[replace_from..].to_string(),
+                        specifier,
+                        name,
+                        replace_from,
+                        importable,
+                        directory: true,
+                        origin,
+                    });
+                } else if path.extension().is_some_and(|ext| ext == "pi") {
+                    // Specifiers omit the extension, and `index.pi` is the directory.
+                    let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                    if stem == "index" || current.as_deref() == Some(&canonical(&path)) {
+                        continue;
+                    }
+                    let specifier = format!("{written}{stem}");
+                    out.push(ModuleCandidate {
+                        insert: specifier[replace_from..].to_string(),
+                        specifier,
+                        name: stem,
+                        replace_from,
+                        importable: true,
+                        directory: false,
+                        origin,
+                    });
+                }
             }
         }
         out

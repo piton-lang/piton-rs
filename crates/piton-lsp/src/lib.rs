@@ -29,7 +29,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use navigation::Target;
-use world::{Registry, Snapshot, Workspace};
+use world::{Registry, View, Workspace};
 
 pub use world::Registry as FrameworkRegistry;
 
@@ -62,34 +62,47 @@ struct Backend {
 }
 
 impl Backend {
-    async fn snapshot(&self) -> std::sync::Arc<Snapshot> {
-        self.workspace.lock().await.snapshot()
+    /// The project that analysed a document, and the document's id in it.
+    ///
+    /// A request names a file; which project answers for it is the workspace's
+    /// to decide. A file no project analysed has no view, and the feature
+    /// declines rather than guessing at one.
+    async fn document(&self, url: &Url) -> Option<(std::sync::Arc<View>, FileId)> {
+        let path = url.to_file_path().ok()?;
+        let snapshot = self.workspace.lock().await.snapshot();
+        let (view, file) = snapshot.locate(&path)?;
+        Some((view.clone(), file))
     }
 
-    /// Re-analyse and push diagnostics for every file the project touches.
+    /// Re-analyse and push diagnostics for every file the workspace touches.
+    ///
+    /// Each project reports on its own files and no others. A file is published
+    /// once, from the compilation that owns it, so nothing a sibling project
+    /// thinks about the same name can reach it.
     async fn publish(&self) {
         let (snapshot, open) = {
             let mut workspace = self.workspace.lock().await;
             (workspace.snapshot(), workspace.open_paths())
         };
-        let mut per_file: std::collections::HashMap<FileId, Vec<Diagnostic>> =
-            std::collections::HashMap::new();
-        for diagnostic in snapshot.compilation.diagnostics.iter() {
-            per_file.entry(diagnostic.file).or_default().push(convert(&snapshot, diagnostic));
-        }
-
         let mut current = std::collections::HashSet::new();
-        for file in snapshot.compilation.analysis.db.files() {
-            let Some(path) = file.source.as_path() else { continue };
-            let Ok(url) = Url::from_file_path(path) else { continue };
-            let diagnostics = per_file.remove(&file.id).unwrap_or_default();
-            if diagnostics.is_empty() && !open.iter().any(|it| it == path) {
-                continue;
+        for view in snapshot.views() {
+            let mut per_file: std::collections::HashMap<FileId, Vec<Diagnostic>> =
+                std::collections::HashMap::new();
+            for diagnostic in view.compilation.diagnostics.iter() {
+                per_file.entry(diagnostic.file).or_default().push(convert(view, diagnostic));
             }
-            if !diagnostics.is_empty() {
-                current.insert(url.clone());
+            for file in view.compilation.analysis.db.files() {
+                let Some(path) = file.source.as_path() else { continue };
+                let Ok(url) = Url::from_file_path(path) else { continue };
+                let diagnostics = per_file.remove(&file.id).unwrap_or_default();
+                if diagnostics.is_empty() && !open.iter().any(|it| it == path) {
+                    continue;
+                }
+                if !diagnostics.is_empty() {
+                    current.insert(url.clone());
+                }
+                self.client.publish_diagnostics(url, diagnostics, None).await;
             }
-            self.client.publish_diagnostics(url, diagnostics, None).await;
         }
 
         // Anything that had problems last time and has none now has to be told
@@ -110,24 +123,22 @@ impl Backend {
         &self,
         url: &Url,
         position: Position,
-    ) -> Option<(std::sync::Arc<Snapshot>, FileId, piton_syntax::TextSize)> {
-        let snapshot = self.snapshot().await;
-        let path = url.to_file_path().ok()?;
-        let file = snapshot.file_for(&path)?;
-        let offset = snapshot.line_index(file).offset(position);
-        Some((snapshot, file, offset))
+    ) -> Option<(std::sync::Arc<View>, FileId, piton_syntax::TextSize)> {
+        let (view, file) = self.document(url).await?;
+        let offset = view.line_index(file).offset(position);
+        Some((view, file, offset))
     }
 
-    fn location(snapshot: &Snapshot, file: FileId, range: piton_syntax::TextRange) -> Option<Location> {
-        let path = snapshot.path_of(file)?;
+    fn location(view: &View, file: FileId, range: piton_syntax::TextRange) -> Option<Location> {
+        let path = view.path_of(file)?;
         let url = Url::from_file_path(path).ok()?;
-        Some(Location { uri: url, range: snapshot.line_index(file).range(range) })
+        Some(Location { uri: url, range: view.line_index(file).range(range) })
     }
 }
 
-fn convert(snapshot: &Snapshot, diagnostic: &piton_core::diag::Diagnostic) -> Diagnostic {
+fn convert(view: &View, diagnostic: &piton_core::diag::Diagnostic) -> Diagnostic {
     Diagnostic {
-        range: snapshot.line_index(diagnostic.file).range(diagnostic.range),
+        range: view.line_index(diagnostic.file).range(diagnostic.range),
         severity: Some(match diagnostic.severity {
             Severity::Error => DiagnosticSeverity::ERROR,
             Severity::Warning => DiagnosticSeverity::WARNING,
@@ -225,13 +236,26 @@ impl LanguageServer for Backend {
         let selector = serde_json::json!({
             "documentSelector": [{ "language": "piton" }, { "pattern": "**/*.pi" }]
         });
+        // A configuration declares a project, so adding or editing one changes
+        // what the workspace contains rather than just what one file says. The
+        // client is asked to report every change to one, wherever it lives.
+        let configs = serde_json::json!({
+            "watchers": [{ "globPattern": format!("**/{}", piton_core::project::CONFIG_FILE) }]
+        });
         let _ = self
             .client
-            .register_capability(vec![Registration {
-                id: "piton-type-hierarchy".to_string(),
-                method: "textDocument/prepareTypeHierarchy".to_string(),
-                register_options: Some(selector),
-            }])
+            .register_capability(vec![
+                Registration {
+                    id: "piton-type-hierarchy".to_string(),
+                    method: "textDocument/prepareTypeHierarchy".to_string(),
+                    register_options: Some(selector),
+                },
+                Registration {
+                    id: "piton-watch-config".to_string(),
+                    method: "workspace/didChangeWatchedFiles".to_string(),
+                    register_options: Some(configs),
+                },
+            ])
             .await;
         self.client.log_message(MessageType::INFO, "piton language server ready").await;
         self.publish().await;
@@ -279,23 +303,16 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
-        let snapshot = self.snapshot().await;
-        let items = params
-            .text_document
-            .uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| snapshot.file_for(&path))
-            .map(|file| {
-                snapshot
-                    .compilation
-                    .diagnostics
-                    .iter()
-                    .filter(|diagnostic| diagnostic.file == file)
-                    .map(|diagnostic| convert(&snapshot, diagnostic))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let items = match self.document(&params.text_document.uri).await {
+            Some((view, file)) => view
+                .compilation
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.file == file)
+                .map(|diagnostic| convert(&view, diagnostic))
+                .collect(),
+            None => Vec::new(),
+        };
         Ok(DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
             RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
@@ -311,26 +328,28 @@ impl LanguageServer for Backend {
         &self,
         _: WorkspaceDiagnosticParams,
     ) -> Result<WorkspaceDiagnosticReportResult> {
-        let snapshot = self.snapshot().await;
-        let mut per_file: std::collections::HashMap<FileId, Vec<Diagnostic>> =
-            std::collections::HashMap::new();
-        for diagnostic in snapshot.compilation.diagnostics.iter() {
-            per_file.entry(diagnostic.file).or_default().push(convert(&snapshot, diagnostic));
-        }
+        let snapshot = self.workspace.lock().await.snapshot();
         let mut items = Vec::new();
-        for file in snapshot.compilation.analysis.db.files() {
-            let Some(path) = file.source.as_path() else { continue };
-            let Ok(uri) = Url::from_file_path(path) else { continue };
-            items.push(WorkspaceDocumentDiagnosticReport::Full(
-                WorkspaceFullDocumentDiagnosticReport {
-                    uri,
-                    version: None,
-                    full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                        result_id: None,
-                        items: per_file.remove(&file.id).unwrap_or_default(),
+        for view in snapshot.views() {
+            let mut per_file: std::collections::HashMap<FileId, Vec<Diagnostic>> =
+                std::collections::HashMap::new();
+            for diagnostic in view.compilation.diagnostics.iter() {
+                per_file.entry(diagnostic.file).or_default().push(convert(view, diagnostic));
+            }
+            for file in view.compilation.analysis.db.files() {
+                let Some(path) = file.source.as_path() else { continue };
+                let Ok(uri) = Url::from_file_path(path) else { continue };
+                items.push(WorkspaceDocumentDiagnosticReport::Full(
+                    WorkspaceFullDocumentDiagnosticReport {
+                        uri,
+                        version: None,
+                        full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                            result_id: None,
+                            items: per_file.remove(&file.id).unwrap_or_default(),
+                        },
                     },
-                },
-            ));
+                ));
+            }
         }
         Ok(WorkspaceDiagnosticReportResult::Report(WorkspaceDiagnosticReport { items }))
     }
@@ -341,7 +360,7 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
@@ -350,18 +369,18 @@ impl LanguageServer for Backend {
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
-        let Some((target_file, range)) = navigation::definition(&snapshot, &resolved.target) else {
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
+        let Some((target_file, range)) = navigation::definition(&view, &resolved.target) else {
             return Ok(None);
         };
-        Ok(Backend::location(&snapshot, target_file, range).map(GotoDefinitionResponse::Scalar))
+        Ok(Backend::location(&view, target_file, range).map(GotoDefinitionResponse::Scalar))
     }
 
     async fn goto_implementation(
         &self,
         params: request::GotoImplementationParams,
     ) -> Result<Option<request::GotoImplementationResponse>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
@@ -370,15 +389,15 @@ impl LanguageServer for Backend {
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
-        let locations: Vec<Location> = navigation::implementations(&snapshot, &resolved.target)
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
+        let locations: Vec<Location> = navigation::implementations(&view, &resolved.target)
             .into_iter()
             .filter_map(|id| {
-                let location = snapshot.compilation.analysis.anchor_loc(id);
+                let location = view.compilation.analysis.anchor_loc(id);
                 Backend::location(
-                    &snapshot,
+                    &view,
                     location.file,
-                    snapshot.compilation.analysis.anchor_def(id).name_range,
+                    view.compilation.analysis.anchor_def(id).name_range,
                 )
             })
             .collect();
@@ -386,20 +405,20 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(&params.text_document_position.text_document.uri, params.text_document_position.position)
             .await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
-        let mut locations: Vec<Location> = navigation::references(&snapshot, &resolved.target)
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
+        let mut locations: Vec<Location> = navigation::references(&view, &resolved.target)
             .into_iter()
-            .filter_map(|(file, range)| Backend::location(&snapshot, file, range))
+            .filter_map(|(file, range)| Backend::location(&view, file, range))
             .collect();
         if params.context.include_declaration {
-            if let Some((target_file, range)) = navigation::definition(&snapshot, &resolved.target) {
-                if let Some(location) = Backend::location(&snapshot, target_file, range) {
+            if let Some((target_file, range)) = navigation::definition(&view, &resolved.target) {
+                if let Some(location) = Backend::location(&view, target_file, range) {
                     if !locations.contains(&location) {
                         locations.push(location);
                     }
@@ -413,34 +432,34 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let Some((snapshot, file, offset)) =
+        let Some((view, file, offset)) =
             self.locate(&params.text_document.uri, params.position).await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
         if matches!(resolved.target, Target::Builtin(_) | Target::Module(_)) {
             return Ok(None);
         }
         Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
-            range: snapshot.line_index(file).range(resolved.range),
+            range: view.line_index(file).range(resolved.range),
             placeholder: resolved.text,
         }))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(&params.text_document_position.text_document.uri, params.text_document_position.position)
             .await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
         if !navigation::is_renameable(SyntaxKind::IDENT) {
             return Ok(None);
         }
-        let mut sites = navigation::references(&snapshot, &resolved.target);
-        if let Some(declaration) = navigation::definition(&snapshot, &resolved.target) {
+        let mut sites = navigation::references(&view, &resolved.target);
+        if let Some(declaration) = navigation::definition(&view, &resolved.target) {
             if !sites.contains(&declaration) {
                 sites.push(declaration);
             }
@@ -448,10 +467,10 @@ impl LanguageServer for Backend {
         let mut changes: std::collections::HashMap<Url, Vec<TextEdit>> =
             std::collections::HashMap::new();
         for (site_file, range) in sites {
-            let Some(path) = snapshot.path_of(site_file) else { continue };
+            let Some(path) = view.path_of(site_file) else { continue };
             let Ok(url) = Url::from_file_path(path) else { continue };
             changes.entry(url).or_default().push(TextEdit {
-                range: snapshot.line_index(site_file).range(range),
+                range: view.line_index(site_file).range(range),
                 new_text: params.new_name.clone(),
             });
         }
@@ -464,45 +483,46 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        Ok(Some(DocumentSymbolResponse::Nested(tokens::document_symbols(&snapshot, file))))
+        Ok(Some(DocumentSymbolResponse::Nested(tokens::document_symbols(&view, file))))
     }
 
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        let snapshot = self.snapshot().await;
+        let snapshot = self.workspace.lock().await.snapshot();
         let query = params.query.to_lowercase();
         let mut out = Vec::new();
-        for file in snapshot.compilation.analysis.db.files() {
-            let Some(path) = file.source.as_path() else { continue };
-            let Ok(url) = Url::from_file_path(path) else { continue };
-            let index = snapshot.line_index(file.id);
-            for anchor in &file.hir.anchors {
-                if !anchor.name.to_lowercase().contains(&query) {
-                    continue;
+        // A workspace symbol search is the one question that spans projects:
+        // the user is asking where a name is, not what it resolves to.
+        for view in snapshot.views() {
+            for file in view.compilation.analysis.db.files() {
+                let Some(path) = file.source.as_path() else { continue };
+                let Ok(url) = Url::from_file_path(path) else { continue };
+                let index = view.line_index(file.id);
+                for anchor in &file.hir.anchors {
+                    if !anchor.name.to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    out.push(workspace_symbol(
+                        anchor.name.clone(),
+                        if anchor.is_abstract { SymbolKind::INTERFACE } else { SymbolKind::CLASS },
+                        Location { uri: url.clone(), range: index.range(anchor.name_range) },
+                    ));
                 }
-                out.push(workspace_symbol(
-                    anchor.name.clone(),
-                    if anchor.is_abstract { SymbolKind::INTERFACE } else { SymbolKind::CLASS },
-                    Location { uri: url.clone(), range: index.range(anchor.name_range) },
-                ));
-            }
-            for variable in &file.hir.vars {
-                if !variable.name.to_lowercase().contains(&query) {
-                    continue;
+                for variable in &file.hir.vars {
+                    if !variable.name.to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    out.push(workspace_symbol(
+                        variable.name.clone(),
+                        SymbolKind::CONSTANT,
+                        Location { uri: url.clone(), range: index.range(variable.name_range) },
+                    ));
                 }
-                out.push(workspace_symbol(
-                    variable.name.clone(),
-                    SymbolKind::CONSTANT,
-                    Location { uri: url.clone(), range: index.range(variable.name_range) },
-                ));
             }
         }
         Ok(Some(out))
@@ -514,7 +534,7 @@ impl LanguageServer for Backend {
         &self,
         params: TypeHierarchyPrepareParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
@@ -523,27 +543,28 @@ impl LanguageServer for Backend {
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
         let id = match resolved.target {
             Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => id,
             _ => return Ok(None),
         };
-        Ok(hierarchy_item(&snapshot, id).map(|item| vec![item]))
+        Ok(hierarchy_item(&view, id).map(|item| vec![item]))
     }
 
     async fn supertypes(
         &self,
         params: TypeHierarchySupertypesParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let snapshot = self.snapshot().await;
-        let Some(id) = hierarchy_id(&snapshot, &params.item) else { return Ok(None) };
+        // An anchor id means something only in the compilation that issued it,
+        // so the item's own file says which project to ask.
+        let Some((view, _)) = self.document(&params.item.uri).await else { return Ok(None) };
+        let Some(id) = hierarchy_id(&view, &params.item) else { return Ok(None) };
         Ok(Some(
-            snapshot
-                .compilation
+            view.compilation
                 .analysis
                 .bases(id)
                 .into_iter()
-                .filter_map(|base| hierarchy_item(&snapshot, base))
+                .filter_map(|base| hierarchy_item(&view, base))
                 .collect(),
         ))
     }
@@ -552,15 +573,14 @@ impl LanguageServer for Backend {
         &self,
         params: TypeHierarchySubtypesParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let snapshot = self.snapshot().await;
-        let Some(id) = hierarchy_id(&snapshot, &params.item) else { return Ok(None) };
+        let Some((view, _)) = self.document(&params.item.uri).await else { return Ok(None) };
+        let Some(id) = hierarchy_id(&view, &params.item) else { return Ok(None) };
         Ok(Some(
-            snapshot
-                .compilation
+            view.compilation
                 .analysis
                 .subtypes(id)
                 .into_iter()
-                .filter_map(|child| hierarchy_item(&snapshot, child))
+                .filter_map(|child| hierarchy_item(&view, child))
                 .collect(),
         ))
     }
@@ -568,7 +588,7 @@ impl LanguageServer for Backend {
     // ---- text features --------------------------------------------------------
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
@@ -577,75 +597,63 @@ impl LanguageServer for Backend {
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&snapshot, file, offset) else { return Ok(None) };
-        let Some(markdown) = hover::hover(&snapshot, &resolved) else { return Ok(None) };
+        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
+        let Some(markdown) = hover::hover(&view, &resolved) else { return Ok(None) };
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
                 value: markdown,
             }),
-            range: Some(snapshot.line_index(file).range(resolved.range)),
+            range: Some(view.line_index(file).range(resolved.range)),
         }))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let Some((snapshot, file, offset)) = self
+        let Some((view, file, offset)) = self
             .locate(&params.text_document_position.text_document.uri, params.text_document_position.position)
             .await
         else {
             return Ok(None);
         };
-        Ok(Some(CompletionResponse::Array(completion::complete(&snapshot, file, offset))))
+        Ok(Some(CompletionResponse::Array(completion::complete(&view, file, offset))))
     }
 
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
             result_id: None,
-            data: tokens::semantic_tokens(&snapshot, file),
+            data: tokens::semantic_tokens(&view, file),
         })))
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        Ok(Some(tokens::folding_ranges(&snapshot, file)))
+        Ok(Some(tokens::folding_ranges(&view, file)))
     }
 
     async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        Ok(Some(tokens::document_links(&snapshot, file)))
+        Ok(Some(tokens::document_links(&view, file)))
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        let index = snapshot.line_index(file);
+        let index = view.line_index(file);
         let start = index.offset(params.range.start);
         let end = index.offset(params.range.end);
         Ok(Some(
-            tokens::inlay_hints(&snapshot, file)
+            tokens::inlay_hints(&view, file)
                 .into_iter()
                 .filter(|hint| {
                     let at = index.offset(hint.position);
@@ -656,35 +664,29 @@ impl LanguageServer for Backend {
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        let formatted = piton_fmt::format(snapshot.text(file));
-        if formatted == snapshot.text(file) {
+        let formatted = piton_fmt::format(view.text(file));
+        if formatted == view.text(file) {
             return Ok(Some(Vec::new()));
         }
         Ok(Some(vec![TextEdit {
-            range: snapshot.line_index(file).full_range(),
+            range: view.line_index(file).full_range(),
             new_text: formatted,
         }]))
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let snapshot = self.snapshot().await;
-        let Some(file) =
-            params.text_document.uri.to_file_path().ok().and_then(|path| snapshot.file_for(&path))
-        else {
+        let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        let index = snapshot.line_index(file);
+        let index = view.line_index(file);
         let range = piton_syntax::TextRange::new(
             index.offset(params.range.start),
             index.offset(params.range.end),
         );
-        Ok(Some(actions::actions(&snapshot, file, &params.text_document.uri, range)))
+        Ok(Some(actions::actions(&view, file, &params.text_document.uri, range)))
     }
 }
 
@@ -701,12 +703,12 @@ fn workspace_symbol(name: String, kind: SymbolKind, location: Location) -> Symbo
 }
 
 /// A type-hierarchy item, with the anchor's id smuggled through `data`.
-fn hierarchy_item(snapshot: &Snapshot, id: AnchorId) -> Option<TypeHierarchyItem> {
-    let analysis = &snapshot.compilation.analysis;
+fn hierarchy_item(view: &View, id: AnchorId) -> Option<TypeHierarchyItem> {
+    let analysis = &view.compilation.analysis;
     let location = analysis.anchor_loc(id);
     let definition = analysis.anchor_def(id);
-    let path = snapshot.path_of(location.file)?;
-    let index = snapshot.line_index(location.file);
+    let path = view.path_of(location.file)?;
+    let index = view.line_index(location.file);
     Some(TypeHierarchyItem {
         name: definition.name.clone(),
         kind: if definition.is_abstract { SymbolKind::INTERFACE } else { SymbolKind::CLASS },
@@ -719,7 +721,7 @@ fn hierarchy_item(snapshot: &Snapshot, id: AnchorId) -> Option<TypeHierarchyItem
     })
 }
 
-fn hierarchy_id(snapshot: &Snapshot, item: &TypeHierarchyItem) -> Option<AnchorId> {
+fn hierarchy_id(view: &View, item: &TypeHierarchyItem) -> Option<AnchorId> {
     let raw = item.data.as_ref()?.as_u64()? as u32;
-    snapshot.compilation.analysis.anchor_ids().find(|id| id.0 == raw)
+    view.compilation.analysis.anchor_ids().find(|id| id.0 == raw)
 }

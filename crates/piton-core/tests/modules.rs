@@ -173,6 +173,110 @@ fn use_brings_in_keywords_and_import_does_not() {
     );
 }
 
+/// Write a workspace, then compile the project in `project` with the named
+/// directories declared as libraries.
+///
+/// Paths are written relative to the workspace, and the project's root is one
+/// directory inside it, so a library can sit beside the project rather than
+/// under it — which is the only arrangement that needs naming at all.
+fn build_with_libraries(
+    files: &[(&str, &str)],
+    project: &str,
+    libraries: &[(&str, &str)],
+    entry: &str,
+) -> Built {
+    let workspace: PathBuf = unique_directory("piton-libraries");
+    for (path, contents) in files {
+        let target = workspace.join(path);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, contents).unwrap();
+    }
+    let mut db = Db::new();
+    for module in builtin::modules() {
+        db.add_virtual_module(module.name, module.source);
+    }
+    db.set_root(workspace.join(project));
+    db.set_libraries(
+        libraries.iter().map(|(name, path)| (name.to_string(), workspace.join(path))).collect(),
+    );
+    let entry = db.load(&workspace.join(entry)).expect("entry loads");
+    let compilation = compile(db, vec![entry], &Frameworks::default());
+    let errors = compilation
+        .diagnostics
+        .iter()
+        .filter(|it| it.is_error())
+        .map(|it| it.message.clone())
+        .collect();
+    Built { compilation, entry, errors }
+}
+
+#[test]
+fn a_named_library_answers_a_rooted_import_from_outside_the_root() {
+    let built = build_with_libraries(
+        &[
+            ("origin/main.pi", "from /customLib/Tool import Tool\n\na: {Tool.kind}\n"),
+            ("lib/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+        ],
+        "origin",
+        &[("customLib", "lib")],
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("a"), serde_json::json!("hammer"));
+}
+
+#[test]
+fn a_library_named_without_a_path_is_its_own_index() {
+    let built = build_with_libraries(
+        &[
+            ("origin/main.pi", "from /customLib import Tool\n\na: {Tool.kind}\n"),
+            ("lib/index.pi", "from ./Tool export *\n"),
+            ("lib/Tool.pi", "export anchor Tool:\n    kind: anvil\n"),
+        ],
+        "origin",
+        &[("customLib", "lib")],
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("a"), serde_json::json!("anvil"));
+}
+
+#[test]
+fn the_root_answers_before_any_library_it_borrows() {
+    // Declaring a library must never change what an import already resolved to,
+    // so a name the project owns wins over the one it borrowed.
+    let built = build_with_libraries(
+        &[
+            ("origin/main.pi", "from /lib/Tool import Tool\n\na: {Tool.kind}\n"),
+            ("origin/lib/Tool.pi", "export anchor Tool:\n    kind: mine\n"),
+            ("lib/Tool.pi", "export anchor Tool:\n    kind: borrowed\n"),
+        ],
+        "origin",
+        &[("lib", "lib")],
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("a"), serde_json::json!("mine"));
+}
+
+#[test]
+fn a_library_is_reached_only_by_the_name_it_was_given() {
+    let built = build_with_libraries(
+        &[
+            ("origin/main.pi", "from /lib/Tool import Tool\n"),
+            ("lib/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+        ],
+        "origin",
+        &[("customLib", "lib")],
+        "origin/main.pi",
+    );
+    assert!(
+        built.errors.iter().any(|it| it.contains("cannot find module `/lib/Tool`")),
+        "{:?}",
+        built.errors
+    );
+}
+
 #[test]
 fn absolute_imports_resolve_from_the_project_root() {
     let built = build(
@@ -554,4 +658,157 @@ fn a_reach_chain_names_the_import_that_made_each_hop() {
     assert_eq!(importers.len(), 1);
     assert_eq!(name(importers[0].from), "a.pi");
     assert_eq!(importers[0].specifier, "./nested/b");
+}
+
+/// Write a throwaway workspace with a shared root and compile `entry`.
+fn build_with_shared_root(
+    files: &[(&str, &str)],
+    project: &str,
+    shared: Option<&str>,
+    entry: &str,
+) -> Built {
+    let workspace: PathBuf = unique_directory("piton-shared-root");
+    for (path, contents) in files {
+        let target = workspace.join(path);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, contents).unwrap();
+    }
+    let mut db = Db::new();
+    for module in builtin::modules() {
+        db.add_virtual_module(module.name, module.source);
+    }
+    db.set_root(workspace.join(project));
+    db.set_shared_root(shared.map(|path| workspace.join(path)));
+    let entry = db.load(&workspace.join(entry)).expect("entry loads");
+    let compilation = compile(db, vec![entry], &Frameworks::default());
+    let errors = compilation
+        .diagnostics
+        .iter()
+        .filter(|it| it.is_error())
+        .map(|it| it.message.clone())
+        .collect();
+    Built { compilation, entry, errors }
+}
+
+#[test]
+fn a_shared_import_resolves_against_the_shared_root() {
+    let built = build_with_shared_root(
+        &[
+            ("origin/main.pi", "from //Tool import Tool\n\na: {Tool.kind}\n"),
+            ("shared/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+        ],
+        "origin",
+        Some("shared"),
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("a"), serde_json::json!("hammer"));
+}
+
+#[test]
+fn a_shared_import_reaches_a_directory_index() {
+    let built = build_with_shared_root(
+        &[
+            ("origin/main.pi", "from //tools import Tool\n\na: {Tool.kind}\n"),
+            ("shared/tools/index.pi", "from ./Tool export *\n"),
+            ("shared/tools/Tool.pi", "export anchor Tool:\n    kind: anvil\n"),
+        ],
+        "origin",
+        Some("shared"),
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("a"), serde_json::json!("anvil"));
+}
+
+#[test]
+fn two_projects_share_one_root() {
+    let files = &[
+        ("origin/main.pi", "from //Tool import Tool\n\na: {Tool.kind}\n"),
+        ("substrate/main.pi", "from //Tool import Tool\n\na: {Tool.kind}\n"),
+        ("shared/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+    ];
+    for project in ["origin", "substrate"] {
+        let built = build_with_shared_root(
+            files,
+            project,
+            Some("shared"),
+            &format!("{project}/main.pi"),
+        );
+        assert!(built.errors.is_empty(), "{project}: {:?}", built.errors);
+        assert_eq!(built.value("a"), serde_json::json!("hammer"));
+    }
+}
+
+#[test]
+fn a_shared_import_without_a_shared_root_says_so() {
+    let built = build_with_shared_root(
+        &[
+            ("origin/main.pi", "from //Tool import Tool\n\na: {Tool.kind}\n"),
+            ("shared/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+        ],
+        "origin",
+        None,
+        "origin/main.pi",
+    );
+    assert!(
+        built.errors.iter().any(|it| it.contains("sharedRoot")),
+        "expected the error to name the setting that is missing: {:?}",
+        built.errors
+    );
+}
+
+#[test]
+fn a_shared_import_does_not_fall_back_to_the_project_root() {
+    // `//Tool` is not `/Tool`: a file the root happens to hold must not answer
+    // a shared import, or moving the shared directory would silently start
+    // resolving somewhere else.
+    let built = build_with_shared_root(
+        &[
+            ("origin/main.pi", "from //Tool import Tool\n\na: {Tool.kind}\n"),
+            ("origin/Tool.pi", "export anchor Tool:\n    kind: rooted\n"),
+            ("shared/Other.pi", "export anchor Other:\n    kind: shared\n"),
+        ],
+        "origin",
+        Some("shared"),
+        "origin/main.pi",
+    );
+    assert!(
+        built.errors.iter().any(|it| it.contains("cannot find module `//Tool`")),
+        "{:?}",
+        built.errors
+    );
+}
+
+#[test]
+fn a_rooted_import_is_not_a_shared_one() {
+    let built = build_with_shared_root(
+        &[
+            ("origin/main.pi", "from /Tool import Tool\n\na: {Tool.kind}\n"),
+            ("origin/Tool.pi", "export anchor Tool:\n    kind: rooted\n"),
+            ("shared/Tool.pi", "export anchor Tool:\n    kind: shared\n"),
+        ],
+        "origin",
+        Some("shared"),
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
+    assert_eq!(built.value("a"), serde_json::json!("rooted"));
+}
+
+#[test]
+fn use_takes_a_shared_specifier() {
+    let built = build_with_shared_root(
+        &[
+            ("origin/main.pi", "use //Keywords\n\ntool Hammer:\n    kind: hammer\n"),
+            (
+                "shared/Keywords.pi",
+                "export anchor Tool as tool:\n    kind:: string\n",
+            ),
+        ],
+        "origin",
+        Some("shared"),
+        "origin/main.pi",
+    );
+    assert!(built.errors.is_empty(), "{:?}", built.errors);
 }

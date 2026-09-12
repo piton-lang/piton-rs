@@ -9,7 +9,7 @@ use piton_syntax::ast::{self, AstNode};
 use piton_syntax::kind::SyntaxKind::{self, *};
 use piton_syntax::{SyntaxNode, SyntaxToken, TextRange, TextSize};
 
-use crate::world::Snapshot;
+use crate::world::View;
 
 /// What a token under the cursor refers to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,13 +53,13 @@ fn carries_meaning(kind: SyntaxKind) -> bool {
 }
 
 /// Work out what the token at `offset` refers to.
-pub fn resolve(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Option<Resolved> {
-    let root = snapshot.compilation.analysis.db.file(file).parse.syntax();
+pub fn resolve(view: &View, file: FileId, offset: TextSize) -> Option<Resolved> {
+    let root = view.compilation.analysis.db.file(file).parse.syntax();
     let token = token_at(&root, offset)?;
     let parent = token.parent()?;
     let text = token.text().to_string();
     let range = token.text_range();
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let scope = analysis.scope(file);
 
     let target = match (token.kind(), parent.kind()) {
@@ -86,13 +86,13 @@ pub fn resolve(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Option<Re
             if declaration.keyword_token().map(|it| it.text_range()) == Some(range) {
                 Target::Keyword(*scope.keywords.get(&text)?)
             } else {
-                let index = anchor_index(snapshot, file, &parent)?;
+                let index = anchor_index(view, file, &parent)?;
                 Target::Symbol(Symbol::Anchor(analysis.anchor_id(file, index)?))
             }
         }
         (IDENT, AS_CLAUSE) => {
             let declaration = parent.parent()?;
-            let index = anchor_index(snapshot, file, &declaration)?;
+            let index = anchor_index(view, file, &declaration)?;
             Target::Keyword(analysis.anchor_id(file, index)?)
         }
         (IDENT | ANCHOR_KW | NULL_KW, TYPE_REF) => match scope.names.get(&text) {
@@ -102,15 +102,15 @@ pub fn resolve(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Option<Re
         },
         (IDENT, NAME_REF) => Target::Symbol(*scope.names.get(&text)?),
         (THIS_KW | SELF_KW | SUPER_KW, NAME_REF) => {
-            Target::Keyword(enclosing_anchor(snapshot, file, &parent)?)
+            Target::Keyword(enclosing_anchor(view, file, &parent)?)
         }
         (IDENT | THIS_KW | SELF_KW | SUPER_KW, FIELD_EXPR) => Target::Property {
-            owner: enclosing_anchor(snapshot, file, &parent),
+            owner: enclosing_anchor(view, file, &parent),
             name: text.clone(),
         },
         (IDENT, EXPORT_DECL) => Target::Symbol(*scope.names.get(&text)?),
         (IDENT, PROPERTY) => {
-            Target::Property { owner: enclosing_anchor(snapshot, file, &parent), name: text.clone() }
+            Target::Property { owner: enclosing_anchor(view, file, &parent), name: text.clone() }
         }
         (IDENT, VAR_DECL) => Target::Symbol(*scope.names.get(&text)?),
         _ => return None,
@@ -119,8 +119,8 @@ pub fn resolve(snapshot: &Snapshot, file: FileId, offset: TextSize) -> Option<Re
 }
 
 /// Where a target was declared.
-pub fn definition(snapshot: &Snapshot, target: &Target) -> Option<(FileId, TextRange)> {
-    let analysis = &snapshot.compilation.analysis;
+pub fn definition(view: &View, target: &Target) -> Option<(FileId, TextRange)> {
+    let analysis = &view.compilation.analysis;
     match target {
         Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => {
             let location = analysis.anchor_loc(*id);
@@ -133,18 +133,18 @@ pub fn definition(snapshot: &Snapshot, target: &Target) -> Option<(FileId, TextR
         Target::Builtin(_) => None,
         Target::Property { owner, name } => {
             let owner = (*owner)?;
-            property_declaration(snapshot, owner, name)
+            property_declaration(view, owner, name)
         }
     }
 }
 
 /// Find where a property was written, following the inheritance chain.
 pub fn property_declaration(
-    snapshot: &Snapshot,
+    view: &View,
     anchor: AnchorId,
     name: &str,
 ) -> Option<(FileId, TextRange)> {
-    let analysis = &snapshot.compilation.analysis;
+    let analysis = &view.compilation.analysis;
     let mut chain = vec![anchor];
     chain.extend(analysis.ancestors(anchor));
     for link in chain {
@@ -159,16 +159,16 @@ pub fn property_declaration(
 }
 
 /// Every place a target is mentioned.
-pub fn references(snapshot: &Snapshot, target: &Target) -> Vec<(FileId, TextRange)> {
+pub fn references(view: &View, target: &Target) -> Vec<(FileId, TextRange)> {
     let mut out = Vec::new();
-    let files: Vec<FileId> = snapshot.compilation.analysis.db.files().map(|it| it.id).collect();
+    let files: Vec<FileId> = view.compilation.analysis.db.files().map(|it| it.id).collect();
     for file in files {
-        let root = snapshot.compilation.analysis.db.file(file).parse.syntax();
+        let root = view.compilation.analysis.db.file(file).parse.syntax();
         for token in root.descendants_with_tokens().filter_map(|it| it.into_token()) {
             if !matches!(token.kind(), IDENT | PATH | THIS_KW | SELF_KW | SUPER_KW) {
                 continue;
             }
-            let Some(resolved) = resolve(snapshot, file, token.text_range().start()) else {
+            let Some(resolved) = resolve(view, file, token.text_range().start()) else {
                 continue;
             };
             if resolved.target == *target && resolved.range == token.text_range() {
@@ -180,26 +180,26 @@ pub fn references(snapshot: &Snapshot, target: &Target) -> Vec<(FileId, TextRang
 }
 
 /// Concrete anchors implementing an abstract one.
-pub fn implementations(snapshot: &Snapshot, target: &Target) -> Vec<AnchorId> {
+pub fn implementations(view: &View, target: &Target) -> Vec<AnchorId> {
     match target {
         Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => {
-            snapshot.compilation.analysis.implementors(*id)
+            view.compilation.analysis.implementors(*id)
         }
         _ => Vec::new(),
     }
 }
 
 /// The anchor an expression is written inside, if any.
-pub fn enclosing_anchor(snapshot: &Snapshot, file: FileId, node: &SyntaxNode) -> Option<AnchorId> {
+pub fn enclosing_anchor(view: &View, file: FileId, node: &SyntaxNode) -> Option<AnchorId> {
     let declaration = node.ancestors().find(|it| it.kind() == ANCHOR_DECL)?;
-    let index = anchor_index(snapshot, file, &declaration)?;
-    snapshot.compilation.analysis.anchor_id(file, index)
+    let index = anchor_index(view, file, &declaration)?;
+    view.compilation.analysis.anchor_id(file, index)
 }
 
 /// Which anchor in the file's HIR a declaration node corresponds to.
-fn anchor_index(snapshot: &Snapshot, file: FileId, declaration: &SyntaxNode) -> Option<usize> {
+fn anchor_index(view: &View, file: FileId, declaration: &SyntaxNode) -> Option<usize> {
     let range = declaration.text_range();
-    snapshot
+    view
         .compilation
         .analysis
         .db
@@ -222,8 +222,8 @@ fn collect(node: &Node, out: &mut Vec<piton_core::hir::Property>) {
 }
 
 /// Every property visible on an anchor, nearest definition first.
-pub fn visible_properties(snapshot: &Snapshot, anchor: AnchorId) -> Vec<piton_core::hir::Property> {
-    let analysis = &snapshot.compilation.analysis;
+pub fn visible_properties(view: &View, anchor: AnchorId) -> Vec<piton_core::hir::Property> {
+    let analysis = &view.compilation.analysis;
     let mut chain = analysis.ancestors(anchor);
     chain.reverse();
     chain.push(anchor);

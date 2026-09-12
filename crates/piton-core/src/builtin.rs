@@ -20,6 +20,26 @@ export abstract anchor PitonConfig as piton-config:
     // The source root. Absolute imports such as `/a/b` resolve from here.
     root:: string
 
+    // Optional, and so not declared here: `entry`, the file or directory a
+    // build starts from; `frameworks`, one configuration anchor per framework;
+    // and `libraries`, a name for each directory outside the root that absolute
+    // imports may also reach:
+    //
+    //     libraries:
+    //         customLib: ../lib
+    //
+    // which makes `/customLib/Thing` the `Thing` in that directory. The root is
+    // searched first, so a library can never change an import that resolved.
+    //
+    // Also optional: `sharedRoot`, one directory outside the root that shared
+    // imports resolve against:
+    //
+    //     sharedRoot: ../shared
+    //
+    // which makes `//Thing` the `Thing` in that directory. Where `libraries`
+    // names several and spells the name into every path, this names the one
+    // place several projects share, and `//` is the whole of the prefix.
+
 export abstract anchor FrameworkConfig as framework-config:
     // Marker anchor. Frameworks extend this with their own settings.
 "#;

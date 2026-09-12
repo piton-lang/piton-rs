@@ -7,13 +7,13 @@ use piton_core::value::{AnchorId, Value};
 use piton_core::FileId;
 
 use crate::navigation::{property_declaration, visible_properties, Resolved, Target};
-use crate::world::Snapshot;
+use crate::world::View;
 
 /// The Markdown shown when hovering a resolved token.
-pub fn hover(snapshot: &Snapshot, resolved: &Resolved) -> Option<String> {
-    let analysis = &snapshot.compilation.analysis;
+pub fn hover(view: &View, resolved: &Resolved) -> Option<String> {
+    let analysis = &view.compilation.analysis;
     match &resolved.target {
-        Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => Some(anchor_hover(snapshot, *id)),
+        Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => Some(anchor_hover(view, *id)),
         Target::Symbol(Symbol::Var { file, index }) => {
             let variable = &analysis.db.file(*file).hir.vars[*index];
             let mut out = format!("```piton\n{}", variable.name);
@@ -21,7 +21,7 @@ pub fn hover(snapshot: &Snapshot, resolved: &Resolved) -> Option<String> {
                 out.push_str(&format!(":: {}", constraint.render()));
             }
             out.push_str("\n```\n");
-            if let Some(value) = snapshot.compilation.vars.get(&(*file, *index)) {
+            if let Some(value) = view.compilation.vars.get(&(*file, *index)) {
                 out.push_str(&value_preview(value));
             }
             if let Some(doc) = &variable.doc {
@@ -29,14 +29,14 @@ pub fn hover(snapshot: &Snapshot, resolved: &Resolved) -> Option<String> {
             }
             Some(out)
         }
-        Target::Module(file) => Some(module_hover(snapshot, *file)),
+        Target::Module(file) => Some(module_hover(view, *file)),
         Target::Builtin(name) => Some(builtin_hover(name)),
-        Target::Property { owner, name } => Some(property_hover(snapshot, *owner, name)),
+        Target::Property { owner, name } => Some(property_hover(view, *owner, name)),
     }
 }
 
-fn anchor_hover(snapshot: &Snapshot, id: AnchorId) -> String {
-    let analysis = &snapshot.compilation.analysis;
+fn anchor_hover(view: &View, id: AnchorId) -> String {
+    let analysis = &view.compilation.analysis;
     let definition = analysis.anchor_def(id);
     let mut signature = String::new();
     if definition.exported {
@@ -59,7 +59,7 @@ fn anchor_hover(snapshot: &Snapshot, id: AnchorId) -> String {
     if let Some(doc) = &definition.doc {
         out.push_str(&format!("\n{doc}\n"));
     }
-    let properties = visible_properties(snapshot, id);
+    let properties = visible_properties(view, id);
     if !properties.is_empty() {
         out.push_str("\n**Properties**\n\n");
         for property in properties.iter().take(24) {
@@ -76,17 +76,17 @@ fn anchor_hover(snapshot: &Snapshot, id: AnchorId) -> String {
     out
 }
 
-fn property_hover(snapshot: &Snapshot, owner: Option<AnchorId>, name: &str) -> String {
+fn property_hover(view: &View, owner: Option<AnchorId>, name: &str) -> String {
     let Some(owner) = owner else {
         return format!("```piton\n{name}\n```\n");
     };
-    let properties = visible_properties(snapshot, owner);
+    let properties = visible_properties(view, owner);
     let Some(property) = properties.iter().find(|property| property.name == name) else {
         return format!("```piton\n{name}\n```\n\nNo property named `{name}` on this anchor.");
     };
     let mut out =
         format!("```piton\n{}{}\n```\n", property.name, render_constraints(&property.constraints));
-    if let Some(anchor) = snapshot.compilation.anchor(owner) {
+    if let Some(anchor) = view.compilation.anchor(owner) {
         if let Some(value) = anchor.props.get(name) {
             out.push_str(&value_preview(value));
         }
@@ -94,19 +94,19 @@ fn property_hover(snapshot: &Snapshot, owner: Option<AnchorId>, name: &str) -> S
     if let Some(doc) = &property.doc {
         out.push_str(&format!("\n{doc}\n"));
     }
-    if property_declaration(snapshot, owner, name).is_some() {
-        let source = snapshot.compilation.analysis.anchor_def(owner).name.clone();
+    if property_declaration(view, owner, name).is_some() {
+        let source = view.compilation.analysis.anchor_def(owner).name.clone();
         out.push_str(&format!("\nOn `{source}`.\n"));
     }
     out
 }
 
-fn module_hover(snapshot: &Snapshot, file: FileId) -> String {
-    let analysis = &snapshot.compilation.analysis;
+fn module_hover(view: &View, file: FileId) -> String {
+    let analysis = &view.compilation.analysis;
     let exports = &analysis.scope(file).exports;
     let source = &analysis.db.file(file).source;
     let name = match source.as_path() {
-        Some(path) => snapshot.display_path(path),
+        Some(path) => view.display_path(path),
         None => source.display(),
     };
     let mut out = format!("```piton\n{name}\n```\n");

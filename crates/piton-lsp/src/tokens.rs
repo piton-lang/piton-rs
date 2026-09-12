@@ -11,7 +11,7 @@ use tower_lsp::lsp_types::{
     InlayHintLabel, SemanticToken, SemanticTokenModifier, SemanticTokenType, SymbolKind, Url,
 };
 
-use crate::world::Snapshot;
+use crate::world::View;
 
 /// The semantic token types this server produces, in legend order.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
@@ -58,9 +58,9 @@ const READONLY: u32 = 1 << 2;
 const ABSTRACT: u32 = 1 << 3;
 
 /// Classify every token in a file.
-pub fn semantic_tokens(snapshot: &Snapshot, file: FileId) -> Vec<SemanticToken> {
-    let index = snapshot.line_index(file);
-    let root = snapshot.compilation.analysis.db.file(file).parse.syntax();
+pub fn semantic_tokens(view: &View, file: FileId) -> Vec<SemanticToken> {
+    let index = view.line_index(file);
+    let root = view.compilation.analysis.db.file(file).parse.syntax();
     let mut out = Vec::new();
     let mut previous_line = 0u32;
     let mut previous_start = 0u32;
@@ -136,9 +136,9 @@ fn classify(token: &SyntaxToken) -> Option<(u32, u32)> {
 }
 
 /// Fold every indented block and every wrapped import list.
-pub fn folding_ranges(snapshot: &Snapshot, file: FileId) -> Vec<FoldingRange> {
-    let index = snapshot.line_index(file);
-    let root = snapshot.compilation.analysis.db.file(file).parse.syntax();
+pub fn folding_ranges(view: &View, file: FileId) -> Vec<FoldingRange> {
+    let index = view.line_index(file);
+    let root = view.compilation.analysis.db.file(file).parse.syntax();
     let mut out = Vec::new();
     for node in root.descendants() {
         let kind = match node.kind() {
@@ -163,18 +163,18 @@ pub fn folding_ranges(snapshot: &Snapshot, file: FileId) -> Vec<FoldingRange> {
 }
 
 /// Turn every import path into a clickable link.
-pub fn document_links(snapshot: &Snapshot, file: FileId) -> Vec<DocumentLink> {
-    let index = snapshot.line_index(file);
-    let root = snapshot.compilation.analysis.db.file(file).parse.syntax();
+pub fn document_links(view: &View, file: FileId) -> Vec<DocumentLink> {
+    let index = view.line_index(file);
+    let root = view.compilation.analysis.db.file(file).parse.syntax();
     let mut out = Vec::new();
     for token in root.descendants_with_tokens().filter_map(|it| it.into_token()) {
         if token.kind() != PATH {
             continue;
         }
-        let Some(target) = snapshot.compilation.analysis.module(file, token.text()) else {
+        let Some(target) = view.compilation.analysis.module(file, token.text()) else {
             continue;
         };
-        let Some(path) = snapshot.path_of(target) else { continue };
+        let Some(path) = view.path_of(target) else { continue };
         let Ok(url) = Url::from_file_path(path) else { continue };
         out.push(DocumentLink {
             range: index.range(token.text_range()),
@@ -187,22 +187,22 @@ pub fn document_links(snapshot: &Snapshot, file: FileId) -> Vec<DocumentLink> {
 }
 
 /// Show the inferred type wherever the author did not write a constraint.
-pub fn inlay_hints(snapshot: &Snapshot, file: FileId) -> Vec<InlayHint> {
-    let index = snapshot.line_index(file);
-    let hir = &snapshot.compilation.analysis.db.file(file).hir;
+pub fn inlay_hints(view: &View, file: FileId) -> Vec<InlayHint> {
+    let index = view.line_index(file);
+    let hir = &view.compilation.analysis.db.file(file).hir;
     let mut out = Vec::new();
 
     for (position, variable) in hir.vars.iter().enumerate() {
         if !variable.constraints.is_empty() {
             continue;
         }
-        if let Some(value) = snapshot.compilation.vars.get(&(file, position)) {
+        if let Some(value) = view.compilation.vars.get(&(file, position)) {
             out.push(type_hint(index, variable.name_range.end(), value));
         }
     }
     for (position, anchor) in hir.anchors.iter().enumerate() {
-        let Some(id) = snapshot.compilation.analysis.anchor_id(file, position) else { continue };
-        let Some(compiled) = snapshot.compilation.anchor(id) else { continue };
+        let Some(id) = view.compilation.analysis.anchor_id(file, position) else { continue };
+        let Some(compiled) = view.compilation.anchor(id) else { continue };
         let mut properties = Vec::new();
         collect(&anchor.body, &mut properties);
         for property in properties {
@@ -235,9 +235,9 @@ fn type_hint(
 }
 
 /// The outline of a file: anchors, their properties, and top-level variables.
-pub fn document_symbols(snapshot: &Snapshot, file: FileId) -> Vec<DocumentSymbol> {
-    let index = snapshot.line_index(file);
-    let hir = &snapshot.compilation.analysis.db.file(file).hir;
+pub fn document_symbols(view: &View, file: FileId) -> Vec<DocumentSymbol> {
+    let index = view.line_index(file);
+    let hir = &view.compilation.analysis.db.file(file).hir;
     let mut out = Vec::new();
 
     for anchor in &hir.anchors {

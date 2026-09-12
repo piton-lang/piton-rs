@@ -1470,6 +1470,51 @@ relative to the `root` value defined in the project config.
 from /subdir/subdir/file import AnAnchor
 ```
 
+Code shared between projects does not always live under the root that imports
+it. A project can name a directory outside its root in the `libraries` block of
+its config, and the name becomes the first segment of an absolute path:
+
+```piton
+export piton-config Config:
+    root: ./spec
+
+    libraries:
+        customLib: ../lib
+```
+
+```piton
+from /customLib/Tool import Tool
+```
+
+The root is searched first, so declaring a library can never change what an
+import that already resolved means: if the project has its own `customLib`
+directory under `root`, that one answers.
+
+Where several projects draw on a single shared directory rather than a set of
+separately named ones, `sharedRoot` names that one place and `//` reaches it:
+
+```piton
+export piton-config Config:
+    root: ./spec
+    sharedRoot: ../shared
+```
+
+```piton
+from //Tool import Tool
+use //Keywords
+```
+
+`//Tool` is `Tool` inside the shared root, and nothing else: unlike a library,
+it is not a second place to look after the root, so a file of the same name
+under `root` never answers it and `/Tool` never reaches the shared root. Using
+`//` in a project whose config sets no `sharedRoot` is a compiler error.
+
+Reaching outside the project this way is the same choice either way; which to
+use is a question of how many directories there are and whether they have names
+worth writing. A single shared directory beside a set of sibling projects is
+`sharedRoot`; two or more, or one whose name carries meaning at the point of
+import, are `libraries`.
+
 It's also possible to import under an alias by placing the alias after the
 imported symbol:
 
@@ -1626,6 +1671,15 @@ from @piton/belay import ClaudeAdapter
 export piton-config Config:
     root: ./spec
     entry: ./spec/index.pi // This is optional and defaults to the root
+
+    // Also optional: directories outside the root that absolute imports may
+    // name, so that `/customLib/Tool` is the `Tool` in `../lib`.
+    libraries:
+        customLib: ../lib
+
+    // Also optional: the one directory shared imports resolve against, so that
+    // `//Tool` is the `Tool` in `../shared`.
+    sharedRoot: ../shared
 
     frameworks:
         - {BelayFrameworkConfig}
