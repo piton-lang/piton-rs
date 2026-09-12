@@ -1452,3 +1452,45 @@ fn renaming_a_shared_anchor_reaches_every_project_that_uses_it() {
         "a shared declaration is renamed in every project that can see it"
     );
 }
+
+#[test]
+fn a_property_key_is_not_offered_inside_a_run_of_prose() {
+    // The compiler reads a `key:` line written after prose as more prose, so
+    // offering property names there would suggest something that will not be
+    // read as a property. Only a blank line reopens the position.
+    const PROSE_FIRST: &str = "\
+abstract anchor Shape as shape:
+    description:: string
+    weight:: number
+
+shape Concrete:
+    some prose about this shape
+    w
+";
+    let labels = labels_after(
+        &[("main.pi", PROSE_FIRST)],
+        "main.pi",
+        "    some prose about this shape\n    ",
+    );
+    assert!(labels.is_empty(), "prose offers nothing: {labels:?}");
+
+    const BLANK_BETWEEN: &str = "\
+abstract anchor Shape as shape:
+    description:: string
+    weight:: number
+
+shape Concrete:
+    some prose about this shape
+
+    w
+";
+    let labels = labels_after(
+        &[("main.pi", BLANK_BETWEEN)],
+        "main.pi",
+        "    some prose about this shape\n\n    ",
+    );
+    assert!(
+        labels.iter().any(|it| it == "weight"),
+        "a blank line reopens the key position: {labels:?}"
+    );
+}

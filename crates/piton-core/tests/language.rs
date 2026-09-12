@@ -794,3 +794,97 @@ fn a_spread_beside_properties_merges_the_dictionary() {
         json!({ "items": ["a", "b"] })
     );
 }
+
+#[test]
+fn a_key_inside_a_run_of_prose_is_prose() {
+    // A sentence that happens to contain a colon is a sentence. Only a blank
+    // line says the author meant structure.
+    let source = "\
+description:
+    This is a string
+    and: this is still part of the string
+
+    however:
+        that: is a dictionary
+";
+    assert_eq!(
+        eval(source, "description"),
+        json!([
+            "This is a string and: this is still part of the string",
+            { "however": { "that": "is a dictionary" } }
+        ])
+    );
+}
+
+#[test]
+fn a_block_of_keys_needs_no_blank_lines() {
+    // Nothing opened a run of prose, so every line is read as what it looks
+    // like. A dictionary written as a dictionary is unaffected by the rule.
+    assert_eq!(
+        eval("pure:\n    a: 1\n    b: 2\n    c: 3\n", "pure"),
+        json!({ "a": 1, "b": 2, "c": 3 })
+    );
+}
+
+#[test]
+fn prose_stops_absorbing_keys_at_the_end_of_its_block() {
+    // The run belongs to the block it was written in. A line that dedents out
+    // of it is a property of the block above, not more prose.
+    let source = "\
+anchor Holder:
+    first:
+        Some prose
+        and: more of it
+
+    second: a value
+";
+    assert_eq!(
+        eval(source, "Holder"),
+        json!({ "first": "Some prose and: more of it", "second": "a value" })
+    );
+}
+
+#[test]
+fn a_list_marker_still_opens_a_list_inside_prose() {
+    // The rule is about keys. A `- ` is a marker wherever it appears, because
+    // a line that opens with one is not a sentence anybody wrote by accident.
+    let source = "\
+description:
+    Some prose
+    - one
+    - two
+";
+    assert_eq!(eval(source, "description"), json!(["Some prose", ["one", "two"]]));
+}
+
+#[test]
+fn a_comment_does_not_end_a_run_of_prose() {
+    // A comment-only line is trivia everywhere else in the language, and a
+    // blank line is what the rule is about.
+    let source = "\
+description:
+    Some prose
+    // an aside
+    and: still prose
+";
+    assert_eq!(eval(source, "description"), json!("Some prose and: still prose"));
+}
+
+#[test]
+fn a_key_after_a_dictionary_needs_no_blank_line() {
+    // The run ended when the first key was read, so the sibling that follows
+    // the nested block is a key like any other.
+    let source = "\
+description:
+    Some prose
+
+    first:
+        a: 1
+    second:
+        b: 2
+";
+    assert_eq!(
+        eval(source, "description"),
+        json!(["Some prose", { "first": { "a": 1 }, "second": { "b": 2 } }])
+    );
+}

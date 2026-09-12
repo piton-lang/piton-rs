@@ -379,3 +379,61 @@ export anchor ActionCatalogue:
     assert_eq!(counts.prose, 5, "{counts:?}");
     assert_eq!(counts.code + counts.prose + counts.comment + counts.blank, counts.total);
 }
+
+/// The prose rule, replayed by `in_prose_run`, must agree with the lexer.
+///
+/// Two descriptions of one rule is one too many, and the one a tool consults
+/// while a line is half-typed is the one that would drift unnoticed.
+#[test]
+fn in_prose_run_agrees_with_the_lexer() {
+    let source = "\
+description:
+    This is a string
+    and: this is still part of the string
+
+    however:
+        that: is a dictionary
+    sibling: value
+
+pure:
+    a: 1
+    b: 2
+";
+    // One flag per line, in order: is this line inside a run of prose?
+    let expected = [
+        false, // description:
+        false, // This is a string        — opens the run, is not inside one yet
+        true,  // and: this is still part of the string
+        false, // (blank)
+        false, // however:
+        false, //     that: is a dictionary
+        false, // sibling: value
+        false, // (blank)
+        false, // pure:
+        false, //     a: 1
+        false, //     b: 2
+    ];
+    let mut line_start = 0usize;
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        assert_eq!(
+            piton_syntax::in_prose_run(source, line_start),
+            expected[index],
+            "line {index}: {:?}",
+            line.trim_end()
+        );
+        line_start += line.len();
+    }
+
+    // And the lexer agrees about what those lines are: `and` never becomes a
+    // key, while the keys outside the run still do.
+    let lexed = piton_syntax::lex(source);
+    let keys: Vec<&str> = lexed
+        .tokens
+        .iter()
+        .filter(|token| token.kind == piton_syntax::SyntaxKind::IDENT)
+        .map(|token| &source[token.range])
+        .collect();
+    assert!(keys.contains(&"however"), "{keys:?}");
+    assert!(keys.contains(&"sibling"), "{keys:?}");
+    assert!(!keys.contains(&"and"), "`and:` is prose, not a key: {keys:?}");
+}

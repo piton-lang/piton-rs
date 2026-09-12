@@ -68,12 +68,46 @@ module.exports = grammar({{
     // A file is a sequence of lines. Requiring the newline matters: without it
     // two statements could sit side by side, which would make every keyword
     // valid in the middle of a sentence and turn prose into parse errors.
-    source_file: $ => seq(repeat($._line), optional($._last_line)),
+    //
+    // Lines are grouped rather than simply repeated because of one rule: a
+    // `key:` line written inside a run of prose is prose. A run ends at a blank
+    // line and nowhere else, so a property is not derivable until that blank
+    // line arrives — which is what stops the lexer producing a `key` token
+    // there at all, since it only ever scans for tokens the parser can use.
+    source_file: $ => seq(
+      repeat(choice($._structural_line, $._prose_run, $._blank_line, $._comment_line)),
+      // A run of prose may also end at the end of the file. Nothing may follow
+      // it there either — not even the last line of the file — because a `key`
+      // the parser could still use is a `key` the lexer will still produce, and
+      // the longest match would take it in preference to the words it is made
+      // of.
+      optional(choice($._trailing_prose, $._last_line)),
+    ),
 
-    _line: $ => seq(optional($._entry), optional($.comment), $._newline),
+    _structural_line: $ => seq($._entry, optional($.comment), $._newline),
+
+    _blank_line: $ => $._newline,
+
+    // Trivia: a comment never breaks a string block, so it never ends a run.
+    _comment_line: $ => seq($.comment, $._newline),
+
+    _prose_run: $ => seq($._trailing_prose, $._blank_line),
+
+    // Right-associative: a run should always prefer taking the next line over
+    // ending, which is the whole point of it.
+    _trailing_prose: $ => prec.right(seq(
+      $._prose_line,
+      repeat(choice($._prose_line, $._comment_line)),
+      // A file need not end with a newline, and the line that has none is
+      // still part of the run.
+      optional(seq($.text_line, optional($.comment))),
+    )),
+
+    _prose_line: $ => seq($.text_line, optional($.comment), $._newline),
 
     _last_line: $ => seq($._entry, optional($.comment)),
 
+    // Everything a line may be except prose, which is grouped into runs above.
     _entry: $ => choice(
       $.import_statement,
       $.use_statement,
@@ -83,7 +117,6 @@ module.exports = grammar({{
       $.property,
       $.list_item,
       $.spread_item,
-      $.text_line,
     ),
 
     _newline: $ => token(/\r?\n/),

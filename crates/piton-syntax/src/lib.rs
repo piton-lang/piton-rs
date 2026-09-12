@@ -13,7 +13,7 @@ pub mod loc;
 pub mod parser;
 
 pub use kind::SyntaxKind;
-pub use lexer::{lex, IndentStyle, LexError, LexToken, Lexed};
+pub use lexer::{in_prose_run, lex, IndentStyle, LexError, LexToken, Lexed};
 pub use parser::{parse, Parse};
 pub use rowan::{self, NodeOrToken, TextRange, TextSize};
 

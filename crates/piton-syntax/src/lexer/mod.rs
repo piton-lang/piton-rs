@@ -59,6 +59,71 @@ pub fn lex(src: &str) -> Lexed {
     Lexed { tokens: lexer.tokens, errors: lexer.errors, style: lexer.style }
 }
 
+/// Whether the line starting at `line_start` continues a run of prose.
+///
+/// The same rule [`Lexer::block_line`] applies, replayed over the text so that
+/// a tool which has to decide what a half-typed line *would* be — completion,
+/// deciding whether to offer property names — cannot drift from what the lexer
+/// does with the line once it is finished.
+///
+/// A line inside a run of prose is prose whatever it looks like, so nothing
+/// that only a key position allows belongs there.
+#[must_use]
+pub fn in_prose_run(src: &str, line_start: usize) -> bool {
+    let width_of = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
+    let mut prose: Option<usize> = None;
+    let mut at = 0usize;
+    for line in src.split_inclusive('\n') {
+        let width = width_of(line);
+        if at >= line_start {
+            break;
+        }
+        at += line.len();
+        let body = line.trim();
+        if body.is_empty() {
+            prose = None;
+            continue;
+        }
+        // Trivia, exactly as the lexer treats it: a comment never breaks a
+        // string block, so it never ends a run either.
+        if body.starts_with("//") {
+            continue;
+        }
+        // A declaration is not in any block.
+        if width == 0 {
+            prose = None;
+            continue;
+        }
+        let continuing = prose.is_some_and(|base| width >= base);
+        if !continuing {
+            prose = None;
+        }
+        let marker = ["-", "++", "+"].iter().any(|it| {
+            body.strip_prefix(*it).is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t']))
+        });
+        if marker {
+            prose = None;
+            continue;
+        }
+        if !continuing && is_key_head(line) {
+            prose = None;
+            continue;
+        }
+        if prose.is_none() {
+            prose = Some(width);
+        }
+    }
+    let target = src[line_start..].split('\n').next().unwrap_or("");
+    prose.is_some_and(|base| width_of(target) >= base)
+}
+
+/// Whether a line opens with `name(:: type)*:`, read from the text alone.
+fn is_key_head(line: &str) -> bool {
+    let trimmed = line.trim_start_matches([' ', '\t']);
+    let lexer = Lexer::new(trimmed);
+    lexer.key_head().is_some()
+}
+
 pub(crate) struct Lexer<'a> {
     src: &'a str,
     pos: usize,
@@ -67,11 +132,28 @@ pub(crate) struct Lexer<'a> {
     /// The stack of open indentation widths, always starting with 0.
     indents: Vec<usize>,
     style: Option<IndentStyle>,
+    /// The indentation a run of prose began at, while one is open.
+    ///
+    /// Prose runs until a blank line ends it, and a `key:` line inside that run
+    /// is part of the prose rather than a property of a dictionary. Writing
+    /// about `description:` in a sentence is ordinary, and a rule that turned
+    /// the sentence into structure would make an author escape their own text.
+    /// A blank line is what says "I meant structure" — the same blank line that
+    /// already separates a string's paragraphs.
+    prose: Option<usize>,
 }
 
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
-        Lexer { src, pos: 0, tokens: Vec::new(), errors: Vec::new(), indents: vec![0], style: None }
+        Lexer {
+            src,
+            pos: 0,
+            tokens: Vec::new(),
+            errors: Vec::new(),
+            indents: vec![0],
+            style: None,
+            prose: None,
+        }
     }
 
     fn run(&mut self) {
@@ -93,6 +175,9 @@ impl<'a> Lexer<'a> {
 
         // A line that holds nothing but whitespace is a significant blank.
         if rest.is_empty() || rest.starts_with('\n') || rest.starts_with("\r\n") {
+            // The line that ends a run of prose, and so the line that lets the
+            // next `key:` be a key again.
+            self.prose = None;
             self.emit_range(SyntaxKind::WHITESPACE, line_start, ws_end);
             self.pos = ws_end;
             self.eat_newline(SyntaxKind::BLANK);
@@ -117,9 +202,10 @@ impl<'a> Lexer<'a> {
         self.pos = ws_end;
 
         if self.indents.len() == 1 {
+            self.prose = None;
             self.declaration_line();
         } else {
-            self.block_line();
+            self.block_line(width);
         }
 
         // Anything the line lexers left behind (a stray `}`, say) is consumed
@@ -243,13 +329,25 @@ impl<'a> Lexer<'a> {
     }
 
     /// A line inside an indented block: list item, spread, property, or prose.
-    fn block_line(&mut self) {
+    ///
+    /// `width` is the line's own indentation, which decides whether it is
+    /// inside an open run of prose: a line indented at least as far as the run
+    /// continues it, and one that dedents past it has left.
+    fn block_line(&mut self, width: usize) {
+        // Inside a run of prose, a line that looks like `key: value` is a
+        // sentence that happens to contain a colon. Only a blank line reopens
+        // the question, so a dictionary written after prose announces itself.
+        let continuing_prose = self.prose.is_some_and(|base| width >= base);
+        if !continuing_prose {
+            self.prose = None;
+        }
         let bytes = self.src.as_bytes();
         let at_marker = |lexer: &Self, marker: &str| {
             lexer.src[lexer.pos..].starts_with(marker)
                 && matches!(bytes.get(lexer.pos + marker.len()), None | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r'))
         };
         if at_marker(self, "-") {
+            self.prose = None;
             self.emit(SyntaxKind::DASH, 1);
             self.eat_inline_space();
             // `- key:` is a dictionary written as a list element, so the same
@@ -260,18 +358,26 @@ impl<'a> Lexer<'a> {
             return self.value_region();
         }
         if at_marker(self, "++") {
+            self.prose = None;
             self.emit(SyntaxKind::PLUS2, 2);
             self.eat_inline_space();
             return self.value_region();
         }
         if at_marker(self, "+") {
+            self.prose = None;
             self.emit(SyntaxKind::PLUS, 1);
             self.eat_inline_space();
             return self.value_region();
         }
-        if self.key_head().is_some() {
+        if !continuing_prose && self.key_head().is_some() {
             self.eat_key_head();
             return self.value_region();
+        }
+        // Whatever else this line is, it is prose, and it opens a run if one is
+        // not already open. The run keeps the indentation it started at, so a
+        // more deeply indented continuation line stays part of it.
+        if self.prose.is_none() {
+            self.prose = Some(width);
         }
         self.value_region();
     }

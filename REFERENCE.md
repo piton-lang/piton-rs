@@ -464,6 +464,43 @@ We're sacrificing the otherwise simple rules of syntax here only because this is
 an inherently intuitive form for a human. We'll let the compiler do a bit of
 heavy lifting to make the human's job nicer.
 
+There is one rule that comes with that, and it is worth knowing before you write
+a paragraph: a `key:` line written inside a run of prose is prose. A blank line
+is what separates prose from the structure that follows it.
+
+```piton
+description:
+    This is a string
+    and: this is still part of the string
+
+    however:
+        this: is a dictionary
+```
+
+`description` here is an implicit list of two things: the string "This is a
+string and: this is still part of the string", and a dictionary `however`. The
+`and:` line is part of the sentence, because nothing separated it from the
+sentence above.
+
+The reason is that prose is most of what a Piton file contains, and sentences
+have colons in them. Without the rule, writing "the compiler reads it like this:
+badly" would silently produce a property named `the compiler reads it like this`,
+and an author would find themselves escaping their own writing. The blank line
+that already separates a string's paragraphs is what says you meant structure.
+
+A block that never opens a run of prose is unaffected — a dictionary written as a
+dictionary needs no blank lines between its properties:
+
+```piton
+pure:
+    a: 1
+    b: 2
+    c: 3
+```
+
+And a run ends at the block it was written in, so a property of an enclosing
+anchor does not need separating from prose nested inside a sibling property.
+
 wi
 
 One additional gotcha is with Piton, with an implicit list, dictionary

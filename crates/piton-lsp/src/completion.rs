@@ -238,6 +238,16 @@ fn line_start_context(
     match head.trim() {
         "" => {
             if indented {
+                // Inside a run of prose a word is a word: writing `and:` there
+                // makes a sentence, not a property, so offering property names
+                // would suggest something the compiler will not read as one.
+                // Only a blank line reopens the position.
+                let text = view.text(file);
+                let cursor = usize::from(offset).min(text.len());
+                let line_start = text[..cursor].rfind('\n').map_or(0, |it| it + 1);
+                if piton_syntax::in_prose_run(text, line_start) {
+                    return Context::Nothing;
+                }
                 Context::PropertyKey
             } else {
                 Context::Declaration { after_export: false, after_abstract: false }
@@ -249,10 +259,7 @@ fn line_start_context(
         "abstract" | "export abstract" if !indented => {
             Context::Declaration { after_export: false, after_abstract: true }
         }
-        _ => {
-            let _ = (view, file, offset);
-            Context::Nothing
-        }
+        _ => Context::Nothing,
     }
 }
 
