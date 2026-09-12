@@ -9,7 +9,7 @@ use piton_core::FileId;
 use tower_lsp::lsp_types::{Position, Url};
 
 use crate::world::{View, Workspace};
-use crate::{actions, completion, hover, navigation, tokens};
+use crate::{actions, completion, hover, navigation, refactor, tokens};
 
 /// Write a throwaway project and analyse it.
 fn workspace(files: &[(&str, &str)]) -> (PathBuf, Workspace) {
@@ -1273,4 +1273,182 @@ fn unique_directory(prefix: &str) -> std::path::PathBuf {
     static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let ordinal = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!("{prefix}-{}-{ordinal}", std::process::id()))
+}
+
+// ---- moving files, and renaming across projects ---------------------------
+
+/// The edits a set of moves produces, as `(file, specifier)` pairs.
+fn move_edits(
+    root: &Path,
+    workspace: &mut Workspace,
+    moves: &[(&str, &str)],
+) -> Vec<(String, String)> {
+    let moves: Vec<refactor::Move> = moves
+        .iter()
+        .map(|(from, to)| refactor::Move { from: root.join(from), to: root.join(to) })
+        .collect();
+    let snapshot = workspace.snapshot();
+    let edit = refactor::move_edits(&snapshot, &moves);
+    let mut out: Vec<(String, String)> = edit
+        .changes
+        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|(url, edits)| {
+            let path = url.to_file_path().expect("a file url");
+            let name = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            edits.into_iter().map(move |edit| (name.clone(), edit.new_text))
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn moving_a_file_rewrites_the_imports_that_named_it() {
+    let (root, mut workspace) = workspace(&[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./\n"),
+        ("main.pi", "from ./tools/Hammer import Hammer\n\na: {Hammer.kind}\n"),
+        ("tools/Hammer.pi", "export anchor Hammer:\n    kind: hammer\n"),
+    ]);
+    let edits = move_edits(&root, &mut workspace, &[("tools/Hammer.pi", "parts/Hammer.pi")]);
+    assert_eq!(edits, [("main.pi".to_string(), "./parts/Hammer".to_string())]);
+}
+
+#[test]
+fn moving_a_file_rewrites_the_relative_imports_it_carries() {
+    // The file that moves is the one whose own imports change meaning.
+    let (root, mut workspace) = workspace(&[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./\n"),
+        ("tools/Hammer.pi", "from ./Head import Head\n\nexport anchor Hammer:\n    head: {Head.kind}\n"),
+        ("tools/Head.pi", "export anchor Head:\n    kind: steel\n"),
+    ]);
+    let edits = move_edits(&root, &mut workspace, &[("tools/Hammer.pi", "Hammer.pi")]);
+    assert_eq!(edits, [("tools/Hammer.pi".to_string(), "./tools/Head".to_string())]);
+}
+
+#[test]
+fn a_rooted_import_stays_rooted_when_its_target_moves() {
+    // A project that addresses its modules from the root said so on purpose,
+    // and a move is no occasion to rewrite that as `../../lib/Tool`.
+    let (root, mut workspace) = workspace(&[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n"),
+        ("spec/deep/nested/main.pi", "from /lib/Tool import Tool\n\na: {Tool.kind}\n"),
+        ("spec/lib/Tool.pi", "export anchor Tool:\n    kind: hammer\n"),
+    ]);
+    let edits = move_edits(&root, &mut workspace, &[("spec/lib/Tool.pi", "spec/parts/Tool.pi")]);
+    assert_eq!(edits, [("spec/deep/nested/main.pi".to_string(), "/parts/Tool".to_string())]);
+}
+
+#[test]
+fn moving_a_directory_moves_everything_under_it() {
+    let (root, mut workspace) = workspace(&[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./\n"),
+        ("main.pi", "from ./tools/Hammer import Hammer\n\na: {Hammer.kind}\n"),
+        ("tools/Hammer.pi", "from ./Head import Head\n\nexport anchor Hammer:\n    kind: {Head.kind}\n"),
+        ("tools/Head.pi", "export anchor Head:\n    kind: steel\n"),
+    ]);
+    let edits = move_edits(&root, &mut workspace, &[("tools", "parts")]);
+    // The importer follows the directory; the siblings inside it do not move
+    // relative to each other, so `./Head` still says what it said.
+    assert_eq!(edits, [("main.pi".to_string(), "./parts/Hammer".to_string())]);
+}
+
+#[test]
+fn a_directory_module_is_named_by_its_directory_after_a_move() {
+    let (root, mut workspace) = workspace(&[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./\n"),
+        ("main.pi", "from ./tools import Hammer\n\na: {Hammer.kind}\n"),
+        ("tools/index.pi", "from ./Hammer export *\n"),
+        ("tools/Hammer.pi", "export anchor Hammer:\n    kind: hammer\n"),
+    ]);
+    let edits = move_edits(&root, &mut workspace, &[("tools", "parts")]);
+    assert_eq!(edits, [("main.pi".to_string(), "./parts".to_string())]);
+    // And not `./parts/index`: a directory with an index is named by the
+    // directory, which is how it was written before the move.
+}
+
+#[test]
+fn a_move_that_changes_nothing_produces_no_edits() {
+    let (root, mut workspace) = workspace(&[
+        ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./\n"),
+        ("main.pi", "from ./tools/Hammer import Hammer\n\na: {Hammer.kind}\n"),
+        ("tools/Hammer.pi", "export anchor Hammer:\n    kind: hammer\n"),
+        ("notes.md", "not a piton file\n"),
+    ]);
+    assert!(move_edits(&root, &mut workspace, &[("notes.md", "docs/notes.md")]).is_empty());
+}
+
+#[test]
+fn moving_a_shared_file_is_rewritten_for_every_project_that_names_it() {
+    let (root, mut workspace) = workspace(SHARED_ROOT);
+    let edits = move_edits(&root, &mut workspace, &[("shared/Tool.pi", "shared/parts/Tool.pi")]);
+    assert_eq!(
+        edits,
+        [
+            ("origin/spec/index.pi".to_string(), "//parts/Tool".to_string()),
+            ("substrate/index.pi".to_string(), "//parts/Tool".to_string()),
+        ],
+        "both projects reach the same file and both have to be rewritten"
+    );
+}
+
+/// Two projects that both import a name from the shared root, so that renaming
+/// it has something to change in each of them.
+const SHARED_NAME: &[(&str, &str)] = &[
+    ("shared/Tool.pi", "export anchor Tool:\n    purpose: work\n"),
+    (
+        "origin/piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n\n    \
+         sharedRoot: ../shared\n",
+    ),
+    (
+        "origin/spec/index.pi",
+        "from //Tool import Tool\n\nexport anchor Hammer extends Tool:\n    kind: hammer\n",
+    ),
+    (
+        "substrate/piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./\n\n    \
+         sharedRoot: ../shared\n",
+    ),
+    (
+        "substrate/index.pi",
+        "from //Tool import Tool\n\nexport anchor Wrench extends Tool:\n    kind: wrench\n",
+    ),
+];
+
+#[test]
+fn renaming_a_shared_anchor_reaches_every_project_that_uses_it() {
+    let (root, mut workspace) = workspace(SHARED_NAME);
+    let declaration = root.join("shared/Tool.pi");
+    let view = view_of(&mut workspace, &declaration);
+    let file = view.file_for(&declaration).expect("the shared file is analysed");
+    let at = offset_of(view.text(file), "Tool");
+    drop(view);
+
+    let snapshot = workspace.snapshot();
+    let edit = refactor::rename_edits(&snapshot, &declaration, at, "Implement")
+        .expect("the anchor renames");
+    let mut touched: Vec<String> = edit
+        .changes
+        .unwrap_or_default()
+        .keys()
+        .map(|url| {
+            url.to_file_path()
+                .expect("a file url")
+                .strip_prefix(&root)
+                .expect("inside the workspace")
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    touched.sort();
+    assert_eq!(
+        touched,
+        ["origin/spec/index.pi", "shared/Tool.pi", "substrate/index.pi"],
+        "a shared declaration is renamed in every project that can see it"
+    );
 }

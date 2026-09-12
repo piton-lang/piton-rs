@@ -329,7 +329,11 @@ fn read_shared_root(
         ));
         return None;
     };
-    let resolved = config_dir.join(path);
+    // Normalised, because `../shared` is a prefix of nothing: the database
+    // keys every file by a path with its `..` segments already collapsed, and
+    // anything that compares the two — deciding whether a file lies under the
+    // shared root, writing a specifier that reaches it — would answer no.
+    let resolved = crate::db::canonical(&config_dir.join(path));
     // Reported for the same reason `root` is: every shared import in the
     // project resolves against this one directory, so a path that is not there
     // turns one mistake into an unresolved import in every file that uses `//`.

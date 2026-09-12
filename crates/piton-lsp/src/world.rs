@@ -122,6 +122,24 @@ impl Workspace {
         self.snapshot = None;
     }
 
+    /// Follow a set of moves with the buffers the editor has open.
+    ///
+    /// An open buffer is keyed by path, and after a move the editor talks about
+    /// the file by its new one. Without re-keying, the unsaved text stays
+    /// attached to a path nothing will ask about again while the file at the
+    /// new path is read from the disk it has not been written to yet.
+    pub fn moved(&mut self, moves: &[crate::refactor::Move]) {
+        let open = std::mem::take(&mut self.open);
+        self.open = open
+            .into_iter()
+            .map(|(path, text)| match crate::refactor::destination(moves, &path) {
+                Some(destination) => (destination, text),
+                None => (path, text),
+            })
+            .collect();
+        self.snapshot = None;
+    }
+
     /// The files the editor currently has open.
     pub fn open_paths(&self) -> Vec<PathBuf> {
         self.open.keys().cloned().collect()

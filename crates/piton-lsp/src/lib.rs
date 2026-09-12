@@ -10,13 +10,14 @@ mod completion;
 mod hover;
 mod line_index;
 mod navigation;
+mod refactor;
 mod tokens;
 mod world;
 
 #[cfg(test)]
 mod tests;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use piton_core::diag::Severity;
 use piton_core::resolve::Symbol;
@@ -150,6 +151,51 @@ fn convert(view: &View, diagnostic: &piton_core::diag::Diagnostic) -> Diagnostic
     }
 }
 
+/// The files this server wants to be told about: Piton sources and the
+/// configurations that organise them.
+fn piton_file_filters() -> FileOperationRegistrationOptions {
+    let file = |glob: String| FileOperationFilter {
+        scheme: Some("file".to_string()),
+        pattern: FileOperationPattern {
+            glob,
+            matches: Some(FileOperationPatternKind::File),
+            options: None,
+        },
+    };
+    FileOperationRegistrationOptions {
+        filters: vec![
+            file("**/*.pi".to_string()),
+            file(format!("**/{}", piton_core::project::CONFIG_FILE)),
+            // A directory is moved as itself, not as the files under it, and
+            // its name matches no source glob. Without a filter for folders the
+            // client never mentions the move at all, and moving a directory of
+            // modules would break every import that named them.
+            FileOperationFilter {
+                scheme: Some("file".to_string()),
+                pattern: FileOperationPattern {
+                    glob: "**".to_string(),
+                    matches: Some(FileOperationPatternKind::Folder),
+                    options: None,
+                },
+            },
+        ],
+    }
+}
+
+/// Read the moves out of a file-operation notification.
+fn moves_of(params: &RenameFilesParams) -> Vec<refactor::Move> {
+    params
+        .files
+        .iter()
+        .filter_map(|file| {
+            Some(refactor::Move {
+                from: Url::parse(&file.old_uri).ok()?.to_file_path().ok()?,
+                to: Url::parse(&file.new_uri).ok()?.to_file_path().ok()?,
+            })
+        })
+        .collect()
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -205,6 +251,19 @@ impl LanguageServer for Backend {
                     resolve_provider: Some(false),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
+                // A move is a refactor: the editor asks what should change
+                // before it moves anything, and the imports that named the file
+                // are rewritten in the same undo step as the move itself.
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: None,
+                    file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+                        will_rename: Some(piton_file_filters()),
+                        did_rename: Some(piton_file_filters()),
+                        did_create: Some(piton_file_filters()),
+                        did_delete: Some(piton_file_filters()),
+                        ..WorkspaceFileOperationsServerCapabilities::default()
+                    }),
+                }),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                     DiagnosticOptions {
                         identifier: Some("piton".to_string()),
@@ -239,8 +298,19 @@ impl LanguageServer for Backend {
         // A configuration declares a project, so adding or editing one changes
         // what the workspace contains rather than just what one file says. The
         // client is asked to report every change to one, wherever it lives.
+        //
+        // And every source file with it. What a project contains is read from
+        // the disk rather than from the set of open buffers, so a file created,
+        // deleted, or moved by anything other than an editor keystroke — a
+        // rename in the project panel, a `git checkout`, another tool — changes
+        // the answer to every question this server is asked. Watching only the
+        // configurations left those changes invisible until the server was
+        // restarted.
         let configs = serde_json::json!({
-            "watchers": [{ "globPattern": format!("**/{}", piton_core::project::CONFIG_FILE) }]
+            "watchers": [
+                { "globPattern": format!("**/{}", piton_core::project::CONFIG_FILE) },
+                { "globPattern": "**/*.pi" },
+            ]
         });
         let _ = self
             .client
@@ -293,6 +363,41 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
+        self.workspace.lock().await.invalidate();
+        self.publish().await;
+    }
+
+    // ---- files moving around ----------------------------------------------
+
+    /// What should change before the editor moves these files.
+    ///
+    /// The edits go back as one workspace edit so the client applies them in
+    /// the same undo step as the move: undoing a move that rewrote fifteen
+    /// imports should not leave the fifteen behind.
+    async fn will_rename_files(&self, params: RenameFilesParams) -> Result<Option<WorkspaceEdit>> {
+        let moves = moves_of(&params);
+        if moves.is_empty() {
+            return Ok(None);
+        }
+        let snapshot = self.workspace.lock().await.snapshot();
+        let edit = refactor::move_edits(&snapshot, &moves);
+        Ok(match edit.changes.as_ref().is_some_and(|it| it.is_empty()) {
+            true => None,
+            false => Some(edit),
+        })
+    }
+
+    async fn did_rename_files(&self, params: RenameFilesParams) {
+        self.workspace.lock().await.moved(&moves_of(&params));
+        self.publish().await;
+    }
+
+    async fn did_create_files(&self, _: CreateFilesParams) {
+        self.workspace.lock().await.invalidate();
+        self.publish().await;
+    }
+
+    async fn did_delete_files(&self, _: DeleteFilesParams) {
         self.workspace.lock().await.invalidate();
         self.publish().await;
     }
@@ -454,27 +559,12 @@ impl LanguageServer for Backend {
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
         if !navigation::is_renameable(SyntaxKind::IDENT) {
             return Ok(None);
         }
-        let mut sites = navigation::references(&view, &resolved.target);
-        if let Some(declaration) = navigation::definition(&view, &resolved.target) {
-            if !sites.contains(&declaration) {
-                sites.push(declaration);
-            }
-        }
-        let mut changes: std::collections::HashMap<Url, Vec<TextEdit>> =
-            std::collections::HashMap::new();
-        for (site_file, range) in sites {
-            let Some(path) = view.path_of(site_file) else { continue };
-            let Ok(url) = Url::from_file_path(path) else { continue };
-            changes.entry(url).or_default().push(TextEdit {
-                range: view.line_index(site_file).range(range),
-                new_text: params.new_name.clone(),
-            });
-        }
-        Ok(Some(WorkspaceEdit { changes: Some(changes), ..WorkspaceEdit::default() }))
+        let Some(path) = view.path_of(file).map(Path::to_path_buf) else { return Ok(None) };
+        let snapshot = self.workspace.lock().await.snapshot();
+        Ok(refactor::rename_edits(&snapshot, &path, offset, &params.new_name))
     }
 
     // ---- symbols ------------------------------------------------------------
