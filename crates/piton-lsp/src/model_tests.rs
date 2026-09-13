@@ -849,3 +849,23 @@ fn completion_imports_an_anchor_after_extends_and_in_a_constraint() {
         assert!(!offered.iter().any(|it| it.label == "count"), "only anchors after extends or `::`: {name}");
     }
 }
+
+#[test]
+fn accepting_a_completion_replaces_the_whole_name_being_typed() {
+    let source = "use ./ui\n\nexport ui-comp";
+    let (root, mut workspace) = project(&[
+        ("ui.pi", "export abstract anchor UiComponent as ui-component:\n    x:: string\n"),
+        ("main.pi", source),
+    ]);
+    let path = root.join("main.pi");
+    let view = view_of(&mut workspace, &path);
+    let file = file_of(&view, &path);
+    let offered = completion::complete(&view, file, TextSize::new(source.len() as u32));
+    let keyword = offered.iter().find(|it| it.label == "ui-component").expect("the keyword is offered");
+    let Some(tower_lsp::lsp_types::CompletionTextEdit::Edit(edit)) = keyword.text_edit.clone() else {
+        panic!("the item says what it replaces: {keyword:?}");
+    };
+    let written = apply(source, vec![edit]);
+    assert!(written.starts_with("use ./ui\n\nexport ui-component ${1:Name}:"), "{written:?}");
+    assert!(!written.contains("ui-ui"), "{written:?}");
+}

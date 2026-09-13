@@ -50,6 +50,40 @@ enum Context {
 
 /// Suggest completions at an offset.
 pub fn complete(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
+    let typed = typed_name(view, file, offset);
+    suggestions(view, file, offset).into_iter().map(|item| replacing(item, typed)).collect()
+}
+
+/// The name being typed before the cursor.
+///
+/// A name can contain `-`, and editors end a word at one, so an item that left
+/// the range to the editor replaced only `comp` of `ui-comp` and wrote
+/// `ui-ui-component`.
+fn typed_name(view: &View, file: FileId, offset: TextSize) -> tower_lsp::lsp_types::Range {
+    let text = view.text(file);
+    let cursor = usize::from(offset).min(text.len());
+    let start = text[..cursor]
+        .char_indices()
+        .rev()
+        .take_while(|(_, it)| it.is_alphanumeric() || matches!(it, '_' | '-'))
+        .last()
+        .map_or(cursor, |(at, _)| at);
+    view.line_index(file).range(TextRange::new(TextSize::new(start as u32), TextSize::new(cursor as u32)))
+}
+
+/// Say exactly what accepting an item replaces, unless it already does.
+fn replacing(mut item: CompletionItem, typed: tower_lsp::lsp_types::Range) -> CompletionItem {
+    if item.text_edit.is_some() {
+        return item;
+    }
+    let new_text = item.insert_text.take().unwrap_or_else(|| item.label.clone());
+    item.filter_text.get_or_insert_with(|| item.label.clone());
+    item.text_edit =
+        Some(tower_lsp::lsp_types::CompletionTextEdit::Edit(TextEdit { range: typed, new_text }));
+    item
+}
+
+fn suggestions(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
     match context(view, file, offset) {
         Context::Nothing => Vec::new(),
         Context::ModulePath { typed, range } => module_items(view, file, &typed, range),

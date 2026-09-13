@@ -20,6 +20,10 @@ Completion is decided by where the cursor is, read from the syntax tree, and eac
 - Inside braces and interpolations it offers the names in scope, and `self`, `this`, and `super` inside an anchor.
 - A half-typed `from` or `use` line does not parse, so it is read from the line's text rather than from the tree.
 
+## Accepting
+
+Accepting a completion replaces the whole name being typed before the cursor, and nothing else. A name can contain `-`, as a keyword such as `ui-component` does, while editors end a word at `-`, so every item says exactly which text it replaces rather than leaving the editor to guess: accepting `ui-component` after `ui-comp` writes `ui-component`, never `ui-ui-component`.
+
 ## Members
 
 After a `.`, the members offered are the ones [ReferenceResolution](../model/ReferenceResolution.md) would resolve on the left side's holder: the properties visible on an anchor, with their constraints, even when the anchor is abstract and has no compiled value; the properties of the bases after `super`; and the keys of a dictionary. When the holder is a computed value, the members of its compiled value are offered instead.
