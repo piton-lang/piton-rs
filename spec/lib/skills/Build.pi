@@ -1,0 +1,28 @@
+use @piton/belay
+
+from ../Scope import Scope
+from ./Testing import Testing
+
+// Builds or changes one scope of the system, holding the code to its spec.
+export abstract skill BuildSkill as build-skill:
+    description: Builds or changes the ${self.scope} scope
+    useWhen: you need to build, change, or fix anything the ${self.scope} scope describes
+
+    prompt:
+        Read the scope and every feature it lists that the work touches before
+        changing anything, then read @{Testing}.
+
+        The spec is the source of truth. Where the code disagrees with it,
+        change the code. Where the spec is wrong or says nothing about what you
+        need, change the Piton source under `spec` first, run `piton build`, and
+        only then change the code to match. Never leave a behaviour in the code
+        that the spec does not state.
+
+        If nothing has been built yet, build from the spec. Otherwise compare
+        the existing code against the spec and decide whether the work is a
+        small change or a refactor; either way the code ends up matching the
+        spec, not the other way round.
+
+    testing: @{Testing}
+
+    scope:: extends Scope

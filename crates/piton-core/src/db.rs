@@ -69,6 +69,8 @@ pub struct Db {
     libraries: Vec<(String, PathBuf)>,
     /// The directory `//`-prefixed shared imports resolve against.
     shared_root: Option<PathBuf>,
+    /// Text already read from disk, reused until the file changes.
+    source_cache: Option<std::sync::Arc<SourceCache>>,
 }
 
 /// Why a module path could not be resolved.
@@ -111,6 +113,22 @@ impl Db {
 
     pub fn shared_root(&self) -> Option<&Path> {
         self.shared_root.as_deref()
+    }
+
+    pub fn libraries(&self) -> &[(String, PathBuf)] {
+        &self.libraries
+    }
+
+    /// Read disk files through `cache`, so a file that has not changed since
+    /// the last compilation is not read again.
+    pub fn set_source_cache(&mut self, cache: std::sync::Arc<SourceCache>) {
+        self.source_cache = Some(cache);
+    }
+
+    /// Whether a module file is there, in an editor's buffer or on disk.
+    pub fn exists(&self, path: &Path) -> bool {
+        let path = canonical(path);
+        self.overlays.contains_key(&path) || path.is_file()
     }
 
     /// Every directory a rooted specifier could mean, in order of preference.
@@ -178,7 +196,11 @@ impl Db {
         let text = match &source {
             Source::Disk(path) => match self.overlays.get(path) {
                 Some(text) => text.clone(),
-                None => std::fs::read_to_string(path).map_err(|error| ResolveError {
+                None => match &self.source_cache {
+                    Some(cache) => cache.read(path),
+                    None => std::fs::read_to_string(path),
+                }
+                .map_err(|error| ResolveError {
                     message: format!("cannot read {}: {error}", path.display()),
                 })?,
             },
@@ -215,9 +237,29 @@ impl Db {
         if let Some(name) = spec.strip_prefix('@') {
             return self.load_source(Source::Virtual(format!("@{name}")));
         }
+        let from_dir =
+            self.file(from).source.as_path().and_then(Path::parent).map(Path::to_path_buf);
+        let bases = self.bases(from_dir.as_deref(), spec)?;
+        match first_module(&bases, &|path| self.exists(path)) {
+            Some(path) => self.load_source(Source::Disk(path)),
+            None => Err(ResolveError { message: format!("cannot find module `{spec}`") }),
+        }
+    }
+
+    /// The paths a non-builtin specifier written in `from_dir` could mean, in
+    /// the order resolution tries them.
+    ///
+    /// Every question about where a specifier leads, whether loading it,
+    /// looking it up, or writing one, starts here, so there is one description
+    /// of what a specifier means.
+    pub(crate) fn bases(
+        &self,
+        from_dir: Option<&Path>,
+        spec: &str,
+    ) -> Result<Vec<PathBuf>, ResolveError> {
         // Before the rooted case, because `//a` is also `/`-prefixed and the
         // two would otherwise both claim it.
-        let bases = if let Some(rest) = spec.strip_prefix("//") {
+        if let Some(rest) = spec.strip_prefix("//") {
             let Some(shared) = &self.shared_root else {
                 return Err(ResolveError {
                     message: format!(
@@ -226,8 +268,9 @@ impl Db {
                     ),
                 });
             };
-            vec![shared.join(rest)]
-        } else if let Some(rest) = spec.strip_prefix('/') {
+            return Ok(vec![shared.join(rest)]);
+        }
+        if let Some(rest) = spec.strip_prefix('/') {
             let bases = self.rooted_bases(rest);
             if bases.is_empty() {
                 return Err(ResolveError {
@@ -236,26 +279,14 @@ impl Db {
                     ),
                 });
             }
-            bases
-        } else {
-            let dir = match self.file(from).source.as_path().and_then(Path::parent) {
-                Some(dir) => dir.to_path_buf(),
-                None => {
-                    return Err(ResolveError {
-                        message: format!("`{spec}` cannot be resolved from a builtin module"),
-                    })
-                }
-            };
-            vec![dir.join(spec)]
-        };
-        for base in &bases {
-            for candidate in module_candidates(base) {
-                if self.overlays.contains_key(&candidate) || candidate.is_file() {
-                    return self.load_source(Source::Disk(canonical(&candidate)));
-                }
-            }
+            return Ok(bases);
         }
-        Err(ResolveError { message: format!("cannot find module `{spec}`") })
+        match from_dir {
+            Some(dir) => Ok(vec![dir.join(spec)]),
+            None => Err(ResolveError {
+                message: format!("`{spec}` cannot be resolved from a builtin module"),
+            }),
+        }
     }
 }
 
@@ -307,11 +338,8 @@ impl Db {
         if let Some(name) = spec.strip_prefix('@') {
             return self.by_source.get(&Source::Virtual(format!("@{name}"))).copied();
         }
-        let bases = match (spec.strip_prefix("//"), spec.strip_prefix('/')) {
-            (Some(rest), _) => vec![self.shared_root.as_ref()?.join(rest)],
-            (None, Some(rest)) => self.rooted_bases(rest),
-            (None, None) => vec![self.file(from).source.as_path()?.parent()?.join(spec)],
-        };
+        let from_dir = self.file(from).source.as_path().and_then(Path::parent);
+        let bases = self.bases(from_dir, spec).ok()?;
         bases
             .iter()
             .flat_map(|base| module_candidates(base))
@@ -504,6 +532,61 @@ impl Db {
 
 /// Directories that never hold Piton sources.
 const IGNORED_DIRECTORIES: &[&str] = &["node_modules", "target", "dist", "build"];
+
+/// The first file, across `bases` in order, that is a module and exists.
+pub(crate) fn first_module(bases: &[PathBuf], exists: &dyn Fn(&Path) -> bool) -> Option<PathBuf> {
+    bases
+        .iter()
+        .flat_map(|base| module_candidates(base))
+        .map(|candidate| canonical(&candidate))
+        .find(|candidate| exists(candidate))
+}
+
+/// Text read from disk, kept for as long as the file's size and modification
+/// time stay the same.
+///
+/// A language server compiles the whole project on every change, and nearly
+/// every file in it is the same as it was a moment ago. Reading only what
+/// changed is what keeps that affordable.
+#[derive(Default)]
+pub struct SourceCache {
+    entries: std::sync::Mutex<HashMap<PathBuf, CachedSource>>,
+}
+
+struct CachedSource {
+    modified: std::time::SystemTime,
+    len: u64,
+    text: String,
+}
+
+impl SourceCache {
+    /// Read `path`, reusing the last read when the file has not changed.
+    pub fn read(&self, path: &Path) -> std::io::Result<String> {
+        let metadata = std::fs::metadata(path)?;
+        let modified = metadata.modified().ok();
+        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let (Some(modified), Some(cached)) = (modified, entries.get(path)) {
+            if cached.modified == modified && cached.len == metadata.len() {
+                return Ok(cached.text.clone());
+            }
+        }
+        let text = std::fs::read_to_string(path)?;
+        // A file system without modification times cannot say a file is
+        // unchanged, so nothing is kept for it.
+        if let Some(modified) = modified {
+            entries.insert(
+                path.to_path_buf(),
+                CachedSource { modified, len: metadata.len(), text: text.clone() },
+            );
+        }
+        Ok(text)
+    }
+
+    /// Drop what is kept for `path`, when something says it changed.
+    pub fn forget(&self, path: &Path) {
+        self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(path);
+    }
+}
 
 /// The file names a module specifier may resolve to, in order of preference.
 fn module_candidates(base: &Path) -> Vec<PathBuf> {

@@ -1,0 +1,18 @@
+use /lib/skills
+
+from /scope/lsp import LspScope
+
+export build-skill BuildLsp:
+    scope: {LspScope}
+
+    code:
+        The language server is `crates/piton-lsp`. What a name, a module
+        specifier, or a problem means belongs to `crates/piton-core`, and the
+        server asks the compiler rather than working it out a second time. When
+        a feature needs an answer the compiler does not give yet, add it to the
+        compiler.
+
+    finishing:
+        - Run `cargo test -p piton-lsp` and `cargo test -p piton-core`
+        - Run `cargo run -p piton-cli -- build check` from the repository root
+        - Install the binary with `cargo xtask install` and restart the language server in an editor before saying a behaviour works there

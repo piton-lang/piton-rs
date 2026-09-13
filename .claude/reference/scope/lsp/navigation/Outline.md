@@ -1,0 +1,18 @@
+# Outline
+
+## Description
+
+The symbols of one file, and a search across every file
+
+## Document Symbols
+
+- Every anchor is listed, as an interface when abstract and a class otherwise, with its bases or keyword as detail.
+- The properties an anchor writes are nested under it, and the keys of a dictionary value are nested under the property that holds it.
+- Every variable is listed, with its keys nested the same way.
+- Each symbol's range is its whole declaration, and its selection is its name.
+
+## Workspace Symbols
+
+- Every anchor and variable declared in an analysed file can be searched for, and is listed once however many projects analyse the file.
+- A query matches a name when its characters appear in the name in order, ignoring case, and an empty query matches everything.
+- Each result names the file it is declared in, relative to its project, as its container.

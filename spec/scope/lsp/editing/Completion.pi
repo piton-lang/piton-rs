@@ -1,0 +1,45 @@
+use /lib
+
+from ../model import ReferenceResolution
+from ./ImportSpecifiers import ImportSpecifiers
+
+export feature Completion:
+    description: Offering what can be written where the cursor is, and nothing else
+
+    summary:
+        Completion is decided by where the cursor is, read from the syntax tree,
+        and each place offers only what is valid there. Prose offers nothing,
+        because a popup over a sentence is noise.
+
+    places:
+        - The start of a top-level line offers what can begin a declaration, and never `extends`, `as`, or a literal.
+        - The start of an indented line inside an anchor offers the inherited properties it has not written yet, except inside a run of prose, which only a blank line ends.
+        - After `::` it offers built-in types and anchors, and `extends` only inside an abstract anchor.
+        - After `extends` it offers anchors.
+        - Inside a `from` or `use` specifier it offers real files and directories, directories with an `index.pi` as modules, and builtin modules.
+        - With nothing typed, a specifier offers every way of addressing a module at once, relative, rooted, shared, and builtin, each labelled by its last segment with a trailing `/` when there is more to type, and a deeper path replaces only its last segment.
+        - After the `import` of an import line it offers what that module exports and the line does not already name.
+        - Inside braces and interpolations it offers the names in scope, and `self`, `this`, and `super` inside an anchor.
+        - A half-typed `from` or `use` line does not parse, so it is read from the line's text rather than from the tree.
+
+    members:
+        After a `.`, the members offered are the ones @{ReferenceResolution}
+        would resolve on the left side's holder: the properties visible on an
+        anchor, with their constraints, even when the anchor is abstract and has
+        no compiled value; the properties of the bases after `super`; and the
+        keys of a dictionary. When the holder is a computed value, the members of
+        its compiled value are offered instead.
+
+    autoImport:
+        Wherever a name can be written, in braces, in an interpolation, in a
+        constraint, or after `extends`, every name another module exports that
+        the file cannot see yet is offered after the names in scope. Its detail
+        names the specifier it would come from, and accepting it adds the import
+        in the same edit, as @{ImportSpecifiers} describes.
+
+        At the start of a top-level line, every keyword another module exports
+        that the file has not brought in is offered, and accepting it adds the
+        `use` line.
+
+        Each name is offered once, from its best specifier, and never when the
+        file already has something in scope with that name.

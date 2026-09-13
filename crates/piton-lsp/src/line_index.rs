@@ -57,12 +57,4 @@ impl LineIndex {
         }
         TextSize::new(line_end as u32)
     }
-
-    /// The whole file as a range.
-    pub fn full_range(&self) -> Range {
-        Range {
-            start: Position { line: 0, character: 0 },
-            end: self.position(TextSize::new(self.text.len() as u32)),
-        }
-    }
 }

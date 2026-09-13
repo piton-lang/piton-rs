@@ -1,0 +1,11 @@
+use /lib
+
+export feature TypeHierarchy:
+    description: Walking an anchor's inheritance up to its bases and down to what extends it
+
+    rules:
+        - The hierarchy starts from an anchor's name, a keyword, or any reference to an anchor.
+        - Supertypes are the anchor's direct bases in inheritance order, with a declaring keyword's anchor first.
+        - Subtypes are the anchors that name it directly, by `extends` or by its keyword.
+        - An abstract anchor is shown as an interface and a concrete one as a class, with its keyword as detail.
+        - The capability is registered dynamically once the client is initialised, because the protocol types the server is built on do not declare it.

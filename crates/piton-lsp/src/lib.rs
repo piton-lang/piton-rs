@@ -1,65 +1,87 @@
 //! The Piton language server.
 //!
 //! Every feature answers from the same compilation the `piton` binary would
-//! produce, so the editor never disagrees with the compiler. The server is
-//! deliberately non-incremental: it re-analyses on change and caches one
-//! snapshot until the next edit.
+//! produce, so the editor never disagrees with the compiler. The rules each
+//! feature keeps are written in `spec/scope/lsp`, and this crate follows them.
+//! The server is deliberately non-incremental: it re-analyses when something
+//! asks after a change, and keeps one snapshot until the next change.
 
 mod actions;
 mod completion;
+mod diff;
 mod hover;
+mod imports;
+mod index;
 mod line_index;
+mod model;
 mod navigation;
 mod refactor;
 mod tokens;
 mod world;
 
 #[cfg(test)]
+mod model_tests;
+#[cfg(test)]
+mod protocol_tests;
+#[cfg(test)]
 mod tests;
 
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use piton_core::diag::Severity;
-use piton_core::resolve::Symbol;
 use piton_core::value::AnchorId;
 use piton_core::FileId;
-use piton_syntax::kind::SyntaxKind;
 use tokio::sync::Mutex;
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
 use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tower_lsp::{Client, ClientSocket, LanguageServer, LspService, Server};
 
-use navigation::Target;
-use world::{Registry, View, Workspace};
+use index::Located;
+use world::{Registry, Snapshot, View, Workspace};
 
 pub use world::Registry as FrameworkRegistry;
+
+/// How long the editor has to stop changing documents before diagnostics are
+/// published, so a burst of keystrokes compiles once.
+const PUBLISH_DELAY: Duration = Duration::from_millis(150);
 
 /// Run the language server over stdio until the client disconnects.
 pub fn run(registry: Registry) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     runtime.block_on(async move {
-        let stdin = tokio::io::stdin();
-        let stdout = tokio::io::stdout();
-        let (service, socket) =
-            LspService::build(move |client| Backend {
-                client,
-                workspace: Mutex::new(Workspace::new(registry)),
-                published: Mutex::new(std::collections::HashSet::new()),
-            })
-            .finish();
-        Server::new(stdin, stdout, socket).serve(service).await;
+        let (service, socket) = service(registry);
+        Server::new(tokio::io::stdin(), tokio::io::stdout(), socket).serve(service).await;
     });
     Ok(())
 }
 
-struct Backend {
+/// The server, ready to be driven by an editor or by a test.
+pub(crate) fn service(registry: Registry) -> (LspService<Backend>, ClientSocket) {
+    LspService::build(move |client| Backend {
+        client,
+        workspace: Arc::new(Mutex::new(Workspace::new(registry))),
+        published: Arc::new(Mutex::new(HashMap::new())),
+        generation: Arc::new(AtomicU64::new(0)),
+    })
+    .finish()
+}
+
+pub(crate) struct Backend {
     client: Client,
-    workspace: Mutex<Workspace>,
-    /// The files the client currently holds diagnostics for.
+    workspace: Arc<Mutex<Workspace>>,
+    /// What the editor currently holds for each file.
     ///
-    /// A file whose last problem was fixed needs an explicit empty publish, or
-    /// the editor keeps showing a squiggle nothing will ever clear.
-    published: Mutex<std::collections::HashSet<Url>>,
+    /// Only a change is sent, and a file whose last problem was fixed is sent
+    /// an empty list, because an editor will not work out on its own that a
+    /// squiggle should go away.
+    published: Arc<Mutex<HashMap<Url, Vec<Diagnostic>>>>,
+    /// Moves on with every change, so a publish scheduled before a later
+    /// change gives way to the one scheduled after it.
+    generation: Arc<AtomicU64>,
 }
 
 impl Backend {
@@ -68,63 +90,15 @@ impl Backend {
     /// A request names a file; which project answers for it is the workspace's
     /// to decide. A file no project analysed has no view, and the feature
     /// declines rather than guessing at one.
-    async fn document(&self, url: &Url) -> Option<(std::sync::Arc<View>, FileId)> {
+    async fn document(&self, url: &Url) -> Option<(Arc<View>, FileId)> {
         let path = url.to_file_path().ok()?;
         let snapshot = self.workspace.lock().await.snapshot();
         let (view, file) = snapshot.locate(&path)?;
         Some((view.clone(), file))
     }
 
-    /// Re-analyse and push diagnostics for every file the workspace touches.
-    ///
-    /// Each project reports on its own files and no others. A file is published
-    /// once, from the compilation that owns it, so nothing a sibling project
-    /// thinks about the same name can reach it.
-    async fn publish(&self) {
-        let (snapshot, open) = {
-            let mut workspace = self.workspace.lock().await;
-            (workspace.snapshot(), workspace.open_paths())
-        };
-        let mut current = std::collections::HashSet::new();
-        for view in snapshot.views() {
-            let mut per_file: std::collections::HashMap<FileId, Vec<Diagnostic>> =
-                std::collections::HashMap::new();
-            for diagnostic in view.compilation.diagnostics.iter() {
-                per_file.entry(diagnostic.file).or_default().push(convert(view, diagnostic));
-            }
-            for file in view.compilation.analysis.db.files() {
-                let Some(path) = file.source.as_path() else { continue };
-                let Ok(url) = Url::from_file_path(path) else { continue };
-                let diagnostics = per_file.remove(&file.id).unwrap_or_default();
-                if diagnostics.is_empty() && !open.iter().any(|it| it == path) {
-                    continue;
-                }
-                if !diagnostics.is_empty() {
-                    current.insert(url.clone());
-                }
-                self.client.publish_diagnostics(url, diagnostics, None).await;
-            }
-        }
-
-        // Anything that had problems last time and has none now has to be told
-        // so explicitly; the editor will not work it out.
-        let stale: Vec<Url> = {
-            let mut published = self.published.lock().await;
-            let stale = published.difference(&current).cloned().collect();
-            *published = current;
-            stale
-        };
-        for url in stale {
-            self.client.publish_diagnostics(url, Vec::new(), None).await;
-        }
-    }
-
     /// Resolve the file and offset a request points at.
-    async fn locate(
-        &self,
-        url: &Url,
-        position: Position,
-    ) -> Option<(std::sync::Arc<View>, FileId, piton_syntax::TextSize)> {
+    async fn locate(&self, url: &Url, position: Position) -> Option<(Arc<View>, FileId, piton_syntax::TextSize)> {
         let (view, file) = self.document(url).await?;
         let offset = view.line_index(file).offset(position);
         Some((view, file, offset))
@@ -135,6 +109,90 @@ impl Backend {
         let url = Url::from_file_path(path).ok()?;
         Some(Location { uri: url, range: view.line_index(file).range(range) })
     }
+
+    /// Publish diagnostics once the editor has been quiet for a moment.
+    fn schedule_publish(&self) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let latest = self.generation.clone();
+        let client = self.client.clone();
+        let workspace = self.workspace.clone();
+        let published = self.published.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(PUBLISH_DELAY).await;
+            if latest.load(Ordering::SeqCst) == generation {
+                publish(&client, &workspace, &published).await;
+            }
+        });
+    }
+}
+
+/// Send every file whose diagnostics changed since they were last sent.
+async fn publish(
+    client: &Client,
+    workspace: &Mutex<Workspace>,
+    published: &Mutex<HashMap<Url, Vec<Diagnostic>>>,
+) {
+    let snapshot = workspace.lock().await.snapshot();
+    let current = all_diagnostics(&snapshot);
+    let mut published = published.lock().await;
+    for (url, diagnostics) in &current {
+        if published.get(url) != Some(diagnostics) {
+            client.publish_diagnostics(url.clone(), diagnostics.clone(), None).await;
+        }
+    }
+    let cleared: Vec<Url> = published.keys().filter(|url| !current.contains_key(*url)).cloned().collect();
+    for url in cleared {
+        client.publish_diagnostics(url, Vec::new(), None).await;
+    }
+    *published = current;
+}
+
+/// Every file's diagnostics, each reported by the project that owns the file,
+/// so nothing a sibling project thinks about a shared file reaches it twice.
+fn all_diagnostics(snapshot: &Snapshot) -> HashMap<Url, Vec<Diagnostic>> {
+    let mut out = HashMap::new();
+    for view in snapshot.views() {
+        for file in view.compilation.analysis.db.files() {
+            let Some(path) = file.source.as_path() else { continue };
+            let Some((owner, _)) = snapshot.locate(path) else { continue };
+            if !Arc::ptr_eq(owner, view) {
+                continue;
+            }
+            let diagnostics = file_diagnostics(view, file.id);
+            if diagnostics.is_empty() {
+                continue;
+            }
+            if let Ok(url) = Url::from_file_path(path) {
+                out.insert(url, diagnostics);
+            }
+        }
+    }
+    out
+}
+
+/// The compiler's diagnostics for one file, and its unused imports as faded
+/// hints.
+fn file_diagnostics(view: &View, file: FileId) -> Vec<Diagnostic> {
+    let mut out: Vec<Diagnostic> = view
+        .compilation
+        .diagnostics
+        .iter()
+        .filter(|it| it.file == file)
+        .map(|it| convert(view, it))
+        .collect();
+    let index = view.line_index(file);
+    for unused in imports::unused(view, file) {
+        out.push(Diagnostic {
+            range: index.range(unused.range),
+            severity: Some(DiagnosticSeverity::HINT),
+            code: Some(NumberOrString::String("unused-import".to_string())),
+            source: Some("piton".to_string()),
+            message: unused.label,
+            tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+            ..Diagnostic::default()
+        });
+    }
+    out
 }
 
 fn convert(view: &View, diagnostic: &piton_core::diag::Diagnostic) -> Diagnostic {
@@ -149,6 +207,11 @@ fn convert(view: &View, diagnostic: &piton_core::diag::Diagnostic) -> Diagnostic
         message: diagnostic.message.clone(),
         ..Diagnostic::default()
     }
+}
+
+/// A refusal the editor shows the author, such as why a rename cannot be made.
+fn refusal(message: String) -> Error {
+    Error { code: ErrorCode::InvalidRequest, message: message.into(), data: None }
 }
 
 /// The files this server wants to be told about: Piton sources and the
@@ -237,6 +300,7 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
                 references_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
@@ -245,7 +309,15 @@ impl LanguageServer for Backend {
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+                    code_action_kinds: Some(vec![
+                        CodeActionKind::QUICKFIX,
+                        CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                        actions::REMOVE_UNUSED_IMPORTS,
+                    ]),
+                    resolve_provider: Some(false),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 document_link_provider: Some(DocumentLinkOptions {
                     resolve_provider: Some(false),
@@ -295,18 +367,13 @@ impl LanguageServer for Backend {
         let selector = serde_json::json!({
             "documentSelector": [{ "language": "piton" }, { "pattern": "**/*.pi" }]
         });
-        // A configuration declares a project, so adding or editing one changes
-        // what the workspace contains rather than just what one file says. The
-        // client is asked to report every change to one, wherever it lives.
-        //
-        // And every source file with it. What a project contains is read from
-        // the disk rather than from the set of open buffers, so a file created,
-        // deleted, or moved by anything other than an editor keystroke — a
-        // rename in the project panel, a `git checkout`, another tool — changes
-        // the answer to every question this server is asked. Watching only the
-        // configurations left those changes invisible until the server was
-        // restarted.
-        let configs = serde_json::json!({
+        // What a project contains is read from the disk rather than from the
+        // set of open buffers, so a file created, deleted, or moved by anything
+        // other than an editor keystroke — a rename in the project panel, a
+        // `git checkout`, another tool — changes the answer to every question
+        // this server is asked. The client is asked to report every change to
+        // a source or a configuration, wherever it lives.
+        let watchers = serde_json::json!({
             "watchers": [
                 { "globPattern": format!("**/{}", piton_core::project::CONFIG_FILE) },
                 { "globPattern": "**/*.pi" },
@@ -323,12 +390,12 @@ impl LanguageServer for Backend {
                 Registration {
                     id: "piton-watch-config".to_string(),
                     method: "workspace/didChangeWatchedFiles".to_string(),
-                    register_options: Some(configs),
+                    register_options: Some(watchers),
                 },
             ])
             .await;
         self.client.log_message(MessageType::INFO, "piton language server ready").await;
-        self.publish().await;
+        publish(&self.client, &self.workspace, &self.published).await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -339,7 +406,7 @@ impl LanguageServer for Backend {
         if let Ok(path) = params.text_document.uri.to_file_path() {
             self.workspace.lock().await.open(path, params.text_document.text);
         }
-        self.publish().await;
+        self.schedule_publish();
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -347,24 +414,26 @@ impl LanguageServer for Backend {
         if let Ok(path) = params.text_document.uri.to_file_path() {
             self.workspace.lock().await.open(path, change.text);
         }
-        self.publish().await;
+        self.schedule_publish();
     }
 
     async fn did_save(&self, _: DidSaveTextDocumentParams) {
         self.workspace.lock().await.invalidate();
-        self.publish().await;
+        self.schedule_publish();
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         if let Ok(path) = params.text_document.uri.to_file_path() {
             self.workspace.lock().await.close(&path);
         }
-        self.publish().await;
+        self.schedule_publish();
     }
 
-    async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
-        self.workspace.lock().await.invalidate();
-        self.publish().await;
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let paths: Vec<PathBuf> =
+            params.changes.iter().filter_map(|change| change.uri.to_file_path().ok()).collect();
+        self.workspace.lock().await.changed_on_disk(&paths);
+        self.schedule_publish();
     }
 
     // ---- files moving around ----------------------------------------------
@@ -388,17 +457,17 @@ impl LanguageServer for Backend {
 
     async fn did_rename_files(&self, params: RenameFilesParams) {
         self.workspace.lock().await.moved(&moves_of(&params));
-        self.publish().await;
+        self.schedule_publish();
     }
 
     async fn did_create_files(&self, _: CreateFilesParams) {
         self.workspace.lock().await.invalidate();
-        self.publish().await;
+        self.schedule_publish();
     }
 
     async fn did_delete_files(&self, _: DeleteFilesParams) {
         self.workspace.lock().await.invalidate();
-        self.publish().await;
+        self.schedule_publish();
     }
 
     // ---- diagnostics ------------------------------------------------------
@@ -408,13 +477,7 @@ impl LanguageServer for Backend {
         params: DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
         let items = match self.document(&params.text_document.uri).await {
-            Some((view, file)) => view
-                .compilation
-                .diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.file == file)
-                .map(|diagnostic| convert(&view, diagnostic))
-                .collect(),
+            Some((view, file)) => file_diagnostics(&view, file),
             None => Vec::new(),
         };
         Ok(DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
@@ -435,13 +498,12 @@ impl LanguageServer for Backend {
         let snapshot = self.workspace.lock().await.snapshot();
         let mut items = Vec::new();
         for view in snapshot.views() {
-            let mut per_file: std::collections::HashMap<FileId, Vec<Diagnostic>> =
-                std::collections::HashMap::new();
-            for diagnostic in view.compilation.diagnostics.iter() {
-                per_file.entry(diagnostic.file).or_default().push(convert(view, diagnostic));
-            }
             for file in view.compilation.analysis.db.files() {
                 let Some(path) = file.source.as_path() else { continue };
+                let Some((owner, _)) = snapshot.locate(path) else { continue };
+                if !Arc::ptr_eq(owner, view) {
+                    continue;
+                }
                 let Ok(uri) = Url::from_file_path(path) else { continue };
                 items.push(WorkspaceDocumentDiagnosticReport::Full(
                     WorkspaceFullDocumentDiagnosticReport {
@@ -449,7 +511,7 @@ impl LanguageServer for Backend {
                         version: None,
                         full_document_diagnostic_report: FullDocumentDiagnosticReport {
                             result_id: None,
-                            items: per_file.remove(&file.id).unwrap_or_default(),
+                            items: file_diagnostics(view, file.id),
                         },
                     },
                 ));
@@ -464,67 +526,57 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let Some((view, file, offset)) = self
-            .locate(
-                &params.text_document_position_params.text_document.uri,
-                params.text_document_position_params.position,
-            )
-            .await
+        let position = params.text_document_position_params;
+        let Some((view, file, offset)) = self.locate(&position.text_document.uri, position.position).await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
-        let Some((target_file, range)) = navigation::definition(&view, &resolved.target) else {
-            return Ok(None);
-        };
-        Ok(Backend::location(&view, target_file, range).map(GotoDefinitionResponse::Scalar))
+        let Some(located) = navigation::locate(&view, file, offset) else { return Ok(None) };
+        let mut locations: Vec<Location> = navigation::definitions(&view, file, &located)
+            .into_iter()
+            .filter_map(|(file, range)| Backend::location(&view, file, range))
+            .collect();
+        Ok(match locations.len() {
+            0 => None,
+            1 => locations.pop().map(GotoDefinitionResponse::Scalar),
+            _ => Some(GotoDefinitionResponse::Array(locations)),
+        })
     }
 
     async fn goto_implementation(
         &self,
         params: request::GotoImplementationParams,
     ) -> Result<Option<request::GotoImplementationResponse>> {
-        let Some((view, file, offset)) = self
-            .locate(
-                &params.text_document_position_params.text_document.uri,
-                params.text_document_position_params.position,
-            )
-            .await
+        let position = params.text_document_position_params;
+        let Some((view, file, offset)) = self.locate(&position.text_document.uri, position.position).await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
-        let locations: Vec<Location> = navigation::implementations(&view, &resolved.target)
+        let Some(located) = navigation::locate(&view, file, offset) else { return Ok(None) };
+        let locations: Vec<Location> = navigation::implementations(&view, &located)
             .into_iter()
-            .filter_map(|id| {
-                let location = view.compilation.analysis.anchor_loc(id);
-                Backend::location(
-                    &view,
-                    location.file,
-                    view.compilation.analysis.anchor_def(id).name_range,
-                )
-            })
+            .filter_map(|(file, range)| Backend::location(&view, file, range))
             .collect();
         Ok((!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations)))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let Some((view, file, offset)) = self
-            .locate(&params.text_document_position.text_document.uri, params.text_document_position.position)
-            .await
-        else {
-            return Ok(None);
+        let position = params.text_document_position;
+        let Ok(path) = position.text_document.uri.to_file_path() else { return Ok(None) };
+        let snapshot = self.workspace.lock().await.snapshot();
+        let Some((view, file)) = snapshot.locate(&path) else { return Ok(None) };
+        let offset = view.line_index(file).offset(position.position);
+        let Some(Located::Symbol(occurrence)) = navigation::locate(view, file, offset) else {
+            return Ok(Some(Vec::new()));
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
-        let mut locations: Vec<Location> = navigation::references(&view, &resolved.target)
-            .into_iter()
-            .filter_map(|(file, range)| Backend::location(&view, file, range))
-            .collect();
-        if params.context.include_declaration {
-            if let Some((target_file, range)) = navigation::definition(&view, &resolved.target) {
-                if let Some(location) = Backend::location(&view, target_file, range) {
-                    if !locations.contains(&location) {
-                        locations.push(location);
+        let mut locations: Vec<Location> = Vec::new();
+        for other in snapshot.views() {
+            for sym in navigation::counterparts(view, &occurrence.sym, other) {
+                for (file, range) in navigation::references(other, &sym, params.context.include_declaration) {
+                    if let Some(location) = Backend::location(other, file, range) {
+                        if !locations.contains(&location) {
+                            locations.push(location);
+                        }
                     }
                 }
             }
@@ -532,38 +584,49 @@ impl LanguageServer for Backend {
         Ok(Some(locations))
     }
 
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let position = params.text_document_position_params;
+        let Some((view, file, offset)) = self.locate(&position.text_document.uri, position.position).await
+        else {
+            return Ok(None);
+        };
+        let Some(located) = navigation::locate(&view, file, offset) else { return Ok(None) };
+        let index = view.line_index(file);
+        Ok(Some(
+            navigation::highlights(&view, file, &located)
+                .into_iter()
+                .map(|(range, kind)| DocumentHighlight { range: index.range(range), kind: Some(kind) })
+                .collect(),
+        ))
+    }
+
     async fn prepare_rename(
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let Some((view, file, offset)) =
-            self.locate(&params.text_document.uri, params.position).await
+        let Some((view, file, offset)) = self.locate(&params.text_document.uri, params.position).await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
-        if matches!(resolved.target, Target::Builtin(_) | Target::Module(_)) {
-            return Ok(None);
+        match refactor::prepare_rename(&view, file, offset) {
+            Ok((range, placeholder)) => Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                range: view.line_index(file).range(range),
+                placeholder,
+            })),
+            Err(message) => Err(refusal(message)),
         }
-        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
-            range: view.line_index(file).range(resolved.range),
-            placeholder: resolved.text,
-        }))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let Some((view, file, offset)) = self
-            .locate(&params.text_document_position.text_document.uri, params.text_document_position.position)
-            .await
-        else {
-            return Ok(None);
-        };
-        if !navigation::is_renameable(SyntaxKind::IDENT) {
-            return Ok(None);
-        }
-        let Some(path) = view.path_of(file).map(Path::to_path_buf) else { return Ok(None) };
+        let position = params.text_document_position;
+        let Ok(path) = position.text_document.uri.to_file_path() else { return Ok(None) };
         let snapshot = self.workspace.lock().await.snapshot();
-        Ok(refactor::rename_edits(&snapshot, &path, offset, &params.new_name))
+        let Some((view, file)) = snapshot.locate(&path) else { return Ok(None) };
+        let offset = view.line_index(file).offset(position.position);
+        refactor::rename_edits(&snapshot, &path, offset, &params.new_name).map(Some).map_err(refusal)
     }
 
     // ---- symbols ------------------------------------------------------------
@@ -583,33 +646,33 @@ impl LanguageServer for Backend {
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
         let snapshot = self.workspace.lock().await.snapshot();
-        let query = params.query.to_lowercase();
         let mut out = Vec::new();
-        // A workspace symbol search is the one question that spans projects:
-        // the user is asking where a name is, not what it resolves to.
+        // A file several projects analyse is listed once.
+        let mut seen: HashSet<(PathBuf, piton_syntax::TextRange)> = HashSet::new();
         for view in snapshot.views() {
             for file in view.compilation.analysis.db.files() {
                 let Some(path) = file.source.as_path() else { continue };
                 let Ok(url) = Url::from_file_path(path) else { continue };
                 let index = view.line_index(file.id);
-                for anchor in &file.hir.anchors {
-                    if !anchor.name.to_lowercase().contains(&query) {
+                let container = view.display_path(path);
+                let declared = file
+                    .hir
+                    .anchors
+                    .iter()
+                    .map(|it| {
+                        let kind = if it.is_abstract { SymbolKind::INTERFACE } else { SymbolKind::CLASS };
+                        (&it.name, it.name_range, kind)
+                    })
+                    .chain(file.hir.vars.iter().map(|it| (&it.name, it.name_range, SymbolKind::CONSTANT)));
+                for (name, range, kind) in declared {
+                    if !navigation::matches_query(&params.query, name) || !seen.insert((path.to_path_buf(), range)) {
                         continue;
                     }
                     out.push(workspace_symbol(
-                        anchor.name.clone(),
-                        if anchor.is_abstract { SymbolKind::INTERFACE } else { SymbolKind::CLASS },
-                        Location { uri: url.clone(), range: index.range(anchor.name_range) },
-                    ));
-                }
-                for variable in &file.hir.vars {
-                    if !variable.name.to_lowercase().contains(&query) {
-                        continue;
-                    }
-                    out.push(workspace_symbol(
-                        variable.name.clone(),
-                        SymbolKind::CONSTANT,
-                        Location { uri: url.clone(), range: index.range(variable.name_range) },
+                        name.clone(),
+                        kind,
+                        Location { uri: url.clone(), range: index.range(range) },
+                        container.clone(),
                     ));
                 }
             }
@@ -623,20 +686,12 @@ impl LanguageServer for Backend {
         &self,
         params: TypeHierarchyPrepareParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let Some((view, file, offset)) = self
-            .locate(
-                &params.text_document_position_params.text_document.uri,
-                params.text_document_position_params.position,
-            )
-            .await
+        let position = params.text_document_position_params;
+        let Some((view, file, offset)) = self.locate(&position.text_document.uri, position.position).await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
-        let id = match resolved.target {
-            Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => id,
-            _ => return Ok(None),
-        };
+        let Some(id) = navigation::anchor_at(&view, file, offset) else { return Ok(None) };
         Ok(hierarchy_item(&view, id).map(|item| vec![item]))
     }
 
@@ -677,30 +732,22 @@ impl LanguageServer for Backend {
     // ---- text features --------------------------------------------------------
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let Some((view, file, offset)) = self
-            .locate(
-                &params.text_document_position_params.text_document.uri,
-                params.text_document_position_params.position,
-            )
-            .await
+        let position = params.text_document_position_params;
+        let Some((view, file, offset)) = self.locate(&position.text_document.uri, position.position).await
         else {
             return Ok(None);
         };
-        let Some(resolved) = navigation::resolve(&view, file, offset) else { return Ok(None) };
-        let Some(markdown) = hover::hover(&view, &resolved) else { return Ok(None) };
+        let Some(located) = navigation::locate(&view, file, offset) else { return Ok(None) };
+        let Some(markdown) = hover::hover(&view, &located) else { return Ok(None) };
         Ok(Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: markdown,
-            }),
-            range: Some(view.line_index(file).range(resolved.range)),
+            contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: markdown }),
+            range: Some(view.line_index(file).range(located.range())),
         }))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let Some((view, file, offset)) = self
-            .locate(&params.text_document_position.text_document.uri, params.text_document_position.position)
-            .await
+        let position = params.text_document_position;
+        let Some((view, file, offset)) = self.locate(&position.text_document.uri, position.position).await
         else {
             return Ok(None);
         };
@@ -756,14 +803,8 @@ impl LanguageServer for Backend {
         let Some((view, file)) = self.document(&params.text_document.uri).await else {
             return Ok(None);
         };
-        let formatted = piton_fmt::format(view.text(file));
-        if formatted == view.text(file) {
-            return Ok(Some(Vec::new()));
-        }
-        Ok(Some(vec![TextEdit {
-            range: view.line_index(file).full_range(),
-            new_text: formatted,
-        }]))
+        let text = view.text(file);
+        Ok(Some(diff::line_edits(text, &piton_fmt::format(text))))
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
@@ -775,19 +816,20 @@ impl LanguageServer for Backend {
             index.offset(params.range.start),
             index.offset(params.range.end),
         );
-        Ok(Some(actions::actions(&view, file, &params.text_document.uri, range)))
+        let only = params.context.only.as_deref();
+        Ok(Some(actions::actions(&view, file, &params.text_document.uri, range, only)))
     }
 }
 
 #[allow(deprecated)]
-fn workspace_symbol(name: String, kind: SymbolKind, location: Location) -> SymbolInformation {
+fn workspace_symbol(name: String, kind: SymbolKind, location: Location, container: String) -> SymbolInformation {
     SymbolInformation {
         name,
         kind,
         tags: None,
         deprecated: None,
         location,
-        container_name: None,
+        container_name: Some(container),
     }
 }
 

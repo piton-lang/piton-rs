@@ -691,33 +691,8 @@ impl<'a> Lexer<'a> {
     }
 
     /// Length of the identifier starting at `at`, if there is one.
-    ///
-    /// Identifiers are Unicode letters and digits plus `_` and `-`. A `-` only
-    /// continues an identifier when it sits directly between two identifier
-    /// characters, so `a - b` still lexes as a subtraction.
     pub(crate) fn ident_len_at(&self, at: usize) -> Option<usize> {
-        let rest = &self.src[at..];
-        let mut chars = rest.char_indices();
-        let (_, first) = chars.next()?;
-        if !(first.is_alphabetic() || first == '_') {
-            return None;
-        }
-        let mut end = first.len_utf8();
-        let bytes = rest.as_bytes();
-        while end < rest.len() {
-            let ch = rest[end..].chars().next().unwrap();
-            if ch.is_alphanumeric() || ch == '_' {
-                end += ch.len_utf8();
-            } else if ch == '-'
-                && bytes.get(end + 1).is_some()
-                && rest[end + 1..].chars().next().is_some_and(is_ident_continue)
-            {
-                end += 1;
-            } else {
-                break;
-            }
-        }
-        Some(end)
+        identifier_len(&self.src[at..])
     }
 
     // ---- emission ----------------------------------------------------------
@@ -759,4 +734,28 @@ impl<'a> Lexer<'a> {
 
 pub(crate) fn is_ident_continue(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_' || ch == '-'
+}
+
+/// Length of the identifier at the start of `text`, if there is one.
+///
+/// Identifiers are Unicode letters and digits plus `_` and `-`. A `-` only
+/// continues an identifier when it sits directly between two identifier
+/// characters, so `a - b` still lexes as a subtraction.
+pub fn identifier_len(text: &str) -> Option<usize> {
+    let first = text.chars().next()?;
+    if !(first.is_alphabetic() || first == '_') {
+        return None;
+    }
+    let mut end = first.len_utf8();
+    while end < text.len() {
+        let ch = text[end..].chars().next().unwrap();
+        if ch.is_alphanumeric() || ch == '_' {
+            end += ch.len_utf8();
+        } else if ch == '-' && text[end + 1..].chars().next().is_some_and(is_ident_continue) {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    Some(end)
 }

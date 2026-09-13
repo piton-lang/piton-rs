@@ -1,0 +1,3 @@
+// One capability of a scope, and the rules it keeps.
+export abstract anchor Feature as feature:
+    description:: string

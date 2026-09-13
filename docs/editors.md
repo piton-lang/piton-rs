@@ -13,13 +13,26 @@ cargo xtask install
 ## What the language server gives you
 
 Diagnostics and workspace diagnostics, semantic highlighting, completion, hover,
-go to definition, go to implementation, find references, rename, document and
-workspace symbols, type hierarchy, folding, formatting, code actions, inlay
-hints, and document links.
+go to definition, go to implementation, find references, highlighting of every
+use of a name, rename, document and workspace symbols, type hierarchy, folding,
+formatting, code actions, inlay hints, document links, and moving files with
+their imports following.
+
+Every place a name is written, prose interpolations included, resolves to the
+symbol the compiler would resolve it to, and every feature answers from that:
+going to `{Tool.head}` goes to `head` on `Tool`, and renaming a property renames
+every anchor that overrides or implements it. A rename that would break the
+project is refused with the reason.
 
 Completion is scoped to where the cursor is: a module specifier offers real
-files and directories, `from X import` offers exactly what `X` exports, a `.`
-inside `{ }` offers the members of what precedes it, and prose offers nothing.
+files and directories, `from X import` offers what `X` exports that the line
+does not already name, a `.` inside `{ }` offers the members of what precedes
+it, and prose offers nothing. A name another module exports is offered too, and
+accepting it adds the import.
+
+Unused imports are faded rather than underlined, and the code actions include
+removing them and organizing imports. The full rules the server keeps are in
+[`spec/scope/lsp`](../spec/scope/lsp).
 
 ## VS Code, Cursor, Windsurf
 

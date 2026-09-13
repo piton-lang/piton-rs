@@ -1,0 +1,25 @@
+# Go To Definition
+
+## Description
+
+Jumping from any reference to what it refers to
+
+## Summary
+
+Definition answers from [ReferenceResolution](../model/ReferenceResolution.md), and when nothing resolves it answers nothing.
+
+## Targets
+
+- An anchor or a variable goes to the name in its declaration.
+- An alias, wherever it is written, goes to the declaration of the symbol it names, as TypeScript does.
+- An import or re-export item goes to the original declaration, through every re-export between them.
+- A keyword, where it is declared or where a declaration uses it, goes to the keyword in the `as` clause that declares it.
+- A member access through `self`, `this`, or a name goes to the declaration its holder uses.
+- A member access through `super` goes to the declaration the bases provide.
+- A key written in a body is its own definition.
+- A nested key goes to its declaration in the dictionary its owner uses.
+- `self` and `this` go to the anchor whose body they are written in, and `super` goes to that anchor's bases, right-most first.
+- A module specifier goes to the start of the file it loads.
+- A built-in type, and anything declared by a builtin or framework module, has no file to go to and answers nothing.
+
+Links in this document point at reference files. Read one when the work touches what it describes.

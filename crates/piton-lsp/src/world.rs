@@ -14,13 +14,14 @@ use std::sync::Arc;
 
 use piton_core::builtin;
 use piton_core::compile::{compile, Compilation};
-use piton_core::db::{canonical, Db};
+use piton_core::db::{canonical, Db, SourceCache};
 use piton_core::framework::Frameworks;
 use piton_core::project::{Loaded, Project, CONFIG_FILE};
 use piton_core::FileId;
 
 use tower_lsp::lsp_types::WorkspaceEdit;
 
+use crate::index::{Index, Model};
 use crate::line_index::LineIndex;
 use crate::refactor::{Batch, Move};
 
@@ -40,10 +41,36 @@ pub struct View {
     pub compilation: Compilation,
     /// The project this view was analysed against.
     pub project: Project,
+    /// The frameworks the project was compiled with, which own the builtin
+    /// values a name can mean.
+    pub frameworks: Frameworks,
     line_indices: HashMap<FileId, LineIndex>,
+    /// The symbol model, built the first time a feature needs it and then
+    /// shared by every request against this analysis.
+    index: std::sync::OnceLock<Index>,
 }
 
 impl View {
+    pub fn index(&self) -> &Index {
+        self.index.get_or_init(|| Index::build(self))
+    }
+
+    /// The compiler's rules, ready to answer questions about this project.
+    pub fn model(&self) -> Model<'_> {
+        Model::new(self)
+    }
+
+    /// Whether a framework supplies a value under `name`, which then wins over
+    /// anything else the name could mean.
+    pub fn is_builtin_value(&self, name: &str) -> bool {
+        self.frameworks.builtin_value(name).is_some()
+    }
+
+    /// Whether a file is a builtin or framework module, with no file behind it.
+    pub fn is_virtual(&self, file: FileId) -> bool {
+        self.compilation.analysis.db.file(file).source.as_path().is_none()
+    }
+
     /// Shorten a path for display, relative to the project when possible.
     pub fn display_path(&self, path: &std::path::Path) -> String {
         path.strip_prefix(&self.project.base)
@@ -101,11 +128,32 @@ pub struct Workspace {
     snapshot: Option<Arc<Snapshot>>,
     /// Moves the editor has asked about and not yet reported making.
     batch: Option<Batch>,
+    /// Every file read from disk, shared by every analysis so that a file that
+    /// has not changed is not read again.
+    sources: Arc<SourceCache>,
 }
 
 impl Workspace {
     pub fn new(registry: Registry) -> Workspace {
-        Workspace { registry, roots: Vec::new(), open: HashMap::new(), snapshot: None, batch: None }
+        Workspace {
+            registry,
+            roots: Vec::new(),
+            open: HashMap::new(),
+            snapshot: None,
+            batch: None,
+            sources: Arc::new(SourceCache::default()),
+        }
+    }
+
+    /// Something outside the editor says these files changed.
+    ///
+    /// The cache already notices a changed size or modification time; this is
+    /// for the change that keeps both, which a watcher can still report.
+    pub fn changed_on_disk(&mut self, paths: &[PathBuf]) {
+        for path in paths {
+            self.sources.forget(&canonical(path));
+        }
+        self.snapshot = None;
     }
 
     /// The edits `moves` need, asked for before the editor makes them.
@@ -158,11 +206,6 @@ impl Workspace {
             })
             .collect();
         self.snapshot = None;
-    }
-
-    /// The files the editor currently has open.
-    pub fn open_paths(&self) -> Vec<PathBuf> {
-        self.open.keys().cloned().collect()
     }
 
     /// Analyse the workspace, reusing the last result when nothing changed.
@@ -269,6 +312,7 @@ impl Workspace {
     /// Compile one project's sources into a view.
     fn build(&self, loaded: Loaded, frameworks: Frameworks, sources: Vec<PathBuf>) -> View {
         let mut db = Db::new();
+        db.set_source_cache(self.sources.clone());
         for module in builtin::modules().into_iter().chain(frameworks.modules()) {
             db.add_virtual_module(module.name, module.source);
         }
@@ -311,7 +355,13 @@ impl Workspace {
             .files()
             .map(|file| (file.id, LineIndex::new(&file.text)))
             .collect();
-        View { compilation, project: loaded.project, line_indices }
+        View {
+            compilation,
+            project: loaded.project,
+            frameworks,
+            line_indices,
+            index: std::sync::OnceLock::new(),
+        }
     }
 
     /// Every project configuration the workspace contains.

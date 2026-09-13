@@ -1,0 +1,64 @@
+use /lib
+
+from ./editing import
+    CodeActions,
+    Completion,
+    FileMoves,
+    Formatting,
+    ImportSpecifiers,
+    Rename
+from ./feedback import
+    Diagnostics,
+    InlayHints,
+    Presentation
+from ./LspConcept import LspConcept
+from ./model import
+    ReferenceResolution,
+    SymbolIdentity,
+    WorkspaceProjects
+from ./navigation import
+    DocumentHighlight,
+    FindReferences,
+    GoToDefinition,
+    GoToImplementation,
+    Hover,
+    Outline,
+    TypeHierarchy
+from ./performance import Responsiveness
+from ./testing import ProtocolTesting
+
+export scope LspScope:
+    concept: {LspConcept}
+
+    model:
+        - @{SymbolIdentity}
+        - @{ReferenceResolution}
+        - @{WorkspaceProjects}
+
+    navigation:
+        - @{GoToDefinition}
+        - @{FindReferences}
+        - @{DocumentHighlight}
+        - @{Hover}
+        - @{GoToImplementation}
+        - @{TypeHierarchy}
+        - @{Outline}
+
+    editing:
+        - @{Rename}
+        - @{ImportSpecifiers}
+        - @{FileMoves}
+        - @{Completion}
+        - @{CodeActions}
+        - @{Formatting}
+
+    feedback:
+        - @{Diagnostics}
+        - @{InlayHints}
+        - @{Presentation}
+
+    performance:
+        - @{Responsiveness}
+
+    testing:
+        - @{ProtocolTesting}

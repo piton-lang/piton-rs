@@ -1,0 +1,3 @@
+// What a part of the system is for, in words someone can read first.
+export abstract anchor Concept as concept:
+    pitch:: string

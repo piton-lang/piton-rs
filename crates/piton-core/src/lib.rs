@@ -12,6 +12,7 @@ pub mod lower;
 pub mod project;
 pub mod resolve;
 pub mod serialize;
+pub mod specifier;
 pub mod types;
 pub mod validate;
 pub mod value;

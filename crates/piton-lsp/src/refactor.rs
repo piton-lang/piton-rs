@@ -18,10 +18,17 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use piton_core::db::canonical;
+use piton_core::specifier::Style;
+use piton_core::types;
 use piton_core::FileId;
+use piton_syntax::is_identifier;
 use piton_syntax::kind::SyntaxKind::{IMPORT_DECL, PATH, REEXPORT_DECL, USE_DECL};
+use piton_syntax::kind::RESERVED_KEYWORDS;
+use piton_syntax::{TextRange, TextSize};
 use tower_lsp::lsp_types::{Position, Range, TextEdit, Url, WorkspaceEdit};
 
+use crate::index::{Located, Model, SelfKind, Sym};
+use crate::navigation;
 use crate::world::{Snapshot, View};
 
 /// A move the editor is about to make: where a path is now, and where it goes.
@@ -50,102 +57,34 @@ pub fn destination(moves: &[Move], path: &Path) -> Option<PathBuf> {
     None
 }
 
-/// How a specifier addresses its target.
-///
-/// Read from the text rather than from where it resolved to, because it is the
-/// author's choice of address that a rewrite has to preserve.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Style {
-    Relative,
-    Root,
-    Shared,
-}
-
-fn style_of(spec: &str) -> Option<Style> {
-    match spec {
-        // A builtin module is not a file and never moves.
-        _ if spec.starts_with('@') => None,
-        _ if spec.starts_with("//") => Some(Style::Shared),
-        _ if spec.starts_with('/') => Some(Style::Root),
-        _ => Some(Style::Relative),
-    }
-}
-
-/// The specifier text that reaches `target` from `from_dir`, in `style`.
-///
-/// `None` when the style cannot reach it any more — a file moved out from under
-/// the root it was addressed through — and the caller then leaves the import
-/// alone rather than writing a path that resolves somewhere else.
-fn specifier(view: &View, style: Style, from_dir: &Path, target: &Path) -> Option<String> {
-    // Specifiers name modules, not files: `index.pi` is its directory, and no
-    // specifier carries the extension.
-    let target = match target.file_name().and_then(|it| it.to_str()) {
-        Some("index.pi") => target.parent()?.to_path_buf(),
-        _ => target.with_extension(""),
-    };
-    match style {
-        Style::Relative => {
-            let rest = relative(from_dir, &target)?;
-            Some(match rest.starts_with("..") {
-                true => rest,
-                false => format!("./{rest}"),
-            })
+/// Where the file that will be at `path` once `moves` are made is now.
+fn source_of(moves: &[Move], path: &Path) -> Option<PathBuf> {
+    for entry in moves {
+        if path == entry.to {
+            return Some(entry.from.clone());
         }
-        Style::Root => {
-            if let Some(rest) = under(&view.project.root, &target) {
-                return Some(format!("/{rest}"));
-            }
-            // A rooted specifier may have been reaching a library rather than
-            // the root, and that is still the address it should keep.
-            view.project.libraries.iter().find_map(|(name, path)| {
-                let rest = under(path, &target)?;
-                Some(match rest.is_empty() {
-                    true => format!("/{name}"),
-                    false => format!("/{name}/{rest}"),
-                })
-            })
-        }
-        Style::Shared => {
-            let rest = under(view.project.shared_root.as_deref()?, &target)?;
-            Some(format!("//{rest}"))
+        if let Ok(rest) = path.strip_prefix(&entry.to) {
+            return Some(entry.from.join(rest));
         }
     }
+    None
 }
 
-/// `target` written relative to `base`, or `None` when it is not underneath.
+/// Whether a module file will be at `path` once `moves` are made.
 ///
-/// Both ends are normalised first. A configured path keeps the shape it was
-/// written in — `../shared`, `./spec` — and a `..` left in the middle of one is
-/// a prefix of nothing, so the honest answer to "is this file under that root"
-/// would otherwise be no for every file.
-fn under(base: &Path, target: &Path) -> Option<String> {
-    let rest = canonical(target).strip_prefix(canonical(base)).ok()?.to_path_buf();
-    Some(join(&rest))
-}
-
-/// `target` written relative to `from_dir`, with `..` for each level up.
-fn relative(from_dir: &Path, target: &Path) -> Option<String> {
-    let from: Vec<_> = from_dir.components().collect();
-    let to: Vec<_> = target.components().collect();
-    let shared = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-    // Nothing in common at all means two different roots, which no relative
-    // path spans.
-    if shared == 0 {
-        return None;
+/// A rewritten specifier is checked against the file system as it is about to
+/// be, not as it is: a file that is moving away is not there to resolve to, and
+/// the place it is moving to is.
+fn exists_after(view: &View, moves: &[Move], path: &Path) -> bool {
+    let db = &view.compilation.analysis.db;
+    let path = canonical(path);
+    if let Some(source) = source_of(moves, &path) {
+        return db.exists(&source);
     }
-    let mut parts: Vec<String> = vec!["..".to_string(); from.len() - shared];
-    parts.extend(to[shared..].iter().map(|it| it.as_os_str().to_string_lossy().to_string()));
-    match parts.is_empty() {
-        true => None,
-        false => Some(parts.join("/")),
+    if moves.iter().any(|entry| path.starts_with(&entry.from)) {
+        return false;
     }
-}
-
-fn join(path: &Path) -> String {
-    path.components()
-        .map(|it| it.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .join("/")
+    db.exists(&path)
 }
 
 /// Every edit the moves require, across every project that can see them.
@@ -324,7 +263,12 @@ fn collect_file(view: &View, file: FileId, moves: &[Move], changes: &mut Plan) {
             continue;
         }
         let spec = token.text();
-        let Some(style) = style_of(spec) else { continue };
+        let db = &view.compilation.analysis.db;
+        // A builtin module is not a file and never moves.
+        let style = db.specifier_style(spec, &|path| db.exists(path));
+        if style == Style::Builtin {
+            continue;
+        }
         let Some(target) = view.compilation.analysis.module(file, spec) else { continue };
         let Some(target_path) = view.path_of(target).map(Path::to_path_buf) else { continue };
         let target_after = destination(moves, &target_path).unwrap_or_else(|| target_path.clone());
@@ -332,7 +276,13 @@ fn collect_file(view: &View, file: FileId, moves: &[Move], changes: &mut Plan) {
         if target_after == target_path && after_move == here {
             continue;
         }
-        let Some(rewritten) = specifier(view, style, from_dir, &target_after) else { continue };
+        // The same style, reaching the same file where it is going. When the
+        // style cannot reach it any more, the import is left for the compiler
+        // to report rather than rewritten to somewhere else.
+        let exists = |path: &Path| exists_after(view, moves, path);
+        let Some(rewritten) = db.write_specifier(&style, from_dir, &target_after, &exists) else {
+            continue;
+        };
         if rewritten == spec {
             continue;
         }
@@ -346,56 +296,89 @@ fn collect_file(view: &View, file: FileId, moves: &[Move], changes: &mut Plan) {
     }
 }
 
-/// Every edit renaming the symbol at `offset` requires, across every project.
+// ---- renaming a symbol ------------------------------------------------------------
+
+/// Why a rename cannot be made, as a sentence the editor shows the author.
+pub type Refusal = String;
+
+/// The name a rename would change under the cursor, and how it is spelled.
+pub fn prepare_rename(view: &View, file: FileId, offset: TextSize) -> Result<(TextRange, String), Refusal> {
+    let located = navigation::locate(view, file, offset)
+        .ok_or_else(|| "There is no name here that can be renamed.".to_string())?;
+    let occurrence = match located {
+        Located::SelfReference(reference) => {
+            let word = match reference.kind {
+                SelfKind::SelfRef => "self",
+                SelfKind::This => "this",
+                SelfKind::Super => "super",
+            };
+            return Err(format!("`{word}` always means the anchor it is written in, and cannot be renamed."));
+        }
+        Located::Symbol(occurrence) => occurrence,
+    };
+    renameable(view, &view.model(), &occurrence.sym)?;
+    Ok((occurrence.range, view.text(file)[occurrence.range].to_string()))
+}
+
+/// Refuse the symbols no edit can rename.
+fn renameable(view: &View, model: &Model, sym: &Sym) -> Result<(), Refusal> {
+    match sym {
+        Sym::Builtin(name) => return Err(format!("`{name}` is a built-in type and cannot be renamed.")),
+        Sym::Module(_) => {
+            return Err("A module is renamed by moving its file, and the imports that name it follow the move."
+                .to_string())
+        }
+        _ => {}
+    }
+    for (file, _) in view.index().declarations(sym) {
+        if view.is_virtual(file) {
+            let module = view.compilation.analysis.db.file(file).source.display();
+            let name = model.name_of(sym).unwrap_or_default();
+            return Err(format!("`{name}` is declared by `{module}`, which cannot be edited."));
+        }
+    }
+    Ok(())
+}
+
+/// Every edit renaming the symbol at `offset` requires, in every project that
+/// can see it, or the reason it cannot be renamed.
 ///
-/// A project is a closed world for resolution — that is what keeps `/lib/Tool`
-/// meaning a different file in each of two projects — but a rename is not a
+/// A project is a closed world for resolution, which is what keeps `/lib/Tool`
+/// meaning a different file in each of two projects, but a rename is not a
 /// resolution question. A file under a shared root is read by every project
 /// that names it, and renaming an anchor there while only one project's
-/// references follow leaves the others referring to a name that is gone.
-///
-/// The declaration is what the projects are matched on: where a thing is
-/// written is the one fact about it they all agree on, since the ids each
-/// compilation hands out are its own.
+/// references follow would leave the others naming something that is gone.
 pub fn rename_edits(
     snapshot: &Snapshot,
     path: &Path,
-    offset: piton_syntax::TextSize,
+    offset: TextSize,
     new_name: &str,
-) -> Option<WorkspaceEdit> {
-    let (view, file) = snapshot.locate(path)?;
-    let resolved = crate::navigation::resolve(view, file, offset)?;
-    let declaration = crate::navigation::definition(view, &resolved.target)
-        .and_then(|(file, range)| Some((view.path_of(file)?.to_path_buf(), range)));
+) -> Result<WorkspaceEdit, Refusal> {
+    let (view, file) =
+        snapshot.locate(path).ok_or_else(|| "This file is not part of any project.".to_string())?;
+    let (_, current) = prepare_rename(view, file, offset)?;
+    let Some(Located::Symbol(occurrence)) = navigation::locate(view, file, offset) else {
+        return Err("There is no name here that can be renamed.".to_string());
+    };
+    validate_name(&view.model(), &occurrence.sym, new_name)?;
+    if new_name == current {
+        return Ok(WorkspaceEdit::default());
+    }
 
     let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
     for other in snapshot.views() {
-        let target = if std::sync::Arc::ptr_eq(other, view) {
-            resolved.target.clone()
-        } else {
-            // The same declaration, resolved again in this project's own terms.
-            // A project that cannot see the file it is written in has nothing
-            // to rename.
-            let Some((declared_in, range)) = &declaration else { continue };
-            let Some(here) = other.file_for(declared_in) else { continue };
-            match crate::navigation::resolve(other, here, range.start()) {
-                Some(it) => it.target,
-                None => continue,
+        for sym in navigation::counterparts(view, &occurrence.sym, other) {
+            let model = other.model();
+            renameable(other, &model, &sym)?;
+            conflicts(other, &model, &sym, new_name)?;
+            for (site, found) in other.index().sites(&sym) {
+                let Some(path) = other.path_of(site) else { continue };
+                let Ok(url) = Url::from_file_path(path) else { continue };
+                changes.entry(url).or_default().push(TextEdit {
+                    range: other.line_index(site).range(found.range),
+                    new_text: new_name.to_string(),
+                });
             }
-        };
-        let mut sites = crate::navigation::references(other, &target);
-        if let Some(site) = crate::navigation::definition(other, &target) {
-            if !sites.contains(&site) {
-                sites.push(site);
-            }
-        }
-        for (site_file, range) in sites {
-            let Some(path) = other.path_of(site_file) else { continue };
-            let Ok(url) = Url::from_file_path(path) else { continue };
-            changes.entry(url).or_default().push(TextEdit {
-                range: other.line_index(site_file).range(range),
-                new_text: new_name.to_string(),
-            });
         }
     }
     // A file two projects both analysed yields every edit twice.
@@ -403,5 +386,98 @@ pub fn rename_edits(
         edits.sort_by_key(|edit| (edit.range.start.line, edit.range.start.character));
         edits.dedup();
     }
-    Some(WorkspaceEdit { changes: Some(changes), ..WorkspaceEdit::default() })
+    Ok(WorkspaceEdit { changes: Some(changes), ..WorkspaceEdit::default() })
+}
+
+/// Whether `name` is a name the symbol can take.
+fn validate_name(model: &Model, sym: &Sym, name: &str) -> Result<(), Refusal> {
+    if RESERVED_KEYWORDS.contains(&name) {
+        return Err(format!("`{name}` is a reserved word."));
+    }
+    match sym {
+        Sym::Keyword(_) => {
+            if !is_identifier(name) || name.chars().any(char::is_uppercase) {
+                return Err(format!(
+                    "`{name}` is not a keyword name: a keyword is lowercase, and may be kebab-case."
+                ));
+            }
+            if types::is_builtin(name) {
+                return Err(format!("`{name}` is a built-in type, and cannot be a keyword."));
+            }
+        }
+        _ => {
+            if !is_identifier(name) {
+                return Err(format!(
+                    "`{name}` is not a name: a name starts with a letter or `_`, and continues with \
+                     letters, digits, `_`, or a `-` between two of those."
+                ));
+            }
+            if model.anchor_of(sym).is_some() && types::is_builtin(name) {
+                return Err(format!(
+                    "`{name}` is a built-in type, so an anchor by that name could never be used as one."
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a rename that would take a name something else already has.
+fn conflicts(view: &View, model: &Model, sym: &Sym, new_name: &str) -> Result<(), Refusal> {
+    let analysis = model.analysis();
+    match sym {
+        Sym::Anchor(_) | Sym::Var { .. } | Sym::Alias { .. } => {
+            let Some(old) = model.name_of(sym) else { return Ok(()) };
+            for file in analysis.db.files() {
+                let scope = analysis.scope(file.id);
+                if scope.names.contains_key(new_name)
+                    && scope.names.contains_key(&old)
+                    && model.binding(file.id, &old).as_ref() == Some(sym)
+                {
+                    return Err(format!(
+                        "`{new_name}` is already declared or imported in {}.",
+                        describe(view, file.id)
+                    ));
+                }
+                if scope.exports.contains_key(new_name) && model.origin(file.id, &old).as_ref() == Some(sym) {
+                    return Err(format!("{} already exports something named `{new_name}`.", describe(view, file.id)));
+                }
+            }
+        }
+        Sym::Keyword(id) => {
+            let Some(old) = model.name_of(sym) else { return Ok(()) };
+            for file in analysis.db.files() {
+                let keywords = &analysis.scope(file.id).keywords;
+                if keywords.get(&old) == Some(id) && keywords.contains_key(new_name) {
+                    return Err(format!("{} can already see a keyword `{new_name}`.", describe(view, file.id)));
+                }
+            }
+        }
+        Sym::Property { family, name } => {
+            for member in model.family_members(*family, name).iter() {
+                if model.is_visible(*member, new_name) {
+                    return Err(format!(
+                        "`{}` already has a property named `{new_name}`.",
+                        analysis.anchor_def(*member).name
+                    ));
+                }
+            }
+        }
+        Sym::Key { name, .. } => {
+            if view.index().siblings(sym).iter().any(|keys| keys.iter().any(|it| it == new_name)) {
+                return Err(format!("A dictionary that declares `{name}` already has a key named `{new_name}`."));
+            }
+        }
+        Sym::Module(_) | Sym::Builtin(_) => {}
+    }
+    Ok(())
+}
+
+/// How a file is named in a message.
+fn describe(view: &View, file: FileId) -> String {
+    let source = &view.compilation.analysis.db.file(file).source;
+    match source.as_path() {
+        Some(path) => format!("`{}`", view.display_path(path)),
+        None => format!("`{}`", source.display()),
+    }
 }

@@ -1,16 +1,19 @@
 //! Features that read the syntax tree directly: semantic tokens, folding,
 //! document links, inlay hints, and document symbols.
 
-use piton_core::hir::{Node, Property};
+use std::collections::HashMap;
+
+use piton_core::hir::Property;
 use piton_core::value::Value;
 use piton_core::FileId;
 use piton_syntax::kind::SyntaxKind::*;
-use piton_syntax::{ast::AstNode, SyntaxToken};
+use piton_syntax::{ast::AstNode, SyntaxNode, SyntaxToken, TextRange};
 use tower_lsp::lsp_types::{
     DocumentLink, DocumentSymbol, FoldingRange, FoldingRangeKind, InlayHint, InlayHintKind,
     InlayHintLabel, SemanticToken, SemanticTokenModifier, SemanticTokenType, SymbolKind, Url,
 };
 
+use crate::index::{collect, Model, Occurrence, Role, Sym};
 use crate::world::View;
 
 /// The semantic token types this server produces, in legend order.
@@ -61,13 +64,22 @@ const ABSTRACT: u32 = 1 << 3;
 pub fn semantic_tokens(view: &View, file: FileId) -> Vec<SemanticToken> {
     let index = view.line_index(file);
     let root = view.compilation.analysis.db.file(file).parse.syntax();
+    let model = view.model();
+    let resolved: HashMap<TextRange, &Occurrence> =
+        view.index().in_file(file).iter().map(|it| (it.range, it)).collect();
     let mut out = Vec::new();
     let mut previous_line = 0u32;
     let mut previous_start = 0u32;
 
     for element in root.descendants_with_tokens() {
         let Some(token) = element.into_token() else { continue };
-        let Some((token_type, modifiers)) = classify(&token) else { continue };
+        // A name is classified by what it resolves to; the tree only decides
+        // for what no symbol covers.
+        let classified = match token.kind() {
+            IDENT => resolved.get(&token.text_range()).and_then(|it| by_symbol(&model, it)),
+            _ => None,
+        };
+        let Some((token_type, modifiers)) = classified.or_else(|| classify(&token)) else { continue };
         let position = index.position(token.text_range().start());
         // Multi-line tokens cannot be encoded, and Piton has none that matter.
         if token.text().contains('\n') {
@@ -87,6 +99,25 @@ pub fn semantic_tokens(view: &View, file: FileId) -> Vec<SemanticToken> {
         previous_start = position.character;
     }
     out
+}
+
+/// The token type of a name that resolved to a symbol.
+fn by_symbol(model: &Model, occurrence: &Occurrence) -> Option<(u32, u32)> {
+    let declared = occurrence.role == Role::Declaration;
+    let declaration = if declared { DECLARATION } else { 0 };
+    Some(match model.resolve_alias(occurrence.sym.clone())? {
+        Sym::Anchor(id) => {
+            let abstract_flag = if model.analysis().anchor_def(id).is_abstract { ABSTRACT } else { 0 };
+            let definition = if declared { DEFINITION } else { 0 };
+            (T_CLASS, declaration | definition | abstract_flag)
+        }
+        Sym::Keyword(_) => (T_FUNCTION, declaration),
+        Sym::Property { .. } | Sym::Key { .. } => (T_PROPERTY, declaration),
+        Sym::Var { .. } => (T_VARIABLE, if declared { DECLARATION } else { READONLY }),
+        Sym::Module(_) => (T_NAMESPACE, 0),
+        Sym::Builtin(_) => (T_TYPE, 0),
+        Sym::Alias { .. } => return None,
+    })
 }
 
 /// Map one token to a semantic type, using its parent for identifiers.
@@ -186,35 +217,80 @@ pub fn document_links(view: &View, file: FileId) -> Vec<DocumentLink> {
     out
 }
 
-/// Show the inferred type wherever the author did not write a constraint.
+/// The inferred type after a key whose value is a braced expression and that
+/// states no constraint: the one place the text does not already say what the
+/// value is. Prose, literals, lists, and dictionaries show their type in how
+/// they are written.
 pub fn inlay_hints(view: &View, file: FileId) -> Vec<InlayHint> {
     let index = view.line_index(file);
-    let hir = &view.compilation.analysis.db.file(file).hir;
+    let root = view.compilation.analysis.db.file(file).parse.syntax();
     let mut out = Vec::new();
-
-    for (position, variable) in hir.vars.iter().enumerate() {
-        if !variable.constraints.is_empty() {
+    for node in root.descendants() {
+        if !matches!(node.kind(), PROPERTY | VAR_DECL) {
             continue;
         }
-        if let Some(value) = view.compilation.vars.get(&(file, position)) {
-            out.push(type_hint(index, variable.name_range.end(), value));
+        if node.children().any(|child| child.kind() == TYPE_ANNOTATION) {
+            continue;
         }
-    }
-    for (position, anchor) in hir.anchors.iter().enumerate() {
-        let Some(id) = view.compilation.analysis.anchor_id(file, position) else { continue };
-        let Some(compiled) = view.compilation.anchor(id) else { continue };
-        let mut properties = Vec::new();
-        collect(&anchor.body, &mut properties);
-        for property in properties {
-            if !property.constraints.is_empty() {
-                continue;
-            }
-            if let Some(value) = compiled.props.get(&property.name) {
-                out.push(type_hint(index, property.name_range.end(), value));
-            }
+        let Some(value) = node.children().find(|child| child.kind() == VALUE) else { continue };
+        if !value.children().any(|child| child.kind() == BRACE_EXPR) {
+            continue;
         }
+        let Some(name) = node
+            .children_with_tokens()
+            .filter_map(|it| it.into_token())
+            .find(|it| it.kind() == IDENT)
+        else {
+            continue;
+        };
+        let Some(compiled) = compiled_value(view, file, &node) else { continue };
+        out.push(type_hint(index, name.text_range().end(), &compiled));
     }
     out
+}
+
+/// The compiled value of a key, found by walking from its anchor or variable
+/// down through the keys that hold it.
+fn compiled_value(view: &View, file: FileId, node: &SyntaxNode) -> Option<Value> {
+    let analysis = &view.compilation.analysis;
+    let hir = &analysis.db.file(file).hir;
+    let key = |node: &SyntaxNode| {
+        node.children_with_tokens()
+            .filter_map(|it| it.into_token())
+            .find(|it| it.kind() == IDENT)
+            .map(|it| it.text().to_string())
+    };
+    let mut path: Vec<String> = Vec::new();
+    let mut current = Some(node.clone());
+    while let Some(at) = current {
+        match at.kind() {
+            PROPERTY => path.push(key(&at)?),
+            // A key inside a list item is not reachable by name.
+            LIST_ITEM | SPREAD_ITEM => return None,
+            VAR_DECL => {
+                let position = hir.vars.iter().position(|it| it.range == at.text_range())?;
+                let value = view.compilation.vars.get(&(file, position))?.clone();
+                return follow(value, path.iter().rev());
+            }
+            ANCHOR_DECL => {
+                let position = hir.anchors.iter().position(|it| it.range == at.text_range())?;
+                let anchor = view.compilation.anchor(analysis.anchor_id(file, position)?)?;
+                let (first, rest) = path.split_last()?;
+                let value = anchor.props.get(first)?.clone();
+                return follow(value, rest.iter().rev());
+            }
+            _ => {}
+        }
+        current = at.parent();
+    }
+    None
+}
+
+fn follow<'p>(mut value: Value, path: impl Iterator<Item = &'p String>) -> Option<Value> {
+    for segment in path {
+        value = value.field(segment)?.clone();
+    }
+    Some(value)
 }
 
 fn type_hint(
@@ -243,42 +319,57 @@ pub fn document_symbols(view: &View, file: FileId) -> Vec<DocumentSymbol> {
     for anchor in &hir.anchors {
         let mut properties = Vec::new();
         collect(&anchor.body, &mut properties);
+        let mut detail: Vec<String> = Vec::new();
+        if let Some(keyword) = &anchor.via_keyword {
+            detail.push(keyword.value.clone());
+        }
+        if !anchor.bases.is_empty() {
+            let bases: Vec<&str> = anchor.bases.iter().map(|it| it.value.as_str()).collect();
+            detail.push(format!("extends {}", bases.join(", ")));
+        }
+        if let Some(keyword) = &anchor.keyword {
+            detail.push(format!("as {}", keyword.value));
+        }
         out.push(symbol(
             anchor.name.clone(),
             if anchor.is_abstract { SymbolKind::INTERFACE } else { SymbolKind::CLASS },
-            anchor.doc.clone(),
+            (!detail.is_empty()).then(|| detail.join(" ")),
             index.range(anchor.range),
             index.range(anchor.name_range),
             properties.iter().map(|property| property_symbol(index, property)).collect(),
         ));
     }
     for variable in &hir.vars {
+        let mut keys = Vec::new();
+        collect(&variable.body, &mut keys);
         out.push(symbol(
             variable.name.clone(),
             SymbolKind::CONSTANT,
-            variable.doc.clone(),
+            constraints_detail(&variable.constraints),
             index.range(variable.range),
             index.range(variable.name_range),
-            Vec::new(),
+            keys.iter().map(|key| property_symbol(index, key)).collect(),
         ));
     }
     out
 }
 
-fn property_symbol(
-    index: &crate::line_index::LineIndex,
-    property: &Property,
-) -> DocumentSymbol {
+fn property_symbol(index: &crate::line_index::LineIndex, property: &Property) -> DocumentSymbol {
     let mut nested = Vec::new();
     collect(&property.node, &mut nested);
     symbol(
         property.name.clone(),
         SymbolKind::PROPERTY,
-        property.doc.clone(),
+        constraints_detail(&property.constraints),
         index.range(property.range),
         index.range(property.name_range),
         nested.iter().map(|child| property_symbol(index, child)).collect(),
     )
+}
+
+fn constraints_detail(constraints: &[piton_core::hir::TypeExpr]) -> Option<String> {
+    (!constraints.is_empty())
+        .then(|| constraints.iter().map(|it| format!(":: {}", it.render())).collect::<String>())
 }
 
 #[allow(deprecated)]
@@ -299,17 +390,5 @@ fn symbol(
         range,
         selection_range,
         children: if children.is_empty() { None } else { Some(children) },
-    }
-}
-
-/// Properties written directly in a node, including inside a mixed block.
-pub fn collect(node: &Node, out: &mut Vec<Property>) {
-    match node {
-        Node::Dict(properties) => out.extend(properties.iter().cloned()),
-        Node::Mixed(nodes) => nodes.iter().for_each(|node| collect(node, out)),
-        Node::List(elements) | Node::Merge(elements) => {
-            elements.iter().for_each(|element| collect(&element.node, out))
-        }
-        _ => {}
     }
 }

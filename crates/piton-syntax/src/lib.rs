@@ -13,9 +13,17 @@ pub mod loc;
 pub mod parser;
 
 pub use kind::SyntaxKind;
-pub use lexer::{in_prose_run, lex, IndentStyle, LexError, LexToken, Lexed};
+pub use lexer::{identifier_len, in_prose_run, lex, IndentStyle, LexError, LexToken, Lexed};
 pub use parser::{parse, Parse};
 pub use rowan::{self, NodeOrToken, TextRange, TextSize};
+
+/// Whether `text` is exactly one identifier, as the lexer reads one.
+///
+/// Anything that writes a name into a file, such as a rename, asks this rather
+/// than keeping its own idea of what a name may contain.
+pub fn is_identifier(text: &str) -> bool {
+    identifier_len(text) == Some(text.len())
+}
 
 /// The rowan language marker for Piton.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -69,6 +77,16 @@ mod tests {
         round_trip("x: {a + b} && false\ny: Hello, ${name}!\n");
         round_trip("");
         round_trip("\n\n");
+    }
+
+    #[test]
+    fn an_identifier_is_what_the_lexer_reads_as_one() {
+        for name in ["a", "Tool", "_private", "kebab-case", "a--b", "héllo", "x1"] {
+            assert!(is_identifier(name), "{name}");
+        }
+        for name in ["", "1x", "trailing-", "-leading", "two words", "a.b", "a:"] {
+            assert!(!is_identifier(name), "{name}");
+        }
     }
 
     #[test]

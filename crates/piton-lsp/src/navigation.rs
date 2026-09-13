@@ -1,254 +1,200 @@
-//! Resolving what is under the cursor, and everything that follows from it.
+//! Following a name: definitions, references, highlights, implementations, and
+//! the same symbol as another project sees it.
+//!
+//! Every answer is read from the symbol model in [`crate::index`], so these
+//! features agree with each other, and with the compiler, about what a name is.
 
-use piton_core::hir::Node;
-use piton_core::resolve::Symbol;
-use piton_core::types;
+use std::sync::Arc;
+
 use piton_core::value::AnchorId;
 use piton_core::FileId;
-use piton_syntax::ast::{self, AstNode};
-use piton_syntax::kind::SyntaxKind::{self, *};
-use piton_syntax::{SyntaxNode, SyntaxToken, TextRange, TextSize};
+use piton_syntax::{TextRange, TextSize};
+use tower_lsp::lsp_types::DocumentHighlightKind;
 
+use crate::index::{Access, Located, Model, Role, SelfKind, Sym};
 use crate::world::View;
 
-/// What a token under the cursor refers to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Target {
-    /// A named anchor or variable.
-    Symbol(Symbol),
-    /// A user-defined keyword and the anchor it stands for.
-    Keyword(AnchorId),
-    /// An imported module.
-    Module(FileId),
-    /// A built-in type name.
-    Builtin(String),
-    /// A property, with the anchor that owns it when it is known.
-    Property { owner: Option<AnchorId>, name: String },
+/// Whatever is under the cursor.
+pub fn locate(view: &View, file: FileId, offset: TextSize) -> Option<Located> {
+    view.index().locate(file, offset)
 }
 
-/// A resolved token.
-#[derive(Clone, Debug)]
-pub struct Resolved {
-    pub range: TextRange,
-    pub text: String,
-    pub target: Target,
-}
-
-/// The meaningful token at an offset.
-///
-/// An offset between two tokens belongs to both; the token to the right wins,
-/// because that is the one the cursor is sitting in front of.
-pub fn token_at(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken> {
-    let candidates: Vec<SyntaxToken> = root.token_at_offset(offset).collect();
-    candidates
-        .iter()
-        .rev()
-        .find(|token| carries_meaning(token.kind()))
-        .cloned()
-        .or_else(|| candidates.into_iter().next())
-}
-
-fn carries_meaning(kind: SyntaxKind) -> bool {
-    !kind.is_trivia() && !matches!(kind, NEWLINE | BLANK)
-}
-
-/// Work out what the token at `offset` refers to.
-pub fn resolve(view: &View, file: FileId, offset: TextSize) -> Option<Resolved> {
-    let root = view.compilation.analysis.db.file(file).parse.syntax();
-    let token = token_at(&root, offset)?;
-    let parent = token.parent()?;
-    let text = token.text().to_string();
-    let range = token.text_range();
-    let analysis = &view.compilation.analysis;
-    let scope = analysis.scope(file);
-
-    let target = match (token.kind(), parent.kind()) {
-        (PATH, IMPORT_DECL | REEXPORT_DECL | USE_DECL) => {
-            Target::Module(analysis.module(file, &text)?)
-        }
-        (IDENT, IMPORT_ITEM) => {
-            let declaration = parent.ancestors().find(|node| {
-                matches!(node.kind(), IMPORT_DECL | REEXPORT_DECL)
-            })?;
-            let path = declaration
-                .children_with_tokens()
-                .filter_map(|it| it.into_token())
-                .find(|it| it.kind() == PATH)?;
-            let module = analysis.module(file, path.text())?;
-            let item = ast::ImportItem::cast(parent.clone())?;
-            // An alias points at the same export as the name it renames.
-            let name = item.name()?;
-            Target::Symbol(*analysis.scope(module).exports.get(&name)?)
-        }
-        (IDENT, EXTENDS_CLAUSE) => Target::Symbol(*scope.names.get(&text)?),
-        (IDENT, ANCHOR_DECL) => {
-            let declaration = ast::AnchorDecl::cast(parent.clone())?;
-            if declaration.keyword_token().map(|it| it.text_range()) == Some(range) {
-                Target::Keyword(*scope.keywords.get(&text)?)
-            } else {
-                let index = anchor_index(view, file, &parent)?;
-                Target::Symbol(Symbol::Anchor(analysis.anchor_id(file, index)?))
+/// Where the thing under the cursor in `file` is defined.
+pub fn definitions(view: &View, file: FileId, located: &Located) -> Vec<(FileId, TextRange)> {
+    let model = view.model();
+    let found = match located {
+        Located::SelfReference(reference) => match reference.kind {
+            SelfKind::SelfRef | SelfKind::This => vec![anchor_name(&model, reference.anchor)],
+            SelfKind::Super => {
+                model.bases(reference.anchor).iter().rev().map(|base| anchor_name(&model, *base)).collect()
             }
-        }
-        (IDENT, AS_CLAUSE) => {
-            let declaration = parent.parent()?;
-            let index = anchor_index(view, file, &declaration)?;
-            Target::Keyword(analysis.anchor_id(file, index)?)
-        }
-        (IDENT | ANCHOR_KW | NULL_KW, TYPE_REF) => match scope.names.get(&text) {
-            Some(symbol) => Target::Symbol(*symbol),
-            None if types::is_builtin(&text) => Target::Builtin(text.clone()),
-            None => return None,
         },
-        (IDENT, NAME_REF) => Target::Symbol(*scope.names.get(&text)?),
-        (THIS_KW | SELF_KW | SUPER_KW, NAME_REF) => {
-            Target::Keyword(enclosing_anchor(view, file, &parent)?)
-        }
-        (IDENT | THIS_KW | SELF_KW | SUPER_KW, FIELD_EXPR) => Target::Property {
-            owner: enclosing_anchor(view, file, &parent),
-            name: text.clone(),
+        Located::Symbol(occurrence) => match (&occurrence.sym, occurrence.role, occurrence.access) {
+            // A key written in a body is its own definition.
+            (Sym::Property { .. } | Sym::Key { .. }, Role::Declaration, _) => vec![(file, occurrence.range)],
+            (Sym::Property { name, .. }, _, Some(Access::Anchor(id))) => model
+                .slot(id, name)
+                .map(|slot| (model.file_of(slot.owner), slot.property.name_range))
+                .into_iter()
+                .collect(),
+            (Sym::Property { name, .. }, _, Some(Access::Super(id))) => model
+                .base_slot(id, name)
+                .map(|slot| (model.file_of(slot.owner), slot.property.name_range))
+                .into_iter()
+                .collect(),
+            (Sym::Key { .. }, _, Some(Access::Dictionary { file, range })) => vec![(file, range)],
+            (sym, _, _) => symbol_definitions(&model, sym),
         },
-        (IDENT, EXPORT_DECL) => Target::Symbol(*scope.names.get(&text)?),
-        (IDENT, PROPERTY) => {
-            Target::Property { owner: enclosing_anchor(view, file, &parent), name: text.clone() }
-        }
-        (IDENT, VAR_DECL) => Target::Symbol(*scope.names.get(&text)?),
-        _ => return None,
     };
-    Some(Resolved { range, text, target })
+    // A builtin or framework module has no file to open.
+    found.into_iter().filter(|(file, _)| !view.is_virtual(*file)).collect()
 }
 
-/// Where a target was declared.
-pub fn definition(view: &View, target: &Target) -> Option<(FileId, TextRange)> {
-    let analysis = &view.compilation.analysis;
-    match target {
-        Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => {
-            let location = analysis.anchor_loc(*id);
-            Some((location.file, analysis.anchor_def(*id).name_range))
-        }
-        Target::Symbol(Symbol::Var { file, index }) => {
-            Some((*file, analysis.db.file(*file).hir.vars[*index].name_range))
-        }
-        Target::Module(file) => Some((*file, TextRange::empty(0.into()))),
-        Target::Builtin(_) => None,
-        Target::Property { owner, name } => {
-            let owner = (*owner)?;
-            property_declaration(view, owner, name)
-        }
+fn symbol_definitions(model: &Model, sym: &Sym) -> Vec<(FileId, TextRange)> {
+    let analysis = model.analysis();
+    match sym {
+        Sym::Anchor(id) => vec![anchor_name(model, *id)],
+        Sym::Keyword(id) => analysis
+            .anchor_def(*id)
+            .keyword
+            .as_ref()
+            .map(|keyword| (model.file_of(*id), keyword.range))
+            .into_iter()
+            .collect(),
+        Sym::Var { file, index } => analysis
+            .db
+            .file(*file)
+            .hir
+            .vars
+            .get(*index)
+            .map(|variable| (*file, variable.name_range))
+            .into_iter()
+            .collect(),
+        // An alias goes to what it names, as TypeScript does.
+        Sym::Alias { .. } => model
+            .resolve_alias(sym.clone())
+            .map(|target| symbol_definitions(model, &target))
+            .unwrap_or_default(),
+        Sym::Module(file) => vec![(*file, TextRange::empty(TextSize::new(0)))],
+        Sym::Property { .. } | Sym::Key { .. } => model.view.index().declarations(sym),
+        Sym::Builtin(_) => Vec::new(),
     }
 }
 
-/// Find where a property was written, following the inheritance chain.
-pub fn property_declaration(
-    view: &View,
-    anchor: AnchorId,
-    name: &str,
-) -> Option<(FileId, TextRange)> {
-    let analysis = &view.compilation.analysis;
-    let mut chain = vec![anchor];
-    chain.extend(analysis.ancestors(anchor));
-    for link in chain {
-        let location = analysis.anchor_loc(link);
-        let mut properties = Vec::new();
-        collect(&analysis.anchor_def(link).body, &mut properties);
-        if let Some(property) = properties.iter().find(|property| property.name == name) {
-            return Some((location.file, property.name_range));
-        }
-    }
-    None
+fn anchor_name(model: &Model, id: AnchorId) -> (FileId, TextRange) {
+    (model.file_of(id), model.analysis().anchor_def(id).name_range)
 }
 
-/// Every place a target is mentioned.
-pub fn references(view: &View, target: &Target) -> Vec<(FileId, TextRange)> {
-    let mut out = Vec::new();
-    let files: Vec<FileId> = view.compilation.analysis.db.files().map(|it| it.id).collect();
-    for file in files {
-        let root = view.compilation.analysis.db.file(file).parse.syntax();
-        for token in root.descendants_with_tokens().filter_map(|it| it.into_token()) {
-            if !matches!(token.kind(), IDENT | PATH | THIS_KW | SELF_KW | SUPER_KW) {
-                continue;
-            }
-            let Some(resolved) = resolve(view, file, token.text_range().start()) else {
-                continue;
-            };
-            if resolved.target == *target && resolved.range == token.text_range() {
-                out.push((file, token.text_range()));
-            }
-        }
-    }
-    out
+/// Every place a symbol is written in one project, optionally with its
+/// declarations. `self`, `this`, and `super` are never among them.
+pub fn references(view: &View, sym: &Sym, include_declarations: bool) -> Vec<(FileId, TextRange)> {
+    view.index()
+        .sites(sym)
+        .filter(|(_, occurrence)| include_declarations || occurrence.role != Role::Declaration)
+        .map(|(file, occurrence)| (file, occurrence.range))
+        .collect()
 }
 
-/// Concrete anchors implementing an abstract one.
-pub fn implementations(view: &View, target: &Target) -> Vec<AnchorId> {
-    match target {
-        Target::Symbol(Symbol::Anchor(id)) | Target::Keyword(id) => {
-            view.compilation.analysis.implementors(*id)
-        }
-        _ => Vec::new(),
-    }
-}
-
-/// The anchor an expression is written inside, if any.
-pub fn enclosing_anchor(view: &View, file: FileId, node: &SyntaxNode) -> Option<AnchorId> {
-    let declaration = node.ancestors().find(|it| it.kind() == ANCHOR_DECL)?;
-    let index = anchor_index(view, file, &declaration)?;
-    view.compilation.analysis.anchor_id(file, index)
-}
-
-/// Which anchor in the file's HIR a declaration node corresponds to.
-fn anchor_index(view: &View, file: FileId, declaration: &SyntaxNode) -> Option<usize> {
-    let range = declaration.text_range();
-    view
-        .compilation
-        .analysis
-        .db
-        .file(file)
-        .hir
-        .anchors
+/// The uses of the symbol under the cursor in its own file.
+pub fn highlights(view: &View, file: FileId, located: &Located) -> Vec<(TextRange, DocumentHighlightKind)> {
+    let Located::Symbol(target) = located else { return Vec::new() };
+    view.index()
+        .in_file(file)
         .iter()
-        .position(|anchor| anchor.range == range)
+        .filter(|occurrence| occurrence.sym == target.sym)
+        .map(|occurrence| {
+            let kind = match occurrence.role {
+                Role::Declaration => DocumentHighlightKind::WRITE,
+                Role::Reference | Role::ImportName => DocumentHighlightKind::READ,
+            };
+            (occurrence.range, kind)
+        })
+        .collect()
 }
 
-fn collect(node: &Node, out: &mut Vec<piton_core::hir::Property>) {
-    match node {
-        Node::Dict(properties) => out.extend(properties.iter().cloned()),
-        Node::Mixed(nodes) => nodes.iter().for_each(|node| collect(node, out)),
-        Node::List(elements) | Node::Merge(elements) => {
-            elements.iter().for_each(|element| collect(&element.node, out))
-        }
+/// The concrete anchors, or concrete declarations of a property, that fill in
+/// the shape under the cursor.
+pub fn implementations(view: &View, located: &Located) -> Vec<(FileId, TextRange)> {
+    let Located::Symbol(occurrence) = located else { return Vec::new() };
+    let model = view.model();
+    let analysis = model.analysis();
+    let found: Vec<(FileId, TextRange)> = match &occurrence.sym {
+        Sym::Property { family, name } => model
+            .family_members(*family, name)
+            .iter()
+            .filter(|member| !analysis.anchor_def(**member).is_abstract)
+            .flat_map(|member| {
+                model
+                    .own(*member)
+                    .iter()
+                    .filter(|property| property.name == *name)
+                    .map(|property| (model.file_of(*member), property.name_range))
+                    .collect::<Vec<_>>()
+            })
+            .collect(),
+        Sym::Keyword(id) => implementors(&model, *id),
+        sym => model.anchor_of(sym).map(|id| implementors(&model, id)).unwrap_or_default(),
+    };
+    found.into_iter().filter(|(file, _)| !view.is_virtual(*file)).collect()
+}
+
+fn implementors(model: &Model, id: AnchorId) -> Vec<(FileId, TextRange)> {
+    model.analysis().implementors(id).into_iter().map(|it| anchor_name(model, it)).collect()
+}
+
+/// The anchor the cursor is on, for the type hierarchy.
+pub fn anchor_at(view: &View, file: FileId, offset: TextSize) -> Option<AnchorId> {
+    match locate(view, file, offset)? {
+        Located::SelfReference(reference) => Some(reference.anchor),
+        Located::Symbol(occurrence) => match occurrence.sym {
+            Sym::Keyword(id) => Some(id),
+            sym => view.model().anchor_of(&sym),
+        },
+    }
+}
+
+/// The symbols in `to` that are `sym` in `from`.
+///
+/// Symbols are matched on where they are declared, the one fact two projects
+/// that read the same file agree on, since each compilation numbers its own
+/// anchors. A symbol with several declarations, such as a property whose
+/// family spans files, can be more than one symbol in a project that does not
+/// see every file that joins them.
+pub fn counterparts(from: &Arc<View>, sym: &Sym, to: &Arc<View>) -> Vec<Sym> {
+    if Arc::ptr_eq(from, to) {
+        return vec![sym.clone()];
+    }
+    let from_db = &from.compilation.analysis.db;
+    let to_db = &to.compilation.analysis.db;
+    let same_file = |file: FileId| {
+        let source = &from_db.file(file).source;
+        to_db.files().find(|candidate| &candidate.source == source).map(|candidate| candidate.id)
+    };
+    match sym {
+        Sym::Builtin(_) => return vec![sym.clone()],
+        Sym::Module(file) => return same_file(*file).map(Sym::Module).into_iter().collect(),
         _ => {}
     }
-}
-
-/// Every property visible on an anchor, nearest definition first.
-pub fn visible_properties(view: &View, anchor: AnchorId) -> Vec<piton_core::hir::Property> {
-    let analysis = &view.compilation.analysis;
-    let mut chain = analysis.ancestors(anchor);
-    chain.reverse();
-    chain.push(anchor);
-    let mut out: Vec<piton_core::hir::Property> = Vec::new();
-    for link in chain {
-        let mut properties = Vec::new();
-        collect(&analysis.anchor_def(link).body, &mut properties);
-        for mut property in properties {
-            match out.iter_mut().find(|existing| existing.name == property.name) {
-                Some(existing) => {
-                    // A redefinition without a `::` keeps the inherited
-                    // constraint, exactly as the evaluator resolves it.
-                    if property.constraints.is_empty() {
-                        property.constraints = existing.constraints.clone();
-                    }
-                    *existing = property;
-                }
-                None => out.push(property),
+    let mut out: Vec<Sym> = Vec::new();
+    for (file, range) in from.index().declarations(sym) {
+        let Some(there) = same_file(file) else { continue };
+        let found = to
+            .index()
+            .in_file(there)
+            .iter()
+            .find(|occurrence| occurrence.range == range && occurrence.role == Role::Declaration);
+        if let Some(found) = found {
+            if !out.contains(&found.sym) {
+                out.push(found.sym.clone());
             }
         }
     }
     out
 }
 
-/// True when a token can be renamed: only identifiers ever can.
-pub fn is_renameable(kind: SyntaxKind) -> bool {
-    matches!(kind, IDENT)
+/// Whether a workspace symbol search matches a name: every character of the
+/// query appears in the name, in order, ignoring case.
+pub fn matches_query(query: &str, name: &str) -> bool {
+    let mut remaining = name.chars().flat_map(char::to_lowercase);
+    query.chars().flat_map(char::to_lowercase).all(|wanted| remaining.any(|it| it == wanted))
 }

@@ -5,20 +5,23 @@
 //! name can appear, so each place offers only what is valid there — and prose,
 //! which is most of a Piton file, offers nothing at all.
 
+use std::collections::HashSet;
+
 use piton_core::db::{ModuleCandidate, ModuleOrigin};
 use piton_core::resolve::Symbol;
-use piton_core::value::Value;
+use piton_core::value::{AnchorId, Value};
 use piton_core::FileId;
-use piton_syntax::ast::AstNode;
+use piton_syntax::ast::{self, AstNode};
 use piton_syntax::kind::SyntaxKind::{self, *};
 use piton_syntax::kind::{BUILTIN_TYPES, SELF_KEYWORDS};
 use piton_syntax::{SyntaxNode, TextRange, TextSize};
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
-    TextEdit,
+    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, Documentation, InsertTextFormat,
+    MarkupContent, MarkupKind, TextEdit,
 };
 
-use crate::navigation::{enclosing_anchor, visible_properties};
+use crate::imports;
+use crate::index::{Holder, Member, Model, Sym};
 use crate::world::View;
 
 /// What the cursor is in the middle of writing.
@@ -27,8 +30,8 @@ enum Context {
     Nothing,
     /// A `from`/`use` module specifier.
     ModulePath { typed: String, range: TextRange },
-    /// The name list of `from PATH import ...`.
-    ImportNames { module: FileId },
+    /// The name list of `from PATH import ...`, and the names it already has.
+    ImportNames { module: FileId, listed: Vec<String> },
     /// After a complete `from PATH`, where `import` or `export` belongs.
     ImportVerb,
     /// After `::`.
@@ -50,20 +53,29 @@ pub fn complete(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionIt
     match context(view, file, offset) {
         Context::Nothing => Vec::new(),
         Context::ModulePath { typed, range } => module_items(view, file, &typed, range),
-        Context::ImportNames { module } => export_items(view, module),
+        Context::ImportNames { module, listed } => export_items(view, module, &listed),
         Context::ImportVerb => vec![
             item("import", CompletionItemKind::KEYWORD, "bring names into this file"),
             item("export", CompletionItemKind::KEYWORD, "import and republish in one line"),
         ],
         Context::Type { in_abstract } => type_items(view, file, in_abstract),
-        Context::Base => anchor_items(view, file),
+        Context::Base => ranked(anchor_items(view, file), importable(view, file, true)),
         Context::Member { path } => member_items(view, file, offset, &path),
-        Context::Expression => expression_items(view, file, offset),
+        Context::Expression => ranked(expression_items(view, file, offset), importable(view, file, false)),
         Context::PropertyKey => property_items(view, file, offset),
         Context::Declaration { after_export, after_abstract } => {
             declaration_items(view, file, after_export, after_abstract)
         }
     }
+}
+
+/// Names already in scope first, then the ones that would be imported.
+fn ranked(mut in_scope: Vec<CompletionItem>, importable: Vec<CompletionItem>) -> Vec<CompletionItem> {
+    for item in &mut in_scope {
+        item.sort_text.get_or_insert_with(|| format!("0{}", item.label.to_lowercase()));
+    }
+    in_scope.extend(importable);
+    in_scope
 }
 
 // ---- working out where the cursor is ---------------------------------------
@@ -156,7 +168,16 @@ fn import_line_context(
                 continue;
             }
             let module = view.compilation.analysis.db.lookup_module(file, specifier)?;
-            return Some(Context::ImportNames { module });
+            // The name after the last comma is the one being typed, so it does
+            // not rule anything out.
+            let mut listed: Vec<String> = names
+                .split(',')
+                .filter_map(|it| it.split_whitespace().next().map(str::to_string))
+                .collect();
+            if !names.trim_end().ends_with(',') {
+                listed.pop();
+            }
+            return Some(Context::ImportNames { module, listed });
         }
         return Some(if tail.is_empty() { Context::ImportVerb } else { Context::Nothing });
     }
@@ -182,8 +203,18 @@ fn import_context(
         if offset > verb.text_range().end() {
             let module = token_of(PATH)
                 .and_then(|path| view.compilation.analysis.module(file, path.text()));
+            let listed = declaration
+                .children()
+                .find_map(ast::ImportList::cast)
+                .map(|list| {
+                    list.items()
+                        .filter(|item| !item.syntax().text_range().contains_inclusive(offset))
+                        .filter_map(|item| item.name())
+                        .collect()
+                })
+                .unwrap_or_default();
             return match module {
-                Some(module) => Context::ImportNames { module },
+                Some(module) => Context::ImportNames { module, listed },
                 None => Context::Nothing,
             };
         }
@@ -362,13 +393,15 @@ fn module_item(
     }
 }
 
-/// What a module actually exports, so an import list cannot be wrong.
-fn export_items(view: &View, module: FileId) -> Vec<CompletionItem> {
+/// What a module actually exports and the import does not name yet, so an
+/// import list cannot be wrong.
+fn export_items(view: &View, module: FileId, listed: &[String]) -> Vec<CompletionItem> {
     let analysis = &view.compilation.analysis;
     analysis
         .scope(module)
         .exports
         .iter()
+        .filter(|(name, _)| !listed.contains(name))
         .map(|(name, symbol)| match symbol {
             Symbol::Anchor(id) => {
                 let definition = analysis.anchor_def(*id);
@@ -397,7 +430,7 @@ fn type_items(view: &View, file: FileId, in_abstract: bool) -> Vec<CompletionIte
         ));
     }
     items.extend(anchor_items(view, file));
-    items
+    ranked(items, importable(view, file, true))
 }
 
 fn anchor_items(view: &View, file: FileId) -> Vec<CompletionItem> {
@@ -441,40 +474,71 @@ fn expression_items(view: &View, file: FileId, offset: TextSize) -> Vec<Completi
     items
 }
 
-/// The members of whatever `path` resolves to, for completion after a `.`.
+/// Every name another module exports that the file cannot see yet, each with
+/// the edit that imports it.
+fn importable(view: &View, file: FileId, anchors_only: bool) -> Vec<CompletionItem> {
+    let model = view.model();
+    let analysis = model.analysis();
+    let scope = analysis.scope(file);
+    let mut seen: HashSet<(String, Sym)> = HashSet::new();
+    let mut items = Vec::new();
+    for module in analysis.db.files() {
+        if module.id == file {
+            continue;
+        }
+        for (name, symbol) in &analysis.scope(module.id).exports {
+            if scope.names.contains_key(name) || (anchors_only && !matches!(symbol, Symbol::Anchor(_))) {
+                continue;
+            }
+            let Some(sym) = model.origin(module.id, name) else { continue };
+            if !seen.insert((name.clone(), sym.clone())) {
+                continue;
+            }
+            let Some(fix) = imports::import_fix(view, &model, file, name, &sym) else { continue };
+            let (kind, what) = match model.anchor_of(&sym) {
+                Some(id) if analysis.anchor_def(id).is_abstract => (CompletionItemKind::CLASS, "abstract anchor"),
+                Some(_) => (CompletionItemKind::CLASS, "anchor"),
+                None => (CompletionItemKind::VARIABLE, "variable"),
+            };
+            items.push(CompletionItem {
+                label: name.clone(),
+                kind: Some(kind),
+                detail: Some(format!("{what}, imported from {}", fix.specifier)),
+                label_details: Some(CompletionItemLabelDetails {
+                    detail: None,
+                    description: Some(fix.specifier.clone()),
+                }),
+                sort_text: Some(format!("1{}", name.to_lowercase())),
+                additional_text_edits: Some(vec![fix.edit]),
+                ..CompletionItem::default()
+            });
+        }
+    }
+    items
+}
+
+/// The members of whatever `path` holds, for completion after a `.`.
+///
+/// The holder is worked out the way navigation works it out, so an abstract
+/// anchor offers the properties it declares even though it has no compiled
+/// value. Only a computed value, which has no written shape, falls back to the
+/// members of what it compiled to.
 fn member_items(
     view: &View,
     file: FileId,
     offset: TextSize,
     path: &[String],
 ) -> Vec<CompletionItem> {
-    let Some((root, rest)) = path.split_first() else { return Vec::new() };
     let anchor = enclosing(view, file, offset);
-
-    // `self`, `this`, and `super` are answered from the inheritance chain
-    // rather than from a value, so they work before anything compiles.
-    let value = match root.as_str() {
-        "self" | "this" if rest.is_empty() => {
-            return anchor.map(|id| property_completions(view, id)).unwrap_or_default()
-        }
-        "super" if rest.is_empty() => {
-            let Some(id) = anchor else { return Vec::new() };
-            return view
-                .compilation
-                .analysis
-                .bases(id)
-                .into_iter()
-                .flat_map(|base| property_completions(view, base))
-                .collect();
-        }
-        "self" | "this" | "super" => {
-            let Some(id) = anchor else { return Vec::new() };
-            view.compilation.anchor(id).map(|it| Value::Anchor(it.clone()))
-        }
-        name => resolve_value(view, file, name),
-    };
-
-    let Some(mut value) = value else { return Vec::new() };
+    let model = view.model();
+    if let Some(holder) = model.path_holder(file, anchor, path) {
+        return model.members(&holder).into_iter().map(|member| member_item(&model, &holder, &member)).collect();
+    }
+    let Some((root, rest)) = path.split_first() else { return Vec::new() };
+    if SELF_KEYWORDS.contains(&root.as_str()) {
+        return Vec::new();
+    }
+    let Some(mut value) = resolve_value(view, file, root) else { return Vec::new() };
     for segment in rest {
         let Some(next) = value.field(segment) else { return Vec::new() };
         value = next.clone();
@@ -482,18 +546,23 @@ fn member_items(
     members_of(&value)
 }
 
-fn property_completions(view: &View, anchor: piton_core::value::AnchorId) -> Vec<CompletionItem> {
-    visible_properties(view, anchor)
-        .into_iter()
-        .map(|property| {
-            let detail = property
-                .constraints
-                .first()
-                .map(|constraint| constraint.render())
-                .unwrap_or_else(|| "property".to_string());
-            item(&property.name, CompletionItemKind::PROPERTY, &detail)
-        })
-        .collect()
+fn member_item(model: &Model, holder: &Holder, member: &Member) -> CompletionItem {
+    let name = &member.property.name;
+    let slot = match holder {
+        Holder::Anchor(id) => model.slot(*id, name),
+        Holder::Super(id) => model.base_slot(*id, name),
+        Holder::Dictionary { .. } => None,
+    };
+    let constraints = match slot {
+        Some(slot) => slot.constraints.map(|(_, it)| it.to_vec()).unwrap_or_default(),
+        None => member.property.constraints.clone(),
+    };
+    let detail = match constraints.first() {
+        Some(constraint) => constraint.render(),
+        None if matches!(holder, Holder::Dictionary { .. }) => "key".to_string(),
+        None => "property".to_string(),
+    };
+    item(name, CompletionItemKind::PROPERTY, &detail)
 }
 
 fn members_of(value: &Value) -> Vec<CompletionItem> {
@@ -529,22 +598,21 @@ fn resolve_value(view: &View, file: FileId, name: &str) -> Option<Value> {
 /// Inside an anchor body: the properties it inherits but has not written yet.
 fn property_items(view: &View, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
     let Some(anchor) = enclosing(view, file, offset) else { return Vec::new() };
-    let analysis = &view.compilation.analysis;
-    let mut written = Vec::new();
-    crate::tokens::collect(&analysis.anchor_def(anchor).body, &mut written);
-    let written: Vec<String> = written.into_iter().map(|property| property.name).collect();
-
-    visible_properties(view, anchor)
+    let model = view.model();
+    let written: Vec<String> = model.own(anchor).iter().map(|property| property.name.clone()).collect();
+    model
+        .ordered_properties(anchor)
         .into_iter()
-        .filter(|property| !written.contains(&property.name))
-        .map(|property| {
-            let detail = property
-                .constraints
-                .first()
+        .filter(|name| !written.contains(name))
+        .map(|name| {
+            let detail = model
+                .slot(anchor, &name)
+                .and_then(|slot| slot.constraints)
+                .and_then(|(_, constraints)| constraints.first())
                 .map(|constraint| constraint.render())
                 .unwrap_or_else(|| "inherited property".to_string());
-            let mut completion = item(&property.name, CompletionItemKind::PROPERTY, &detail);
-            completion.insert_text = Some(format!("{}: ", property.name));
+            let mut completion = item(&name, CompletionItemKind::PROPERTY, &detail);
+            completion.insert_text = Some(format!("{name}: "));
             completion
         })
         .collect()
@@ -580,22 +648,9 @@ fn declaration_items(
     ));
 
     for (keyword, id) in &analysis.scope(file).keywords {
-        let definition = analysis.anchor_def(*id);
-        let mut completion = item(
-            keyword,
-            CompletionItemKind::FUNCTION,
-            &format!("shorthand for `extends {}`", definition.name),
-        );
-        completion.insert_text = Some(format!("{keyword} ${{1:Name}}:\n    $0"));
-        completion.insert_text_format = Some(InsertTextFormat::SNIPPET);
-        if let Some(doc) = &definition.doc {
-            completion.documentation = Some(Documentation::MarkupContent(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: doc.clone(),
-            }));
-        }
-        items.push(completion);
+        items.push(keyword_item(view, keyword, *id, None));
     }
+    items.extend(importable_keywords(view, file));
 
     if after_export {
         // `export Name` republishes something already in scope.
@@ -627,24 +682,78 @@ fn declaration_items(
     items
 }
 
+/// A keyword, as the start of a declaration written with it.
+fn keyword_item(view: &View, keyword: &str, id: AnchorId, from: Option<String>) -> CompletionItem {
+    let definition = view.compilation.analysis.anchor_def(id);
+    let detail = match &from {
+        Some(specifier) => format!("shorthand for `extends {}`, brought in by `use {specifier}`", definition.name),
+        None => format!("shorthand for `extends {}`", definition.name),
+    };
+    let mut completion = item(keyword, CompletionItemKind::FUNCTION, &detail);
+    completion.insert_text = Some(format!("{keyword} ${{1:Name}}:\n    $0"));
+    completion.insert_text_format = Some(InsertTextFormat::SNIPPET);
+    if let Some(doc) = &definition.doc {
+        completion.documentation = Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: doc.clone(),
+        }));
+    }
+    completion
+}
+
+/// Keywords another module exports that the file has not brought in, each
+/// adding the `use` line that brings it in.
+fn importable_keywords(view: &View, file: FileId) -> Vec<CompletionItem> {
+    let model = view.model();
+    let analysis = model.analysis();
+    let visible = &analysis.scope(file).keywords;
+    let mut offered: Vec<AnchorId> = Vec::new();
+    let mut items = Vec::new();
+    for module in analysis.db.files() {
+        if module.id == file {
+            continue;
+        }
+        for symbol in analysis.scope(module.id).exports.values() {
+            let Symbol::Anchor(id) = symbol else { continue };
+            let Some(keyword) = &analysis.anchor_def(*id).keyword else { continue };
+            if visible.contains_key(&keyword.value) || offered.contains(id) {
+                continue;
+            }
+            offered.push(*id);
+            let Some(specifier) = imports::best_specifier(&model, file, Some(model.file_of(*id)), |module| {
+                analysis.scope(module).exports.values().any(|it| *it == Symbol::Anchor(*id))
+            }) else {
+                continue;
+            };
+            let mut completion = keyword_item(view, &keyword.value, *id, Some(specifier.clone()));
+            completion.label_details =
+                Some(CompletionItemLabelDetails { detail: None, description: Some(specifier.clone()) });
+            completion.sort_text = Some(format!("1{}", keyword.value));
+            completion.additional_text_edits = Some(vec![imports::use_edit(view, file, &specifier)]);
+            items.push(completion);
+        }
+    }
+    items
+}
+
 /// The anchor whose body the cursor is in.
 ///
 /// The tree answers this once the body has content. On the first line of an
 /// empty body there is no block yet — the indentation is still just an empty
 /// line — so the anchor is found by looking back instead.
-fn enclosing(
-    view: &View,
-    file: FileId,
-    offset: TextSize,
-) -> Option<piton_core::value::AnchorId> {
+fn enclosing(view: &View, file: FileId, offset: TextSize) -> Option<AnchorId> {
     let analysis = &view.compilation.analysis;
     let root = analysis.db.file(file).parse.syntax();
     let node = match root.covering_element(TextRange::empty(offset)) {
         piton_syntax::NodeOrToken::Node(node) => node,
         piton_syntax::NodeOrToken::Token(token) => token.parent()?,
     };
-    if let Some(anchor) = enclosing_anchor(view, file, &node) {
-        return Some(anchor);
+    if let Some(declaration) = node.ancestors().find(|it| it.kind() == ANCHOR_DECL) {
+        let range = declaration.text_range();
+        let hir = &analysis.db.file(file).hir;
+        if let Some(index) = hir.anchors.iter().position(|anchor| anchor.range == range) {
+            return analysis.anchor_id(file, index);
+        }
     }
 
     let text = view.text(file);

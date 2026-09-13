@@ -1,0 +1,13 @@
+use /lib
+
+from ../model import SymbolIdentity
+
+export feature DocumentHighlight:
+    description: Highlighting every use of the symbol under the cursor in the current file
+
+    summary:
+        Highlighting marks the places references would list, limited to the
+        current file, with each declaration marked as a write and every other
+        place as a read. Nothing is highlighted when the cursor is not on a
+        symbol that @{SymbolIdentity} describes, which includes `self`, `this`,
+        and `super`, and prose.

@@ -59,6 +59,17 @@ impl Printer {
         self.wrote_anything = true;
     }
 
+    /// Emit a line exactly as it was written, indentation and all.
+    fn verbatim_line(&mut self, text: &str) {
+        if self.blank_pending && self.wrote_anything {
+            self.buffer.push('\n');
+        }
+        self.blank_pending = false;
+        self.buffer.push_str(text);
+        self.buffer.push('\n');
+        self.wrote_anything = true;
+    }
+
     fn blank(&mut self) {
         self.blank_pending = true;
     }
@@ -110,9 +121,13 @@ impl Printer {
                 self.line(depth, &format!("export {name}"));
             }
             ERROR => {
-                // Unparsable input is preserved exactly so formatting is safe.
-                for raw in node.text().to_string().lines() {
-                    self.line(depth, raw.trim_end());
+                // Unparsable input is preserved exactly, indentation included,
+                // so that formatting can never change what a broken file says.
+                // Re-indenting it by the depth the formatter thinks it is at
+                // moved an indented line to column zero, where it became a
+                // different declaration.
+                for raw in verbatim(&node).lines() {
+                    self.verbatim_line(raw.trim_end());
                 }
             }
             _ => {}
@@ -260,6 +275,21 @@ fn split_comments(node: &SyntaxNode) -> (Vec<String>, Vec<String>) {
     (trailing, leading)
 }
 
+/// A node's text from the start of its first line.
+///
+/// The indentation in front of a node belongs to no token inside it, so the
+/// node's own text starts after it. When only whitespace precedes the node on
+/// its line, that whitespace is part of what was written and is kept.
+fn verbatim(node: &SyntaxNode) -> String {
+    let root = node.ancestors().last().unwrap_or_else(|| node.clone());
+    let text = root.text().to_string();
+    let start = usize::from(node.text_range().start());
+    let end = usize::from(node.text_range().end());
+    let line_start = text[..start].rfind('\n').map_or(0, |at| at + 1);
+    let from = if text[line_start..start].trim().is_empty() { line_start } else { start };
+    text[from..end].to_string()
+}
+
 fn comment(token: &SyntaxToken) -> String {
     let body = token.text().trim_start_matches('/').trim();
     if body.is_empty() {
@@ -321,6 +351,17 @@ mod tests {
     fn preserves_unparsable_lines() {
         // `::` needs a space after it, so this line is an error and is kept.
         check("x::number: 42\n", "x::number: 42\n");
+    }
+
+    #[test]
+    fn keeps_the_indentation_of_unparsable_lines() {
+        // A comment inside an import list does not parse. The names after it
+        // have to stay indented: at column zero they would be declarations.
+        let source = "from ./y import\n    // inner\n    C,\n    D\n";
+        check(source, source);
+        let nested = "anchor A:\n    x::bad: 1\n    y: 2\n";
+        let formatted = format(nested);
+        assert!(formatted.contains("    x::bad: 1\n"), "{formatted}");
     }
 
     #[test]

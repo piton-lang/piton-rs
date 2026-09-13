@@ -373,12 +373,13 @@ fn definition_and_references_cross_files() {
     let shapes = view.file_for(&root.join("shapes.pi")).unwrap();
 
     let at = offset_of(MAIN, "Base\n\nanchor") ;
-    let resolved = navigation::resolve(&view, main, at).expect("resolves `Base`");
-    let (file, range) = navigation::definition(&view, &resolved.target).expect("has a home");
+    let located = navigation::locate(&view, main, at).expect("resolves `Base`");
+    let (file, range) = navigation::definitions(&view, main, &located)[0];
     assert_eq!(file, shapes);
     assert_eq!(&view.text(shapes)[range], "Base");
 
-    let references = navigation::references(&view, &resolved.target);
+    let crate::index::Located::Symbol(occurrence) = located else { panic!("a symbol") };
+    let references = navigation::references(&view, &occurrence.sym, false);
     assert!(references.len() >= 2, "expected the import and the extends: {references:?}");
     assert!(references.iter().any(|(file, _)| *file == main));
 }
@@ -399,8 +400,8 @@ shape Two:
     let view = view_of(&mut workspace, root.join("main.pi"));
     let file = view.file_for(&root.join("main.pi")).unwrap();
     let at = offset_of(source, "Shape as");
-    let resolved = navigation::resolve(&view, file, at).unwrap();
-    assert_eq!(navigation::implementations(&view, &resolved.target).len(), 2);
+    let located = navigation::locate(&view, file, at).unwrap();
+    assert_eq!(navigation::implementations(&view, &located).len(), 2);
 }
 
 #[test]
@@ -409,12 +410,12 @@ fn hover_explains_anchors_properties_and_types() {
     let view = view_of(&mut workspace, root.join("main.pi"));
     let main = view.file_for(&root.join("main.pi")).unwrap();
 
-    let anchor = navigation::resolve(&view, main, offset_of(MAIN, "Child")).unwrap();
+    let anchor = navigation::locate(&view, main, offset_of(MAIN, "Child")).unwrap();
     let text = hover::hover(&view, &anchor).unwrap();
     assert!(text.contains("anchor Child extends Base"), "{text}");
     assert!(text.contains("summary"), "{text}");
 
-    let variable = navigation::resolve(&view, main, offset_of(MAIN, "pi:")).unwrap();
+    let variable = navigation::locate(&view, main, offset_of(MAIN, "pi:")).unwrap();
     let text = hover::hover(&view, &variable).unwrap();
     assert!(text.contains("3.14"), "{text}");
 }
@@ -858,11 +859,8 @@ fn symbols_folding_links_and_hints() {
     let links = tokens::document_links(&view, file);
     assert_eq!(links.len(), 1, "the import path should be a link");
 
-    let hints = tokens::inlay_hints(&view, file);
-    assert!(hints.iter().any(|hint| match &hint.label {
-        tower_lsp::lsp_types::InlayHintLabel::String(text) => text == ":: number",
-        _ => false,
-    }), "expected an inferred type for `pi`");
+    // `pi: 3.14` says it is a number in how it is written.
+    assert!(tokens::inlay_hints(&view, file).is_empty(), "a literal needs no hint");
 }
 
 #[test]
@@ -883,7 +881,7 @@ shape Concrete:
         offset_of(source, "shape Concrete"),
         offset_of(source, "shape Concrete") + piton_syntax::TextSize::new(14),
     );
-    let offered = actions::actions(&view, file, &url, range);
+    let offered = actions::actions(&view, file, &url, range, None);
     let titles: Vec<String> = offered
         .iter()
         .filter_map(|action| match action {
@@ -894,7 +892,7 @@ shape Concrete:
         })
         .collect();
     assert!(titles.iter().any(|it| it.contains("Implement 2 missing")), "{titles:?}");
-    assert!(titles.iter().any(|it| it.contains("Format")), "{titles:?}");
+    assert!(!titles.iter().any(|it| it.contains("Format")), "formatting is not a code action: {titles:?}");
 }
 
 #[test]
@@ -1034,9 +1032,10 @@ anchor Child extends Base:
 
     let jump = |needle: &str| {
         let at = piton_syntax::TextSize::new(source.find(needle).expect(needle) as u32);
-        let resolved = navigation::resolve(&view, main, at)
+        let located = navigation::locate(&view, main, at)
             .unwrap_or_else(|| panic!("nothing resolves at {needle:?}"));
-        navigation::definition(&view, &resolved.target)
+        *navigation::definitions(&view, main, &located)
+            .first()
             .unwrap_or_else(|| panic!("no definition for {needle:?}"))
     };
 
@@ -1063,9 +1062,10 @@ fn rename_touches_every_reference_and_the_declaration() {
     let source = view.text(main).to_string();
     let at = piton_syntax::TextSize::new(source.find("Base:").unwrap() as u32);
 
-    let resolved = navigation::resolve(&view, main, at).expect("the base resolves");
-    let mut sites = navigation::references(&view, &resolved.target);
-    sites.push(navigation::definition(&view, &resolved.target).expect("a declaration"));
+    let Some(crate::index::Located::Symbol(occurrence)) = navigation::locate(&view, main, at) else {
+        panic!("the base resolves");
+    };
+    let mut sites = navigation::references(&view, &occurrence.sym, true);
     sites.sort_by_key(|(file, range)| (file.0, u32::from(range.start())));
     sites.dedup();
 
@@ -1090,8 +1090,8 @@ fn hover_covers_modules_builtins_and_properties() {
 
     let text_at = |needle: &str| {
         let at = piton_syntax::TextSize::new(source.find(needle).expect(needle) as u32);
-        let resolved = navigation::resolve(&view, main, at)?;
-        hover::hover(&view, &resolved)
+        let located = navigation::locate(&view, main, at)?;
+        hover::hover(&view, &located)
     };
 
     let module = text_at("./shapes").expect("a module hovers");
@@ -1155,7 +1155,7 @@ fn code_actions_offer_the_import_and_the_use_that_are_missing() {
         piton_syntax::TextSize::new(0),
         piton_syntax::TextSize::new(view.text(file).len() as u32),
     );
-    let titles: Vec<String> = actions::actions(&view, file, &url, whole)
+    let titles: Vec<String> = actions::actions(&view, file, &url, whole, None)
         .iter()
         .filter_map(|action| match action {
             tower_lsp::lsp_types::CodeActionOrCommand::CodeAction(action) => {
@@ -1210,32 +1210,33 @@ fn document_links_point_at_the_files_they_name() {
 }
 
 #[test]
-fn inlay_hints_appear_only_where_no_constraint_was_written() {
+fn inlay_hints_appear_only_after_a_braced_value_with_no_constraint() {
     let source = "\
 plain: 42
-typed:: number: 42
+computed: {1 + 2}
+typed:: number: {1 + 2}
 
 anchor A:
     inferred: some prose
-    declared:: string: more prose
+    total: {self.count + 1}
+    count: 3
+    nested:
+        deep: {1 + 1}
 ";
     let (root, mut workspace) = workspace(&[("main.pi", source)]);
     let view = view_of(&mut workspace, root.join("main.pi"));
     let file = view.file_for(&root.join("main.pi")).unwrap();
-    let index = view.line_index(file);
-    let hints: Vec<(u32, String)> = tokens::inlay_hints(&view, file)
+    let mut hints: Vec<(u32, String)> = tokens::inlay_hints(&view, file)
         .into_iter()
         .map(|hint| match hint.label {
             tower_lsp::lsp_types::InlayHintLabel::String(text) => (hint.position.line, text),
             _ => (hint.position.line, String::new()),
         })
         .collect();
-    let _ = index;
-    assert!(hints.iter().any(|(line, text)| *line == 0 && text == ":: number"), "{hints:?}");
-    assert!(hints.iter().any(|(line, text)| *line == 4 && text == ":: string"), "{hints:?}");
-    // A written constraint needs no hint.
-    assert!(!hints.iter().any(|(line, _)| *line == 1), "{hints:?}");
-    assert!(!hints.iter().any(|(line, _)| *line == 5), "{hints:?}");
+    hints.sort();
+    // A literal, prose, and a written constraint all say what the value is.
+    let number = ":: number".to_string();
+    assert_eq!(hints, [(1, number.clone()), (6, number.clone()), (9, number)]);
 }
 
 #[test]

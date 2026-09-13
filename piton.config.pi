@@ -1,0 +1,22 @@
+// The specification of Piton itself: the rules each crate is built to, and the
+// skills and instructions an agent reads before changing one.
+use @piton/config
+use @piton/belay
+
+from @piton/belay import ClaudeAdapter
+
+export piton-config Project:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    frameworks:
+        - {BelayConfiguration}
+
+// Belay writes the skills under `.claude`, and the guidance for each crate into
+// an `AGENTS.md` beside its code.
+belay-config BelayConfiguration:
+    codeRoot: ./crates
+    shapeRoot: ./spec/shape
+
+    adapters:
+        - {ClaudeAdapter}

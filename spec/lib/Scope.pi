@@ -1,0 +1,5 @@
+from ./Concept import Concept
+
+// A part of the system with its own concept, built and tested as one piece.
+export abstract anchor Scope as scope:
+    concept:: extends Concept

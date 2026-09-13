@@ -5,7 +5,7 @@
 //! travel with every expression: `self`, the most-derived anchor being
 //! compiled, and `this`, the anchor the expression was written in.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -61,10 +61,19 @@ pub struct Evaluator<'a> {
     frameworks: &'a Frameworks,
     vars: HashMap<(FileId, usize), Value>,
     props: HashMap<PropKey, Value>,
+    /// The cached variables and properties whose evaluation reported a problem.
+    ///
+    /// Reading one of them later is reading a value that already failed, and
+    /// the reader must know that as surely as the first evaluation did.
+    failed_vars: HashSet<(FileId, usize)>,
+    failed_props: HashSet<PropKey>,
     anchors: HashMap<AnchorId, Anchor>,
     property_maps: HashMap<AnchorId, PropertyMap>,
     own_props: HashMap<AnchorId, Arc<Vec<Property>>>,
     stack: Vec<Frame>,
+    /// Set whenever a problem is reported, and read around each evaluation that
+    /// needs to know whether its operands failed.
+    failed: bool,
     pub diagnostics: Diagnostics,
     /// Anchors reached during evaluation, in discovery order.
     pub reached: Vec<AnchorId>,
@@ -77,10 +86,13 @@ impl<'a> Evaluator<'a> {
             frameworks,
             vars: HashMap::new(),
             props: HashMap::new(),
+            failed_vars: HashSet::new(),
+            failed_props: HashSet::new(),
             anchors: HashMap::new(),
             property_maps: HashMap::new(),
             own_props: HashMap::new(),
             stack: Vec::new(),
+            failed: false,
             diagnostics: Diagnostics::default(),
             reached: Vec::new(),
         }
@@ -104,11 +116,16 @@ impl<'a> Evaluator<'a> {
             return Anchor { id, name, props: Arc::new(Dict::new()) };
         }
 
-        let mut props = Dict::new();
-        for key in self.property_map(id).keys().cloned().collect::<Vec<_>>() {
-            let value = self.property(id, &key, id);
-            props.insert(key, value);
-        }
+        // A problem inside one property is that property's problem. The anchor
+        // itself is still a perfectly good value to pass around or constrain.
+        let props = self.isolated(|this| {
+            let mut props = Dict::new();
+            for key in this.property_map(id).keys().cloned().collect::<Vec<_>>() {
+                let value = this.property(id, &key, id);
+                props.insert(key, value);
+            }
+            props
+        });
         self.stack.pop();
 
         let anchor = Anchor { id, name, props: Arc::new(props) };
@@ -119,17 +136,27 @@ impl<'a> Evaluator<'a> {
     /// Evaluate a top-level variable.
     pub fn var(&mut self, file: FileId, index: usize) -> Value {
         if let Some(value) = self.vars.get(&(file, index)) {
-            return value.clone();
+            let value = value.clone();
+            self.failed |= self.failed_vars.contains(&(file, index));
+            return value;
         }
         let def = self.analysis.db.file(file).hir.vars[index].clone();
         if self.enter(Frame::Var(file, index), file, def.name_range, &format!("`{}`", def.name)) {
             return Value::Null;
         }
-        let mut value = self.node(&def.body, Context::file(file));
-        if !def.body.is_empty() {
-            value = self.apply_constraints(value, &def.constraints, file, def.name_range);
-        }
+        let (value, failed) = self.tracking(|this| {
+            let (mut value, failed) = this.tracking(|this| this.node(&def.body, Context::file(file)));
+            // A value that failed to evaluate cannot usefully fail its
+            // constraint as well.
+            if !failed && !def.body.is_empty() {
+                value = this.apply_constraints(value, &def.constraints, file, def.name_range);
+            }
+            value
+        });
         self.stack.pop();
+        if failed {
+            self.failed_vars.insert((file, index));
+        }
         self.vars.insert((file, index), value.clone());
         value
     }
@@ -138,7 +165,9 @@ impl<'a> Evaluator<'a> {
     pub fn property(&mut self, scope: AnchorId, name: &str, self_anchor: AnchorId) -> Value {
         let key = (scope, name.to_string(), self_anchor);
         if let Some(value) = self.props.get(&key) {
-            return value.clone();
+            let value = value.clone();
+            self.failed |= self.failed_props.contains(&key);
+            return value;
         }
         let map = self.property_map(scope);
         let Some(slot) = map.get(name).cloned() else {
@@ -157,26 +186,34 @@ impl<'a> Evaluator<'a> {
             self_anchor: Some(self_anchor),
             this_anchor: Some(slot.owner),
         };
-        let mut value = self.node(&property.node, context);
-        // `name:: type` with no value declares a shape rather than assigning
-        // one, so there is nothing to check the constraint against.
-        if !property.node.is_empty() {
-            if let Some((constraint_owner, constraints)) = &slot.constraints {
-                // The constraint's names resolve where the constraint was
-                // written, but the problem is where the *value* was written.
-                // Reporting it against the base's file would point at an
-                // offset in a document the author may never have opened.
-                let scope = self.analysis.anchor_loc(*constraint_owner).file;
-                value = self.constrain(
-                    value,
-                    constraints,
-                    scope,
-                    owner_file,
-                    property.name_range,
-                );
+        let (value, failed) = self.tracking(|this| {
+            let (mut value, failed) = this.tracking(|this| this.node(&property.node, context));
+            // `name:: type` with no value declares a shape rather than assigning
+            // one, so there is nothing to check the constraint against. A value
+            // that failed to evaluate is not checked either: its problem has
+            // already been reported where it happened.
+            if !failed && !property.node.is_empty() {
+                if let Some((constraint_owner, constraints)) = &slot.constraints {
+                    // The constraint's names resolve where the constraint was
+                    // written, but the problem is where the *value* was written.
+                    // Reporting it against the base's file would point at an
+                    // offset in a document the author may never have opened.
+                    let scope = this.analysis.anchor_loc(*constraint_owner).file;
+                    value = this.constrain(
+                        value,
+                        constraints,
+                        scope,
+                        owner_file,
+                        property.name_range,
+                    );
+                }
             }
-        }
+            value
+        });
         self.stack.pop();
+        if failed {
+            self.failed_props.insert(key.clone());
+        }
         self.props.insert(key, value.clone());
         value
     }
@@ -222,8 +259,8 @@ impl<'a> Evaluator<'a> {
     fn dict(&mut self, properties: &[Property], context: Context) -> Dict {
         let mut dict = Dict::new();
         for property in properties {
-            let mut value = self.node(&property.node, context);
-            if !property.node.is_empty() {
+            let (mut value, failed) = self.tracking(|this| this.node(&property.node, context));
+            if !failed && !property.node.is_empty() {
                 value = self.apply_constraints(
                     value,
                     &property.constraints,
@@ -274,13 +311,20 @@ impl<'a> Evaluator<'a> {
             Expr::Array { elements, .. } => {
                 Value::list(elements.iter().map(|it| self.expr(it, context)).collect())
             }
-            Expr::Unary { operand, range } => match self.expr(operand, context) {
-                Value::Number(number) => Value::number(-number.value),
-                other => {
-                    self.error(context.file, *range, format!("cannot negate {}", other.type_name()));
-                    Value::Null
+            Expr::Unary { operand, range } => {
+                match self.tracking(|this| this.expr(operand, context)) {
+                    (Value::Number(number), _) => Value::number(-number.value),
+                    (_, true) => Value::Null,
+                    (other, false) => {
+                        self.error(
+                            context.file,
+                            *range,
+                            format!("cannot negate {}", other.type_name()),
+                        );
+                        Value::Null
+                    }
                 }
-            },
+            }
             Expr::Ternary { condition, then, otherwise, .. } => {
                 if self.expr(condition, context).is_truthy() {
                     self.expr(then, context)
@@ -311,8 +355,8 @@ impl<'a> Evaluator<'a> {
             };
             return if take_right { self.expr(rhs, context) } else { left };
         }
-        let left = self.expr(lhs, context);
-        let right = self.expr(rhs, context);
+        let (left, left_failed) = self.tracking(|this| this.expr(lhs, context));
+        let (right, right_failed) = self.tracking(|this| this.expr(rhs, context));
         let value_op = match op {
             BinaryOp::Add => BinOp::Add,
             BinaryOp::Concat => BinOp::Concat,
@@ -330,6 +374,8 @@ impl<'a> Evaluator<'a> {
         };
         match value::apply(value_op, left, right) {
             Ok(value) => value,
+            // An operand that already failed is the problem, not the operator.
+            Err(_) if left_failed || right_failed => Value::Null,
             Err(error) => {
                 self.error(context.file, range, error.0);
                 Value::Null
@@ -401,9 +447,12 @@ impl<'a> Evaluator<'a> {
                 return Value::Null;
             }
         }
-        let value = self.expr(base, context);
+        let (value, failed) = self.tracking(|this| this.expr(base, context));
         match value.field(name) {
             Some(found) => found.clone(),
+            // `cannot find \`x\`` has already been said; `null has no property`
+            // would send the author looking for a second mistake.
+            None if failed => Value::Null,
             None => {
                 self.error(
                     context.file,
@@ -569,22 +618,26 @@ impl<'a> Evaluator<'a> {
     /// Compile every property visible through `anchor`, keeping `self` fixed.
     fn anchor_dict(&mut self, id: AnchorId, context: Context) -> Dict {
         let self_anchor = context.self_anchor.unwrap_or(id);
-        let mut dict = Dict::new();
-        for name in self.property_map(id).keys().cloned().collect::<Vec<_>>() {
-            let value = self.property(id, &name, self_anchor);
-            dict.insert(name, value);
-        }
-        dict
+        self.isolated(|this| {
+            let mut dict = Dict::new();
+            for name in this.property_map(id).keys().cloned().collect::<Vec<_>>() {
+                let value = this.property(id, &name, self_anchor);
+                dict.insert(name, value);
+            }
+            dict
+        })
     }
 
     fn super_dict(&mut self, id: AnchorId, context: Context) -> Dict {
         let self_anchor = context.self_anchor.unwrap_or(id);
-        let mut dict = Dict::new();
-        for (name, slot) in self.base_property_map(id) {
-            let value = self.property(slot.owner, &name, self_anchor);
-            dict.insert(name, value);
-        }
-        dict
+        self.isolated(|this| {
+            let mut dict = Dict::new();
+            for (name, slot) in this.base_property_map(id) {
+                let value = this.property(slot.owner, &name, self_anchor);
+                dict.insert(name, value);
+            }
+            dict
+        })
     }
 
     /// The properties written in an anchor's own body.
@@ -655,7 +708,35 @@ impl<'a> Evaluator<'a> {
     }
 
     fn error(&mut self, file: FileId, range: TextRange, message: impl Into<String>) {
+        self.failed = true;
         self.diagnostics.push(Diagnostic::error("eval", file, range, message));
+    }
+
+    /// Run `f` and say whether it reported a problem, while still letting that
+    /// problem mark whatever encloses it.
+    ///
+    /// A value computed from something that already failed is not worth a
+    /// second report: the author has one mistake to fix, and `cannot find` then
+    /// `null has no property` then `null does not satisfy string` sends them
+    /// looking for three. The flag is set even when the diagnostic itself was a
+    /// duplicate, which is what makes a cached failure fail its readers too.
+    fn tracking<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> (T, bool) {
+        let outer = std::mem::replace(&mut self.failed, false);
+        let result = f(self);
+        let failed = self.failed;
+        self.failed = outer || failed;
+        (result, failed)
+    }
+
+    /// Run `f` without letting a problem inside it mark the caller.
+    ///
+    /// Compiling a whole anchor evaluates every property, and one broken
+    /// property does not make the anchor, as a value, a failure.
+    fn isolated<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let outer = std::mem::replace(&mut self.failed, false);
+        let result = f(self);
+        self.failed = outer;
+        result
     }
 }
 

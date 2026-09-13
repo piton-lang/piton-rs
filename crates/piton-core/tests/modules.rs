@@ -812,3 +812,27 @@ fn use_takes_a_shared_specifier() {
     );
     assert!(built.errors.is_empty(), "{:?}", built.errors);
 }
+
+#[test]
+fn a_cached_source_is_read_again_once_the_file_changes() {
+    let directory = std::env::temp_dir().join(format!("piton-source-cache-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("a.pi");
+    std::fs::write(&path, "a: 1\n").unwrap();
+    let cache = piton_core::db::SourceCache::default();
+    assert_eq!(cache.read(&path).unwrap(), "a: 1\n");
+
+    // The same length, so only the modification time says it changed.
+    std::fs::write(&path, "a: 2\n").unwrap();
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    std::fs::File::options().write(true).open(&path).unwrap().set_modified(later).unwrap();
+    assert_eq!(cache.read(&path).unwrap(), "a: 2\n");
+
+    // A change a watcher reports but the file system does not show is honoured
+    // once the cache is told to forget the file.
+    std::fs::write(&path, "a: 3\n").unwrap();
+    std::fs::File::options().write(true).open(&path).unwrap().set_modified(later).unwrap();
+    assert_eq!(cache.read(&path).unwrap(), "a: 2\n", "unchanged size and time are trusted");
+    cache.forget(&path);
+    assert_eq!(cache.read(&path).unwrap(), "a: 3\n");
+}

@@ -405,7 +405,9 @@ fn division_by_zero_is_an_error() {
 
 #[test]
 fn mismatched_comparison_is_an_error() {
-    let (_, diagnostics) = eval_with_diagnostics("a: {1 == yes}\n", "a");
+    // Quoted, because a bare `yes` is a name the compiler cannot find, and a
+    // comparison with something that already failed is not reported again.
+    let (_, diagnostics) = eval_with_diagnostics("a: {1 == \"yes\"}\n", "a");
     assert!(diagnostics.iter().any(|it| it.contains("cannot compare")), "{diagnostics:?}");
 }
 
@@ -887,4 +889,40 @@ description:
         eval(source, "description"),
         json!(["Some prose", { "first": { "a": 1 }, "second": { "b": 2 } }])
     );
+}
+
+#[test]
+fn a_problem_is_reported_once_where_it_was_made() {
+    let only_missing = vec!["cannot find `Missing` in this scope".to_string()];
+    let diagnostics = |source: &str| eval_with_diagnostics(source, "a").1;
+    // The member access on a name that cannot be found.
+    assert_eq!(diagnostics("a: {Missing.x}\n"), only_missing);
+    // The operators applied to it.
+    assert_eq!(diagnostics("a: {Missing + 1}\n"), only_missing);
+    assert_eq!(diagnostics("a: {-Missing}\n"), only_missing);
+    // The constraint checked against it.
+    assert_eq!(diagnostics("a:: number: {Missing}\n"), only_missing);
+    // A variable that failed, read later by another.
+    assert_eq!(diagnostics("b: {Missing}\na:: number: {b.x}\n"), only_missing);
+    // A property that failed, read later through `self`.
+    assert_eq!(
+        diagnostics(
+            "anchor A:\n    p: {Missing}\n    q: {self.p.x}\n    r:: number: {self.p}\na: {A}\n"
+        ),
+        only_missing
+    );
+}
+
+#[test]
+fn a_failure_does_not_hide_a_separate_problem() {
+    let diagnostics = |source: &str| eval_with_diagnostics(source, "a").1;
+    // One broken property does not silence a mistake in its neighbour.
+    let found = diagnostics("anchor A:\n    p: {Missing}\n    q:: number: text\na: {A}\n");
+    assert_eq!(found.len(), 2, "{found:?}");
+    // A problem with nothing failed underneath it is always reported.
+    assert_eq!(diagnostics("a: {1 / 0}\n").len(), 1);
+    assert_eq!(diagnostics("a: {-true}\n").len(), 1);
+    // An anchor with a broken property is still a value its readers can use.
+    let found = diagnostics("anchor A:\n    p: {Missing}\nb:: string: {A}\na: 1\n");
+    assert_eq!(found.len(), 2, "the constraint on `b` is a separate mistake: {found:?}");
 }

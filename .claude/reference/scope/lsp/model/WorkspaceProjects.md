@@ -1,0 +1,25 @@
+# Workspace Projects
+
+## Description
+
+Which files the server analyses, and as part of which project
+
+## Projects
+
+Every `piton.config.pi` in the workspace declares a project, found by searching down from each workspace folder and up from it. A project is a closed world, with its own root, libraries, shared root, frameworks, and compilation, and two projects never resolve a name against each other's files.
+A project analyses every `.pi` file under its root, its configuration, and any open buffer under its root. Files outside the root, such as generated output and test fixtures, are not the project's and produce no diagnostics for it.
+A project nested inside another owns the files under its own root, and the outer project does not analyse them.
+A project whose configuration the compiler rejects reports the problems in its configuration and analyses nothing else until they are fixed.
+When the workspace declares no project at all, every `.pi` file in it is analysed without a root, so a rooted import is reported rather than guessed at. An open buffer that no project owns is analysed the same way.
+
+## Buffers
+
+An open buffer's unsaved text wins over the file on disk, for every feature and in every project that analyses the file.
+
+## Changes
+
+A file created, deleted, changed, or moved by anything, whether the editor, `git`, or another tool, changes the answer to the next request. The server watches every `.pi` file and every configuration, and never needs restarting to notice a change.
+
+## Shared Files
+
+A file under a shared root or a library can be analysed by several projects at once, and its diagnostics are published once. A request that spans files, such as renaming a symbol, moving a file, or finding references, is answered in every project that analyses a file involved, and the answers are combined with duplicates removed.
