@@ -19,7 +19,10 @@ use piton_core::framework::Frameworks;
 use piton_core::project::{Loaded, Project, CONFIG_FILE};
 use piton_core::FileId;
 
+use tower_lsp::lsp_types::WorkspaceEdit;
+
 use crate::line_index::LineIndex;
+use crate::refactor::{Batch, Move};
 
 /// Builds the set of frameworks this server should use.
 pub type Registry = fn() -> Frameworks;
@@ -96,11 +99,25 @@ pub struct Workspace {
     roots: Vec<PathBuf>,
     open: HashMap<PathBuf, String>,
     snapshot: Option<Arc<Snapshot>>,
+    /// Moves the editor has asked about and not yet reported making.
+    batch: Option<Batch>,
 }
 
 impl Workspace {
     pub fn new(registry: Registry) -> Workspace {
-        Workspace { registry, roots: Vec::new(), open: HashMap::new(), snapshot: None }
+        Workspace { registry, roots: Vec::new(), open: HashMap::new(), snapshot: None, batch: None }
+    }
+
+    /// The edits `moves` need, asked for before the editor makes them.
+    ///
+    /// A request made while an earlier one is still unconfirmed joins its
+    /// batch, because the editor is holding that answer already; see [`Batch`].
+    pub fn will_move(&mut self, moves: &[Move]) -> WorkspaceEdit {
+        if !self.batch.as_ref().is_some_and(Batch::is_open) {
+            let base = self.snapshot();
+            self.batch = Some(Batch::new(base));
+        }
+        self.batch.as_mut().expect("a batch was just opened").add(moves)
     }
 
     pub fn set_roots(&mut self, roots: Vec<PathBuf>) {
@@ -128,7 +145,10 @@ impl Workspace {
     /// the file by its new one. Without re-keying, the unsaved text stays
     /// attached to a path nothing will ask about again while the file at the
     /// new path is read from the disk it has not been written to yet.
-    pub fn moved(&mut self, moves: &[crate::refactor::Move]) {
+    pub fn moved(&mut self, moves: &[Move]) {
+        if self.batch.as_mut().is_some_and(|batch| batch.confirm(moves)) {
+            self.batch = None;
+        }
         let open = std::mem::take(&mut self.open);
         self.open = open
             .into_iter()

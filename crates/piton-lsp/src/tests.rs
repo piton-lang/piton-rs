@@ -1396,6 +1396,99 @@ fn moving_a_shared_file_is_rewritten_for_every_project_that_names_it() {
     );
 }
 
+/// Apply a workspace edit the way an editor does: to its own copy of each file,
+/// read from disk the first time an edit reaches it.
+fn apply_edit(texts: &mut std::collections::HashMap<PathBuf, String>, edit: tower_lsp::lsp_types::WorkspaceEdit) {
+    for (url, mut edits) in edit.changes.unwrap_or_default() {
+        let path = url.to_file_path().expect("a file url");
+        let text = texts
+            .entry(path.clone())
+            .or_insert_with(|| std::fs::read_to_string(&path).expect("an edited file exists"));
+        edits.sort_by_key(|edit| std::cmp::Reverse((edit.range.start.line, edit.range.start.character)));
+        for edit in edits {
+            let index = crate::line_index::LineIndex::new(text);
+            let start = u32::from(index.offset(edit.range.start)) as usize;
+            let end = u32::from(index.offset(edit.range.end)) as usize;
+            text.replace_range(start..end, &edit.new_text);
+        }
+    }
+}
+
+const CANVAS: &[(&str, &str)] = &[
+    ("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./\n"),
+    (
+        "CanvasConcept.pi",
+        "from ./DirectSelectTool import DirectSelectTool\nfrom ./SelectTool import SelectTool\n\n\
+         a: {SelectTool.kind}\nb: {DirectSelectTool.kind}\n",
+    ),
+    ("SelectTool.pi", "export anchor SelectTool:\n    kind: select\n"),
+    (
+        "DirectSelectTool.pi",
+        "from ./SelectTool import SelectTool\n\nexport anchor DirectSelectTool:\n    kind: {SelectTool.kind}\n",
+    ),
+];
+
+#[test]
+fn moves_asked_about_back_to_back_are_answered_as_one_batch() {
+    // An editor moving a selection asks about each file in turn, and applies
+    // each answer before it tells the server anything moved. The second answer
+    // used to be measured against the untouched workspace: `./SelectTool` to
+    // `../SelectTool` laid over `./tools/SelectTool` came out as
+    // `../SelectToolctTool`.
+    let (root, mut workspace) = workspace(CANVAS);
+    let mut texts = std::collections::HashMap::new();
+    for (from, to) in [
+        ("SelectTool.pi", "tools/SelectTool.pi"),
+        ("DirectSelectTool.pi", "tools/DirectSelectTool.pi"),
+    ] {
+        let edit = workspace.will_move(&[refactor::Move { from: root.join(from), to: root.join(to) }]);
+        apply_edit(&mut texts, edit);
+    }
+    assert!(
+        texts[&root.join("CanvasConcept.pi")].starts_with(
+            "from ./tools/DirectSelectTool import DirectSelectTool\nfrom ./tools/SelectTool import SelectTool\n"
+        ),
+        "{}",
+        texts[&root.join("CanvasConcept.pi")]
+    );
+    // Both ends moved together, so the rewrite the first move needed is undone.
+    assert!(
+        texts[&root.join("DirectSelectTool.pi")].starts_with("from ./SelectTool import SelectTool\n"),
+        "{}",
+        texts[&root.join("DirectSelectTool.pi")]
+    );
+}
+
+#[test]
+fn a_move_the_editor_has_made_ends_its_batch() {
+    // Once the editor reports the move, the next one is answered from the files
+    // as they now are — not from the text the batch began with.
+    let (root, mut workspace) = workspace(CANVAS);
+    let first = [refactor::Move { from: root.join("SelectTool.pi"), to: root.join("tools/SelectTool.pi") }];
+    let mut texts = std::collections::HashMap::new();
+    apply_edit(&mut texts, workspace.will_move(&first));
+    for (path, text) in &texts {
+        std::fs::write(path, text).unwrap();
+    }
+    std::fs::create_dir_all(root.join("tools")).unwrap();
+    std::fs::rename(root.join("SelectTool.pi"), root.join("tools/SelectTool.pi")).unwrap();
+    workspace.moved(&first);
+
+    // An edit made after the move shifts every line the old batch knew about.
+    let direct = root.join("DirectSelectTool.pi");
+    let shifted = format!("// tools\n{}", std::fs::read_to_string(&direct).unwrap());
+    std::fs::write(&direct, &shifted).unwrap();
+
+    let second = [refactor::Move { from: direct.clone(), to: root.join("tools/DirectSelectTool.pi") }];
+    let mut texts = std::collections::HashMap::new();
+    apply_edit(&mut texts, workspace.will_move(&second));
+    assert!(
+        texts[&direct].starts_with("// tools\nfrom ./SelectTool import SelectTool\n"),
+        "{}",
+        texts[&direct]
+    );
+}
+
 /// Two projects that both import a name from the shared root, so that renaming
 /// it has something to change in each of them.
 const SHARED_NAME: &[(&str, &str)] = &[

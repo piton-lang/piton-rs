@@ -379,8 +379,7 @@ impl LanguageServer for Backend {
         if moves.is_empty() {
             return Ok(None);
         }
-        let snapshot = self.workspace.lock().await.snapshot();
-        let edit = refactor::move_edits(&snapshot, &moves);
+        let edit = self.workspace.lock().await.will_move(&moves);
         Ok(match edit.changes.as_ref().is_some_and(|it| it.is_empty()) {
             true => None,
             false => Some(edit),
