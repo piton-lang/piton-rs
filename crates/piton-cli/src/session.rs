@@ -33,6 +33,9 @@ pub struct Session {
     /// finished saying where its code is or what a rooted import means, so
     /// there is nothing trustworthy to compile the code against.
     pub misconfigured: bool,
+    /// Files compiled because a framework asked for them, not because an
+    /// entry point reaches them.
+    pub roots: Vec<FileId>,
 }
 
 impl Session {
@@ -57,7 +60,15 @@ impl Session {
         }
         db.set_libraries(loaded.project.libraries.clone());
         db.set_shared_root(loaded.project.shared_root.clone());
-        let entries = entry_files(&mut db, &loaded.project)?;
+        let mut entries = entry_files(&mut db, &loaded.project)?;
+        let mut roots = Vec::new();
+        for path in frameworks.roots(&loaded.project) {
+            let id = db.load(&path).map_err(|error| anyhow::anyhow!(error.message))?;
+            if !entries.contains(&id) {
+                entries.push(id);
+                roots.push(id);
+            }
+        }
         let compilation = compile(db, entries, &frameworks);
         Ok(Session {
             project: loaded.project,
@@ -65,6 +76,7 @@ impl Session {
             compilation,
             notes,
             misconfigured: false,
+            roots,
         })
     }
 
@@ -89,7 +101,7 @@ impl Session {
         for diagnostic in reported {
             compilation.diagnostics.push(diagnostic);
         }
-        Ok(Session { project, frameworks, compilation, notes, misconfigured: true })
+        Ok(Session { project, frameworks, compilation, notes, misconfigured: true, roots: Vec::new() })
     }
 
     /// Compile a specific set of files, using the project only for its root.
@@ -136,6 +148,7 @@ impl Session {
             compilation,
             notes,
             misconfigured: false,
+            roots: Vec::new(),
         })
     }
 
@@ -301,6 +314,33 @@ mod tests {
         let session = Session::files(&root, &[root.join("spec/Thing.pi")]).expect("loads");
         assert!(session.misconfigured);
         assert!(session.diagnostics().iter().any(|it| it.message.contains("`root` is `./nowhere`")));
+    }
+
+    /// A framework may compile a file nothing imports, and a build has to see
+    /// it and emit it, while it stays distinguishable from the entry point.
+    #[test]
+    fn a_framework_root_is_compiled_without_being_reached() {
+        let (root, session) = project(&[
+            (
+                "piton.config.pi",
+                "use @piton/config\nuse @piton/belay\n\nexport piton-config Config:\n    \
+                 root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\n\
+                 belay-config Belay:\n    codeRoot: ./src\n",
+            ),
+            ("src/.keep", ""),
+            ("spec/index.pi", "export anchor Thing:\n    x: 1\n"),
+            (
+                "spec/deep/Guide.pi",
+                "use @piton/belay\n\nexport self-instruction Guide:\n    description: d\n    prompt: p\n",
+            ),
+        ]);
+        assert!(!session.misconfigured);
+        assert!(session.diagnostics().is_empty(), "{:?}", session.diagnostics());
+        let guide = session.compilation.analysis.db.file_id(&root.join("spec/deep/Guide.pi"));
+        assert_eq!(session.roots, guide.into_iter().collect::<Vec<_>>());
+        let (outputs, _) = session.emit();
+        let expected = piton_core::db::canonical(&root.join("spec/deep")).join("AGENTS.md");
+        assert!(outputs.iter().any(|it| it.path == expected), "{outputs:#?}");
     }
 
     #[test]

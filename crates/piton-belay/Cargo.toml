@@ -9,3 +9,5 @@ repository.workspace = true
 
 [dependencies]
 piton-core.workspace = true
+piton-syntax.workspace = true
+walkdir.workspace = true

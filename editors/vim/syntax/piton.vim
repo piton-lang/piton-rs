@@ -7,7 +7,7 @@ syntax keyword pitonKeyword anchor abstract extends as export from import use
 syntax keyword pitonSelf this self super
 syntax keyword pitonBoolean true false null
 syntax keyword pitonType string number boolean null list dictionary anchor any simple complex contained
-syntax keyword pitonFrameworkKeyword agent belay-adapter belay-agent-adapter belay-config command instruction skill
+syntax keyword pitonFrameworkKeyword agent belay-adapter belay-agent-adapter belay-config command instruction self-instruction skill
 highlight default link pitonFrameworkKeyword Function
 
 " A comment starts a line or follows whitespace, so URLs survive.

@@ -650,6 +650,8 @@ name = "piton-belay"
 version = "0.1.0"
 dependencies = [
  "piton-core",
+ "piton-syntax",
+ "walkdir",
 ]
 
 [[package]]

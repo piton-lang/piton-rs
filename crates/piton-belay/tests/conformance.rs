@@ -119,6 +119,20 @@ export instruction ButtonComponent:
         For the design, read @{ButtonDesign}.
 ",
         ),
+        // Not imported by anything: a self-instruction is compiled regardless,
+        // and its reference has to resolve from inside the specification.
+        (
+            "spec/scope/Guide.pi",
+            "\
+use @piton/belay
+
+from ../shape/components/button/Button import ButtonDesign
+
+export self-instruction ScopeGuide:
+    description: How scope documents are written
+    prompt: Point at @{ButtonDesign} rather than restating it.
+",
+        ),
     ]);
     assert!(errors.is_empty(), "{errors:?}");
     (root, outputs)
@@ -216,24 +230,51 @@ fn commands_are_prefixed_and_carry_the_right_front_matter() {
     }
 }
 
-#[test]
-fn instructions_compile_into_the_code_tree_as_agents_files() {
-    let (root, outputs) = everything();
-    let agents: Vec<&OutputFile> = outputs
-        .iter()
-        .filter(|it| relative(it, &root).starts_with("src/"))
-        .collect();
-    assert!(!agents.is_empty());
+/// Every generated `AGENTS.md` under `prefix` has a `CLAUDE.md` beside it that
+/// imports it, and nothing else is written there.
+///
+/// Claude Code reads `CLAUDE.md`, not `AGENTS.md`, and resolves a relative
+/// import against the importing file, so a bare `@AGENTS.md` is the sibling.
+fn assert_paired_with_claude_files(outputs: &[OutputFile], root: &Path, prefix: &str) {
+    let under: Vec<&OutputFile> =
+        outputs.iter().filter(|it| relative(it, root).starts_with(prefix)).collect();
+    assert!(!under.is_empty(), "nothing written under {prefix}");
 
-    for file in agents {
-        let path = relative(file, &root);
-        // An instruction compiles into `codeRoot` as the equivalent of an
-        // `AGENTS.md`. Belay writes no companion `CLAUDE.md`: an `@import`
-        // pulls the whole reachable tree in at launch, which is the opposite
-        // of what publishing references as separate files is for.
-        assert!(path.ends_with("/AGENTS.md"), "{path}: instructions write AGENTS.md");
-        assert!(!file.contents.trim().is_empty(), "{path}");
+    for file in under {
+        let path = relative(file, root);
+        let sibling = |name: &str| file.path.parent().unwrap().join(name);
+        if path.ends_with("/CLAUDE.md") {
+            assert_eq!(file.contents, "@AGENTS.md\n", "{path}");
+            assert!(
+                outputs.iter().any(|it| it.path == sibling("AGENTS.md")),
+                "{path} imports an AGENTS.md that is never written"
+            );
+        } else {
+            assert!(path.ends_with("/AGENTS.md"), "{path}: only AGENTS.md and CLAUDE.md belong here");
+            assert!(!file.contents.trim().is_empty(), "{path}");
+            assert!(
+                outputs.iter().any(|it| it.path == sibling("CLAUDE.md")),
+                "{path} has no CLAUDE.md, so Claude Code never reads it"
+            );
+        }
     }
+}
+
+#[test]
+fn instructions_pair_each_agents_file_with_a_claude_import() {
+    let (root, outputs) = everything();
+    assert_paired_with_claude_files(&outputs, &root, "src/");
+}
+
+#[test]
+fn self_instructions_compile_into_the_specification_as_agents_files() {
+    let (root, outputs) = everything();
+    assert_paired_with_claude_files(&outputs, &root, "spec/");
+    let guide = outputs
+        .iter()
+        .find(|it| relative(it, &root) == "spec/scope/AGENTS.md")
+        .expect("a self-instruction writes beside itself");
+    assert!(guide.contents.contains("[ButtonDesign](../../.claude/reference/shape/"), "{}", guide.contents);
 }
 
 #[test]

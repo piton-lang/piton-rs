@@ -42,6 +42,10 @@ never reported and nothing it declares exists — which is easy to do by acciden
 by renaming a file or forgetting an `index.pi` entry, and hard to notice,
 because nothing goes wrong.
 
+The exception is a file a framework compiles on its own account, such as one
+declaring a Belay `self-instruction`. It is listed as reached, as a root of its
+own, and naming it says that a framework asked for it.
+
 ```sh
 piton reach                      # both halves, with a summary
 piton reach <FILE>               # how this one file is reached, or why it is not

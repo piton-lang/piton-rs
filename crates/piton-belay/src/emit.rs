@@ -3,12 +3,15 @@
 //! Agents, skills, and commands each become one Markdown file in the agent
 //! directory. Instructions are different: they mirror the shape tree onto the
 //! code tree, concatenating everything written at one scope into the
-//! `AGENTS.md` for the matching code directory.
+//! `AGENTS.md` for the matching code directory. Self-instructions are about the
+//! specification rather than the code, so each one lands in the `AGENTS.md` of
+//! the directory it is written in.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use piton_core::compile::Compilation;
+use piton_core::diag::Diagnostic;
 use piton_core::framework::OutputFile;
 use piton_core::value::{AnchorId, Dict, Value};
 
@@ -23,6 +26,7 @@ pub enum Kind {
     Skill,
     Command,
     Instruction,
+    SelfInstruction,
 }
 
 impl Kind {
@@ -32,6 +36,7 @@ impl Kind {
             Kind::Skill => "Skill",
             Kind::Command => "Command",
             Kind::Instruction => "Instruction",
+            Kind::SelfInstruction => module::SELF_INSTRUCTION_ANCHOR,
         }
     }
 }
@@ -42,6 +47,7 @@ pub struct Plan {
     pub skills: Vec<AnchorId>,
     pub commands: Vec<AnchorId>,
     pub instructions: Vec<AnchorId>,
+    pub self_instructions: Vec<AnchorId>,
 }
 
 impl Plan {
@@ -51,6 +57,7 @@ impl Plan {
             && self.skills.is_empty()
             && self.commands.is_empty()
             && self.instructions.is_empty()
+            && self.self_instructions.is_empty()
     }
 
     pub fn discover(compilation: &Compilation) -> Plan {
@@ -65,8 +72,43 @@ impl Plan {
             skills: of(Kind::Skill),
             commands: of(Kind::Command),
             instructions: of(Kind::Instruction),
+            self_instructions: of(Kind::SelfInstruction),
         }
     }
+}
+
+/// Drop every self-instruction declared outside the project root, and say why.
+///
+/// A self-instruction compiles into the directory it is written in. One that
+/// arrives through a library or the shared root would write into a tree this
+/// project does not own, so it is an error rather than a file.
+pub fn misplaced_self_instructions(
+    compilation: &Compilation,
+    settings: &Settings,
+    plan: &mut Plan,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    plan.self_instructions.retain(|id| {
+        let inside = compilation
+            .source_path(*id)
+            .is_some_and(|source| source.starts_with(&settings.source_root));
+        if !inside {
+            let def = compilation.def(*id);
+            diagnostics.push(Diagnostic::error(
+                "self-instruction-outside-root",
+                compilation.file_of(*id),
+                def.name_range,
+                format!(
+                    "`{}` is a self-instruction, which must live under the project root ({}) \
+                     because it compiles into the directory it is written in",
+                    def.name,
+                    settings.source_root.display()
+                ),
+            ));
+        }
+        inside
+    });
+    diagnostics
 }
 
 /// Emit every file for one adapter.
@@ -147,7 +189,9 @@ Read one when the work touches what it describes.";
 /// import is a memory file feature that no other agent implements, and even
 /// where it works it pulls the whole reachable reference tree into context at
 /// launch, four hops deep and silently truncated past that — the opposite of
-/// what publishing references as separate files is for.
+/// what publishing references as separate files is for. The one import Belay
+/// writes is the `@AGENTS.md` in a generated `CLAUDE.md`, whose payload is the
+/// document itself.
 fn localise_references(
     contents: &str,
     file: &Path,
@@ -337,11 +381,35 @@ fn instruction_files(
         }
     }
 
+    // A self-instruction is about the specification, so it stays beside it.
+    // It is not published under the agent directory: it is not shape, and a
+    // reference to one publishes it the way any other anchor is.
+    for id in &plan.self_instructions {
+        let Some(anchor) = compilation.anchor(*id) else { continue };
+        let Some(directory) = compilation.source_path(*id).and_then(Path::parent) else {
+            continue;
+        };
+        by_target
+            .entry(directory.to_path_buf())
+            .or_default()
+            .push(instruction_body(&anchor.name, &anchor.props));
+    }
+
     for (directory, bodies) in by_target {
         files.push(OutputFile {
             path: directory.join("AGENTS.md"),
             contents: format!("{}\n", bodies.join("\n\n").trim_end()),
         });
+        // Claude Code reads `CLAUDE.md`, not `AGENTS.md`, and its documentation
+        // recommends a `CLAUDE.md` that imports the `AGENTS.md` beside it. The
+        // import resolves against the importing file and only this one file is
+        // inlined: the references inside it are links, which nothing expands.
+        if adapter.is_claude() {
+            files.push(OutputFile {
+                path: directory.join("CLAUDE.md"),
+                contents: "@AGENTS.md\n".to_string(),
+            });
+        }
     }
     files
 }

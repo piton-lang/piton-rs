@@ -110,6 +110,167 @@ fn instructions_fall_back_to_the_nearest_real_directory() {
 }
 
 #[test]
+fn an_instruction_or_self_instruction_needs_only_a_prompt() {
+    let (root, outputs, errors) = build(&[
+        ("piton.config.pi", CONFIG),
+        ("src/button/.keep", ""),
+        ("spec/index.pi", "from ./shape/button/Button export *\n"),
+        ("spec/shape/button/Button.pi", "use @piton/belay\n\nexport instruction Button:\n    prompt: Make it clickable\n"),
+        ("spec/scope/Guide.pi", "use @piton/belay\n\nexport self-instruction Guide:\n    prompt: Keep it short\n"),
+    ]);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    // The empty default leaves no stray paragraph or section behind.
+    for (file, prompt) in [("src/button/AGENTS.md", "Make it clickable"), ("spec/scope/AGENTS.md", "Keep it short")] {
+        let heading = if prompt.starts_with("Make") { "# Button" } else { "# Guide" };
+        assert_eq!(find(&outputs, &root, file), format!("{heading}\n\n{prompt}\n"), "{file}");
+    }
+}
+
+#[test]
+fn a_description_must_still_be_a_string() {
+    let (_root, _outputs, errors) = build(&[
+        ("piton.config.pi", CONFIG),
+        ("src/.keep", ""),
+        ("spec/index.pi", "use @piton/belay\n\nexport instruction Listy:\n    description:\n        - not\n        - a string\n    prompt: p\n"),
+    ]);
+    assert!(!errors.is_empty(), "a list description should be rejected");
+}
+
+#[test]
+fn self_instructions_compile_beside_themselves_without_being_reached() {
+    let (root, outputs, errors) = build(&[
+        ("piton.config.pi", CONFIG),
+        ("src/.keep", ""),
+        // Nothing imports the self-instructions.
+        ("spec/index.pi", "export anchor Nothing:\n    here: true\n"),
+        (
+            "spec/scope/lsp/Guide.pi",
+            "use @piton/belay\n\nexport self-instruction LspGuide:\n    description: How the LSP scope is written\n    prompt: Keep one feature per file\n",
+        ),
+        (
+            "spec/scope/lsp/Naming.pi",
+            "use @piton/belay\n\nfrom @piton/belay import SelfInstruction\n\nanchor LspNaming extends SelfInstruction:\n    description: Names\n    prompt: Name files after the feature\n",
+        ),
+    ]);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    // Everything in one directory concatenates, whichever spelling declared it.
+    let agents = find(&outputs, &root, "spec/scope/lsp/AGENTS.md");
+    assert!(agents.starts_with("# Lsp Guide\n"), "{agents}");
+    assert!(agents.contains("Keep one feature per file"), "{agents}");
+    assert!(agents.contains("Name files after the feature"), "{agents}");
+
+    // It is about the specification, so nothing lands in the code tree, and
+    // it is not shape, so nothing is published beside the shape references.
+    let paths: Vec<String> = outputs
+        .iter()
+        .map(|it| it.path.strip_prefix(&root).unwrap().display().to_string())
+        .collect();
+    assert!(!paths.iter().any(|it| it.starts_with("src/")), "{paths:#?}");
+    assert!(!paths.iter().any(|it| it.starts_with(".claude/")), "{paths:#?}");
+}
+
+#[test]
+fn only_the_claude_adapter_writes_claude_files() {
+    let config = |adapters: &str| {
+        format!(
+            "\
+use @piton/config
+use @piton/belay
+
+from @piton/belay import ClaudeAdapter, OpenCodeAdapter
+
+export piton-config Config:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    frameworks:
+        - {{BelayConfiguration}}
+
+belay-config BelayConfiguration:
+    codeRoot: ./src
+    shapeRoot: ./spec/shape
+
+    adapters:
+{adapters}
+"
+        )
+    };
+    let files = |config: &str| {
+        build(&[
+            ("piton.config.pi", config),
+            ("src/button/.keep", ""),
+            ("spec/index.pi", "from ./shape/button/Button export *\n"),
+            ("spec/shape/button/Button.pi", "use @piton/belay\n\nexport instruction Button:\n    prompt: Click\n"),
+            ("spec/scope/Guide.pi", "use @piton/belay\n\nexport self-instruction Guide:\n    prompt: Short\n"),
+        ])
+    };
+
+    // OpenCode reads AGENTS.md itself, so a project that only targets it gets
+    // nothing Claude-specific in its code or spec tree.
+    let (root, outputs, errors) = files(&config("        - {OpenCodeAdapter}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    find(&outputs, &root, "src/button/AGENTS.md");
+    find(&outputs, &root, "spec/scope/AGENTS.md");
+    assert!(!outputs.iter().any(|it| it.path.ends_with("CLAUDE.md")), "OpenCode alone wrote a CLAUDE.md");
+
+    // Spelled as a directory rather than the ready-made anchor, it is still Claude.
+    let (root, outputs, errors) = files(&config(
+        "        - {Claude}\n\nbelay-agent-adapter Claude:\n    description: d\n    directory: .claude",
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(find(&outputs, &root, "src/button/CLAUDE.md"), "@AGENTS.md\n");
+    assert_eq!(find(&outputs, &root, "spec/scope/CLAUDE.md"), "@AGENTS.md\n");
+}
+
+#[test]
+fn a_self_instruction_outside_the_project_root_is_an_error() {
+    let (root, outputs, errors) = build(&[
+        (
+            "piton.config.pi",
+            "\
+use @piton/config
+use @piton/belay
+
+from @piton/belay import ClaudeAdapter
+
+export piton-config Config:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    frameworks:
+        - {BelayConfiguration}
+
+    libraries:
+        customLib: ./lib
+
+belay-config BelayConfiguration:
+    codeRoot: ./src
+
+    adapters:
+        - {ClaudeAdapter}
+",
+        ),
+        ("src/.keep", ""),
+        ("spec/index.pi", "from /customLib/Guide export *\n"),
+        (
+            "lib/Guide.pi",
+            "use @piton/belay\n\nexport self-instruction Borrowed:\n    description: Lives in a library\n    prompt: Should never be written\n",
+        ),
+    ]);
+    assert!(
+        errors.iter().any(|it| it.contains("`Borrowed` is a self-instruction") && it.contains("project root")),
+        "{errors:?}"
+    );
+    assert!(
+        !outputs.iter().any(|it| it.contents.contains("Should never be written")),
+        "{:#?}",
+        outputs.iter().map(|it| it.path.strip_prefix(&root).unwrap().to_path_buf()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn the_reference_sigil_links_to_the_compiled_file() {
     let (root, outputs, errors) = build(&[
         ("piton.config.pi", CONFIG),

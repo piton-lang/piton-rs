@@ -218,7 +218,9 @@ More detail, and what to do when the binary is not on your `PATH`, is in
 ## What to reach for next
 
 - **Give the agent guidance per directory.** An `instruction` compiles into an
-  `AGENTS.md` beside the code it applies to. See [the Belay guide](docs/belay.md).
+  `AGENTS.md` beside the code it applies to, and a `self-instruction` into one
+  beside the specification itself, each with a `CLAUDE.md` that imports it for
+  Claude Code. See [the Belay guide](docs/belay.md).
 - **Stop repeating yourself.** An `anchor` is a named, inheritable block; `@{}`
   points one document at another instead of copying it.
 - **Read the language reference**, which is generated from the compiler, so it

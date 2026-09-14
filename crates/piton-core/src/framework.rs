@@ -85,6 +85,16 @@ pub trait Framework: Send + Sync {
         Vec::new()
     }
 
+    /// Files this framework needs compiled whether or not an entry point
+    /// reaches them.
+    ///
+    /// Some documents are addressed by where they sit rather than by who
+    /// imports them. Requiring an import for those would only make it easy to
+    /// write one that silently never builds.
+    fn roots(&self, _project: &Project) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
     /// Produce the framework's output files.
     fn emit(&self, compilation: &Compilation, project: &Project) -> Emitted;
 }
@@ -107,6 +117,16 @@ impl Frameworks {
     /// Ask each framework in turn to render an interpolation.
     pub fn interpolate(&self, interpolation: &Interpolation<'_>) -> Option<Value> {
         self.active.iter().find_map(|framework| framework.interpolate(interpolation))
+    }
+
+    /// Every file some framework needs compiled regardless of reach, in a
+    /// stable order.
+    pub fn roots(&self, project: &Project) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> =
+            self.active.iter().flat_map(|framework| framework.roots(project)).collect();
+        roots.sort();
+        roots.dedup();
+        roots
     }
 
     pub fn builtin_value(&self, name: &str) -> Option<Value> {

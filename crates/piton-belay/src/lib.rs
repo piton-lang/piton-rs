@@ -10,12 +10,13 @@ pub mod markdown;
 pub mod module;
 pub mod settings;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use piton_core::compile::Compilation;
 use piton_core::diag::Diagnostic;
 use piton_core::framework::{Emitted, Framework, Interpolation, VirtualModule};
+use piton_core::hir::lower_hir;
 use piton_core::project::Project;
 use piton_core::value::{AnchorId, Value};
 
@@ -39,6 +40,39 @@ fn unconfigured(compilation: &Compilation, project: &Project) -> Diagnostic {
          configured, so nothing was written. List the `belay-config` anchor under `frameworks` \
          in piton.config.pi:\n    frameworks:\n        - {BelayConfiguration}",
     )
+}
+
+/// Every `.pi` file under `root` that declares a self-instruction.
+///
+/// Only the declaration is looked at: a file is parsed when its text mentions a
+/// self-instruction at all, and chosen when one of its anchors is declared with
+/// the keyword or names the anchor as a base.
+fn self_instruction_files(root: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.into_path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "pi"))
+        .filter(|path| {
+            let Ok(text) = std::fs::read_to_string(path) else { return false };
+            if !text.contains(module::SELF_INSTRUCTION_KEYWORD)
+                && !text.contains(module::SELF_INSTRUCTION_ANCHOR)
+            {
+                return false;
+            }
+            let hir = lower_hir(&piton_syntax::parse(&text).root());
+            hir.anchors.iter().any(|anchor| {
+                anchor
+                    .via_keyword
+                    .as_ref()
+                    .is_some_and(|keyword| keyword.value == module::SELF_INSTRUCTION_KEYWORD)
+                    || anchor.bases.iter().any(|base| base.value == module::SELF_INSTRUCTION_ANCHOR)
+            })
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 /// The Belay framework plugin.
@@ -147,8 +181,19 @@ impl Framework for Belay {
         messages
     }
 
+    /// Every file under the project root that declares a self-instruction.
+    ///
+    /// A self-instruction is addressed by the directory it sits in, so nothing
+    /// has to import it.
+    fn roots(&self, project: &Project) -> Vec<PathBuf> {
+        if !project.has_root() {
+            return Vec::new();
+        }
+        self_instruction_files(&project.root)
+    }
+
     fn emit(&self, compilation: &Compilation, project: &Project) -> Emitted {
-        let plan = emit::Plan::discover(compilation);
+        let mut plan = emit::Plan::discover(compilation);
         let referenced = self.referenced.lock().unwrap().clone();
         let mut emitted = Emitted::default();
 
@@ -159,6 +204,9 @@ impl Framework for Belay {
             emitted.diagnostics.push(unconfigured(compilation, project));
             return emitted;
         }
+        emitted
+            .diagnostics
+            .extend(emit::misplaced_self_instructions(compilation, &self.settings, &mut plan));
 
         for adapter in &self.settings.adapters {
             emitted.files.extend(emit::emit_adapter(

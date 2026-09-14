@@ -167,9 +167,12 @@ pub fn reach(
     let reached = under_root.len() - unreached.len();
 
     // Say what the answer is measured from, so it cannot be misread.
+    // A file a framework compiles regardless of reach is a root of the tree,
+    // but it is not an entry point anyone configured.
     let entries: Vec<String> = compilation
         .entries
         .iter()
+        .filter(|file| !session.roots.contains(file))
         .filter_map(|file| compilation.analysis.db.file(*file).source.as_path())
         .map(|path| relative(path, root))
         .collect();
@@ -225,6 +228,10 @@ fn explain(session: &Session, target: &Path) -> Result<i32> {
     };
 
     let steps = compilation.reach_steps(file);
+    if steps.is_empty() && session.roots.contains(&file) {
+        println!("{shown} is compiled whether or not anything imports it, because a framework asked for it");
+        return Ok(0);
+    }
     if steps.is_empty() {
         println!("{shown} is the entry point");
         return Ok(0);

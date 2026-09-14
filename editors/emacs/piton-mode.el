@@ -33,7 +33,7 @@
 (defconst piton--self-words '("this" "self" "super"))
 (defconst piton--constants '("true" "false" "null"))
 (defconst piton--types '("string" "number" "boolean" "null" "list" "dictionary" "anchor" "any" "simple" "complex"))
-(defconst piton--framework-keywords '("agent" "belay-adapter" "belay-agent-adapter" "belay-config" "command" "instruction" "skill"))
+(defconst piton--framework-keywords '("agent" "belay-adapter" "belay-agent-adapter" "belay-config" "command" "instruction" "self-instruction" "skill"))
 
 (defconst piton-font-lock-keywords
   (list

@@ -51,7 +51,7 @@ belay-agent-adapter MyAdapter:
 or name a directory outright with `directory: .somewhere`. Configure several
 adapters and each gets a complete, self-consistent copy of the output.
 
-## The four constructs
+## The five constructs
 
 Each is an abstract anchor exported as a keyword, so `skill Name:` is shorthand
 for `anchor Name extends Skill:`. A concrete anchor may implement only one of
@@ -111,18 +111,59 @@ export instruction ButtonComponent:
     prompt: It should be clickable, and it should have a hover state.
 ```
 
+Only `prompt` is required. The anchor's name is already the heading, so a
+`description`, when given, becomes the paragraph beneath it, and when left out
+nothing is written in its place.
+
 The `shapeRoot` tree mirrors `codeRoot`:
 
 ```
 spec/shape/components/button/Button.pi   ->   src/components/button/AGENTS.md
+                                              src/components/button/CLAUDE.md
 ```
 
 Every instruction written at one scope is concatenated into the one `AGENTS.md`
 for the matching code directory. If no code directory matches, the instructions
 move up to the nearest one that does, ending at `codeRoot/AGENTS.md`.
 
+Claude Code reads `CLAUDE.md`, not `AGENTS.md`, so with the Claude adapter each
+`AGENTS.md` gets a `CLAUDE.md` beside it containing only `@AGENTS.md`. Claude
+Code loads a subdirectory's `CLAUDE.md` when it reads files there. Other
+adapters write no `CLAUDE.md`.
+
 Instructions are also published under `<agent-dir>/reference/shape/`, keeping
 their structure, so an agent can read the whole shape tree.
+
+### `self-instruction`
+
+A self-instruction is guidance about the specification itself: how the
+documents in one part of the spec tree are written, and what an agent editing
+them should know.
+
+```piton
+export self-instruction LspScopeGuide:
+    description: How the language server scope is written
+    prompt: One feature per file, named after the feature.
+```
+
+Like an instruction, only `prompt` is required. It differs from an
+`instruction` in three ways:
+
+- **It must live under the project `root`.** One that arrives through a library
+  or the shared root is an error, because it would write into a tree this
+  project does not own.
+- **It does not need to be reached.** Belay finds every file under `root` that
+  declares one and compiles it, whether or not anything imports it.
+- **It compiles into its own directory.** There is no mirroring onto `codeRoot`:
+
+```
+spec/scope/lsp/Guide.pi   ->   spec/scope/lsp/AGENTS.md
+                               spec/scope/lsp/CLAUDE.md
+```
+
+Every self-instruction in one directory is concatenated into that directory's
+`AGENTS.md`, with the same companion `CLAUDE.md` an instruction gets. Self-instructions are not published under `reference/shape/`; one
+that an `@{}` reference points at is published like any other anchor.
 
 ## References
 

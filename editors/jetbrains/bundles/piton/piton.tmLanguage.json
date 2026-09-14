@@ -45,7 +45,7 @@
       }
     },
     "keyword-declaration": {
-      "match": "^\\s*(?:(export)\\s+)?(belay-agent-adapter|belay-adapter|belay-config|instruction|command|agent|skill|[a-z][a-z0-9-]*)\\s+([A-Za-z_][\\w-]*)(?:\\s+(extends)\\s+([^:]*))?\\s*(:)",
+      "match": "^\\s*(?:(export)\\s+)?(belay-agent-adapter|self-instruction|belay-adapter|belay-config|instruction|command|agent|skill|[a-z][a-z0-9-]*)\\s+([A-Za-z_][\\w-]*)(?:\\s+(extends)\\s+([^:]*))?\\s*(:)",
       "captures": {
         "1": { "name": "keyword.control.piton" },
         "2": { "name": "entity.name.function.keyword.piton" },

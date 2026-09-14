@@ -9,7 +9,15 @@ pub const KINDS: &[(&str, &str)] = &[
     ("Skill", "skill"),
     ("Command", "command"),
     ("Instruction", "instruction"),
+    ("SelfInstruction", "self-instruction"),
 ];
+
+/// The keyword that declares a self-instruction, which Belay looks for on disk
+/// because nothing has to import one.
+pub const SELF_INSTRUCTION_KEYWORD: &str = "self-instruction";
+
+/// The anchor a self-instruction implements.
+pub const SELF_INSTRUCTION_ANCHOR: &str = "SelfInstruction";
 
 /// The anchor a project implements to configure Belay.
 pub const CONFIG_ANCHOR: &str = "BelayConfig";
@@ -40,8 +48,17 @@ export abstract anchor Command as command:
     prompt:: string
 
 // An instruction: guidance compiled next to the code it applies to.
+// Only the prompt is required: nothing matches on the description, and the
+// anchor's name is already the heading.
 export abstract anchor Instruction as instruction:
-    description:: string
+    description:: string: ""
+    prompt:: string
+
+// A self-instruction: guidance about the specification itself, compiled into
+// the specification directory it sits in. It must live under the project root,
+// and it is compiled whether or not anything imports it.
+export abstract anchor SelfInstruction as self-instruction:
+    description:: string: ""
     prompt:: string
 
 // Belay's project configuration.

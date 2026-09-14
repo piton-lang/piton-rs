@@ -106,6 +106,9 @@ Interpolation sigils: `@{}`
 - **Instruction** (abstract anchor) — keyword `instruction`
   - `description:: string`
   - `prompt:: string`
+- **SelfInstruction** (abstract anchor) — keyword `self-instruction`
+  - `description:: string`
+  - `prompt:: string`
 - **BelayConfig** (abstract anchor) — keyword `belay-config`
   - `codeRoot:: string`
 - **Adapter** (abstract anchor) — keyword `belay-adapter`

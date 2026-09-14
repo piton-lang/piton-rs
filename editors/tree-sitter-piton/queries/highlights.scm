@@ -59,4 +59,4 @@
 
 ; Keywords contributed by registered frameworks.
 ((keyword_declaration keyword: (word) @keyword.function)
-  (#match? @keyword.function "^(agent|belay-adapter|belay-agent-adapter|belay-config|command|instruction|skill)$"))
+  (#match? @keyword.function "^(agent|belay-adapter|belay-agent-adapter|belay-config|command|instruction|self-instruction|skill)$"))

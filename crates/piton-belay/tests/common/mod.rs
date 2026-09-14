@@ -30,9 +30,14 @@ pub fn build(files: &[(&str, &str)]) -> (PathBuf, Vec<OutputFile>, Vec<String>) 
         db.add_virtual_module(module.name, module.source);
     }
     db.set_root(&loaded.project.root);
-    let entry = db.load(&loaded.project.entry).expect("entry loads");
-    let compilation = compile(db, vec![entry], &frameworks);
-    let messages: Vec<String> = compilation
+    db.set_libraries(loaded.project.libraries.clone());
+    let mut entries = vec![db.load(&loaded.project.entry).expect("entry loads")];
+    for path in frameworks.roots(&loaded.project) {
+        entries.push(db.load(&path).expect("a framework root loads"));
+    }
+    entries.dedup();
+    let compilation = compile(db, entries, &frameworks);
+    let mut messages: Vec<String> = compilation
         .diagnostics
         .iter()
         .filter(|it| it.is_error())
@@ -41,7 +46,11 @@ pub fn build(files: &[(&str, &str)]) -> (PathBuf, Vec<OutputFile>, Vec<String>) 
 
     let mut outputs = Vec::new();
     for framework in &frameworks.active {
-        outputs.extend(framework.emit(&compilation, &loaded.project).files);
+        let emitted = framework.emit(&compilation, &loaded.project);
+        outputs.extend(emitted.files);
+        messages.extend(
+            emitted.diagnostics.iter().filter(|it| it.is_error()).map(|it| it.message.clone()),
+        );
     }
     (root, outputs, messages)
 }

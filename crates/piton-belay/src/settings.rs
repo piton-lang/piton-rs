@@ -14,6 +14,13 @@ pub struct Adapter {
     pub label: String,
 }
 
+impl Adapter {
+    /// True when this adapter writes for Claude Code, however it was spelled.
+    pub fn is_claude(&self) -> bool {
+        self.directory == Path::new(".claude")
+    }
+}
+
 /// The tools an agent adapter knows how to write for.
 const KNOWN_TOOLS: &[(&str, &str)] = &[
     ("claude", ".claude"),
