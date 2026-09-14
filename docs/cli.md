@@ -201,8 +201,11 @@ piton compile spec/ --out-dir build/          # writes somewhere else
 ## `piton format <path>...`
 
 Applies the canonical style: four spaces per level, one space after `//`, sorted
-import lists wrapped once they exceed two names or eighty columns. It is not
-configurable.
+import lists wrapped once they exceed two names or eighty columns, and prose
+paragraphs rewrapped to fill eighty columns. Spaces between words collapse to
+one, except two after the end of a sentence and any inside a `code span`. A line
+never breaks inside those two spaces, an `{expression}`, or a quoted string. It
+is not configurable.
 
 ```sh
 piton format .              # rewrite in place

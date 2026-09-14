@@ -111,12 +111,20 @@ impl Snapshot {
 
     /// The project that analysed `path`, and the id the file has there.
     ///
-    /// Source sets do not overlap — a project owns what lies under its own
-    /// root, and the rootless fallback takes only what is left over — so one
-    /// view knows any given path. A file no project analysed has no view at
-    /// all, and every feature that needs one declines to answer.
+    /// Source sets overlap once a project borrows another's files as a
+    /// library, so the project whose root holds the path answers first — the
+    /// deepest, since views are ordered that way — and a borrower never speaks
+    /// for a file it does not own. A path under no root that analysed it, such
+    /// as a configuration beside its root, falls to whichever view has it. A
+    /// file no project analysed has no view at all, and every feature that
+    /// needs one declines to answer.
     pub fn locate(&self, path: &Path) -> Option<(&Arc<View>, FileId)> {
-        self.views.iter().find_map(|view| Some((view, view.file_for(path)?)))
+        let canonical_path = canonical(path);
+        self.views
+            .iter()
+            .filter(|view| canonical_path.starts_with(canonical(&view.project.root)))
+            .find_map(|view| Some((view, view.file_for(path)?)))
+            .or_else(|| self.views.iter().find_map(|view| Some((view, view.file_for(path)?))))
     }
 }
 
@@ -326,10 +334,17 @@ impl Workspace {
         sources.sort();
         sources.dedup();
 
-        // Unsaved buffers win over the disk.
+        // Unsaved buffers win over the disk, in a file this project only
+        // borrows through a library as much as in one it owns; otherwise the
+        // borrower analyses what was last saved while the editor shows more.
         for path in &sources {
             if let Some(text) = self.open.get(path) {
                 db.set_overlay(path, text.clone());
+            }
+        }
+        for (path, text) in &self.open {
+            if sources.binary_search(path).is_err() {
+                db.add_overlay(path, text.clone());
             }
         }
 

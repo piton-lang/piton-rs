@@ -168,6 +168,15 @@ impl Db {
         self.load_source(source).expect("overlay text is always available")
     }
 
+    /// Hold an editor's unsaved buffer for a file nothing may ever load.
+    ///
+    /// Unlike [`Db::set_overlay`] this loads nothing: the text is used only if
+    /// something reaches the file, such as a project importing another
+    /// project's file through a library.
+    pub fn add_overlay(&mut self, path: impl AsRef<Path>, text: impl Into<String>) {
+        self.overlays.insert(canonical(path.as_ref()), text.into());
+    }
+
     pub fn remove_overlay(&mut self, path: &Path) {
         self.overlays.remove(&canonical(path));
     }

@@ -1,8 +1,10 @@
 //! `piton format`.
 //!
 //! The canonical style is four spaces per level and is not configurable. The
-//! formatter walks the lossless tree and re-emits it, so prose is copied
-//! verbatim and only the structure around it is normalised.
+//! formatter walks the lossless tree and re-emits it, normalising the structure
+//! and rewrapping prose paragraphs to fill the line. Lines inside a paragraph
+//! join with a space when compiled, so where they break carries no meaning, and
+//! nothing else about prose is touched.
 
 use piton_syntax::ast::{self, AstNode};
 use piton_syntax::kind::SyntaxKind::{self, *};
@@ -10,7 +12,7 @@ use piton_syntax::{NodeOrToken, SyntaxNode, SyntaxToken};
 
 /// One indentation level.
 pub const INDENT: &str = "    ";
-/// Imports wrap once the line would pass this column.
+/// Imports wrap, and prose fills, up to this column.
 pub const MAX_WIDTH: usize = 80;
 /// Imports wrap once they list more than this many names.
 pub const MAX_INLINE_IMPORTS: usize = 2;
@@ -75,14 +77,57 @@ impl Printer {
     }
 
     /// Print the entries of a root or a block, keeping stray comments in place.
+    ///
+    /// Consecutive lines of prose are gathered into a paragraph and rewrapped
+    /// together; a comment or any other entry ends the paragraph.
     fn container(&mut self, node: SyntaxNode, depth: usize) {
+        let mut paragraph: Vec<(SyntaxNode, Vec<String>)> = Vec::new();
         for element in node.children_with_tokens() {
             match element {
                 NodeOrToken::Token(token) if token.kind() == COMMENT => {
+                    self.paragraph(std::mem::take(&mut paragraph), depth);
                     self.line(depth, &comment(&token));
                 }
                 NodeOrToken::Token(_) => {}
-                NodeOrToken::Node(child) => self.item(child, depth),
+                NodeOrToken::Node(child) => match prose_words(&child) {
+                    Some(words) => paragraph.push((child, words)),
+                    None => {
+                        self.paragraph(std::mem::take(&mut paragraph), depth);
+                        self.item(child, depth);
+                    }
+                },
+            }
+        }
+        self.paragraph(paragraph, depth);
+    }
+
+    /// Print a paragraph of prose filled to the line, or as it was written when
+    /// no rewrapping of it reads the same.
+    fn paragraph(&mut self, lines: Vec<(SyntaxNode, Vec<String>)>, depth: usize) {
+        if lines.is_empty() {
+            return;
+        }
+        let width = MAX_WIDTH.saturating_sub(INDENT.len() * depth);
+        let words = lines.iter().flat_map(|(_, words)| words.iter().cloned()).collect();
+        match rewrap(words, width) {
+            Some(filled) => {
+                for line in filled {
+                    self.line(depth, &line);
+                }
+            }
+            // The lines keep their breaks, and their spacing is tidied when
+            // that alone still reads the same.
+            None => {
+                let tidied: Vec<String> = lines.iter().map(|(_, words)| words.join(" ")).collect();
+                if misread_line(&tidied).is_none() {
+                    for line in tidied {
+                        self.line(depth, &line);
+                    }
+                } else {
+                    for (line, _) in lines {
+                        self.item(line, depth);
+                    }
+                }
             }
         }
     }
@@ -200,6 +245,156 @@ impl Printer {
             self.line(depth + 1, &format!("{name}{comma}"));
         }
     }
+}
+
+/// The words of a line of prose, or `None` for anything else.
+///
+/// A gap between words is pointless spacing and ends the word, except for two
+/// spaces after a sentence, which stay inside it, and any spacing inside a
+/// `code span`, which is content. An expression in braces and a quoted string
+/// are always one word. A line holding a comment or text the parser could not
+/// read is not prose to rewrap.
+fn prose_words(node: &SyntaxNode) -> Option<Vec<String>> {
+    if node.kind() != TEXT_LINE {
+        return None;
+    }
+    if node.descendants_with_tokens().any(|it| matches!(it.kind(), COMMENT | ERROR | ERROR_TOKEN)) {
+        return None;
+    }
+    // A line that is a single expression compiles to that value, not to text.
+    let text = node.children().find(|it| it.kind() == VALUE)?.first_child()?;
+    if text.kind() != TEXT_VALUE {
+        return None;
+    }
+    // A line that begins like a key is prose only because a run of it came
+    // first. It may well be a key written by mistake, so it keeps its place.
+    if looks_like_key(text.text().to_string().trim_start()) {
+        return None;
+    }
+    let mut words = Vec::new();
+    let mut word = String::new();
+    // Backticks seen so far on the line: an odd count means inside a code span.
+    let mut ticks = 0;
+    for element in text.children_with_tokens() {
+        match element {
+            NodeOrToken::Token(token) if token.kind() == WHITESPACE => {
+                if ticks % 2 == 1 {
+                    word.push_str(token.text());
+                } else if token.text() != " " && ends_sentence(&word) {
+                    word.push_str("  ");
+                } else {
+                    words.push(std::mem::take(&mut word));
+                }
+            }
+            NodeOrToken::Token(token) => {
+                ticks += token.text().matches('`').count();
+                word.push_str(token.text());
+            }
+            NodeOrToken::Node(node) => {
+                let text = node.text().to_string();
+                ticks += text.matches('`').count();
+                word.push_str(&text);
+            }
+        }
+    }
+    words.push(word);
+    // Spacing at either end of a line is not part of what it says.
+    if let Some(first) = words.first_mut() {
+        *first = first.trim_start().to_string();
+    }
+    if let Some(last) = words.last_mut() {
+        *last = last.trim_end().to_string();
+    }
+    words.retain(|it| !it.is_empty());
+    Some(words)
+}
+
+/// Fill `words` into lines no wider than `width`, taking only breaks after
+/// which every line still reads as prose.
+///
+/// A break that makes a line read as something else — a lone `-` starting it,
+/// say — is not taken: the words either side of it are held together and the
+/// paragraph is filled again. `None` when no filling reads the same.
+fn rewrap(mut words: Vec<String>, width: usize) -> Option<Vec<String>> {
+    loop {
+        let lines = fill(&words, width);
+        let texts: Vec<String> = lines.iter().map(|(_, text)| text.clone()).collect();
+        match misread_line(&texts) {
+            None => return Some(texts),
+            Some(0) => return None,
+            Some(index) => {
+                let start = lines[index].0;
+                let held = words.remove(start);
+                words[start - 1].push(' ');
+                words[start - 1].push_str(&held);
+            }
+        }
+    }
+}
+
+/// Greedy filling: each line takes words until the next would pass `width`.
+/// Each line is paired with the index of the word it starts with.
+fn fill(words: &[String], width: usize) -> Vec<(usize, String)> {
+    let mut lines: Vec<(usize, String)> = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        match lines.last_mut() {
+            Some((_, line)) if line.chars().count() + 1 + word.chars().count() <= width => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push((index, word.clone())),
+        }
+    }
+    lines
+}
+
+/// The first of `lines` that does not parse back as the same line of prose.
+///
+/// The lines are read on their own, under a key. That is never more lenient
+/// than where they came from: the first line starts a run of prose here, so a
+/// `key:` it begins with reads as a key, which it may not have in its file.
+fn misread_line(lines: &[String]) -> Option<usize> {
+    let mut source = String::from("k:\n");
+    let mut starts = Vec::new();
+    for line in lines {
+        starts.push(source.len() + INDENT.len());
+        source.push_str(INDENT);
+        source.push_str(line);
+        source.push('\n');
+    }
+    let parse = piton_syntax::parse(&source);
+    let entries: Vec<SyntaxNode> = parse
+        .syntax()
+        .descendants()
+        .find(|it| it.kind() == BLOCK)
+        .map(|block| block.children().collect())
+        .unwrap_or_default();
+    (0..lines.len()).find(|&index| {
+        let start = starts[index];
+        let end = start + lines[index].len();
+        let entry = entries.iter().find(|it| usize::from(it.text_range().start()) == start);
+        let same = entry.is_some_and(|entry| {
+            usize::from(entry.text_range().end()) <= end + 1
+                && prose_words(entry).map(|words| words.join(" ")) == Some(lines[index].clone())
+        });
+        !same
+    })
+}
+
+/// Whether a word ends a sentence, closing brackets, quotes, and emphasis aside.
+fn ends_sentence(word: &str) -> bool {
+    word.trim_end_matches([')', ']', '"', '\'', '*', '_', '`']).ends_with(['.', '!', '?'])
+}
+
+/// Whether text opens with `name:` or `name::`, the way a key does.
+///
+/// A colon followed by anything else, as in `https://`, is not a key.
+fn looks_like_key(text: &str) -> bool {
+    let Some(colon) = text.find(':') else { return false };
+    let after = text[colon + 1..].chars().next();
+    colon > 0
+        && piton_syntax::is_identifier(&text[..colon])
+        && matches!(after, None | Some(':' | ' ' | '\t'))
 }
 
 /// `export abstract anchor Name extends A, B as kw:`
@@ -373,9 +568,103 @@ mod tests {
     }
 
     #[test]
-    fn keeps_prose_verbatim() {
-        let source = "note:\n    This is  prose   with odd spacing.\n\n    And a second paragraph.\n";
+    fn collapses_pointless_spaces_between_words() {
+        check(
+            "note:\n    This is  prose   with odd spacing.\n\n    And a second paragraph.\n",
+            "note:\n    This is prose with odd spacing.\n\n    And a second paragraph.\n",
+        );
+        check(
+            "a:\n    b:\n        rectangleExample:\n            Rectangle is a primitive type of its own, not a Polygon made by a\n            rectangle verb.  Its corner and anchor definitions are parameter            modes on the verb that builds it.\n",
+            "a:\n    b:\n        rectangleExample:\n            Rectangle is a primitive type of its own, not a Polygon made by a\n            rectangle verb.  Its corner and anchor definitions are parameter\n            modes on the verb that builds it.\n",
+        );
+    }
+
+    #[test]
+    fn keeps_two_spaces_after_a_sentence_and_no_more() {
+        check("note:\n    One.     Two!   Three? Four.\n", "note:\n    One.  Two!  Three? Four.\n");
+        check("note:\n    Emphasis.*   Then (aside.)   Done\n", "note:\n    Emphasis.*  Then (aside.)  Done\n");
+        // A quoted string is one word, and its own spacing is its content.
+        check("note:\n    He said \"stop.   now\"   and left\n", "note:\n    He said \"stop.   now\" and left\n");
+    }
+
+    #[test]
+    fn keeps_the_spacing_inside_a_code_span() {
+        check("note:\n    Run `a    b`   now\n", "note:\n    Run `a    b` now\n");
+    }
+
+    #[test]
+    fn fills_a_paragraph_to_eighty_columns() {
+        check(
+            "note:\n    This line of prose runs on well past the eightieth column of the file, so it wraps.\n",
+            "note:\n    This line of prose runs on well past the eightieth column of the file, so it\n    wraps.\n",
+        );
+        check("note:\n    Short\n    lines\n    join up.\n", "note:\n    Short lines join up.\n");
+    }
+
+    #[test]
+    fn counts_indentation_against_the_width() {
+        let words = "word ".repeat(20);
+        let output = format(&format!("a:\n    b:\n        c:\n            {words}\n"));
+        assert!(output.lines().all(|line| line.len() <= 80), "{output}");
+        assert!(output.lines().nth(4).is_some(), "the paragraph wrapped: {output}");
+    }
+
+    #[test]
+    fn keeps_paragraphs_and_what_ends_them_apart() {
+        // A blank line is what lets `key: value` be a key; without it the line
+        // would still be prose, and joining it would be correct.
+        let source =
+            "note:\n    First paragraph.\n\n    Second paragraph.\n    // an aside\n    Third.\n\n    key: value\n";
         check(source, source);
+    }
+
+    #[test]
+    fn never_breaks_inside_a_wide_gap_an_expression_or_a_quote() {
+        let source = "note:\n    Wrap here please.  Not inside {one + two} or \"a quoted phrase\" at all ever.\n";
+        let output = format(source);
+        assert!(output.contains("please.  Not"), "{output}");
+        assert!(output.contains("{one + two}"), "{output}");
+        assert!(output.contains("\"a quoted phrase\""), "{output}");
+        assert_eq!(format(&output), output);
+    }
+
+    #[test]
+    fn never_starts_a_line_with_a_list_marker() {
+        // Breaking before the lone `-` would turn the rest into a list item.
+        // Thirty-eight words fill the line, so the `-` would open the next one.
+        let source = format!("note:\n    {}- beta\n", "x ".repeat(38));
+        let output = format(&source);
+        assert!(!output.lines().any(|line| line.trim_start().starts_with("- ")), "{output}");
+        assert_eq!(format(&output), output);
+    }
+
+    #[test]
+    fn keeps_a_line_that_begins_like_a_key_on_its_own() {
+        let source = "note:\n    Some prose\n    and: more prose\n    that follows it\n";
+        check(source, "note:\n    Some prose\n    and: more prose\n    that follows it\n");
+    }
+
+    #[test]
+    fn never_starts_a_line_with_something_that_looks_like_a_key() {
+        let source = format!("note:\n    {}note: beta\n", "x ".repeat(38));
+        let output = format(&source);
+        assert!(!output.lines().skip(1).any(|line| line.trim_start().starts_with("note:")), "{output}");
+        assert_eq!(format(&output), output);
+        // A URL's colon is not a key's.
+        let url = format!("note:\n    {}https://example.com here\n", "x ".repeat(36));
+        assert!(format(&url).contains("\n    https://example.com here\n"), "{}", format(&url));
+    }
+
+    #[test]
+    fn leaves_a_line_that_is_an_expression_alone() {
+        let source = "note:\n    Before\n    {1 + 2}\n    after\n";
+        check(source, "note:\n    Before\n    {1 + 2}\n    after\n");
+    }
+
+    #[test]
+    fn puts_an_overlong_word_on_a_line_of_its_own() {
+        let url = format!("https://example.com/{}", "a".repeat(80));
+        check(&format!("note:\n    see {url} now\n"), &format!("note:\n    see\n    {url}\n    now\n"));
     }
 
     #[test]

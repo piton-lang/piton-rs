@@ -255,6 +255,38 @@ fn a_library_belongs_only_to_the_project_that_named_it() {
 }
 
 #[test]
+fn an_unsaved_file_another_project_borrows_is_answered_from_the_buffer() {
+    // `lineage` sorts before `substrate` and borrows its spec as a library, so
+    // it analyses `Graph.pi` too. The editor's text must win in both, and the
+    // owner must be the one that answers for the file.
+    let (root, mut workspace) = workspace(&[
+        (
+            "lineage/piton.config.pi",
+            "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n\n    \
+             libraries:\n        substrate: ../substrate/spec\n",
+        ),
+        ("lineage/spec/index.pi", "use /substrate\n"),
+        (
+            "substrate/piton.config.pi",
+            "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n",
+        ),
+        ("substrate/spec/index.pi", "from ./Graph export *\n"),
+        ("substrate/spec/Graph.pi", "export abstract anchor Graph as graph:\n    pitch: saved\n"),
+    ]);
+    let graph = root.join("substrate/spec/Graph.pi");
+    let unsaved = "export abstract anchor Graph as graph:\n    pitch: saved, and typed since\n";
+    workspace.open(graph.clone(), unsaved.to_string());
+
+    let owner = view_of(&mut workspace, &graph);
+    assert!(owner.project.root.ends_with("substrate/spec"), "answered by {:?}", owner.project.root);
+    assert_eq!(owner.text(owner.file_for(&graph).unwrap()), unsaved);
+
+    let borrower = view_of(&mut workspace, root.join("lineage/spec/index.pi"));
+    let copy = borrower.file_for(&graph).expect("lineage reaches the file through its library");
+    assert_eq!(borrower.text(copy), unsaved, "the borrower sees the buffer, not the disk");
+}
+
+#[test]
 fn a_library_that_is_not_there_is_reported_on_the_config() {
     let (root, mut workspace) = workspace(&[
         (

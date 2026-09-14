@@ -139,7 +139,10 @@ fn vscode_package() -> String {
     "commands": [
       { "command": "piton.restartServer", "title": "Piton: Restart Language Server" },
       { "command": "piton.build", "title": "Piton: Build Project" }
-    ]
+    ],
+    "configurationDefaults": {
+      "[piton]": { "editor.defaultFormatter": "piton-lang.piton" }
+    }
   },
   "dependencies": { "vscode-languageclient": "^9.0.1" },
   "devDependencies": { "@types/vscode": "^1.85.0", "@vscode/vsce": "^3.0.0" },

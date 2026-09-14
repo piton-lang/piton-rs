@@ -240,6 +240,21 @@ fn constants_and_types_come_from_the_compiler() {
 }
 
 #[test]
+fn vs_code_formats_piton_files_with_piton_format() {
+    let vocabulary = Vocabulary::from_compiler();
+    let files = piton_grammar::generate(&vocabulary, &GrammarSource::default());
+    let package = files
+        .iter()
+        .find(|file| file.path.ends_with("vscode/package.json"))
+        .expect("a VS Code manifest is generated");
+    let value: Value = serde_json::from_str(&package.contents).expect("valid JSON");
+    let id = format!("{}.{}", value["publisher"].as_str().unwrap(), value["name"].as_str().unwrap());
+    // Format Document and format on save go to the language server, which
+    // applies `piton format`, only while this extension is the formatter.
+    assert_eq!(value["contributes"]["configurationDefaults"]["[piton]"]["editor.defaultFormatter"], id);
+}
+
+#[test]
 fn the_language_configuration_is_usable() {
     let vocabulary = Vocabulary::from_compiler();
     let files = piton_grammar::generate(&vocabulary, &GrammarSource::default());

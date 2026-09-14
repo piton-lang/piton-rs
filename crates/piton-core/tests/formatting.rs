@@ -3,6 +3,10 @@
 //! Piton is whitespace-structured, so a formatter that re-indents is rewriting
 //! the very thing that carries meaning. Idempotence is not enough on its own:
 //! a formatter can be perfectly stable and still be wrong.
+//!
+//! The one change allowed is to the spaces between words in prose, which the
+//! formatter collapses, so compiled strings are compared with runs of spaces
+//! collapsed too.
 
 use piton_core::compile::compile;
 use piton_core::db::Db;
@@ -24,9 +28,28 @@ fn compiled(source: &str) -> Option<serde_json::Value> {
     }
     let mut document = serde_json::Map::new();
     for (name, value) in compilation.file_values(entry) {
-        document.insert(name, to_json(&value));
+        document.insert(name, spacing_collapsed(to_json(&value)));
     }
     Some(serde_json::Value::Object(document))
+}
+
+/// A compiled value with every run of spaces in its strings reduced to one.
+fn spacing_collapsed(value: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::String(text) => {
+            let mut out = String::new();
+            for ch in text.chars() {
+                if !(ch == ' ' && out.ends_with(' ')) {
+                    out.push(ch);
+                }
+            }
+            Value::String(out)
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(spacing_collapsed).collect()),
+        Value::Object(map) => Value::Object(map.into_iter().map(|(k, v)| (k, spacing_collapsed(v))).collect()),
+        other => other,
+    }
 }
 
 /// Sources whose meaning must survive the formatter, covering every shape
@@ -60,6 +83,21 @@ const CORPUS: &[&str] = &[
     "a:\n\tone\n\ttwo\n",
     "a: 1\r\nb: 2\r\n",
     "note:\n    A paragraph that runs\n    across two lines.\n\n    And a second one.\n",
+    // Prose rewrapping: the compiled text must not change.
+    "note:\n    This line of prose runs on well past the eightieth column of the file, so it wraps around.\n",
+    "note:\n    Short\n    lines\n    join.\n",
+    "note:\n    First sentence ends.  Second sentence keeps two spaces before it and runs on past the edge.\n",
+    "note:\n    Values like {1 + 2} and \"a quoted phrase with spaces\" stay whole when the line is long enough to wrap.\n",
+    "note:\n    x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x - beta gamma\n",
+    "note:\n    x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x note: beta\n",
+    "note:\n    Before\n    {1 + 2}\n    after the expression line comes more prose that is long enough to wrap around.\n",
+    "note:\n    This sentence mentions\n    description: which stays prose because it continues a run of text past the edge.\n",
+    "note:\n    A long first part of a sentence that is certainly long enough to want wrapping here\n    // an aside\n    and the rest.\n",
+    "a: Hello\nnote:\n    Say ${a} to everyone who reads this line, which runs on long enough to need a wrap.\n",
+    "note:\n    see https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa now\n",
+    "a:\n    - item\n    Prose after a list item that runs long enough to wrap past the eightieth column.\n",
+    "rectangleExample:\n    Rectangle is a primitive type of its own, not a Polygon made by a\n    rectangle verb.  Its corner and anchor definitions are parameter            modes on the verb that builds it.\n",
+    "note:\n    Run `a    b`   now, and    {1 + 2}    then   \"x   y\"   done.\n",
 ];
 
 #[test]
