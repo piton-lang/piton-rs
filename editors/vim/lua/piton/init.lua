@@ -31,7 +31,7 @@ function M.setup(opts)
     parsers.get_parser_configs().piton = {
       install_info = {
         url = opts.grammar_url or 'git@github.com:piton-lang/tree-sitter-piton.git',
-        revision = opts.grammar_revision or '3b1522f41abfd397f95071495f41ca479ef7c2a8',
+        revision = opts.grammar_revision or 'ac3aaa7734be4c7975512887e5d45390001aa5d4',
         files = { 'src/parser.c' },
       },
       filetype = 'piton',
