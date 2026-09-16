@@ -89,6 +89,17 @@ impl Project {
     /// The configuration is itself a Piton program, so this returns the
     /// compilation as well; frameworks need it to recognise their own anchors.
     pub fn load(cwd: &Path, frameworks: &Frameworks) -> Loaded {
+        Project::load_edited(cwd, frameworks, |_| None)
+    }
+
+    /// [`Project::load`], reading the configuration from `unsaved` when it has
+    /// the file's text: an editor configures the project by what it shows,
+    /// not by what was last saved.
+    pub fn load_edited(
+        cwd: &Path,
+        frameworks: &Frameworks,
+        unsaved: impl FnOnce(&Path) -> Option<String>,
+    ) -> Loaded {
         let mut diagnostics = Diagnostics::default();
         let Some(config_path) = Project::find_config(cwd) else {
             return Loaded::bare(cwd);
@@ -100,7 +111,11 @@ impl Project {
         for module in builtin::modules().into_iter().chain(frameworks.modules()) {
             db.add_virtual_module(module.name, module.source);
         }
-        let entry = match db.load(&config_path) {
+        let loaded = match unsaved(&config_path) {
+            Some(text) => Ok(db.set_overlay(&config_path, text)),
+            None => db.load(&config_path),
+        };
+        let entry = match loaded {
             Ok(id) => id,
             Err(error) => {
                 diagnostics.push(Diagnostic::error(

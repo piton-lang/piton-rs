@@ -18,6 +18,7 @@ Completion is decided by where the cursor is, read from the syntax tree, and eac
 - With nothing typed, a specifier offers every way of addressing a module at once, relative, rooted, shared, and builtin, each labelled by its last segment with a trailing `/` when there is more to type, and a deeper path replaces only its last segment.
 - After the `import` of an import line it offers what that module exports and the line does not already name.
 - Inside braces and interpolations it offers the names in scope, and `self`, `this`, and `super` inside an anchor.
+- Inside a fenced code block nothing is offered, because what is written there is kept exactly as it is and never read as Piton.
 - A half-typed `from` or `use` line does not parse, so it is read from the line's text rather than from the tree.
 
 ## Accepting

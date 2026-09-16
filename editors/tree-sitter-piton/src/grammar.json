@@ -77,6 +77,102 @@
         }
       ]
     },
+    "_code_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "code_block"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_newline"
+        }
+      ]
+    },
+    "code_block": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "open",
+          "content": {
+            "type": "SYMBOL",
+            "name": "fence_open"
+          }
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_newline"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "code"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "_newline"
+                  }
+                ]
+              },
+              {
+                "type": "SYMBOL",
+                "name": "_newline"
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "close",
+          "content": {
+            "type": "SYMBOL",
+            "name": "fence_close"
+          }
+        }
+      ]
+    },
+    "fence_open": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "PATTERN",
+          "value": "(```+[^`\\n]*|~~~+[^\\n]*)"
+        }
+      }
+    },
+    "fence_close": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "PATTERN",
+          "value": "(```+|~~~+)[ \\t]*"
+        }
+      }
+    },
+    "code": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": -2,
+        "content": {
+          "type": "PATTERN",
+          "value": "[^ \\t\\r\\n][^\\n]*"
+        }
+      }
+    },
     "_blank_line": {
       "type": "SYMBOL",
       "name": "_newline"
@@ -114,8 +210,17 @@
         "type": "SEQ",
         "members": [
           {
-            "type": "SYMBOL",
-            "name": "_prose_line"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_prose_line"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "_code_line"
+              }
+            ]
           },
           {
             "type": "REPEAT",
@@ -129,6 +234,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "_comment_line"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "_code_line"
                 }
               ]
             }

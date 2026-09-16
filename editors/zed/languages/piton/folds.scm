@@ -4,3 +4,4 @@
 ; wrapped import list. Block folding comes from `piton lsp`, which uses the
 ; compiler's own indentation-aware tree.
 (import_list) @fold
+(code_block) @fold

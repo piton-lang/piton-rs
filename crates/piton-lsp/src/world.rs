@@ -241,7 +241,15 @@ impl Workspace {
         for config in self.configs(&workspace_root) {
             let directory = config.parent().unwrap_or(&workspace_root).to_path_buf();
             let mut frameworks = (self.registry)();
-            let project = Project::load(&directory, &frameworks);
+            // An open configuration is read as the editor has it, like any
+            // other open source.
+            let project = Project::load_edited(&directory, &frameworks, |config| {
+                let config = canonical(config);
+                self.open
+                    .iter()
+                    .find(|(path, _)| canonical(path) == config)
+                    .map(|(_, text)| text.clone())
+            });
             if let Some(configuration) = &project.compilation {
                 frameworks.configure(
                     &project.project,

@@ -29,6 +29,11 @@ syntax match pitonEscape "\\." contained
 syntax region pitonInterp matchgroup=pitonSigil start="[^ \t{}[\](),\"]*{" end="}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
 syntax match pitonOperator "\%(\s\|^\|(\|\[\|,\)\@<=\%(++\|&&\|||\|==\|!=\|>=\|<=\|[-+*/%<>?:]\)\%(\s\|$\|)\|\]\|,\)\@="
 
+" A fenced code block is kept as written, so nothing inside it is Piton. It is
+" defined last so that it wins over every rule above, and it closes only at a
+" run of the same fence character at least as long as the one that opened it.
+syntax region pitonFence matchgroup=pitonFenceMark start="^\s\+\z(```\+\|\~\~\~\+\)[^`]*$" end="^\s*\z1\%(`\|\~\)*\s*$" keepend
+
 highlight default link pitonKeyword Keyword
 highlight default link pitonSelf Identifier
 highlight default link pitonBoolean Boolean
@@ -46,5 +51,7 @@ highlight default link pitonString String
 highlight default link pitonEscape SpecialChar
 highlight default link pitonSigil PreProc
 highlight default link pitonOperator Operator
+highlight default link pitonFence String
+highlight default link pitonFenceMark Delimiter
 
 let b:current_syntax = "piton"

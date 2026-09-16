@@ -7,10 +7,24 @@ scope: source.piton
 
 contexts:
   main:
+    - include: fenced-code
     - include: comment
     - include: declaration
     - include: key
     - include: value
+
+  # A fenced code block is kept as written, so nothing inside it is Piton.
+  fenced-code:
+    - match: '^\s+(`{3,}(?=[^`]*$)|~{3,}).*$'
+      scope: punctuation.definition.raw.code-fence.begin.piton
+      embed: raw
+      embed_scope: markup.raw.block.piton
+      escape: '^\s*\1[`~]*\s*$'
+      escape_captures:
+        0: punctuation.definition.raw.code-fence.end.piton
+
+  raw:
+    - meta_include_prototype: false
 
   comment:
     - match: '(?:^|(?<=\s))//.*$'

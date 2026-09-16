@@ -67,6 +67,11 @@ syntax match pitonEscape "\\." contained
 syntax region pitonInterp matchgroup=pitonSigil start="[^ \t{{}}[\](),\"]*{{" end="}}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
 syntax match pitonOperator "\%(\s\|^\|(\|\[\|,\)\@<=\%(++\|&&\|||\|==\|!=\|>=\|<=\|[-+*/%<>?:]\)\%(\s\|$\|)\|\]\|,\)\@="
 
+" A fenced code block is kept as written, so nothing inside it is Piton. It is
+" defined last so that it wins over every rule above, and it closes only at a
+" run of the same fence character at least as long as the one that opened it.
+syntax region pitonFence matchgroup=pitonFenceMark start="^\s\+\z(```\+\|\~\~\~\+\)[^`]*$" end="^\s*\z1\%(`\|\~\)*\s*$" keepend
+
 highlight default link pitonKeyword Keyword
 highlight default link pitonSelf Identifier
 highlight default link pitonBoolean Boolean
@@ -84,6 +89,8 @@ highlight default link pitonString String
 highlight default link pitonEscape SpecialChar
 highlight default link pitonSigil PreProc
 highlight default link pitonOperator Operator
+highlight default link pitonFence String
+highlight default link pitonFenceMark Delimiter
 
 let b:current_syntax = "piton"
 "#
@@ -239,8 +246,27 @@ fn emacs_mode(vocabulary: &Vocabulary) -> String {
 (defconst piton--types '({types}))
 (defconst piton--framework-keywords '({framework}))
 
+(defun piton--match-fence (limit)
+  "Match the next fenced code block that starts before LIMIT, for font lock.
+A fence closes at a run of its own character at least as long as the one that
+opened it; one that never closes runs to the end of the buffer."
+  (when (re-search-forward "^[[:space:]]+\\(```+\\|~~~+\\)[^`\n]*$" limit t)
+    (let ((start (match-beginning 0))
+          (fence (match-string 1)))
+      (set-match-data
+       (list start
+             (if (re-search-forward
+                  (concat "^[[:space:]]*" (regexp-quote fence)
+                          (regexp-quote (substring fence 0 1)) "*[[:space:]]*$")
+                  nil t)
+                 (point)
+               (goto-char (point-max)))))
+      t)))
+
 (defconst piton-font-lock-keywords
   (list
+   ;; A fenced code block is kept as written, so it overrides every rule below.
+   '(piton--match-fence 0 font-lock-string-face t)
    ;; A comment starts a line or follows whitespace, so URLs survive.
    '("\\(?:^\\|[[:space:]]\\)\\(//.*\\)$" 1 font-lock-comment-face)
    `(,(concat "\\_<" (regexp-opt piton--keywords) "\\_>") . font-lock-keyword-face)
@@ -306,6 +332,7 @@ fn emacs_mode(vocabulary: &Vocabulary) -> String {
   "Major mode for editing Piton source."
   :syntax-table piton-mode-syntax-table
   (setq-local font-lock-defaults '(piton-font-lock-keywords nil nil nil nil))
+  (setq-local font-lock-multiline t)
   (setq-local comment-start "// ")
   (setq-local comment-end "")
   (setq-local comment-start-skip "//+[[:space:]]*")
@@ -374,10 +401,24 @@ scope: source.piton
 
 contexts:
   main:
+    - include: fenced-code
     - include: comment
     - include: declaration
     - include: key
     - include: value
+
+  # A fenced code block is kept as written, so nothing inside it is Piton.
+  fenced-code:
+    - match: '^\s+(`{{3,}}(?=[^`]*$)|~{{3,}}).*$'
+      scope: punctuation.definition.raw.code-fence.begin.piton
+      embed: raw
+      embed_scope: markup.raw.block.piton
+      escape: '^\s*\1[`~]*\s*$'
+      escape_captures:
+        0: punctuation.definition.raw.code-fence.end.piton
+
+  raw:
+    - meta_include_prototype: false
 
   comment:
     - match: '(?:^|(?<=\s))//.*$'
@@ -557,6 +598,7 @@ fn kate_syntax(vocabulary: &Vocabulary) -> String {
     </list>
     <contexts>
       <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <RegExpr String="^\s+(`{{3,}}(?=[^`]*$)|~{{3,}}).*$" attribute="Operator" context="Fence" column="0"/>
         <Detect2Chars char="/" char1="/" attribute="Comment" context="Comment"/>
         <keyword String="keywords" attribute="Keyword"/>
         <keyword String="selfwords" attribute="Builtin"/>
@@ -568,6 +610,9 @@ fn kate_syntax(vocabulary: &Vocabulary) -> String {
         <RegExpr String="\b\d[\d_]*(\.\d[\d_]*)?\b" attribute="Number"/>
         <RegExpr String="^\s*-(?=\s)" attribute="Operator"/>
         <RegExpr String="^\s*\+\+?(?=\s)" attribute="Operator"/>
+      </context>
+      <context name="Fence" attribute="String" lineEndContext="#stay" dynamic="true">
+        <RegExpr String="^\s*%1[`~]*\s*$" attribute="Operator" context="#pop" dynamic="true"/>
       </context>
       <context name="Comment" attribute="Comment" lineEndContext="#pop"/>
       <context name="String" attribute="String" lineEndContext="#pop">

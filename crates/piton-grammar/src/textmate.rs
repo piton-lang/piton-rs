@@ -28,6 +28,7 @@ pub fn grammar(vocabulary: &Vocabulary) -> String {
   "scopeName": "source.piton",
   "fileTypes": ["pi"],
   "patterns": [
+    {{ "include": "#fenced-code" }},
     {{ "include": "#comment" }},
     {{ "include": "#import" }},
     {{ "include": "#anchor-declaration" }},
@@ -38,6 +39,17 @@ pub fn grammar(vocabulary: &Vocabulary) -> String {
     {{ "include": "#value" }}
   ],
   "repository": {{
+    "fenced-code": {{
+      "comment": "Everything between two fences is kept as written, so nothing inside is highlighted as Piton. The closing fence repeats the opening one's character, at least as many times.",
+      "begin": "^[ \\t]+((`)`{{2,}}(?=[^`]*$)|(~)~{{2,}})(.*)$",
+      "beginCaptures": {{
+        "1": {{ "name": "punctuation.definition.raw.code-fence.begin.piton" }},
+        "4": {{ "name": "fenced_code.block.language.piton" }}
+      }},
+      "end": "^[ \\t]*(\\1[`~]*)[ \\t]*$",
+      "endCaptures": {{ "1": {{ "name": "punctuation.definition.raw.code-fence.end.piton" }} }},
+      "contentName": "markup.raw.block.piton"
+    }},
     "comment": {{
       "match": "(?:^|(?<=\\s))(//.*)$",
       "captures": {{ "1": {{ "name": "comment.line.double-slash.piton" }} }}

@@ -173,6 +173,11 @@ const RULES: &str = "\
 - Two files may import from each other. A circular reference is an error only
   when it cannot settle: `${A}` and `${B}` naming each other is fine, because an
   interpolated anchor renders as its name, while `A: {B}` and `B: {A}` is not.
+- Prose lines join with a space and a blank line starts a new line. A fenced
+  code block, opened on an indented line by three or more backticks or tildes
+  and closed by a line of at least as many of the same, is taken exactly as
+  written instead: no comments, escapes, keys, or interpolations inside, its
+  line breaks and relative indentation kept, its fences part of the string.
 - Indentation must be consistent within a file; the canonical style is four
   spaces.
 

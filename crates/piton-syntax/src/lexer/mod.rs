@@ -72,6 +72,7 @@ pub fn lex(src: &str) -> Lexed {
 pub fn in_prose_run(src: &str, line_start: usize) -> bool {
     let width_of = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
     let mut prose: Option<usize> = None;
+    let mut fence_end: Option<usize> = None;
     let mut at = 0usize;
     for line in src.split_inclusive('\n') {
         let width = width_of(line);
@@ -79,6 +80,10 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
             break;
         }
         at += line.len();
+        // A fenced code block is content, whatever its lines look like.
+        if fence_end.is_some_and(|end| at - line.len() <= end) {
+            continue;
+        }
         let body = line.trim();
         if body.is_empty() {
             prose = None;
@@ -98,6 +103,14 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
         if !continuing {
             prose = None;
         }
+        if let Some(fence) = fence_open(line.trim()) {
+            let open_end = at - line.len() + line.trim_end_matches(['\n', '\r']).len();
+            fence_end = Some(fence_extent(src, open_end, width, fence).end);
+            if prose.is_none() {
+                prose = Some(width);
+            }
+            continue;
+        }
         let marker = ["-", "++", "+"].iter().any(|it| {
             body.strip_prefix(*it).is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t']))
         });
@@ -113,8 +126,84 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
             prose = Some(width);
         }
     }
+    if fence_end.is_some_and(|end| line_start <= end) {
+        return true;
+    }
     let target = src[line_start..].split('\n').next().unwrap_or("");
     prose.is_some_and(|base| width_of(target) >= base)
+}
+
+/// The fence a line opens a code block with, if it opens one.
+///
+/// `body` is the line without its indentation or newline. A fence is three or
+/// more backticks or tildes, as in Markdown, optionally followed by an info
+/// string such as a language name. A backtick fence's info string may not hold
+/// a backtick, so a line of inline code spans is not mistaken for one.
+pub(crate) fn fence_open(body: &str) -> Option<Fence> {
+    let marker = *body.as_bytes().first()?;
+    if marker != b'`' && marker != b'~' {
+        return None;
+    }
+    let len = body.bytes().take_while(|&byte| byte == marker).count();
+    if len < 3 || (marker == b'`' && body[len..].contains('`')) {
+        return None;
+    }
+    Some(Fence { marker, len })
+}
+
+/// The characters and length a code fence opened with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Fence {
+    marker: u8,
+    len: usize,
+}
+
+impl Fence {
+    /// Whether `body`, a line without its indentation, closes this fence: at
+    /// least as many of the same character, and nothing else.
+    fn closed_by(self, body: &str) -> bool {
+        let body = body.trim_end();
+        body.len() >= self.len && body.bytes().all(|byte| byte == self.marker)
+    }
+}
+
+/// Where a code fence's content ends.
+pub(crate) struct FenceExtent {
+    /// The end of the fence's last line, not counting its newline.
+    pub end: usize,
+    /// Whether that line is a closing fence.
+    pub closed: bool,
+}
+
+/// Find the end of the code fence whose opening line ends at `open_end` and is
+/// indented by `width`.
+///
+/// The fence runs to the first line that closes it. A line indented less than
+/// the fence cannot be inside it, because indentation is still what says which
+/// block a line belongs to, so a fence that is never closed ends at the last
+/// line before one, and blank lines trailing it are left outside.
+pub(crate) fn fence_extent(src: &str, open_end: usize, width: usize, fence: Fence) -> FenceExtent {
+    let mut extent = FenceExtent { end: open_end, closed: false };
+    let mut at = open_end;
+    while at < src.len() {
+        // Step over the newline that ends the previous line.
+        at += if src[at..].starts_with("\r\n") { 2 } else { 1 };
+        let line_end = src[at..].find('\n').map_or(src.len(), |offset| at + offset);
+        let line = src[at..line_end].trim_end_matches('\r');
+        let body = line.trim_start_matches([' ', '\t']);
+        if !body.is_empty() {
+            if line.len() - body.len() < width {
+                break;
+            }
+            extent.end = at + line.len();
+            if fence.closed_by(body) {
+                extent.closed = true;
+                break;
+            }
+        }
+        at = line_end;
+    }
+    extent
 }
 
 /// Whether a line opens with `name(:: type)*:`, read from the text alone.
@@ -341,6 +430,14 @@ impl<'a> Lexer<'a> {
         if !continuing_prose {
             self.prose = None;
         }
+        if let Some(fence) = fence_open(&self.src[self.pos..self.line_end()]) {
+            // A code block is part of the prose around it, so a `key:` right
+            // after one is still a sentence until a blank line says otherwise.
+            if self.prose.is_none() {
+                self.prose = Some(width);
+            }
+            return self.code_block(width, fence);
+        }
         let bytes = self.src.as_bytes();
         let at_marker = |lexer: &Self, marker: &str| {
             lexer.src[lexer.pos..].starts_with(marker)
@@ -380,6 +477,48 @@ impl<'a> Lexer<'a> {
             self.prose = Some(width);
         }
         self.value_region();
+    }
+
+    /// A fenced code block, from its opening fence to its closing one.
+    ///
+    /// Every line inside is taken exactly as written: nothing is a comment, a
+    /// key, an escape, or an interpolation, and indentation inside the fence
+    /// opens no block. The indentation the fence itself sits at is syntax and
+    /// becomes whitespace, and everything past it on a line is [`CODE`].
+    ///
+    /// [`CODE`]: SyntaxKind::CODE
+    fn code_block(&mut self, width: usize, fence: Fence) {
+        let open_start = self.pos;
+        let open_end = self.line_end();
+        self.emit_range(SyntaxKind::FENCE, open_start, open_end);
+        self.pos = open_end;
+        let extent = fence_extent(self.src, open_end, width, fence);
+        if !extent.closed {
+            let marker = (fence.marker as char).to_string().repeat(fence.len);
+            self.error(
+                &format!("this code fence is never closed; end it with a line of `{marker}` indented as far as the fence"),
+                open_start,
+                open_end,
+            );
+        }
+        while self.pos < extent.end {
+            let newline = if self.src[self.pos..].starts_with("\r\n") { 2 } else { 1 };
+            let line_start = self.pos + newline;
+            self.pos = line_start;
+            let line_end = self.line_end();
+            let body_start = line_end - self.src[line_start..line_end].trim_start_matches([' ', '\t']).len();
+            let body = &self.src[body_start..line_end];
+            let (kind, content_start) = if body.is_empty() {
+                (SyntaxKind::WHITESPACE, line_end)
+            } else if extent.closed && line_end == extent.end {
+                (SyntaxKind::FENCE, body_start)
+            } else {
+                (SyntaxKind::CODE, line_start + width)
+            };
+            self.emit_range(SyntaxKind::WHITESPACE, line_start - newline, content_start);
+            self.emit_range(kind, content_start, line_end);
+            self.pos = line_end;
+        }
     }
 
     // ---- declaration fragments -------------------------------------------

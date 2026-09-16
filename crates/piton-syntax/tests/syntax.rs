@@ -126,6 +126,11 @@ const CORPUS: &[&str] = &[
     "anchor A:\n    x: 1\n    // a comment after the last property\nb: 2\n",
     "unicode: café ☕ naïve\n",
     "unicode_key: café: yes\n",
+    "fenced:\n    ```css\n    .button {\n      color: #fff; // not a comment\n    }\n    ```\n",
+    "fenced:\n    ~~~\n    key: ${not} {an} \\escape\n\n    ~~~\nnext: 1\n",
+    "fenced:\n    Prose first:\n    ````md\n    ```\n    ````\n    and after.\n",
+    "fenced:\r\n    ```\r\n    crlf\r\n    ```\r\n",
+    "fenced:\n    ```\n    ```",
 ];
 
 /// Inputs that must be reported, but must not stop the file being parsed.
@@ -137,6 +142,8 @@ const INVALID: &[&str] = &[
     "!!! nonsense\n",
     "expr: {unclosed\n",
     "quoted: \"unterminated\n",
+    "fenced:\n    ```\n    never closed\n\nnext: 1\n",
+    "fenced:\n    ```",
 ];
 
 #[test]
@@ -436,4 +443,90 @@ pure:
     assert!(keys.contains(&"however"), "{keys:?}");
     assert!(keys.contains(&"sibling"), "{keys:?}");
     assert!(!keys.contains(&"and"), "`and:` is prose, not a key: {keys:?}");
+}
+
+// ---- fenced code blocks ------------------------------------------------------------
+
+#[test]
+fn a_fence_keeps_every_line_inside_it_as_code() {
+    use SyntaxKind::*;
+    let source = "x:\n    ```css\n    a: ${b} // c\n        - d\n\n    \\e\n    ```\n    after\n";
+    let rendered = tree(source);
+    assert!(rendered.contains("CODE_BLOCK"), "{rendered}");
+    assert!(!rendered.contains("PROPERTY") && !rendered.contains("LIST_ITEM"), "{rendered}");
+    let kinds: Vec<(SyntaxKind, String)> = all_tokens(source);
+    for absent in [COMMENT, SIGIL, ESCAPE, DASH, BLANK] {
+        assert!(!kinds.iter().any(|(kind, _)| *kind == absent), "{absent:?} in {kinds:?}");
+    }
+    assert_eq!(kinds.iter().filter(|(kind, _)| *kind == COLON).count(), 1, "only `x:` is a key");
+    let code: Vec<&str> =
+        kinds.iter().filter(|(kind, _)| *kind == CODE).map(|(_, text)| text.as_str()).collect();
+    // Indentation past the fence's own is content.
+    assert_eq!(code, vec!["a: ${b} // c", "    - d", "\\e"]);
+    let fences = kinds.iter().filter(|(kind, _)| *kind == FENCE).count();
+    assert_eq!(fences, 2);
+    assert!(!has_errors(source));
+}
+
+#[test]
+fn a_fence_compiles_to_its_text_less_the_fence_indentation() {
+    let source = "x:\n    ```css\n    .a {\n      b: c;\n\n    }\n    ```   \n";
+    let block = parse(source)
+        .syntax()
+        .descendants()
+        .find_map(<piton_syntax::ast::CodeBlock as piton_syntax::ast::AstNode>::cast)
+        .expect("a code block");
+    assert!(block.is_closed());
+    assert_eq!(block.text(), "```css\n.a {\n  b: c;\n\n}\n```");
+}
+
+#[test]
+fn only_a_matching_fence_closes_one() {
+    use SyntaxKind::*;
+    // A shorter run, the other character, and a fence with an info string are
+    // all content.
+    let source = "x:\n    ````\n    ```\n    ~~~~\n    ````js\n    `````\n";
+    let code: Vec<String> = tokens(source)
+        .into_iter()
+        .filter(|(kind, _)| *kind == CODE)
+        .map(|(_, text)| text)
+        .collect();
+    assert_eq!(code, vec!["```", "~~~~", "````js"]);
+    assert!(!has_errors(source));
+}
+
+#[test]
+fn inline_code_is_not_a_fence() {
+    let source = "x:\n    ```a``` is inline\n";
+    assert!(!tree(source).contains("CODE_BLOCK"), "{}", tree(source));
+}
+
+#[test]
+fn an_unclosed_fence_ends_where_its_block_does() {
+    let source = "x:\n    ```\n    code\n\ny: 1\n";
+    let parsed = parse(source);
+    assert!(parsed.errors.iter().any(|it| it.message.contains("never closed")), "{:?}", parsed.errors);
+    let rendered = tree(source);
+    assert!(rendered.contains("CODE_BLOCK"), "{rendered}");
+    // `y` is still a declaration of its own.
+    assert_eq!(rendered.matches("VAR_DECL").count(), 2, "{rendered}");
+}
+
+#[test]
+fn a_fence_is_prose_to_in_prose_run() {
+    let source = "x:\n    ```\n    key: value\n    ```\n    after: still prose\n\n    key: value\n";
+    let expected = [false, false, true, true, true, false, false];
+    let mut line_start = 0usize;
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        assert_eq!(piton_syntax::in_prose_run(source, line_start), expected[index], "line {index}: {line:?}");
+        line_start += line.len();
+    }
+    let lexed = piton_syntax::lex(source);
+    let keys: Vec<&str> = lexed
+        .tokens
+        .iter()
+        .filter(|token| token.kind == SyntaxKind::IDENT)
+        .map(|token| &source[token.range])
+        .collect();
+    assert_eq!(keys, vec!["x", "key"], "only the key after the blank line is a key");
 }

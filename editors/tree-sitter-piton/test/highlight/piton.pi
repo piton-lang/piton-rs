@@ -46,6 +46,11 @@ skill BuildIt:
 // <- keyword.function
 //    ^ type.definition
     prompt: build the thing
+    example:
+        ```sh
+        echo ${not} // an interpolation or a comment
+        ```
+//      ^ punctuation.special
 
 from @piton/config import PitonConfig
 // <- keyword

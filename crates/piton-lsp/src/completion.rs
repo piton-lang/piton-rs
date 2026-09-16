@@ -121,12 +121,6 @@ fn context(view: &View, file: FileId, offset: TextSize) -> Context {
     let line_start = text[..cursor].rfind('\n').map_or(0, |it| it + 1);
     let prefix = &text[line_start..cursor];
 
-    // A half-typed `from`/`use` line does not parse, which is exactly when
-    // completion runs, so it is read from the line rather than from the tree.
-    if let Some(context) = import_line_context(view, file, offset, prefix) {
-        return context;
-    }
-
     let node = match root.covering_element(TextRange::empty(offset)) {
         piton_syntax::NodeOrToken::Node(node) => node,
         piton_syntax::NodeOrToken::Token(token) => match token.parent() {
@@ -134,6 +128,18 @@ fn context(view: &View, file: FileId, offset: TextSize) -> Context {
             None => root.clone(),
         },
     };
+
+    // What a fence holds is kept exactly as written and never read as Piton,
+    // however much of it looks like an import or an expression.
+    if node.ancestors().any(|it| it.kind() == CODE_BLOCK) {
+        return Context::Nothing;
+    }
+
+    // A half-typed `from`/`use` line does not parse, which is exactly when
+    // completion runs, so it is read from the line rather than from the tree.
+    if let Some(context) = import_line_context(view, file, offset, prefix) {
+        return context;
+    }
 
     for ancestor in node.ancestors() {
         match ancestor.kind() {

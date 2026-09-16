@@ -235,9 +235,20 @@ fn block_parser<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>>
         let text_line = group((value, tok(NEWLINE).or_not()))
             .map(|parts| Tree::new(TEXT_LINE, children(parts)));
 
+        // The lexer has already found where the fence ends, so a code block
+        // is its opening fence, its lines, and a closing fence if it has one.
+        let code_block = group((
+            tok(FENCE),
+            tok(CODE).repeated().collect::<Vec<Child>>(),
+            tok(FENCE).or_not(),
+            tok(NEWLINE).or_not(),
+        ))
+        .map(|parts| Tree::new(CODE_BLOCK, children(parts)));
+
         let blank = tok(BLANK).map(|token| Tree::new(BLANK_LINE, vec![token]));
 
-        let entry = choice((property, list_item, spread_item, text_line, blank, error_line()));
+        let entry =
+            choice((property, list_item, spread_item, code_block, text_line, blank, error_line()));
 
         group((
             tok(INDENT),

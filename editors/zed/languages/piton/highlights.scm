@@ -5,6 +5,11 @@
 
 (comment) @comment
 
+; A fence is kept exactly as written, so its content is one string.
+(fence_open) @punctuation.special
+(fence_close) @punctuation.special
+(code) @string
+
 [
   "anchor"
   "abstract"

@@ -132,7 +132,10 @@ fn classify(token: &SyntaxToken) -> Option<(u32, u32)> {
         THIS_KW | SELF_KW | SUPER_KW => (T_KEYWORD, READONLY),
         TRUE_KW | FALSE_KW | NULL_KW => (T_ENUM_MEMBER, READONLY),
         NUMBER => (T_NUMBER, 0),
-        QUOTED_STRING | TEXT | ESCAPE => (T_STRING, 0),
+        // Nothing inside a fence is a name, a key, or a comment: its fences
+        // mark where it starts and ends, and every line between is a string.
+        QUOTED_STRING | TEXT | ESCAPE | CODE => (T_STRING, 0),
+        FENCE => (T_OPERATOR, 0),
         PATH => (T_NAMESPACE, 0),
         SIGIL => (T_DECORATOR, 0),
         COLON | COLON2 | COMMA | DOT | DASH | STAR | PLUS | PLUS2 | MINUS | SLASH | PERCENT
@@ -166,25 +169,32 @@ fn classify(token: &SyntaxToken) -> Option<(u32, u32)> {
     })
 }
 
-/// Fold every indented block and every wrapped import list.
+/// Fold every indented block, every fenced code block, and every wrapped
+/// import list.
 pub fn folding_ranges(view: &View, file: FileId) -> Vec<FoldingRange> {
     let index = view.line_index(file);
     let root = view.compilation.analysis.db.file(file).parse.syntax();
     let mut out = Vec::new();
     for node in root.descendants() {
         let kind = match node.kind() {
-            BLOCK => FoldingRangeKind::Region,
+            BLOCK | CODE_BLOCK => FoldingRangeKind::Region,
             IMPORT_LIST => FoldingRangeKind::Imports,
             _ => continue,
         };
-        // Fold from the header line so the collapsed view keeps its key.
-        let header = node.parent().unwrap_or_else(|| node.clone());
+        // Fold from the header line so the collapsed view keeps its key. A
+        // fence is its own header, and folds down to its closing fence.
+        let header = match node.kind() {
+            CODE_BLOCK => node.clone(),
+            _ => node.parent().unwrap_or_else(|| node.clone()),
+        };
         let start = index.position(header.text_range().start()).line;
         let end = index.position(node.text_range().end()).line;
         if end > start {
             out.push(FoldingRange {
                 start_line: start,
-                end_line: end.saturating_sub(u32::from(node.kind() == BLOCK)),
+                end_line: end.saturating_sub(u32::from(
+                    node.kind() == BLOCK || node.last_token().is_some_and(|it| it.kind() == NEWLINE),
+                )),
                 kind: Some(kind),
                 ..FoldingRange::default()
             });

@@ -80,6 +80,8 @@ ast_node!(/// `+ value` or `++ value`.
     SpreadItem, SPREAD_ITEM);
 ast_node!(/// A line of prose.
     TextLine, TEXT_LINE);
+ast_node!(/// A fenced code block.
+    CodeBlock, CODE_BLOCK);
 ast_node!(/// An empty line.
     BlankLine, BLANK_LINE);
 ast_node!(/// The value region of a line.
@@ -387,6 +389,7 @@ pub enum Entry {
     ListItem(ListItem),
     Spread(SpreadItem),
     Text(TextLine),
+    Code(CodeBlock),
     Blank(BlankLine),
 }
 
@@ -397,6 +400,7 @@ impl Entry {
             LIST_ITEM => Entry::ListItem(ListItem { syntax }),
             SPREAD_ITEM => Entry::Spread(SpreadItem { syntax }),
             TEXT_LINE => Entry::Text(TextLine { syntax }),
+            CODE_BLOCK => Entry::Code(CodeBlock { syntax }),
             BLANK_LINE => Entry::Blank(BlankLine { syntax }),
             _ => return None,
         })
@@ -407,6 +411,7 @@ impl Entry {
             Entry::ListItem(it) => &it.syntax,
             Entry::Spread(it) => &it.syntax,
             Entry::Text(it) => &it.syntax,
+            Entry::Code(it) => &it.syntax,
             Entry::Blank(it) => &it.syntax,
         }
     }
@@ -466,6 +471,31 @@ impl SpreadItem {
 impl TextLine {
     pub fn value(&self) -> Option<Value> {
         child(&self.syntax)
+    }
+}
+
+impl CodeBlock {
+    /// The block as the string it compiles to: its fences and every line
+    /// between them exactly as written, less the indentation the opening fence
+    /// sits at, which is syntax. Blank lines inside the fence are kept.
+    pub fn text(&self) -> String {
+        let mut out = String::new();
+        for token in self.syntax.children_with_tokens().filter_map(|it| it.into_token()) {
+            match token.kind() {
+                FENCE => out.push_str(token.text().trim_end()),
+                CODE => out.push_str(token.text()),
+                // Only the line breaks: the indentation beside them is the
+                // fence's, and the newline ending the block is a `NEWLINE`.
+                WHITESPACE => out.extend(token.text().chars().filter(|&it| it == '\n')),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Whether the block has its closing fence.
+    pub fn is_closed(&self) -> bool {
+        self.syntax.children_with_tokens().filter(|it| it.kind() == FENCE).count() == 2
     }
 }
 

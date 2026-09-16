@@ -156,6 +156,14 @@ impl Printer {
                 self.declaration(&node, depth, marker.to_string())
             }
             TEXT_LINE => self.declaration(&node, depth, String::new()),
+            // A fence is content: only the indentation it shares with its
+            // fence moves, so every line keeps its place relative to the fence.
+            CODE_BLOCK => {
+                let Some(block) = ast::CodeBlock::cast(node) else { return };
+                for line in block.text().split('\n') {
+                    self.line(depth, line);
+                }
+            }
             IMPORT_DECL | REEXPORT_DECL => self.import(&node, depth),
             USE_DECL => {
                 let path = token_of(&node, PATH).map(text_of).unwrap_or_default();
@@ -590,6 +598,30 @@ mod tests {
     #[test]
     fn keeps_the_spacing_inside_a_code_span() {
         check("note:\n    Run `a    b`   now\n", "note:\n    Run `a    b` now\n");
+    }
+
+    #[test]
+    fn keeps_a_fenced_code_block_as_written() {
+        // Nothing inside is rewrapped or tidied, blank lines included, and the
+        // prose either side is its own paragraph.
+        let source = "note:\n    Before\n    it.\n    ```js\n    let  a =   1;   // spaced\n\n\n      - indented\n    ```\n    After   it.\n";
+        check(source, "note:\n    Before it.\n    ```js\n    let  a =   1;   // spaced\n\n\n      - indented\n    ```\n    After it.\n");
+    }
+
+    #[test]
+    fn moves_a_fenced_code_block_with_its_fence() {
+        check(
+            "note:\n  ~~~\n  x:\n      y\n     ~~~\n",
+            "note:\n    ~~~\n    x:\n        y\n    ~~~\n",
+        );
+    }
+
+    #[test]
+    fn never_wraps_prose_onto_a_line_that_opens_a_fence() {
+        let words = "word ".repeat(15);
+        let source = format!("note:\n    {words}``` and more\n");
+        let output = format(&source);
+        assert!(!output.lines().any(|line| line.trim_start().starts_with("```")), "{output}");
     }
 
     #[test]

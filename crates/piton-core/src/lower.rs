@@ -144,6 +144,9 @@ enum Group {
 enum TextItem {
     Line(Line),
     Expr(Expr),
+    /// A fenced code block, which is always a paragraph of its own: joining it
+    /// to the prose beside it with a space would put the fence mid-line.
+    Code(Line),
     Break,
 }
 
@@ -198,6 +201,13 @@ fn lower_block(inline: Option<ast::Value>, block: &ast::Block) -> Node {
             ast::Entry::Text(line) => {
                 let piece = line.value().as_ref().and_then(lower_value);
                 push_text(&mut groups, piece);
+            }
+            ast::Entry::Code(code) => {
+                let line = Line { segments: vec![Segment::Literal(code.text())] };
+                match groups.last_mut() {
+                    Some(Group::Text(items)) => items.push(TextItem::Code(line)),
+                    _ => groups.push(Group::Text(vec![TextItem::Code(line)])),
+                }
             }
             ast::Entry::Blank(_) => {
                 if let Some(Group::Text(items)) = groups.last_mut() {
@@ -346,6 +356,13 @@ fn finish_text(items: Vec<TextItem>) -> Option<Node> {
                 }
             }
             TextItem::Line(line) => paragraphs.last_mut().unwrap().push(line),
+            TextItem::Code(line) => {
+                if !paragraphs.last().is_some_and(Vec::is_empty) {
+                    paragraphs.push(Vec::new());
+                }
+                paragraphs.last_mut().unwrap().push(line);
+                paragraphs.push(Vec::new());
+            }
             TextItem::Expr(expr) => {
                 let expr_range = expr.range();
                 range = Some(range.map_or(expr_range, |r: TextRange| r.cover(expr_range)));

@@ -288,3 +288,25 @@ fn the_language_configuration_is_usable() {
     assert!(matches(&before, "    items:"), "so does a property with no value");
     assert!(!matches(&before, "    name: value"), "a property with a value does not");
 }
+
+#[test]
+fn a_fence_opens_a_raw_block_that_only_a_matching_fence_closes() {
+    let grammar = grammar();
+    assert_eq!(grammar["patterns"][0]["include"], "#fenced-code", "a fence wins over every other rule");
+    let begin = pattern(&grammar, "fenced-code", "begin");
+    for fence in ["    ```", "    ```css", "\t~~~~ yaml", "    ````"] {
+        assert!(matches(&begin, fence), "{fence:?} opens a fence");
+    }
+    for not_fence in ["```", "    ``", "    ```a``` is inline", "    text ```"] {
+        assert!(!matches(&begin, not_fence), "{not_fence:?} is not a fence");
+    }
+
+    // The end pattern refers back to the opening run, so check it the way an
+    // editor runs it: with that run substituted in.
+    let end_raw = grammar["repository"]["fenced-code"]["end"].as_str().unwrap();
+    let end = |opening: &str| Regex::new(&end_raw.replace("\\1", &fancy_regex::escape(opening))).unwrap();
+    assert!(matches(&end("```"), "    ```"));
+    assert!(matches(&end("```"), "        ````  "));
+    assert!(!matches(&end("````"), "    ```"), "a shorter run is content");
+    assert!(!matches(&end("```"), "    ```js"), "a fence with an info string is content");
+}

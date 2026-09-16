@@ -926,3 +926,61 @@ fn a_failure_does_not_hide_a_separate_problem() {
     let found = diagnostics("anchor A:\n    p: {Missing}\nb:: string: {A}\na: 1\n");
     assert_eq!(found.len(), 2, "the constraint on `b` is a separate mistake: {found:?}");
 }
+
+// ---- fenced code blocks -----------------------------------------------------------
+
+#[test]
+fn a_fence_keeps_its_content_exactly_as_written() {
+    let source = "\
+example:
+    ```css
+    .button {
+      background-color: #00a; // not a comment
+    }
+
+    a: ${not} {an} \\escape
+    ```
+";
+    assert_eq!(
+        eval(source, "example"),
+        json!("```css\n.button {\n  background-color: #00a; // not a comment\n}\n\na: ${not} {an} \\escape\n```")
+    );
+}
+
+#[test]
+fn a_fence_is_a_paragraph_of_its_own() {
+    let source = "\
+prompt:
+    Compare that
+    to this:
+    ~~~
+    one
+    ~~~
+    Which one
+    would you rather write?
+
+    Next paragraph.
+";
+    assert_eq!(
+        eval(source, "prompt"),
+        json!("Compare that to this:\n~~~\none\n~~~\nWhich one would you rather write?\nNext paragraph.")
+    );
+}
+
+#[test]
+fn a_fence_nested_in_a_list_item_keeps_its_relative_indentation() {
+    let source = "\
+steps:
+    - Run it
+        ```sh
+          indented
+        ```
+";
+    assert_eq!(eval(source, "steps"), json!(["Run it", "```sh\n  indented\n```"]));
+}
+
+#[test]
+fn an_unclosed_fence_is_reported() {
+    let (_, diagnostics) = eval_with_diagnostics("a:\n    ```\n    code\n", "a");
+    assert!(diagnostics.iter().any(|it| it.contains("never closed")), "{diagnostics:?}");
+}

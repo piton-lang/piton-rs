@@ -42,6 +42,10 @@ pub enum SyntaxKind {
     PATH,
     /// The `$`, `@`, or `name` preceding an interpolation's `{`.
     SIGIL,
+    /// The opening or closing line of a fenced code block, such as ```` ```css ````.
+    FENCE,
+    /// One line inside a fenced code block, kept exactly as written.
+    CODE,
 
     // ---- keywords ------------------------------------------------------
     ANCHOR_KW,
@@ -134,6 +138,8 @@ pub enum SyntaxKind {
     SPREAD_ITEM,
     /// A line of prose inside a block.
     TEXT_LINE,
+    /// A fenced code block inside a block, from its opening fence to its closing one.
+    CODE_BLOCK,
     /// An empty line.
     BLANK_LINE,
     /// The value region following a `:`, `-`, or `+`.
@@ -180,6 +186,8 @@ pub const ALL_KINDS: &[SyntaxKind] = &[
     SyntaxKind::ESCAPE,
     SyntaxKind::PATH,
     SyntaxKind::SIGIL,
+    SyntaxKind::FENCE,
+    SyntaxKind::CODE,
     SyntaxKind::ANCHOR_KW,
     SyntaxKind::ABSTRACT_KW,
     SyntaxKind::EXTENDS_KW,
@@ -242,6 +250,7 @@ pub const ALL_KINDS: &[SyntaxKind] = &[
     SyntaxKind::LIST_ITEM,
     SyntaxKind::SPREAD_ITEM,
     SyntaxKind::TEXT_LINE,
+    SyntaxKind::CODE_BLOCK,
     SyntaxKind::BLANK_LINE,
     SyntaxKind::VALUE,
     SyntaxKind::TEXT_VALUE,

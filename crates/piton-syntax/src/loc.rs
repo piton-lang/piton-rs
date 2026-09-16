@@ -97,11 +97,16 @@ fn mark(node: &SyntaxNode, starts: &[usize], lines: &mut [LineKind]) {
     }
 }
 
-/// True when a token is part of a text value.
+/// True when a token is part of a text value, a fenced code block included:
+/// what a fence holds is written into the string, not read as Piton.
 fn in_prose(token: &crate::SyntaxToken) -> bool {
     token
         .parent()
-        .map(|parent| parent.ancestors().any(|node| node.kind() == SyntaxKind::TEXT_VALUE))
+        .map(|parent| {
+            parent
+                .ancestors()
+                .any(|node| matches!(node.kind(), SyntaxKind::TEXT_VALUE | SyntaxKind::CODE_BLOCK))
+        })
         .unwrap_or(false)
 }
 

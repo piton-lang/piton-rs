@@ -20,6 +20,7 @@ A name bound by an import item resolves to the item's alias when the item has on
 - A named type in a constraint is a built-in type when it names one, as the constraint checker reads it, and otherwise resolves to an anchor in scope, and so does the type inside `T[]`.
 - The type inside `extends T` resolves only to an anchor in scope, never to a built-in type.
 - The name after `export` resolves as a bare name.
+- Nothing inside a fenced code block resolves, an interpolation or an expression in braces written there included, because the compiler keeps a fence's content as text and never reads it.
 
 ## Imports
 

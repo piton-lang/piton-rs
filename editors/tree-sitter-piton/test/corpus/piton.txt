@@ -52,6 +52,31 @@ message: ${name} @{Anchor} reference{Other} SeeAlso{X} !{X} {bare}
       (interpolation (sigil) (expression (identifier))))))
 
 ================
+Fenced code blocks
+================
+
+example:
+    ```css
+    .a {
+      key: ${not} // not a comment
+
+    }
+    ````
+    after: still prose
+
+---
+
+(source_file
+  (property key: (key))
+  (code_block
+    open: (fence_open)
+    (code)
+    (code)
+    (code)
+    close: (fence_close))
+  (text_line (value (word) (operator) (word) (word))))
+
+================
 Lists and spreads
 ================
 

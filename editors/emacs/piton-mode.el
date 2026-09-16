@@ -35,8 +35,27 @@
 (defconst piton--types '("string" "number" "boolean" "null" "list" "dictionary" "anchor" "any" "simple" "complex"))
 (defconst piton--framework-keywords '("agent" "belay-adapter" "belay-agent-adapter" "belay-config" "command" "instruction" "self-instruction" "skill"))
 
+(defun piton--match-fence (limit)
+  "Match the next fenced code block that starts before LIMIT, for font lock.
+A fence closes at a run of its own character at least as long as the one that
+opened it; one that never closes runs to the end of the buffer."
+  (when (re-search-forward "^[[:space:]]+\\(```+\\|~~~+\\)[^`\n]*$" limit t)
+    (let ((start (match-beginning 0))
+          (fence (match-string 1)))
+      (set-match-data
+       (list start
+             (if (re-search-forward
+                  (concat "^[[:space:]]*" (regexp-quote fence)
+                          (regexp-quote (substring fence 0 1)) "*[[:space:]]*$")
+                  nil t)
+                 (point)
+               (goto-char (point-max)))))
+      t)))
+
 (defconst piton-font-lock-keywords
   (list
+   ;; A fenced code block is kept as written, so it overrides every rule below.
+   '(piton--match-fence 0 font-lock-string-face t)
    ;; A comment starts a line or follows whitespace, so URLs survive.
    '("\\(?:^\\|[[:space:]]\\)\\(//.*\\)$" 1 font-lock-comment-face)
    `(,(concat "\\_<" (regexp-opt piton--keywords) "\\_>") . font-lock-keyword-face)
@@ -102,6 +121,7 @@
   "Major mode for editing Piton source."
   :syntax-table piton-mode-syntax-table
   (setq-local font-lock-defaults '(piton-font-lock-keywords nil nil nil nil))
+  (setq-local font-lock-multiline t)
   (setq-local comment-start "// ")
   (setq-local comment-end "")
   (setq-local comment-start-skip "//+[[:space:]]*")

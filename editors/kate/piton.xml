@@ -38,6 +38,7 @@
     </list>
     <contexts>
       <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <RegExpr String="^\s+(`{3,}(?=[^`]*$)|~{3,}).*$" attribute="Operator" context="Fence" column="0"/>
         <Detect2Chars char="/" char1="/" attribute="Comment" context="Comment"/>
         <keyword String="keywords" attribute="Keyword"/>
         <keyword String="selfwords" attribute="Builtin"/>
@@ -49,6 +50,9 @@
         <RegExpr String="\b\d[\d_]*(\.\d[\d_]*)?\b" attribute="Number"/>
         <RegExpr String="^\s*-(?=\s)" attribute="Operator"/>
         <RegExpr String="^\s*\+\+?(?=\s)" attribute="Operator"/>
+      </context>
+      <context name="Fence" attribute="String" lineEndContext="#stay" dynamic="true">
+        <RegExpr String="^\s*%1[`~]*\s*$" attribute="Operator" context="#pop" dynamic="true"/>
       </context>
       <context name="Comment" attribute="Comment" lineEndContext="#pop"/>
       <context name="String" attribute="String" lineEndContext="#pop">

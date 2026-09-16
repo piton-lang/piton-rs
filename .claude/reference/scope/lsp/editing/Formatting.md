@@ -12,7 +12,8 @@ Applying `piton format` to a document without disturbing what did not change
 - A document that is already formatted produces no edits.
 - Text the parser could not read is kept exactly as it was written.
 - Each paragraph of prose is rewrapped to fill eighty columns, indentation included, because lines inside a paragraph join with a space and where they break carries no meaning.
-- A paragraph ends at a blank line, a comment, or anything that is not prose, and rewrapping never moves text across that boundary.
+- A paragraph ends at a blank line, a comment, a fenced code block, or anything that is not prose, and rewrapping never moves text across that boundary.
+- A fenced code block is content, not prose: nothing inside it is rewrapped, tidied, or reindented relative to its fence. Only the fence moves to the depth it belongs at, and every line inside moves with it by the same amount.
 - Spaces between words in prose collapse to one, except that two or more after the end of a sentence become exactly two, and spacing inside a `code span` is kept as written because there it is content.
 - A line breaks only between words, never inside the two spaces after a sentence, an expression in braces, or a quoted string.
 - Rewrapping changes nothing about what a file compiles to except the spaces between words: a break that would make a line read as something other than prose, such as a lone `-` starting it, is not taken, and a paragraph with no safe way to rewrap keeps the lines it was written with, its spacing still tidied.

@@ -374,6 +374,22 @@ fn an_open_config_file_stays_with_the_project_it_declares() {
 }
 
 #[test]
+fn an_unsaved_config_edit_reconfigures_the_project() {
+    // What the editor shows is what the project is configured by, as for any
+    // other source; the disk only catches up when the author saves.
+    let (root, mut workspace) = workspace(SCOPED_PROJECT);
+    std::fs::create_dir_all(root.join("other")).unwrap();
+    let config = root.join("piton.config.pi");
+    workspace.open(
+        config.clone(),
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./other\n".to_string(),
+    );
+
+    let view = view_of(&mut workspace, &config);
+    assert_eq!(view.project.root, root.join("other"));
+}
+
+#[test]
 fn a_root_that_is_not_there_is_reported_on_the_config() {
     let (root, mut workspace) = workspace(&[
         (
@@ -1618,5 +1634,73 @@ shape Concrete:
     assert!(
         labels.iter().any(|it| it == "weight"),
         "a blank line reopens the key position: {labels:?}"
+    );
+}
+
+// ---- fenced code blocks -----------------------------------------------------
+
+const FENCED: &str = "\
+abstract anchor Shape as shape:
+    description:: string
+    weight:: number
+
+shape Concrete:
+    description:
+        ```piton
+        from ./x import Shape
+        {Shape} ${Shape}
+        ```
+";
+
+#[test]
+fn nothing_is_offered_inside_a_fenced_code_block() {
+    for marker in ["```piton\n", "```piton\n        ", "from ./x import ", "{Shape} ${"] {
+        let labels = labels_after(&[("main.pi", FENCED)], "main.pi", marker);
+        assert!(labels.is_empty(), "offered inside a fence after {marker:?}: {labels:?}");
+    }
+}
+
+#[test]
+fn a_fenced_code_block_is_one_string_between_two_fences() {
+    let (root, mut workspace) = workspace(&[("main.pi", FENCED)]);
+    let view = view_of(&mut workspace, root.join("main.pi"));
+    let file = view.file_for(&root.join("main.pi")).unwrap();
+    let produced = decoded_tokens(&view, file);
+    let inside: Vec<(String, String)> = produced
+        .iter()
+        .filter(|(line, _, _, _)| (6..=9).contains(line))
+        .map(|(_, _, text, kind)| (text.clone(), kind.clone()))
+        .collect();
+    assert_eq!(
+        inside,
+        vec![
+            ("```piton".to_string(), "operator".to_string()),
+            ("from ./x import Shape".to_string(), "string".to_string()),
+            ("{Shape} ${Shape}".to_string(), "string".to_string()),
+            ("```".to_string(), "operator".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn nothing_inside_a_fenced_code_block_resolves() {
+    let (root, mut workspace) = workspace(&[("main.pi", FENCED)]);
+    let view = view_of(&mut workspace, root.join("main.pi"));
+    let file = view.file_for(&root.join("main.pi")).unwrap();
+    let at = offset_of(FENCED, "{Shape} ${Shape}") + piton_syntax::TextSize::new(1);
+    assert!(navigation::locate(&view, file, at).is_none());
+    let at = offset_of(FENCED, "Shape\n        {");
+    assert!(navigation::locate(&view, file, at).is_none());
+}
+
+#[test]
+fn a_fenced_code_block_folds_from_fence_to_fence() {
+    let (root, mut workspace) = workspace(&[("main.pi", FENCED)]);
+    let view = view_of(&mut workspace, root.join("main.pi"));
+    let file = view.file_for(&root.join("main.pi")).unwrap();
+    let ranges = tokens::folding_ranges(&view, file);
+    assert!(
+        ranges.iter().any(|it| it.start_line == 6 && it.end_line == 9),
+        "{ranges:#?}"
     );
 }

@@ -357,6 +357,36 @@ Note, you can escape literal values like `false` with `\` as in `\false` in
 which case it's treated as a string. Personally, I find that far less ergonomic
 than `"false"`.
 
+##### Code blocks
+
+Sometimes a string needs to keep exactly what you wrote: a snippet of code, a
+config file, an ASCII diagram. Fence it the way you would in Markdown, with
+three or more backticks or tildes:
+
+````piton
+prompt:
+    Compare that to
+
+    ```css
+    .button {
+      background-color: #00a; // not a Piton comment
+      content: "${not} interpolated";
+    }
+    ```
+
+    Which one would you rather write?
+````
+
+Everything between the fences is kept as it is. Line breaks and blank lines
+stay, indentation past the fence's own stays, and nothing inside is escaped,
+commented, interpolated, or read as a key. The fences are part of the string,
+so a Markdown adapter renders the block as code. A fence always sits on a line
+of its own, so the prose before and after it doesn't join onto it.
+
+A fence closes at a line holding at least as many of the same character and
+nothing else, which lets you put ```` ``` ```` inside a ```` ```` ```` fence. A fence
+that is never closed is an error, and it ends where its block ends.
+
 #### Booleans
 
 Booleans are represented with lowercase `true` and `false`

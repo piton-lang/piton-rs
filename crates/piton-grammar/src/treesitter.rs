@@ -86,6 +86,28 @@ module.exports = grammar({{
 
     _structural_line: $ => seq($._entry, optional($.comment), $._newline),
 
+    // A fenced code block is kept exactly as written, so nothing inside it is
+    // lexed as Piton: between its fences the only tokens are whole lines.
+    _code_line: $ => seq($.code_block, $._newline),
+
+    code_block: $ => seq(
+      field('open', $.fence_open),
+      $._newline,
+      repeat(choice(seq($.code, $._newline), $._newline)),
+      field('close', $.fence_close),
+    ),
+
+    // The opening fence carries its info string, so that it is longer than
+    // the word the same characters would otherwise be.
+    fence_open: $ => token(prec(1, /(```+[^`\n]*|~~~+[^\n]*)/)),
+
+    // A closing fence is nothing but the fence, so a line such as ```` ```js ````
+    // inside the block is longer as `code` and stays content. Tree-sitter
+    // cannot count, so any run of three or more closes the block.
+    fence_close: $ => token(prec(1, /(```+|~~~+)[ \t]*/)),
+
+    code: $ => token(prec(-2, /[^ \t\r\n][^\n]*/)),
+
     _blank_line: $ => $._newline,
 
     // Trivia: a comment never breaks a string block, so it never ends a run.
@@ -96,8 +118,10 @@ module.exports = grammar({{
     // Right-associative: a run should always prefer taking the next line over
     // ending, which is the whole point of it.
     _trailing_prose: $ => prec.right(seq(
-      $._prose_line,
-      repeat(choice($._prose_line, $._comment_line)),
+      // A fence is prose as far as the run is concerned: a `key:` right after
+      // one is still a sentence until a blank line.
+      choice($._prose_line, $._code_line),
+      repeat(choice($._prose_line, $._comment_line, $._code_line)),
       // A file need not end with a newline, and the line that has none is
       // still part of the run.
       optional(seq($.text_line, optional($.comment))),
@@ -375,6 +399,11 @@ fn highlights(vocabulary: &Vocabulary) -> String {
 
 (comment) @comment
 
+; A fence is kept exactly as written, so its content is one string.
+(fence_open) @punctuation.special
+(fence_close) @punctuation.special
+(code) @string
+
 [
   "anchor"
   "abstract"
@@ -442,6 +471,7 @@ fn folds() -> String {
 ; wrapped import list. Block folding comes from `piton lsp`, which uses the
 ; compiler's own indentation-aware tree.
 (import_list) @fold
+(code_block) @fold
 "#
     .to_string()
 }
@@ -541,6 +571,31 @@ message: ${name} @{Anchor} reference{Other} SeeAlso{X} !{X} {bare}
       (interpolation (sigil) (expression (identifier))))))
 
 ================
+Fenced code blocks
+================
+
+example:
+    ```css
+    .a {
+      key: ${not} // not a comment
+
+    }
+    ````
+    after: still prose
+
+---
+
+(source_file
+  (property key: (key))
+  (code_block
+    open: (fence_open)
+    (code)
+    (code)
+    (code)
+    close: (fence_close))
+  (text_line (value (word) (operator) (word) (word))))
+
+================
 Lists and spreads
 ================
 
@@ -618,6 +673,11 @@ skill BuildIt:
 // <- keyword.function
 //    ^ type.definition
     prompt: build the thing
+    example:
+        ```sh
+        echo ${not} // an interpolation or a comment
+        ```
+//      ^ punctuation.special
 
 from @piton/config import PitonConfig
 // <- keyword
