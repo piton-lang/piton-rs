@@ -504,6 +504,18 @@ fn a_top_level_line_offers_only_what_can_start_a_declaration() {
 }
 
 #[test]
+fn the_line_after_a_use_or_from_line_is_a_top_level_line() {
+    // The declaration owns its newline, so the start of the next line sits at
+    // the end of its range without being part of it.
+    for header in ["use ./shapes\n", "from ./shapes\n", "from ./shapes import Shape\n"] {
+        let source = format!("{header}{KEYWORD_SOURCE}");
+        let files = [("shapes.pi", KEYWORD_SOURCE), ("main.pi", source.as_str())];
+        let labels = labels_after(&files, "main.pi", header);
+        assert!(labels.iter().any(|it| it == "anchor"), "after {header:?}: {labels:?}");
+    }
+}
+
+#[test]
 fn prose_offers_nothing() {
     let source = "anchor A:\n    note: some prose here\n";
     let labels = labels_after(&[("main.pi", source)], "main.pi", "some prose ");

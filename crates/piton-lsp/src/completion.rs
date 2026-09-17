@@ -143,9 +143,14 @@ fn context(view: &View, file: FileId, offset: TextSize) -> Context {
 
     for ancestor in node.ancestors() {
         match ancestor.kind() {
-            IMPORT_DECL | REEXPORT_DECL | USE_DECL => {
+            // The declaration owns its newline, so the start of the next line
+            // is the end of its range without being part of it.
+            IMPORT_DECL | REEXPORT_DECL | USE_DECL
+                if !(offset == ancestor.text_range().end() && text[..cursor].ends_with('\n')) =>
+            {
                 return import_context(view, file, &ancestor, offset, prefix)
             }
+            IMPORT_DECL | REEXPORT_DECL | USE_DECL => break,
             TYPE_ANNOTATION | TYPE_REF | TYPE_LIST | TYPE_EXTENDS => {
                 return Context::Type { in_abstract: in_abstract_anchor(&ancestor) }
             }
@@ -261,11 +266,12 @@ fn import_context(
     }
     match token_of(PATH) {
         // Re-completing an existing path replaces the whole token.
-        Some(path) if offset >= path.text_range().start() => Context::ModulePath {
+        Some(path) if path.text_range().contains_inclusive(offset) => Context::ModulePath {
             typed: path.text()[..usize::from(offset - path.text_range().start())].to_string(),
             range: TextRange::new(path.text_range().start(), offset),
         },
-        _ => {
+        Some(_) => Context::Nothing,
+        None => {
             // No path yet: the specifier starts at the cursor.
             let typed = prefix.rsplit([' ', '\t']).next().unwrap_or_default().to_string();
             let start = offset - TextSize::new(typed.len() as u32);
