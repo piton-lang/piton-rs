@@ -60,6 +60,14 @@ impl<'a> Lexer<'a> {
             return self.quoted_string(end);
         }
         if ch == b'\\' {
+            // A run of backslashes followed by a space opens a group, but only
+            // where a word may begin: a `\` inside a word, as in a Windows
+            // path, escapes the character after it as it always has.
+            if self.at_word_boundary(region_start) {
+                if let Some(stop) = escape_group_end(src, at, end) {
+                    return self.emit_range_advance(SyntaxKind::ESCAPE_GROUP, at, stop);
+                }
+            }
             let len = src[at + 1..end].chars().next().map_or(1, |c| 1 + c.len_utf8());
             return self.emit(SyntaxKind::ESCAPE, len);
         }
@@ -202,6 +210,48 @@ impl<'a> Lexer<'a> {
     fn emit_range_advance(&mut self, kind: SyntaxKind, start: usize, end: usize) {
         self.emit(kind, end - start);
     }
+}
+
+/// The end of the escape group opening at `at`, if one opens and closes before
+/// `end`.
+///
+/// A group opens at a run of backslashes followed by a space and closes at the
+/// first space followed by a run of exactly as many backslashes. Counting is
+/// what makes the delimiter escapable: writing one more backslash on each side
+/// puts a run that would otherwise close the group inside it, the way a longer
+/// fence holds a shorter one.
+///
+/// A group never spans a line break, because nothing in a value region does.
+pub(crate) fn escape_group_end(src: &str, at: usize, end: usize) -> Option<usize> {
+    let bytes = src.as_bytes();
+    let level = bytes[at..end].iter().take_while(|&&byte| byte == b'\\').count();
+    if at + level >= end || bytes[at + level] != b' ' {
+        return None;
+    }
+    let mut scan = at + level + 1;
+    while scan < end {
+        if bytes[scan] != b' ' {
+            scan += 1;
+            continue;
+        }
+        let run = bytes[scan + 1..end].iter().take_while(|&&byte| byte == b'\\').count();
+        if run == level {
+            return Some(scan + 1 + run);
+        }
+        scan += 1 + run;
+    }
+    None
+}
+
+/// What an escape group stands for: everything between its two delimiters,
+/// taken exactly as written.
+///
+/// `token` is the whole group, delimiters included, as the lexer emitted it.
+#[must_use]
+pub fn escape_group_text(token: &str) -> &str {
+    let open = token.len() - token.trim_start_matches('\\').len();
+    let close = token.len() - token.trim_end_matches('\\').len();
+    token.get(open + 1..token.len() - close - 1).unwrap_or("")
 }
 
 fn is_text_boundary(byte: u8) -> bool {

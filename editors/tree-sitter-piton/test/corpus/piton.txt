@@ -77,6 +77,36 @@ example:
   (text_line (value (word) (operator) (word) (word))))
 
 ================
+List item continuation
+================
+
+items:
+    - a list item
+      split across lines
+    - two
+
+---
+
+(source_file
+  (property key: (key))
+  (list_item (value (word) (word) (word)))
+  (text_line (value (word) (word) (word)))
+  (list_item (value (word))))
+
+================
+Escape groups
+================
+
+a: \ // ${not} key: not a key \
+b: before \ middle \ after
+
+---
+
+(source_file
+  (property key: (key) (value (escape_group)))
+  (property key: (key) (value (word) (escape_group) (word))))
+
+================
 Lists and spreads
 ================
 

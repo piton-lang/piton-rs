@@ -77,6 +77,26 @@ fn lists_in_both_styles() {
 }
 
 #[test]
+fn a_list_item_continues_on_lines_lined_up_under_its_text() {
+    // As in Markdown: indentation past the marker is alignment, so it needs no
+    // whole indent step and opens no block.
+    assert_eq!(
+        eval("a:\n    - this is a list item\n      split across multiple lines\n      is how: it should be\n    - two\n", "a"),
+        json!(["this is a list item split across multiple lines is how: it should be", "two"])
+    );
+    // Deeper still is the same text, and a nested marker is still a nested list.
+    assert_eq!(
+        eval("a:\n    - Level 1\n        continued\n        - Level 2\n", "a"),
+        json!(["Level 1 continued", ["Level 2"]])
+    );
+    // A line at the marker's own indentation is not part of the item.
+    assert_eq!(eval("a:\n    - one\n    key: value\n", "a"), json!([["one"], {"key": "value"}]));
+    // `- key: value` is a dictionary, not text to continue.
+    let (_, diagnostics) = eval_with_diagnostics("a:\n    - k: v\n      more\n", "a");
+    assert!(!diagnostics.is_empty(), "a 2-space step under `- key:` is still an indentation error");
+}
+
+#[test]
 fn dictionaries_nest_and_are_addressable() {
     let source = "a:\n    b:\n        c: This is a string\nd: {a.b.c}\n";
     assert_eq!(eval(source, "d"), json!("This is a string"));
@@ -530,6 +550,47 @@ fn escapes_and_quoting_produce_strings() {
     assert_eq!(eval("a: \"true\"\n", "a"), json!("true"));
     assert_eq!(eval("a: he said \"hi\" loudly\n", "a"), json!("he said \"hi\" loudly"));
     assert_eq!(eval("a: \"a \\\" quote\"\n", "a"), json!("a \" quote"));
+    // The backslash is the escape; a second one is the character it escapes.
+    assert_eq!(eval("a: \\\\\n", "a"), json!("\\"));
+}
+
+#[test]
+fn an_escape_group_is_kept_exactly_as_written() {
+    assert_eq!(
+        eval("a: \\ this is an escaped group \\\n", "a"),
+        json!("this is an escaped group")
+    );
+    // Nothing inside a group is read as Piton.
+    assert_eq!(
+        eval("a: \\ // not a comment ${not} key: not a key \\\n", "a"),
+        json!("// not a comment ${not} key: not a key")
+    );
+    // A group sits inside the prose around it.
+    assert_eq!(eval("a: before \\ middle \\ after\n", "a"), json!("before middle after"));
+    // Each group closes at its own delimiter, so a line may hold several.
+    assert_eq!(eval("a: \\ one \\ and \\ two \\\n", "a"), json!("one and two"));
+    // Empty is a group too.
+    assert_eq!(eval("a: x \\  \\ y\n", "a"), json!("x  y"));
+}
+
+#[test]
+fn a_longer_delimiter_escapes_a_shorter_one() {
+    assert_eq!(
+        eval("a: \\\\ \\ escaped backslash \\ \\\\\n", "a"),
+        json!("\\ escaped backslash \\")
+    );
+    assert_eq!(
+        eval("a: \\\\\\ \\\\ deeper \\\\ \\\\\\\n", "a"),
+        json!("\\\\ deeper \\\\")
+    );
+}
+
+#[test]
+fn an_unclosed_group_is_an_ordinary_escape() {
+    // `\ ` with nothing to close it escapes the space, as it always has.
+    assert_eq!(eval("a: \\ not a group\n", "a"), json!("not a group"));
+    // The opening run has to be matched exactly, not merely met.
+    assert_eq!(eval("a: \\\\ x \\\n", "a"), json!("\\ x"));
 }
 
 #[test]
@@ -983,4 +1044,20 @@ steps:
 fn an_unclosed_fence_is_reported() {
     let (_, diagnostics) = eval_with_diagnostics("a:\n    ```\n    code\n", "a");
     assert!(diagnostics.iter().any(|it| it.contains("never closed")), "{diagnostics:?}");
+}
+
+#[test]
+fn the_escape_group_examples_in_the_reference_compile() {
+    assert_eq!(
+        eval(
+            "note: \\ // ${this} is not a comment, an interpolation, or a key: it's text \\\n",
+            "note"
+        ),
+        json!("// ${this} is not a comment, an interpolation, or a key: it's text")
+    );
+    assert_eq!(eval("pair: \\ one \\ and \\ two \\\n", "pair"), json!("one and two"));
+    assert_eq!(
+        eval("backslash: \\\\ \\ escaped backslash \\ \\\\\n", "backslash"),
+        json!("\\ escaped backslash \\")
+    );
 }

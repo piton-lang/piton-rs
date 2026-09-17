@@ -21,6 +21,7 @@ A name bound by an import item resolves to the item's alias when the item has on
 - The type inside `extends T` resolves only to an anchor in scope, never to a built-in type.
 - The name after `export` resolves as a bare name.
 - Nothing inside a fenced code block resolves, an interpolation or an expression in braces written there included, because the compiler keeps a fence's content as text and never reads it.
+- Nothing inside an escape group resolves, for the same reason.
 
 ## Imports
 

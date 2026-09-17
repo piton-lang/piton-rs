@@ -45,6 +45,9 @@
         <keyword String="constants" attribute="Constant"/>
         <keyword String="types" attribute="Data Type"/>
         <RegExpr String="^\s*[A-Za-z_][A-Za-z0-9_-]*(?=\s*(::|:)(\s|$))" attribute="Property"/>
+        <!-- An escape group is kept as written, so nothing inside it is Piton. -->
+        <RegExpr String="(?&lt;![^\s(\[,])(\\+) (?:.*? )?\1(?!\\)" attribute="String"/>
+        <RegExpr String="\\." attribute="Escape"/>
         <RegExpr String="[^\s{}\[\](),&quot;]*\{" attribute="Sigil" context="Interpolation"/>
         <DetectChar char="&quot;" attribute="String" context="String"/>
         <RegExpr String="\b\d[\d_]*(\.\d[\d_]*)?\b" attribute="Number"/>

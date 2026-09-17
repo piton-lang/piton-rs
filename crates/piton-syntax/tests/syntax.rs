@@ -267,6 +267,45 @@ fn escapes_and_quotes_are_distinct_tokens() {
     assert!(middle.iter().any(|(kind, text)| *kind == TEXT && text == "loudly"));
 }
 
+#[test]
+fn an_escape_group_is_one_token() {
+    use SyntaxKind::*;
+    let group = tokens("x: \\ a group \\\n");
+    assert!(
+        group.iter().any(|(kind, text)| *kind == ESCAPE_GROUP && text == "\\ a group \\"),
+        "{group:?}"
+    );
+    // Nothing inside is lexed, so a comment, a key and an interpolation are
+    // all just characters in it.
+    let literal = tokens("x: \\ // ${a} key: v \\\n");
+    assert_eq!(
+        literal.iter().filter(|(kind, _)| matches!(*kind, COMMENT | SIGIL | COLON)).count(),
+        1,
+        "only the key head's colon: {literal:?}"
+    );
+    // A line may hold more than one, each closing at its own delimiter.
+    let two = tokens("x: \\ one \\ and \\ two \\\n");
+    assert_eq!(two.iter().filter(|(kind, _)| *kind == ESCAPE_GROUP).count(), 2, "{two:?}");
+    // One more backslash on each delimiter holds a run that would close it.
+    let nested = tokens("x: \\\\ \\ inner \\ \\\\\n");
+    assert!(
+        nested
+            .iter()
+            .any(|(kind, text)| *kind == ESCAPE_GROUP && text == "\\\\ \\ inner \\ \\\\"),
+        "{nested:?}"
+    );
+}
+
+#[test]
+fn a_backslash_with_nothing_to_close_it_stays_an_escape() {
+    use SyntaxKind::*;
+    for source in ["x: \\ unclosed\n", "x: a\\ b \\\n", "x: C:\\ path\n"] {
+        let lexed = tokens(source);
+        assert!(lexed.iter().all(|(kind, _)| *kind != ESCAPE_GROUP), "{source:?}: {lexed:?}");
+        assert!(lexed.iter().any(|(kind, _)| *kind == ESCAPE), "{source:?}: {lexed:?}");
+    }
+}
+
 // ---- tree shapes ---------------------------------------------------------------
 
 #[test]
@@ -443,6 +482,54 @@ pure:
     assert!(keys.contains(&"however"), "{keys:?}");
     assert!(keys.contains(&"sibling"), "{keys:?}");
     assert!(!keys.contains(&"and"), "`and:` is prose, not a key: {keys:?}");
+}
+
+// ---- list item continuation -------------------------------------------------------
+
+#[test]
+fn a_line_lined_up_under_a_list_item_continues_it() {
+    let source = "x:\n    - one\n      two: three\n        four\n    - five\n";
+    assert!(!has_errors(source), "alignment is not an indentation step");
+    let item = parse(source)
+        .syntax()
+        .descendants()
+        .find_map(<piton_syntax::ast::ListItem as piton_syntax::ast::AstNode>::cast)
+        .expect("a list item");
+    assert_eq!(item.continuation().count(), 2);
+    assert!(item.block().is_none(), "a continuation opens no block");
+    let rendered = tree(source);
+    assert!(!rendered.contains("PROPERTY"), "`two:` is text: {rendered}");
+    assert_eq!(rendered.matches("LIST_ITEM").count(), 2, "{rendered}");
+}
+
+#[test]
+fn only_text_after_the_marker_can_be_continued() {
+    // An empty item, a `- key:` item, a marker, and a fence are not continued.
+    for source in [
+        "x:\n    -\n      two\n",
+        "x:\n    - k: v\n      two\n",
+        "x:\n    + a\n      two\n",
+        "x:\n    - a\n      - b\n",
+        "x:\n    - a\n      ```\n      ```\n",
+    ] {
+        let continued = parse(source)
+            .syntax()
+            .descendants()
+            .filter_map(<piton_syntax::ast::ListItem as piton_syntax::ast::AstNode>::cast)
+            .any(|item| item.continuation().next().is_some());
+        assert!(!continued, "{source:?}\n{}", tree(source));
+    }
+}
+
+#[test]
+fn a_list_item_continuation_is_prose_to_in_prose_run() {
+    let source = "x:\n    - one\n      two: three\n    key: value\n    - a\n\n      b: c\n";
+    let expected = [false, false, true, false, false, false, false];
+    let mut line_start = 0usize;
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        assert_eq!(piton_syntax::in_prose_run(source, line_start), expected[index], "line {index}: {line:?}");
+        line_start += line.len();
+    }
 }
 
 // ---- fenced code blocks ------------------------------------------------------------

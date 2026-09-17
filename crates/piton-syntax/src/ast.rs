@@ -448,6 +448,10 @@ impl ListItem {
     pub fn block(&self) -> Option<Block> {
         child(&self.syntax)
     }
+    /// The lines lined up under the item's text, which continue it.
+    pub fn continuation(&self) -> impl Iterator<Item = TextLine> {
+        children_of(&self.syntax)
+    }
     /// `- key: value` carries a property instead of a value: the element is a
     /// dictionary rather than the text `key: value`.
     pub fn property(&self) -> Option<Property> {

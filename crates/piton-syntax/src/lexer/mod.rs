@@ -11,6 +11,8 @@
 
 mod value;
 
+pub use value::escape_group_text;
+
 use rowan::{TextRange, TextSize};
 
 use crate::kind::{keyword_kind, SyntaxKind};
@@ -72,6 +74,7 @@ pub fn lex(src: &str) -> Lexed {
 pub fn in_prose_run(src: &str, line_start: usize) -> bool {
     let width_of = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
     let mut prose: Option<usize> = None;
+    let mut item: Option<usize> = None;
     let mut fence_end: Option<usize> = None;
     let mut at = 0usize;
     for line in src.split_inclusive('\n') {
@@ -87,6 +90,7 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
         let body = line.trim();
         if body.is_empty() {
             prose = None;
+            item = None;
             continue;
         }
         // Trivia, exactly as the lexer treats it: a comment never breaks a
@@ -94,6 +98,12 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
         if body.starts_with("//") {
             continue;
         }
+        // A line lined up under a list item's text is that text, and changes
+        // nothing else.
+        if item.is_some_and(|marker| width > marker) && continues_item_text(body) {
+            continue;
+        }
+        item = None;
         // A declaration is not in any block.
         if width == 0 {
             prose = None;
@@ -116,6 +126,11 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
         });
         if marker {
             prose = None;
+            if let Some(rest) = body.strip_prefix('-') {
+                if !is_key_head(rest) && opens_item_text(rest) {
+                    item = Some(width);
+                }
+            }
             continue;
         }
         if !continuing && is_key_head(line) {
@@ -130,6 +145,9 @@ pub fn in_prose_run(src: &str, line_start: usize) -> bool {
         return true;
     }
     let target = src[line_start..].split('\n').next().unwrap_or("");
+    if item.is_some_and(|marker| width_of(target) > marker) && continues_item_text(target.trim()) {
+        return true;
+    }
     prose.is_some_and(|base| width_of(target) >= base)
 }
 
@@ -206,6 +224,24 @@ pub(crate) fn fence_extent(src: &str, open_end: usize, width: usize, fence: Fenc
     extent
 }
 
+/// Whether the rest of a `- ` line, after the marker, is text a following line
+/// can continue. An empty item or one holding only a comment has none.
+fn opens_item_text(rest: &str) -> bool {
+    let rest = rest.trim();
+    !rest.is_empty() && !rest.starts_with("//")
+}
+
+/// Whether a line, without its indentation, may continue a list item's text.
+///
+/// A marker starts an element of its own and a fence a code block of its own,
+/// exactly as they would interrupt a paragraph in Markdown.
+fn continues_item_text(body: &str) -> bool {
+    let marker = ["-", "++", "+"].iter().any(|it| {
+        body.strip_prefix(*it).is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t', '\r']))
+    });
+    !marker && fence_open(body).is_none()
+}
+
 /// Whether a line opens with `name(:: type)*:`, read from the text alone.
 fn is_key_head(line: &str) -> bool {
     let trimmed = line.trim_start_matches([' ', '\t']);
@@ -230,6 +266,13 @@ pub(crate) struct Lexer<'a> {
     /// A blank line is what says "I meant structure" — the same blank line that
     /// already separates a string's paragraphs.
     prose: Option<usize>,
+    /// The indentation of the `- ` marker whose text the next line may
+    /// continue, while that text is open.
+    ///
+    /// As in Markdown, a line indented past the marker continues the item's
+    /// text rather than opening a block, so a wrapped item lines up with its
+    /// own words: indentation there is alignment, not structure.
+    item: Option<usize>,
 }
 
 impl<'a> Lexer<'a> {
@@ -242,6 +285,7 @@ impl<'a> Lexer<'a> {
             indents: vec![0],
             style: None,
             prose: None,
+            item: None,
         }
     }
 
@@ -267,6 +311,7 @@ impl<'a> Lexer<'a> {
             // The line that ends a run of prose, and so the line that lets the
             // next `key:` be a key again.
             self.prose = None;
+            self.item = None;
             self.emit_range(SyntaxKind::WHITESPACE, line_start, ws_end);
             self.pos = ws_end;
             self.eat_newline(SyntaxKind::BLANK);
@@ -286,15 +331,18 @@ impl<'a> Lexer<'a> {
         }
 
         let width = ws_end - line_start;
-        self.sync_indentation(width, ws_end);
-        self.emit_range(SyntaxKind::WHITESPACE, line_start, ws_end);
-        self.pos = ws_end;
-
-        if self.indents.len() == 1 {
-            self.prose = None;
-            self.declaration_line();
+        let continues_item = self.item.is_some_and(|marker| width > marker)
+            && continues_item_text(&self.src[ws_end..self.line_end_from(ws_end)]);
+        if continues_item {
+            // Alignment, not structure: no block opens or closes here, so the
+            // indentation stack and the file's indent unit are untouched.
+            self.emit_range(SyntaxKind::WHITESPACE, line_start, ws_end);
+            self.pos = ws_end;
+            self.push_virtual(SyntaxKind::CONTINUE, TextSize::new(ws_end as u32));
+            self.value_region();
         } else {
-            self.block_line(width);
+            self.item = None;
+            self.content_line(line_start, ws_end);
         }
 
         // Anything the line lexers left behind (a stray `}`, say) is consumed
@@ -305,6 +353,21 @@ impl<'a> Lexer<'a> {
             self.pos = end;
         }
         self.eat_newline(SyntaxKind::NEWLINE);
+    }
+
+    /// A line that is not a continuation: a declaration or a block entry.
+    fn content_line(&mut self, line_start: usize, ws_end: usize) {
+        let width = ws_end - line_start;
+        self.sync_indentation(width, ws_end);
+        self.emit_range(SyntaxKind::WHITESPACE, line_start, ws_end);
+        self.pos = ws_end;
+
+        if self.indents.len() == 1 {
+            self.prose = None;
+            self.declaration_line();
+        } else {
+            self.block_line(width);
+        }
     }
 
     // ---- indentation ---------------------------------------------------
@@ -451,6 +514,8 @@ impl<'a> Lexer<'a> {
             // key head a bare line would get is recognised after the marker.
             if self.key_head().is_some() {
                 self.eat_key_head();
+            } else if opens_item_text(&self.src[self.pos..self.line_end()]) {
+                self.item = Some(width);
             }
             return self.value_region();
         }
@@ -808,10 +873,15 @@ impl<'a> Lexer<'a> {
 
     /// The offset of the end of the current line, not counting the newline.
     pub(crate) fn line_end(&self) -> usize {
-        match self.src[self.pos..].find('\n') {
+        self.line_end_from(self.pos)
+    }
+
+    /// The end of the line holding `from`, not counting its line break.
+    fn line_end_from(&self, from: usize) -> usize {
+        match self.src[from..].find('\n') {
             Some(offset) => {
-                let mut end = self.pos + offset;
-                if end > self.pos && self.src.as_bytes()[end - 1] == b'\r' {
+                let mut end = from + offset;
+                if end > from && self.src.as_bytes()[end - 1] == b'\r' {
                     end -= 1;
                 }
                 end

@@ -26,6 +26,10 @@ syntax match pitonPath "\%(\<\%(from\|use\)\s\+\)\@<=\S\+"
 syntax match pitonNumber "\<\d[0-9_]*\%(\.\d[0-9_]*\)\?\>"
 syntax region pitonString start=+"+ skip=+\\.+ end=+"+ contains=pitonEscape
 syntax match pitonEscape "\\." contained
+" An escape group is kept as written, so nothing inside it is Piton. Its closing
+" delimiter repeats the opening one's backslashes, exactly as many, which is
+" what lets a longer delimiter hold a shorter one.
+syntax region pitonEscapeGroup matchgroup=pitonEscape start="\%(^\|\s\|(\|\[\|,\)\@<=\z(\\\+\) " end=" \z1\\\@!" oneline keepend
 syntax region pitonInterp matchgroup=pitonSigil start="[^ \t{}[\](),\"]*{" end="}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
 syntax match pitonOperator "\%(\s\|^\|(\|\[\|,\)\@<=\%(++\|&&\|||\|==\|!=\|>=\|<=\|[-+*/%<>?:]\)\%(\s\|$\|)\|\]\|,\)\@="
 
@@ -49,6 +53,7 @@ highlight default link pitonPath String
 highlight default link pitonNumber Number
 highlight default link pitonString String
 highlight default link pitonEscape SpecialChar
+highlight default link pitonEscapeGroup String
 highlight default link pitonSigil PreProc
 highlight default link pitonOperator Operator
 highlight default link pitonFence String

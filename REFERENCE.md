@@ -328,10 +328,11 @@ While this *is* on a new line because there was a blank line above.
 
 ##### Escaping
 
-There are two ways to escape strings, both of which are slightly different. The
+There are three ways to escape strings, each of which is slightly different. The
 first is the common backslash `\` character. For example, if you wanted a string
 that starts with `//` and don't want it to be treated as a comment, you can
-escape the `//` with `\//`.
+escape the `//` with `\//`. A backslash escapes exactly the character after it,
+so `\\` is how you write a backslash on its own.
 
 The second way to escape strings is with quotes. So for example, you should also
 escape a comment and treat it as a string with `"// This is a comment"`. The
@@ -356,6 +357,47 @@ You can also escape quotes with `\"`, however that should rarely be necessary.
 Note, you can escape literal values like `false` with `\` as in `\false` in
 which case it's treated as a string. Personally, I find that far less ergonomic
 than `"false"`.
+
+##### Escape groups
+
+The third way is to escape a whole run of text at once rather than a character
+at a time. A backslash followed by a space opens a group, and a space followed
+by a backslash closes it:
+
+```piton
+note: \ // ${this} is not a comment, an interpolation, or a key: it's text \
+```
+
+Everything between the two delimiters is kept exactly as you wrote it. Nothing
+in there is a comment, an escape, an interpolation, a key, or an operator, and
+the delimiters themselves are not part of the string, so `note` is the string
+`// ${this} is not a comment, an interpolation, or a key: it's text`.
+
+A group lives inside the line it's written on. It opens where a word may begin —
+at the start of the value, or after a space, `(`, `[`, or `,` — so a backslash
+in the middle of a word, as in a Windows path, still escapes the character after
+it. A group ends at the first delimiter that closes it, which means a line can
+hold several:
+
+```piton
+pair: \ one \ and \ two \
+```
+
+`pair` is `one and two`.
+
+The number of backslashes is up to you, as long as both delimiters use the same
+number, and that's what lets a group hold a delimiter of its own: add one more
+backslash to each side and a shorter run inside is just text. It's the same idea
+as a longer code fence holding a shorter one.
+
+```piton
+backslash: \\ \ escaped backslash \ \\
+```
+
+`backslash` is `\ escaped backslash \`.
+
+A backslash and a space with nothing to close them is not a group; it stays the
+ordinary escape it has always been, escaping the space.
 
 ##### Code blocks
 
@@ -416,6 +458,22 @@ markdownStyle:
 
 inlineStyle: [This, is, a, list, of, strings]
 ```
+
+A list item's text can run onto more lines, the same as in Markdown. Line the
+following lines up under the item's text and they join onto it with a space:
+
+```piton
+wrappedItems:
+    - This is a list item
+      split across multiple lines
+    - And the next item
+```
+
+`wrappedItems` is `["This is a list item split across multiple lines", "And the
+next item"]`. Lining the text up is alignment, not a new block, so it doesn't
+have to be a whole indentation step. Anything indented past the `-` continues
+the item, a line that looks like `key: value` included, until a blank line or
+the next `-`. A `-` on a deeper line still starts a nested list.
 
 It's possible to do nested lists:
 

@@ -64,6 +64,10 @@ syntax match pitonPath "\%(\<\%(from\|use\)\s\+\)\@<=\S\+"
 syntax match pitonNumber "\<\d[0-9_]*\%(\.\d[0-9_]*\)\?\>"
 syntax region pitonString start=+"+ skip=+\\.+ end=+"+ contains=pitonEscape
 syntax match pitonEscape "\\." contained
+" An escape group is kept as written, so nothing inside it is Piton. Its closing
+" delimiter repeats the opening one's backslashes, exactly as many, which is
+" what lets a longer delimiter hold a shorter one.
+syntax region pitonEscapeGroup matchgroup=pitonEscape start="\%(^\|\s\|(\|\[\|,\)\@<=\z(\\\+\) " end=" \z1\\\@!" oneline keepend
 syntax region pitonInterp matchgroup=pitonSigil start="[^ \t{{}}[\](),\"]*{{" end="}}" contains=pitonSelf,pitonBoolean,pitonNumber,pitonString,pitonOperator
 syntax match pitonOperator "\%(\s\|^\|(\|\[\|,\)\@<=\%(++\|&&\|||\|==\|!=\|>=\|<=\|[-+*/%<>?:]\)\%(\s\|$\|)\|\]\|,\)\@="
 
@@ -87,6 +91,7 @@ highlight default link pitonPath String
 highlight default link pitonNumber Number
 highlight default link pitonString String
 highlight default link pitonEscape SpecialChar
+highlight default link pitonEscapeGroup String
 highlight default link pitonSigil PreProc
 highlight default link pitonOperator Operator
 highlight default link pitonFence String
@@ -282,6 +287,10 @@ opened it; one that never closes runs to the end of the buffer."
    `(,(concat "::[[:space:]]*\\(?:extends[[:space:]]+\\)?\\("
               (regexp-opt piton--types) "\\|[A-Za-z_][A-Za-z0-9_-]*\\)")
      1 font-lock-type-face)
+   ;; An escape group is kept as written, so nothing inside it is Piton.  Its
+   ;; closing delimiter repeats the opening one's backslashes, exactly as many.
+   '("\\(?:^\\|[[:space:]([,]\\)\\(\\(\\\\+\\) \\(?:.*? \\)?\\2\\)\\(?:[^\\\\]\\|$\\)"
+     1 font-lock-string-face t)
    '("[^ \t{{}}\\[\\](),\"]*{{[^}}]*}}" 0 font-lock-preprocessor-face keep)
    '("\\_<[0-9][0-9_]*\\(?:\\.[0-9][0-9_]*\\)?\\_>" . font-lock-constant-face)
    '("^[[:space:]]*\\(-\\)[[:space:]]" 1 font-lock-negation-char-face)
@@ -447,6 +456,15 @@ contexts:
       scope: keyword.operator.piton
 
   value:
+    # An escape group is kept as written, so nothing inside it is Piton. Its
+    # closing delimiter repeats the opening one's backslashes, exactly as many,
+    # which is what lets a longer delimiter hold a shorter one.
+    - match: '(?<![^\s(\[,])(\\+) (?:.*? )?\1(?!\\)'
+      scope: string.unquoted.escape-group.piton
+      captures:
+        1: constant.character.escape.piton
+    - match: '\\.'
+      scope: constant.character.escape.piton
     - match: '([^\s{{}}\[\](),"]*)(\{{)'
       captures:
         1: keyword.other.sigil.piton
@@ -605,6 +623,9 @@ fn kate_syntax(vocabulary: &Vocabulary) -> String {
         <keyword String="constants" attribute="Constant"/>
         <keyword String="types" attribute="Data Type"/>
         <RegExpr String="^\s*[A-Za-z_][A-Za-z0-9_-]*(?=\s*(::|:)(\s|$))" attribute="Property"/>
+        <!-- An escape group is kept as written, so nothing inside it is Piton. -->
+        <RegExpr String="(?&lt;![^\s(\[,])(\\+) (?:.*? )?\1(?!\\)" attribute="String"/>
+        <RegExpr String="\\." attribute="Escape"/>
         <RegExpr String="[^\s{{}}\[\](),&quot;]*\{{" attribute="Sigil" context="Interpolation"/>
         <DetectChar char="&quot;" attribute="String" context="String"/>
         <RegExpr String="\b\d[\d_]*(\.\d[\d_]*)?\b" attribute="Number"/>

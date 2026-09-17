@@ -2,9 +2,12 @@
 //!
 //! The canonical style is four spaces per level and is not configurable. The
 //! formatter walks the lossless tree and re-emits it, normalising the structure
-//! and rewrapping prose paragraphs to fill the line. Lines inside a paragraph
-//! join with a space when compiled, so where they break carries no meaning, and
-//! nothing else about prose is touched.
+//! and breaking any line of prose too long for the page. Where a line of prose
+//! breaks is the author's: lines inside a paragraph join with a space when
+//! compiled, so a break carries no meaning to the compiler, but it carries
+//! plenty to the person writing — a sentence to a line, a clause to a line —
+//! and a formatter that refilled the paragraph would throw that away. Nothing
+//! else about prose is touched.
 
 use piton_syntax::ast::{self, AstNode};
 use piton_syntax::kind::SyntaxKind::{self, *};
@@ -12,7 +15,7 @@ use piton_syntax::{NodeOrToken, SyntaxNode, SyntaxToken};
 
 /// One indentation level.
 pub const INDENT: &str = "    ";
-/// Imports wrap, and prose fills, up to this column.
+/// Imports wrap, and a line of prose too long for it breaks, at this column.
 pub const MAX_WIDTH: usize = 80;
 /// Imports wrap once they list more than this many names.
 pub const MAX_INLINE_IMPORTS: usize = 2;
@@ -77,56 +80,41 @@ impl Printer {
     }
 
     /// Print the entries of a root or a block, keeping stray comments in place.
-    ///
-    /// Consecutive lines of prose are gathered into a paragraph and rewrapped
-    /// together; a comment or any other entry ends the paragraph.
     fn container(&mut self, node: SyntaxNode, depth: usize) {
-        let mut paragraph: Vec<(SyntaxNode, Vec<String>)> = Vec::new();
         for element in node.children_with_tokens() {
             match element {
                 NodeOrToken::Token(token) if token.kind() == COMMENT => {
-                    self.paragraph(std::mem::take(&mut paragraph), depth);
-                    self.line(depth, &comment(&token));
+                    self.line(depth, &comment(&token))
                 }
                 NodeOrToken::Token(_) => {}
                 NodeOrToken::Node(child) => match prose_words(&child) {
-                    Some(words) => paragraph.push((child, words)),
-                    None => {
-                        self.paragraph(std::mem::take(&mut paragraph), depth);
-                        self.item(child, depth);
-                    }
+                    Some(words) => self.prose(&child, words, depth),
+                    None => self.item(child, depth),
                 },
             }
         }
-        self.paragraph(paragraph, depth);
     }
 
-    /// Print a paragraph of prose filled to the line, or as it was written when
-    /// no rewrapping of it reads the same.
-    fn paragraph(&mut self, lines: Vec<(SyntaxNode, Vec<String>)>, depth: usize) {
-        if lines.is_empty() {
-            return;
-        }
+    /// Print one line of prose, broken only if it does not fit.
+    ///
+    /// A line already short enough keeps the break the author gave it and has
+    /// only its spacing tidied. A longer one is filled into as many lines as it
+    /// takes, and if no filling of it reads the same it is left as it was: the
+    /// formatter would rather leave a line long than change what it says.
+    fn prose(&mut self, node: &SyntaxNode, words: Vec<String>, depth: usize) {
         let width = MAX_WIDTH.saturating_sub(INDENT.len() * depth);
-        let words = lines.iter().flat_map(|(_, words)| words.iter().cloned()).collect();
-        match rewrap(words, width) {
+        match rewrap(words.clone(), width) {
             Some(filled) => {
                 for line in filled {
                     self.line(depth, &line);
                 }
             }
-            // The lines keep their breaks, and their spacing is tidied when
-            // that alone still reads the same.
             None => {
-                let tidied: Vec<String> = lines.iter().map(|(_, words)| words.join(" ")).collect();
-                if misread_line(&tidied).is_none() {
-                    for line in tidied {
-                        self.line(depth, &line);
-                    }
+                let tidied = words.join(" ");
+                if misread_line(std::slice::from_ref(&tidied)).is_none() {
+                    self.line(depth, &tidied);
                 } else {
-                    for (line, _) in lines {
-                        self.item(line, depth);
-                    }
+                    self.item(node.clone(), depth);
                 }
             }
         }
@@ -149,7 +137,7 @@ impl Printer {
                     let head = format!("- {}", key_head(&property));
                     self.declaration(&property, depth, head)
                 }
-                None => self.declaration(&node, depth, "-".to_string()),
+                None => self.list_item(&node, depth),
             },
             SPREAD_ITEM => {
                 let marker = if token_of(&node, PLUS2).is_some() { "++" } else { "+" };
@@ -189,17 +177,7 @@ impl Printer {
 
     /// Emit `head[ value][ // comment]`, then the nested block.
     fn declaration(&mut self, node: &SyntaxNode, depth: usize, head: String) {
-        let mut line = head;
-        if let Some(value) = node.children().find(|it| it.kind() == VALUE) {
-            let text = value.text().to_string();
-            let text = text.trim();
-            if !text.is_empty() {
-                if !line.is_empty() {
-                    line.push(' ');
-                }
-                line.push_str(text);
-            }
-        }
+        let mut line = head_line(node, head);
         let (trailing, leading) = split_comments(node);
         for comment in &trailing {
             line.push_str("  ");
@@ -211,6 +189,49 @@ impl Printer {
         }
         if let Some(block) = node.children().find(|it| it.kind() == BLOCK) {
             self.container(block, depth + 1);
+        }
+    }
+
+    /// `- value`, the lines that continue its text, then the nested block.
+    ///
+    /// A continuation line lines up under the item's text, as in Markdown, and
+    /// keeps the break it was written with; only its spacing is tidied.
+    fn list_item(&mut self, node: &SyntaxNode, depth: usize) {
+        let continues = node.children().any(|it| it.kind() == TEXT_LINE);
+        let (trailing, _) = split_comments(node);
+        let mut line = head_line(node, "-".to_string());
+        for comment in &trailing {
+            line.push_str("  ");
+            line.push_str(comment);
+        }
+        self.line(depth, line.trim_end());
+        let newline = token_of(node, NEWLINE).map(|it| it.text_range().start());
+        let after_head = node
+            .children_with_tokens()
+            .filter(|it| newline.is_some_and(|at| it.text_range().start() > at));
+        for element in after_head {
+            match element {
+                NodeOrToken::Token(token) if token.kind() == COMMENT => match continues {
+                    true => self.line(depth, &format!("  {}", comment(&token))),
+                    false => self.line(depth + 1, &comment(&token)),
+                },
+                NodeOrToken::Token(_) => {}
+                NodeOrToken::Node(child) if child.kind() == TEXT_LINE => {
+                    let mut line = match prose_words(&child) {
+                        Some(words) => format!("  {}", words.join(" ")),
+                        None => head_line(&child, " ".to_string()),
+                    };
+                    for comment in split_comments(&child).0 {
+                        line.push_str("  ");
+                        line.push_str(&comment);
+                    }
+                    self.line(depth, line.trim_end());
+                }
+                NodeOrToken::Node(child) if child.kind() == BLOCK => {
+                    self.container(child, depth + 1)
+                }
+                NodeOrToken::Node(_) => {}
+            }
         }
     }
 
@@ -259,8 +280,8 @@ impl Printer {
 ///
 /// A gap between words is pointless spacing and ends the word, except for two
 /// spaces after a sentence, which stay inside it, and any spacing inside a
-/// `code span`, which is content. An expression in braces and a quoted string
-/// are always one word. A line holding a comment or text the parser could not
+/// `code span` or an escape group, which is content. An expression in braces,
+/// a quoted string, and an escape group are always one word. A line holding a comment or text the parser could not
 /// read is not prose to rewrap.
 fn prose_words(node: &SyntaxNode) -> Option<Vec<String>> {
     if node.kind() != TEXT_LINE {
@@ -295,7 +316,11 @@ fn prose_words(node: &SyntaxNode) -> Option<Vec<String>> {
                 }
             }
             NodeOrToken::Token(token) => {
-                ticks += token.text().matches('`').count();
+                // An escaped backtick, or one inside an escape group, is a
+                // character rather than the edge of a code span.
+                if !matches!(token.kind(), ESCAPE | ESCAPE_GROUP) {
+                    ticks += token.text().matches('`').count();
+                }
                 word.push_str(token.text());
             }
             NodeOrToken::Node(node) => {
@@ -317,12 +342,15 @@ fn prose_words(node: &SyntaxNode) -> Option<Vec<String>> {
     Some(words)
 }
 
-/// Fill `words` into lines no wider than `width`, taking only breaks after
-/// which every line still reads as prose.
+/// Fill one line's `words` into lines no wider than `width`, taking only breaks
+/// after which every line still reads as prose.
+///
+/// Words that already fit come back as the single line they were, so this is
+/// what leaves a short line alone as much as it is what breaks a long one.
 ///
 /// A break that makes a line read as something else — a lone `-` starting it,
 /// say — is not taken: the words either side of it are held together and the
-/// paragraph is filled again. `None` when no filling reads the same.
+/// line is filled again. `None` when no filling reads the same.
 fn rewrap(mut words: Vec<String>, width: usize) -> Option<Vec<String>> {
     loop {
         let lines = fill(&words, width);
@@ -455,6 +483,22 @@ fn export_prefix(node: &SyntaxNode) -> String {
         Some(_) => "export ".to_string(),
         None => String::new(),
     }
+}
+
+/// `head value`, with the value as written less the spacing around it.
+fn head_line(node: &SyntaxNode, head: String) -> String {
+    let mut line = head;
+    if let Some(value) = node.children().find(|it| it.kind() == VALUE) {
+        let text = value.text().to_string();
+        let text = text.trim();
+        if !text.is_empty() {
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(text);
+        }
+    }
+    line
 }
 
 /// Comments written on the declaration line, and those written after it.
@@ -601,11 +645,35 @@ mod tests {
     }
 
     #[test]
+    fn keeps_an_escape_group_whole() {
+        // A group is content, so its own spacing stays and a line never breaks
+        // inside it.
+        check(
+            "note:\n    Write \\  a   b  \\   now\n",
+            "note:\n    Write \\  a   b  \\ now\n",
+        );
+        let source = format!("note:\n    {}\\ a group that must not be broken across lines \\\n", "word ".repeat(12));
+        let output = format(&source);
+        assert!(
+            output.lines().any(|line| line.contains("\\ a group that must not be broken across lines \\")),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn lines_a_list_item_continuation_up_under_its_text() {
+        check(
+            "x:\n    - one   two\n            three    four\n    // note\n      five: six  // c\n    - seven\n",
+            "x:\n    - one   two\n      three four\n      // note\n      five: six  // c\n    - seven\n",
+        );
+    }
+
+    #[test]
     fn keeps_a_fenced_code_block_as_written() {
         // Nothing inside is rewrapped or tidied, blank lines included, and the
-        // prose either side is its own paragraph.
+        // prose either side keeps its own line breaks.
         let source = "note:\n    Before\n    it.\n    ```js\n    let  a =   1;   // spaced\n\n\n      - indented\n    ```\n    After   it.\n";
-        check(source, "note:\n    Before it.\n    ```js\n    let  a =   1;   // spaced\n\n\n      - indented\n    ```\n    After it.\n");
+        check(source, "note:\n    Before\n    it.\n    ```js\n    let  a =   1;   // spaced\n\n\n      - indented\n    ```\n    After it.\n");
     }
 
     #[test]
@@ -625,12 +693,26 @@ mod tests {
     }
 
     #[test]
-    fn fills_a_paragraph_to_eighty_columns() {
+    fn breaks_a_line_that_runs_past_eighty_columns() {
         check(
             "note:\n    This line of prose runs on well past the eightieth column of the file, so it wraps.\n",
             "note:\n    This line of prose runs on well past the eightieth column of the file, so it\n    wraps.\n",
         );
-        check("note:\n    Short\n    lines\n    join up.\n", "note:\n    Short lines join up.\n");
+    }
+
+    #[test]
+    fn leaves_a_line_that_already_fits_where_it_is() {
+        // Where a line of prose breaks is the author's, so short lines are
+        // never gathered up and refilled.
+        let source = "note:\n    Short\n    lines\n    stay short.\n";
+        check(source, source);
+        // A sentence to a line survives a line beside it that has to break.
+        check(
+            "note:\n    One.\n    This line of prose runs on well past the eightieth column of the file, so it wraps.\n    Three.\n",
+            "note:\n    One.\n    This line of prose runs on well past the eightieth column of the file, so it\n    wraps.\n    Three.\n",
+        );
+        // Only the spacing inside a line is tidied.
+        check("note:\n    Short   lines\n    stay    short.\n", "note:\n    Short lines\n    stay short.\n");
     }
 
     #[test]
@@ -644,7 +726,7 @@ mod tests {
     #[test]
     fn keeps_paragraphs_and_what_ends_them_apart() {
         // A blank line is what lets `key: value` be a key; without it the line
-        // would still be prose, and joining it would be correct.
+        // is prose, and is printed as the prose it is.
         let source =
             "note:\n    First paragraph.\n\n    Second paragraph.\n    // an aside\n    Third.\n\n    key: value\n";
         check(source, source);
@@ -652,8 +734,11 @@ mod tests {
 
     #[test]
     fn never_breaks_inside_a_wide_gap_an_expression_or_a_quote() {
-        let source = "note:\n    Wrap here please.  Not inside {one + two} or \"a quoted phrase\" at all ever.\n";
+        // Long enough that it has to break somewhere, so where it may not
+        // break is what the assertions are about.
+        let source = "note:\n    Wrap here please.  Not inside {one + two} or \"a quoted phrase\" at all, ever, however long this line of prose runs on for.\n";
         let output = format(source);
+        assert!(output.lines().count() > 2, "the line has to break: {output}");
         assert!(output.contains("please.  Not"), "{output}");
         assert!(output.contains("{one + two}"), "{output}");
         assert!(output.contains("\"a quoted phrase\""), "{output}");

@@ -11,6 +11,7 @@ Semantic highlighting, folding, and links
 - A declaration carries the declaration modifier, and an abstract anchor carries the abstract modifier as well.
 - `self`, `this`, and `super` are read-only keywords, and `true`, `false`, and `null` are read-only enum members.
 - The opening and closing lines of a fenced code block are operators and every line inside it is a string, because nothing inside a fence is a name, a key, or a comment.
+- An escape group is one string from delimiter to delimiter, because nothing inside a group is a name, a key, or a comment either.
 
 ## Folding
 

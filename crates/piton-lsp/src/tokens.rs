@@ -132,9 +132,10 @@ fn classify(token: &SyntaxToken) -> Option<(u32, u32)> {
         THIS_KW | SELF_KW | SUPER_KW => (T_KEYWORD, READONLY),
         TRUE_KW | FALSE_KW | NULL_KW => (T_ENUM_MEMBER, READONLY),
         NUMBER => (T_NUMBER, 0),
-        // Nothing inside a fence is a name, a key, or a comment: its fences
-        // mark where it starts and ends, and every line between is a string.
-        QUOTED_STRING | TEXT | ESCAPE | CODE => (T_STRING, 0),
+        // Nothing inside a fence or an escape group is a name, a key, or a
+        // comment: its delimiters mark where it starts and ends, and what is
+        // between them is a string.
+        QUOTED_STRING | TEXT | ESCAPE | ESCAPE_GROUP | CODE => (T_STRING, 0),
         FENCE => (T_OPERATOR, 0),
         PATH => (T_NAMESPACE, 0),
         SIGIL => (T_DECORATOR, 0),

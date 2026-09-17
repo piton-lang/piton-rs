@@ -39,6 +39,8 @@ anchor Example:
 //                          ^ keyword.operator
     url: https://example.com/a//b
 //       ^ string.special.url
+    escaped: \ // ${not} a comment or an interpolation \
+//           ^ string.escape
     hyphen: a well-known thing
 //          ^ string
 
@@ -50,6 +52,11 @@ skill BuildIt:
         ```sh
         echo ${not} // an interpolation or a comment
         ```
+//      ^ punctuation.special
+    steps:
+        - a list item
+          split across lines
+        - the next item
 //      ^ punctuation.special
 
 from @piton/config import PitonConfig

@@ -108,6 +108,10 @@
           "named": true
         },
         {
+          "type": "escape_group",
+          "named": true
+        },
+        {
           "type": "inline_list",
           "named": true
         },
@@ -548,6 +552,10 @@
           "named": true
         },
         {
+          "type": "escape_group",
+          "named": true
+        },
+        {
           "type": "inline_list",
           "named": true
         },
@@ -704,6 +712,10 @@
   },
   {
     "type": "escape",
+    "named": true
+  },
+  {
+    "type": "escape_group",
     "named": true
   },
   {

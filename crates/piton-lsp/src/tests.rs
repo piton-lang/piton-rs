@@ -1608,6 +1608,27 @@ fn renaming_a_shared_anchor_reaches_every_project_that_uses_it() {
 }
 
 #[test]
+fn a_property_key_is_not_offered_on_a_list_item_continuation() {
+    // A line lined up under a list item's text continues that text.
+    const SOURCE: &str = "\
+abstract anchor Shape as shape:
+    description:: string
+    weight:: number
+
+shape Concrete:
+    notes:
+        - some text about this shape
+          w
+";
+    let labels = labels_after(
+        &[("main.pi", SOURCE)],
+        "main.pi",
+        "        - some text about this shape\n          ",
+    );
+    assert!(labels.is_empty(), "a continuation offers nothing: {labels:?}");
+}
+
+#[test]
 fn a_property_key_is_not_offered_inside_a_run_of_prose() {
     // The compiler reads a `key:` line written after prose as more prose, so
     // offering property names there would suggest something that will not be
@@ -1715,4 +1736,55 @@ fn a_fenced_code_block_folds_from_fence_to_fence() {
         ranges.iter().any(|it| it.start_line == 6 && it.end_line == 9),
         "{ranges:#?}"
     );
+}
+
+// ---- escape groups -----------------------------------------------------------
+
+const ESCAPED: &str = "\
+abstract anchor Shape as shape:
+    description:: string
+
+shape Concrete:
+    description: \\ {Shape} ${Shape} from ./x import Shape \\
+";
+
+#[test]
+fn nothing_is_offered_inside_an_escape_group() {
+    for marker in ["\\ ", "\\ {Shape} ${", "import "] {
+        let labels = labels_after(&[("main.pi", ESCAPED)], "main.pi", marker);
+        assert!(labels.is_empty(), "offered inside a group after {marker:?}: {labels:?}");
+    }
+}
+
+#[test]
+fn an_escape_group_is_one_string_between_its_delimiters() {
+    let (root, mut workspace) = workspace(&[("main.pi", ESCAPED)]);
+    let view = view_of(&mut workspace, root.join("main.pi"));
+    let file = view.file_for(&root.join("main.pi")).unwrap();
+    let produced = decoded_tokens(&view, file);
+    let inside: Vec<(String, String)> = produced
+        .iter()
+        .filter(|(line, _, _, _)| *line == 4)
+        .map(|(_, _, text, kind)| (text.clone(), kind.clone()))
+        .collect();
+    assert_eq!(
+        inside,
+        vec![
+            ("description".to_string(), "property".to_string()),
+            (":".to_string(), "operator".to_string()),
+            (
+                "\\ {Shape} ${Shape} from ./x import Shape \\".to_string(),
+                "string".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn nothing_inside_an_escape_group_resolves() {
+    let (root, mut workspace) = workspace(&[("main.pi", ESCAPED)]);
+    let view = view_of(&mut workspace, root.join("main.pi"));
+    let file = view.file_for(&root.join("main.pi")).unwrap();
+    let at = offset_of(ESCAPED, "{Shape} ${Shape}") + piton_syntax::TextSize::new(2);
+    assert!(navigation::locate(&view, file, at).is_none());
 }

@@ -71,6 +71,10 @@ opened it; one that never closes runs to the end of the buffer."
    `(,(concat "::[[:space:]]*\\(?:extends[[:space:]]+\\)?\\("
               (regexp-opt piton--types) "\\|[A-Za-z_][A-Za-z0-9_-]*\\)")
      1 font-lock-type-face)
+   ;; An escape group is kept as written, so nothing inside it is Piton.  Its
+   ;; closing delimiter repeats the opening one's backslashes, exactly as many.
+   '("\\(?:^\\|[[:space:]([,]\\)\\(\\(\\\\+\\) \\(?:.*? \\)?\\2\\)\\(?:[^\\\\]\\|$\\)"
+     1 font-lock-string-face t)
    '("[^ \t{}\\[\\](),\"]*{[^}]*}" 0 font-lock-preprocessor-face keep)
    '("\\_<[0-9][0-9_]*\\(?:\\.[0-9][0-9_]*\\)?\\_>" . font-lock-constant-face)
    '("^[[:space:]]*\\(-\\)[[:space:]]" 1 font-lock-negation-char-face)

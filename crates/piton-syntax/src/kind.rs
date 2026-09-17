@@ -22,6 +22,9 @@ pub enum SyntaxKind {
     INDENT,
     /// End of an indentation block.
     DEDENT,
+    /// A line that continues the text of the list item above it, indented to
+    /// line up with that text rather than to open a block.
+    CONTINUE,
     /// The newline terminating a content line.
     NEWLINE,
     /// The newline of an empty line; significant inside string blocks.
@@ -38,6 +41,8 @@ pub enum SyntaxKind {
     TEXT,
     /// A `\x` escape sequence.
     ESCAPE,
+    /// A `\ ... \` escape group, delimiters and all, kept exactly as written.
+    ESCAPE_GROUP,
     /// An import path such as `./Foo`, `/a/b`, or `@piton/belay`.
     PATH,
     /// The `$`, `@`, or `name` preceding an interpolation's `{`.
@@ -177,6 +182,7 @@ pub const ALL_KINDS: &[SyntaxKind] = &[
     SyntaxKind::COMMENT,
     SyntaxKind::INDENT,
     SyntaxKind::DEDENT,
+    SyntaxKind::CONTINUE,
     SyntaxKind::NEWLINE,
     SyntaxKind::BLANK,
     SyntaxKind::IDENT,
@@ -184,6 +190,7 @@ pub const ALL_KINDS: &[SyntaxKind] = &[
     SyntaxKind::QUOTED_STRING,
     SyntaxKind::TEXT,
     SyntaxKind::ESCAPE,
+    SyntaxKind::ESCAPE_GROUP,
     SyntaxKind::PATH,
     SyntaxKind::SIGIL,
     SyntaxKind::FENCE,
@@ -285,7 +292,7 @@ impl SyntaxKind {
 
     /// True for the zero-width markers that never reach the syntax tree.
     pub fn is_virtual(self) -> bool {
-        matches!(self, SyntaxKind::INDENT | SyntaxKind::DEDENT)
+        matches!(self, SyntaxKind::INDENT | SyntaxKind::DEDENT | SyntaxKind::CONTINUE)
     }
 }
 

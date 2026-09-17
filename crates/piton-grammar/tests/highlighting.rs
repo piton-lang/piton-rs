@@ -310,3 +310,27 @@ fn a_fence_opens_a_raw_block_that_only_a_matching_fence_closes() {
     assert!(!matches(&end("````"), "    ```"), "a shorter run is content");
     assert!(!matches(&end("```"), "    ```js"), "a fence with an info string is content");
 }
+
+#[test]
+fn an_escape_group_runs_to_the_delimiter_that_closes_it() {
+    let grammar = grammar();
+    let group = pattern(&grammar, "escape-group", "match");
+    let found = |line: &str| {
+        group
+            .find_iter(line)
+            .filter_map(Result::ok)
+            .map(|it| it.as_str().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(found("a: \\ a group \\ tail"), vec!["\\ a group \\"]);
+    // Each group closes at its own delimiter, so a line may hold several.
+    assert_eq!(found("a: \\ one \\ and \\ two \\"), vec!["\\ one \\", "\\ two \\"]);
+    // One more backslash on each side holds a run that would otherwise close it.
+    assert_eq!(
+        found("a: \\\\ \\ escaped backslash \\ \\\\"),
+        vec!["\\\\ \\ escaped backslash \\ \\\\"]
+    );
+    // A backslash inside a word, or one with nothing to close it, is not a group.
+    assert!(found("a: C:\\ path").is_empty());
+    assert!(found("a: \\ unclosed").is_empty());
+}

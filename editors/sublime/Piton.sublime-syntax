@@ -53,6 +53,15 @@ contexts:
       scope: keyword.operator.piton
 
   value:
+    # An escape group is kept as written, so nothing inside it is Piton. Its
+    # closing delimiter repeats the opening one's backslashes, exactly as many,
+    # which is what lets a longer delimiter hold a shorter one.
+    - match: '(?<![^\s(\[,])(\\+) (?:.*? )?\1(?!\\)'
+      scope: string.unquoted.escape-group.piton
+      captures:
+        1: constant.character.escape.piton
+    - match: '\\.'
+      scope: constant.character.escape.piton
     - match: '([^\s{}\[\](),"]*)(\{)'
       captures:
         1: keyword.other.sigil.piton

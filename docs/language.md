@@ -81,11 +81,19 @@ Literals: `true`, `false`, `null`
 - Two files may import from each other. A circular reference is an error only
   when it cannot settle: `${A}` and `${B}` naming each other is fine, because an
   interpolated anchor renders as its name, while `A: {B}` and `B: {A}` is not.
+- A `- ` item's text continues, as in Markdown, on the lines after it that
+  are indented past its marker, joining with a space. The canonical alignment
+  is two columns past the `-`, and a `key:` line there is text.
 - Prose lines join with a space and a blank line starts a new line. A fenced
   code block, opened on an indented line by three or more backticks or tildes
   and closed by a line of at least as many of the same, is taken exactly as
   written instead: no comments, escapes, keys, or interpolations inside, its
   line breaks and relative indentation kept, its fences part of the string.
+- `\` escapes the character after it, so `\\` is a backslash. A run of
+  backslashes followed by a space opens an escape group that a space and the
+  same run closes: `\ // not a comment \` is text, nothing inside it is read as
+  Piton, the delimiters are not part of the string, and one more backslash on
+  each side holds a shorter delimiter inside.
 - Indentation must be consistent within a file; the canonical style is four
   spaces.
 

@@ -127,6 +127,8 @@ pub fn grammar(vocabulary: &Vocabulary) -> String {
     "value": {{
       "patterns": [
         {{ "include": "#comment" }},
+        {{ "include": "#escape-group" }},
+        {{ "include": "#escape" }},
         {{ "include": "#interpolation" }},
         {{ "include": "#string" }},
         {{ "include": "#number" }},
@@ -174,6 +176,14 @@ pub fn grammar(vocabulary: &Vocabulary) -> String {
     "escape": {{
       "match": "\\\\.",
       "name": "constant.character.escape.piton"
+    }},
+    "escape-group": {{
+      "comment": "A group is kept exactly as written, so nothing inside it is highlighted as Piton. The closing delimiter repeats the opening one's backslashes, exactly as many, which is what lets a longer one hold a shorter one.",
+      "match": "(?<![^\\s(\\[,])(\\\\+) (?:.*? )?\\1(?!\\\\)",
+      "name": "string.unquoted.escape-group.piton",
+      "captures": {{
+        "1": {{ "name": "constant.character.escape.piton" }}
+      }}
     }},
     "declaration-keywords": {{
       "match": "(?<![\\w-])({declaration})(?![\\w-])",

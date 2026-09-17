@@ -121,17 +121,22 @@ fn context(view: &View, file: FileId, offset: TextSize) -> Context {
     let line_start = text[..cursor].rfind('\n').map_or(0, |it| it + 1);
     let prefix = &text[line_start..cursor];
 
-    let node = match root.covering_element(TextRange::empty(offset)) {
-        piton_syntax::NodeOrToken::Node(node) => node,
+    let element = root.covering_element(TextRange::empty(offset));
+    let node = match &element {
+        piton_syntax::NodeOrToken::Node(node) => node.clone(),
         piton_syntax::NodeOrToken::Token(token) => match token.parent() {
             Some(parent) => parent,
             None => root.clone(),
         },
     };
 
-    // What a fence holds is kept exactly as written and never read as Piton,
-    // however much of it looks like an import or an expression.
+    // What a fence or an escape group holds is kept exactly as written and
+    // never read as Piton, however much of it looks like an import or an
+    // expression.
     if node.ancestors().any(|it| it.kind() == CODE_BLOCK) {
+        return Context::Nothing;
+    }
+    if element.kind() == ESCAPE_GROUP && offset > element.text_range().start() {
         return Context::Nothing;
     }
 

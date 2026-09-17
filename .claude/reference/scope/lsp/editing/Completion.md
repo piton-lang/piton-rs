@@ -11,7 +11,7 @@ Completion is decided by where the cursor is, read from the syntax tree, and eac
 ## Places
 
 - The start of a top-level line offers what can begin a declaration, and never `extends`, `as`, or a literal.
-- The start of an indented line inside an anchor offers the inherited properties it has not written yet, except inside a run of prose, which only a blank line ends.
+- The start of an indented line inside an anchor offers the inherited properties it has not written yet, except inside a run of prose, which only a blank line ends, or on a line lined up under a list item's text, which continues it.
 - After `::` it offers built-in types and anchors, and `extends` only inside an abstract anchor.
 - After `extends` it offers anchors.
 - Inside a `from` or `use` specifier it offers real files and directories, directories with an `index.pi` as modules, and builtin modules.
@@ -19,6 +19,7 @@ Completion is decided by where the cursor is, read from the syntax tree, and eac
 - After the `import` of an import line it offers what that module exports and the line does not already name.
 - Inside braces and interpolations it offers the names in scope, and `self`, `this`, and `super` inside an anchor.
 - Inside a fenced code block nothing is offered, because what is written there is kept exactly as it is and never read as Piton.
+- Inside an escape group nothing is offered, for the same reason: what is between its delimiters is kept exactly as it is.
 - A half-typed `from` or `use` line does not parse, so it is read from the line's text rather than from the tree.
 
 ## Accepting

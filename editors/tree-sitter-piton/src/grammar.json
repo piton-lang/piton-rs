@@ -238,6 +238,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "_code_line"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "_item_line"
                 }
               ]
             }
@@ -280,6 +284,40 @@
         {
           "type": "SYMBOL",
           "name": "text_line"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "comment"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_newline"
+        }
+      ]
+    },
+    "_item_line": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "list_item"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "spread_item"
+            }
+          ]
         },
         {
           "type": "CHOICE",
@@ -1122,6 +1160,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "escape_group"
+        },
+        {
+          "type": "SYMBOL",
           "name": "escape"
         },
         {
@@ -1395,6 +1437,13 @@
             "value": "."
           }
         ]
+      }
+    },
+    "escape_group": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "\\\\+ ([^\\n]*[^ \\n])? \\\\+"
       }
     },
     "operator": {

@@ -185,13 +185,20 @@ fn lower_block(inline: Option<ast::Value>, block: &ast::Block) -> Node {
                         spread: None,
                         range: item.range(),
                     }],
-                    None => list_element(item.value(), item.block(), None, item.range()),
+                    None => list_element(
+                        item.value(),
+                        item.continuation().collect(),
+                        item.block(),
+                        None,
+                        item.range(),
+                    ),
                 };
                 push_elements(&mut groups, element);
             }
             ast::Entry::Spread(item) => {
                 let element = list_element(
                     item.value(),
+                    Vec::new(),
                     item.block(),
                     Some(item.deduplicates()),
                     item.range(),
@@ -274,17 +281,30 @@ fn lower_property(property: &ast::Property) -> Property {
 /// A list item contributes its own value and, separately, any nested block.
 ///
 /// That is what makes `- Level 1` with a nested `- Level 2` come out as
-/// `["Level 1", ["Level 2"]]`.
+/// `["Level 1", ["Level 2"]]`. Lines lined up under the item's text continue
+/// it, joining with a space as the lines of any other paragraph do.
 fn list_element(
     value: Option<ast::Value>,
+    continuation: Vec<ast::TextLine>,
     block: Option<ast::Block>,
     spread: Option<bool>,
     range: TextRange,
 ) -> Vec<Element> {
     let mut out = Vec::new();
     if let Some(value) = value.as_ref() {
-        if let Some(piece) = lower_value(value) {
-            out.push(Element { node: piece_node(piece, value.range()), spread, range });
+        if continuation.is_empty() {
+            if let Some(piece) = lower_value(value) {
+                out.push(Element { node: piece_node(piece, value.range()), spread, range });
+            }
+        } else {
+            let mut groups = Vec::new();
+            push_text(&mut groups, lower_value(value));
+            for line in &continuation {
+                push_text(&mut groups, line.value().as_ref().and_then(lower_value));
+            }
+            if let Some(node) = groups.into_iter().next().and_then(finish_group) {
+                out.push(Element { node, spread, range });
+            }
         }
     }
     if let Some(block) = block {
@@ -419,7 +439,12 @@ fn lower_text_line(text: &ast::TextValue) -> Line {
         match piece {
             ast::TextPiece::Token(token) => match token.kind() {
                 COMMENT => {}
-                ESCAPE => literal.push_str(token.text().trim_start_matches('\\')),
+                // The backslash is the escape; a second one is the character
+                // it escapes, which is how `\\` writes a literal backslash.
+                ESCAPE => literal.push_str(token.text().strip_prefix('\\').unwrap_or(token.text())),
+                // A group stands for what is between its delimiters, exactly
+                // as it was written: nothing in it was read as Piton.
+                ESCAPE_GROUP => literal.push_str(piton_syntax::escape_group_text(token.text())),
                 _ => literal.push_str(token.text()),
             },
             ast::TextPiece::Interpolation(interpolation) => {

@@ -176,7 +176,7 @@ fn document<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Tree, Extra<'a>> {
         export_decl,
         blank,
         error_line(),
-        kind_in(&[INDENT, DEDENT, NEWLINE, BLANK]).map(|token| Tree::new(ERROR, vec![token])),
+        kind_in(&[INDENT, DEDENT, CONTINUE, NEWLINE, BLANK]).map(|token| Tree::new(ERROR, vec![token])),
     ));
 
     item.repeated()
@@ -212,12 +212,18 @@ fn block_parser<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>>
 
         // `- key: value` and `- key:` with a block are a dictionary written as
         // one list element, which is why the property alternative comes first.
+        // A line the lexer found lined up under an item's text continues that
+        // text, so it belongs to the item rather than to the block around it.
+        let continuation = group((tok(CONTINUE), value.clone().or_not(), tok(NEWLINE).or_not()))
+            .map(|parts| Tree::new(TEXT_LINE, children(parts)));
+
         let list_item = choice((
             group((tok(DASH), property.clone())).map(children),
             group((
                 tok(DASH),
                 value.clone().or_not(),
                 tok(NEWLINE).or_not(),
+                continuation.repeated().collect::<Vec<Child>>(),
                 block.clone().or_not(),
             ))
             .map(children),
@@ -308,7 +314,7 @@ fn import_list<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>> 
 /// Anything the grammar could not classify, up to the end of the line.
 fn error_line<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>> + Clone {
     let junk = any()
-        .filter(|token: &Tok| !matches!(token.kind, NEWLINE | BLANK | INDENT | DEDENT))
+        .filter(|token: &Tok| !matches!(token.kind, NEWLINE | BLANK | INDENT | DEDENT | CONTINUE))
         .map(|token: Tok| Child::Token(token.index));
     group((junk.repeated().at_least(1).collect::<Vec<Child>>(), tok(NEWLINE).or_not()))
         .map(|parts| Tree::new(ERROR, children(parts)))

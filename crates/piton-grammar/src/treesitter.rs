@@ -62,6 +62,8 @@ module.exports = grammar({{
   // colon decide.
   conflicts: $ => [
     [$.keyword_declaration, $.value],
+    // A newline after a list item's text may end the item or lead to a line
+    // that continues it; only the next line can say which.
   ],
 
   rules: {{
@@ -75,7 +77,12 @@ module.exports = grammar({{
     // line arrives — which is what stops the lexer producing a `key` token
     // there at all, since it only ever scans for tokens the parser can use.
     source_file: $ => seq(
-      repeat(choice($._structural_line, $._prose_run, $._blank_line, $._comment_line)),
+      repeat(choice(
+        $._structural_line,
+        $._prose_run,
+        $._blank_line,
+        $._comment_line,
+      )),
       // A run of prose may also end at the end of the file. Nothing may follow
       // it there either — not even the last line of the file — because a `key`
       // the parser could still use is a `key` the lexer will still produce, and
@@ -121,13 +128,18 @@ module.exports = grammar({{
       // A fence is prose as far as the run is concerned: a `key:` right after
       // one is still a sentence until a blank line.
       choice($._prose_line, $._code_line),
-      repeat(choice($._prose_line, $._comment_line, $._code_line)),
+      // A list item's text continues on the lines lined up under it, as in
+      // Markdown, and those lines read as prose here. The items after them
+      // are still items: a marker always starts one, in a run or not.
+      repeat(choice($._prose_line, $._comment_line, $._code_line, $._item_line)),
       // A file need not end with a newline, and the line that has none is
       // still part of the run.
       optional(seq($.text_line, optional($.comment))),
     )),
 
     _prose_line: $ => seq($.text_line, optional($.comment), $._newline),
+
+    _item_line: $ => seq(choice($.list_item, $.spread_item), optional($.comment), $._newline),
 
     _last_line: $ => seq($._entry, optional($.comment)),
 
@@ -231,6 +243,7 @@ module.exports = grammar({{
     // takes a property as readily as a value.
     list_item: $ => prec.right(2, seq('-', optional(choice($.property, $.value)))),
 
+
     spread_item: $ => prec.right(2, seq(choice('++', '+'), optional($.value))),
 
     text_line: $ => $.value,
@@ -250,6 +263,7 @@ module.exports = grammar({{
       $.number,
       $.constant,
       $.inline_list,
+      $.escape_group,
       $.escape,
       $.operator,
       $.word,
@@ -297,6 +311,15 @@ module.exports = grammar({{
     number: $ => token(/\d[\d_]*(\.\d[\d_]*)?/),
 
     escape: $ => token(seq('\\', /./)),
+
+    // An escape group is one token, because everything between its delimiters
+    // is kept exactly as written and none of it is lexed as Piton. Tree-sitter
+    // cannot count, so it cannot tell a delimiter from a longer one written to
+    // escape it: the token simply runs to the last delimiter on the line,
+    // which makes a line holding two groups one token here where the compiler
+    // reads two. Every character of it is a string either way, which is all
+    // this grammar has to decide.
+    escape_group: $ => token(/\\+ ([^\n]*[^ \n])? \\+/),
 
     operator: $ => choice(
       '++', '&&', '||', '==', '!=', '>=', '<=',
@@ -444,6 +467,7 @@ fn highlights(vocabulary: &Vocabulary) -> String {
 (string) @string
 (url) @string.special.url
 (escape) @string.escape
+(escape_group) @string.escape
 (operator) @operator
 
 (list_item "-" @punctuation.special)
@@ -596,6 +620,36 @@ example:
   (text_line (value (word) (operator) (word) (word))))
 
 ================
+List item continuation
+================
+
+items:
+    - a list item
+      split across lines
+    - two
+
+---
+
+(source_file
+  (property key: (key))
+  (list_item (value (word) (word) (word)))
+  (text_line (value (word) (word) (word)))
+  (list_item (value (word))))
+
+================
+Escape groups
+================
+
+a: \ // ${not} key: not a key \
+b: before \ middle \ after
+
+---
+
+(source_file
+  (property key: (key) (value (escape_group)))
+  (property key: (key) (value (word) (escape_group) (word))))
+
+================
 Lists and spreads
 ================
 
@@ -666,6 +720,8 @@ anchor Example:
 //                          ^ keyword.operator
     url: https://example.com/a//b
 //       ^ string.special.url
+    escaped: \ // ${not} a comment or an interpolation \
+//           ^ string.escape
     hyphen: a well-known thing
 //          ^ string
 
@@ -677,6 +733,11 @@ skill BuildIt:
         ```sh
         echo ${not} // an interpolation or a comment
         ```
+//      ^ punctuation.special
+    steps:
+        - a list item
+          split across lines
+        - the next item
 //      ^ punctuation.special
 
 from @piton/config import PitonConfig

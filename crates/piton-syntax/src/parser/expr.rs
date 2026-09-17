@@ -12,9 +12,9 @@ use super::tree::{children, Child, Tree};
 use super::{kind_in, tok, Extra, TokenInput};
 
 /// Kinds that end a value that occupies the rest of a line.
-pub const LINE_STOPS: &[SyntaxKind] = &[NEWLINE, BLANK, INDENT, DEDENT];
+pub const LINE_STOPS: &[SyntaxKind] = &[NEWLINE, BLANK, INDENT, DEDENT, CONTINUE];
 /// Kinds that end a value used as an element of an inline list.
-pub const ELEMENT_STOPS: &[SyntaxKind] = &[COMMA, R_BRACK, NEWLINE, BLANK, INDENT, DEDENT];
+pub const ELEMENT_STOPS: &[SyntaxKind] = &[COMMA, R_BRACK, NEWLINE, BLANK, INDENT, DEDENT, CONTINUE];
 
 /// A value in text position: an expression if it parses as one, else prose.
 pub fn value<'a, I: TokenInput<'a>>() -> impl Parser<'a, I, Child, Extra<'a>> + Clone {

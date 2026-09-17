@@ -50,6 +50,7 @@
 (string) @string
 (url) @string.special.url
 (escape) @string.escape
+(escape_group) @string.escape
 (operator) @operator
 
 (list_item "-" @punctuation.special)
