@@ -16,4 +16,4 @@ auto-format = true
 
 [[grammar]]
 name = "piton"
-source = { git = "git@github.com:piton-lang/tree-sitter-piton.git", rev = "ac3aaa7734be4c7975512887e5d45390001aa5d4" }
+source = { git = "git@github.com:piton-lang/tree-sitter-piton.git", rev = "df6672820fd815429372fc34e5092805d7af4b4a" }
