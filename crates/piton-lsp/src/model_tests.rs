@@ -869,3 +869,25 @@ fn accepting_a_completion_replaces_the_whole_name_being_typed() {
     assert!(written.starts_with("use ./ui\n\nexport ui-component ${1:Name}:"), "{written:?}");
     assert!(!written.contains("ui-ui"), "{written:?}");
 }
+
+#[test]
+fn renaming_leaves_an_escape_group_alone() {
+    let source = "\
+anchor Tool:
+    x: 1
+
+anchor User:
+    live: ${Tool} is a reference
+    shown: \\ ${Tool} is not, it is text \\
+";
+    let (root, mut workspace) = project(&[("main.pi", source)]);
+    let path = root.join("main.pi");
+    let edited = rename(&mut workspace, &path, "Tool:", "Gadget").expect("renames");
+    let after = edited.get(&path).expect("main.pi changed");
+    assert!(after.contains("anchor Gadget:"), "{after}");
+    assert!(after.contains("live: ${Gadget} is a reference"), "{after}");
+    assert!(
+        after.contains("shown: \\ ${Tool} is not, it is text \\"),
+        "what a group holds is text, so a rename must not touch it:\n{after}"
+    );
+}

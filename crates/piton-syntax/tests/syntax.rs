@@ -617,3 +617,14 @@ fn a_fence_is_prose_to_in_prose_run() {
         .collect();
     assert_eq!(keys, vec!["x", "key"], "only the key after the blank line is a key");
 }
+
+#[test]
+fn every_kind_recovers_from_its_own_raw_value() {
+    // `from_raw` indexes `ALL_KINDS`, so a kind added to the enum but put
+    // anywhere else in the table would silently rename every kind after it —
+    // the tree would still build, and every consumer of it would be wrong.
+    for (index, kind) in piton_syntax::kind::ALL_KINDS.iter().enumerate() {
+        assert_eq!(*kind as usize, index, "{kind:?} is out of place in ALL_KINDS");
+        assert_eq!(SyntaxKind::from_raw(index as u16), *kind);
+    }
+}
