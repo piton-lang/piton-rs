@@ -1,0 +1,7 @@
+use ./ArithmeticOperators
+
+export arithmetic-operator DivisionOperator:
+    description: :
+        Divides two numbers
+
+    symbol: /

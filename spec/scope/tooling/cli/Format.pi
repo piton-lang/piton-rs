@@ -1,0 +1,12 @@
+use ../cli
+
+export cli-command Format:
+    commandName: format
+    positionalArguments:
+        path: file or glob
+
+    namedArguments:
+        check: Only check the files, and report problems.  Don't write.
+
+    description:
+        Applies canonical formatting.

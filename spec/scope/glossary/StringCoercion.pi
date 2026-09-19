@@ -1,0 +1,10 @@
+export anchor StringCoercion:
+    whatItMeans:
+        Resolving is the process of
+
+    examples:
+        - "hello" -> "hello"
+        - 123 -> "123"
+        - null -> "null"
+        - true -> "true"
+        - false -> "false"

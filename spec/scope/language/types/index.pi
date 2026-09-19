@@ -1,0 +1,18 @@
+from ./Overview import Overview
+from ./Numbers import Numbers
+from ./Strings import Strings
+from ./Collections import Collections
+from ./Anchors import Anchors
+from ./Inferrence import Inferrence
+from ./Booleans import Booleans
+from ./Null import Null
+
+export anchor Types:
+    overview: @{Overview}
+    numbers: @{Numbers}
+    strings: @{Strings}
+    booleans: @{Booleans}
+    null: @{Null}
+    collections: @{Collections}
+    userDefined: @{Anchors}
+    inferrence: @{Inferrence}

@@ -1,0 +1,7 @@
+use ../cli
+
+export cli-command Reach:
+    commandName: reach
+
+    description:
+        Reports which files are reached and which are stranded

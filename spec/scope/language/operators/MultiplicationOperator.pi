@@ -1,0 +1,7 @@
+use ./ArithmeticOperators
+
+export arithmetic-operator MultiplicationOperator:
+    description:
+        Multiplies two numbers together
+
+    symbol: *

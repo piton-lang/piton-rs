@@ -1,0 +1,7 @@
+use ../cli
+
+export cli-command Lsp:
+    commandName: lsp
+
+    description:
+        Runs the Piton language server

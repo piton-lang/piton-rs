@@ -1,0 +1,7 @@
+export NestedTypeConstraints:
+    nestedTypeConstraints:
+        It is possible to constrain nested keys inside a dictionary.
+
+        myVariable:: dictionary:
+            a:: number: 1
+            b:: string: "foo"

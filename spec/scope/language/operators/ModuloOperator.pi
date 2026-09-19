@@ -1,0 +1,7 @@
+use ./ArithmeticOperators
+
+export arithmetic-operator ModuloOperator:
+    description:
+        Returns the remainder of two numbers
+
+    symbol: %

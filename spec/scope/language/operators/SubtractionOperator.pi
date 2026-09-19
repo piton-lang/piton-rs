@@ -1,0 +1,7 @@
+use ./ArithmeticOperators
+
+export arithmetic-operator SubtractionOperator:
+    description:
+        Subtracts two numbers
+
+    symbol: -

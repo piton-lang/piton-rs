@@ -1,0 +1,9 @@
+use ../cli
+
+export cli-command Build:
+    commandName: build
+    positionalArguments:
+        config: optional path to piton.config.pi file
+
+    description:
+        Builds the project as configured by piton.config.pi

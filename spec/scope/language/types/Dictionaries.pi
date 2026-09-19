@@ -1,0 +1,28 @@
+use ./Type
+
+from /scope/glossary/StringCoercion import StringCoercion
+
+export type Dictionaries:
+    description:
+        Dictionaries are nested keys and values, and there is only a single way
+        to define them:
+
+        ```piton
+        firstLevel:
+            secondLevel:
+                thirdLevel: This is a string
+        ```
+
+        You can use dot syntax to access keys in a dictionary.
+        firstLevel.secondLevel.thirdLevel would yield “This is a string”.
+
+        Object keys can include hyphens and underscores as well as valid Unicode
+        letter characters and Unicode numeric characters. They cannot include
+        spaces.
+
+    validKeys:
+        Anything that can support @{StringCoercion} to a string is a valid key,
+        so long as it doesn't contain spaces.
+
+        So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and
+        `null` are all valid keys, while `This is a key` and `1 2 3` are not.

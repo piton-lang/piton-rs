@@ -1,0 +1,17 @@
+use ./Type
+
+export type Numbers:
+    description:
+        Numbers are written as literal numbers. Leading 0 is mandatory for
+        decimals, and you can use underscores to separate large numbers for
+        readability.
+
+        ```piton
+        myInt: 123
+        myFloat: 3.14
+        mySmallFloat: 0.14
+        myBigNumber: 1_200_000.00
+        ```
+
+        There is a single number type in all of Piton; type-wise there’s no
+        difference between an int, a float, double, etc.

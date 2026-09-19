@@ -1,0 +1,29 @@
+from ./Compile import Compile
+from ./Check import Check
+from ./Agent import Agent
+from ./Build import Build
+from ./Format import Format
+from ./Lsp import Lsp
+from ./Reach import Reach
+
+export anchor Cli:
+    description:
+        The CLI compiler is a command-line tool that allows you to compile Piton
+        files into output. It also includes helper commands like format.
+
+    commands:
+        - {Agent}
+        - {Build}
+        - {Check}
+        - {Compile}
+        - {Format}
+        - {Lsp}
+        - {Reach}
+
+export abstract anchor CliCommand as cli-command:
+    abstract:: string: Command invokable by the cli by running piton <command>
+    commandName:: string
+    description:: string
+
+    positionalArguments:: dictionary:: null: null
+    namedArguments:: dictionary:: null: null

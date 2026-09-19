@@ -1,0 +1,14 @@
+export anchor Overview:
+    overview:
+        Piton is loosely typed with optional type constraints.
+
+    types:
+        All the usual suspects are present.
+
+        string: A unicode string
+        number: All-encompassing numeric type; int or float.
+        boolean: true or false
+        null: The absence of a value
+        list: A list of values. Value types can be mixed as long as it’s not constrained by a type annotation.
+        dictionary: A dictionary of key-value pairs. Key types must be strings, and value types can be mixed as long as it’s not constrained by a type annotation.
+        anchor: The core structural building block of Piton. Don't worry, there's a whole section on this.

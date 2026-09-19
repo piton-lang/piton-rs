@@ -1,0 +1,7 @@
+use ./ArithmeticOperators
+
+export arithmetic-operator AdditionOperator:
+    description:
+        Adds two numbers together
+
+    symbol: +

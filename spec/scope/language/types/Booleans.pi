@@ -1,0 +1,5 @@
+use ./Type
+
+export type Booleans:
+    description:
+        Booleans are represented with lowercase `true` and `false`.

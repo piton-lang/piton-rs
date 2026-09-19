@@ -1,0 +1,6 @@
+from ./scope/language import Language
+from ./scope/tooling import Tooling
+
+export anchor Specification:
+    language: @{Language}
+    tooling: @{Tooling}

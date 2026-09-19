@@ -1,0 +1,44 @@
+use ./Type
+
+from ./Escaping import Escaping
+
+export type Strings:
+    description:
+        Strings are not quoted. They can appear on the same line as what they’re
+        assigned to, or indented on the next line:
+
+        ```piton
+        sameLine: Hello, World!
+        nextLine:
+            Hello, World!
+        ```
+
+        The leading whitespace on a string block is discarded, as that’s part of
+        the syntax of the language, not the string. In other words, the string
+        in both examples is “Hello, World!”.
+
+        Within a string block, you can add line breaks without affecting the
+        structure of the string. To create an explicit line break, you must
+        include a blank line.
+
+        ```
+        myString:
+            This broken string is not considered
+            a line break.
+
+            While this *is* on a new line because there was a blank line above.
+        ```
+
+        When compiled, we’ll get two lines:
+
+        ```markdown
+        This broken string is not considered a line break.
+        While this *is* on a new line because there was a blank line above.
+        ```
+
+        escaping: @{Escaping}
+
+        codeBlocks:
+            ```
+            TODO: Write stuff about this
+            ```

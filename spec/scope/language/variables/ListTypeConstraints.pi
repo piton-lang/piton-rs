@@ -1,0 +1,9 @@
+export anchor ListTypeConstraints:
+    listTypeConstraints:
+        List type constraints are possible with the [] syntax.
+
+        ```piton
+        myVariable:: string[]: ["foo", "bar", "baz"]
+        ```
+
+        `myVariable` must contain a list of strings.

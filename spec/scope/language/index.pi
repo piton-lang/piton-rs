@@ -1,0 +1,14 @@
+from ./overview import Overview
+from ./types import Types
+from ./variables import Variables
+from ./operators import Operators
+from ./expressions import Expressions
+from ./anchors import Anchors
+
+export anchor Language:
+    Overview: @{Overview}
+    Types: @{Types}
+    Variables: @{Variables}
+    Operators: @{Operators}
+    Expressions: @{Expressions}
+    Anchors: @{Anchors}

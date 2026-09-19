@@ -1,0 +1,10 @@
+use ../cli
+
+export cli-command Agent:
+    commandName: agent
+
+    positionalArguments:
+        agent: Which agent to run [ claude ]
+
+    description:
+        Launches the specified agent with Piton fluency.

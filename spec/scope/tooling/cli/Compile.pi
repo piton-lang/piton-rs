@@ -1,0 +1,11 @@
+use .
+
+export cli-command Compile:
+    commandName: compile
+    positionalArguments:
+        path: file or glob
+    namedArguments:
+        format: [ json, yaml, markdown ]
+
+    description:
+        Compiles Piton

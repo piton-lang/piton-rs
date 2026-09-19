@@ -1,0 +1,66 @@
+export anchor SuperOnLists:
+    description:
+        super on lists gets some extra attention that’s worth noting.
+
+        ```piton
+        anchor BaseAnchor:
+            items:
+                - A
+                - B
+                - C
+
+        anchor ChildAnchor extends BaseAnchor:
+            items:
+                + {super.items}
+                - D
+                - E
+                - F
+        ```
+
+        This example will yield a final items of ["A", "B", "C", "D", "E", "F"].
+        We’re applying the + concatenation operator here to indicate spreading
+        the super.items list into the current list. Without that we’d end up
+        with [["A", "B", "C"], "D", "E", "F"].
+
+        But let’s modify that example slightly to see a specific feature of
+        the + concatenation operator.
+
+        ```piton
+        anchor BaseAnchor:
+            items:
+                - A
+                - B
+                - C
+
+        anchor ChildAnchor extends BaseAnchor:
+            items:
+                - A
+                - B
+                - C
+                - D
+                + {super.items}
+        ```
+
+        The change is that ChildAnchor now also contains A, B, C, and D, and
+        we’re also bringing super.items in at the end of the list. If you
+        remember from when we discussed the + concatenation operator, it
+        performs deduplication and concatenates in the order of the operands. So
+        ChildAnchor ends up with ["D", "A", "B", "C"].
+
+        One last example uses the ++ operator.
+
+        ```piton
+        anchor BaseAnchor:
+            items:
+                - A
+                - B
+                - C
+
+        anchor ChildAnchor extends BaseAnchor:
+            items:
+                - A
+                - B
+                - C
+                - D
+                ++ {super.items}
+        ```

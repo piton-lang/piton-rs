@@ -1,0 +1,29 @@
+from ./AdditionOperator import AdditionOperator
+from ./SubtractionOperator import SubtractionOperator
+from ./MultiplicationOperator import MultiplicationOperator
+from ./DivisionOperator import DivisionOperator
+from ./ModuloOperator import ModuloOperator
+
+export anchor ArithmeticOperators:
+    description:
+        They do math things when operating on numbers.
+
+        operators:: extends ArithmeticOperator[]:
+            - {AdditionOperator}
+            - {SubtractionOperator}
+            - {MultiplicationOperator}
+            - {DivisionOperator}
+            - {ModuloOperator}
+
+    orderOfPrecedence:
+        ${self} precedence follows standard mathematical precedence:
+        ${MultiplicationOperator}, ${DivisionOperator}, and ${ModuloOperator}
+        are evaluated before ${AdditionOperator} and ${SubtractionOperator}.
+
+        Operators with the same precedence are evaluated from left to right.
+        Parentheses may be used to alter the order of operations.
+
+export abstract anchor ArithmeticOperator as arithmetic-operator:
+    description:: string
+    symbol:: string
+    orderOfOperations:: string: ${ArithmeticOperators.orderOfPrecedence}
