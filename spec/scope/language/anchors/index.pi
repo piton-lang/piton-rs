@@ -71,9 +71,9 @@ export anchor Anchors:
         }
         ```
 
-        structuralInheritance: @{StructuralInheritance}
-        super: @{Super}
-        superOnLists: @{SuperOnLists}
-        selfReference: @{SelfReference}
-        abstract: @{Abstract}
-        userDefinedKeywords: @{Keywords}
+        StructuralInheritance: @{StructuralInheritance}
+        Super: @{Super}
+        SuperOnLists: @{SuperOnLists}
+        SelfReference: @{SelfReference}
+        Abstract: @{Abstract}
+        UserDefinedKeywords: @{Keywords}

@@ -1,7 +1,9 @@
 from ./agent export *
 from ./scope/language import Language
 from ./scope/tooling import Tooling
+from ./scope/founding-thesis import FoundingThesis
 
 export anchor Specification:
-    language: @{Language}
-    tooling: @{Tooling}
+    FoundingThesis: @{FoundingThesis}
+    Language: @{Language}
+    Tooling: @{Tooling}

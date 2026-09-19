@@ -1,0 +1,36 @@
+export anchor Introduction:
+    description:
+        Piton is a programming language designed specifically for writing
+        skills, agents, and reference documents for Agentic Software
+        Development. To call it a programming language is a bit generous, but
+        well, it’s not exactly natural language either. Semi-natural programming
+        language? A SNPL? Anyway…
+
+        The core thesis is that any programming language has always been an
+        abstraction on top of the layer beneath it, that once a new abstraction
+        is generally accepted we no longer care about how the compiled artifacts
+        are generated as long as they’re “good”, and that agentic development is
+        just another evolution in that history of abstracted apathy.
+
+        I would also suggest that what humans are good at has never been
+        programming itself, but rather designing coherent (maybe) functioning
+        (hopefully) systems of little doodads that twirl and whir and click and
+        clack together in an elegant (occasionally) way. Let’s define
+        “traditional programming” as the likes of Assembler, C, Python, or those
+        handful of awkward years where we thought delivering precious stones by
+        way of a train was the best way to stop drinking coffee. Traditional
+        programming is a very clever mechanism in that it allows us to describe,
+        constrain, and spend time thinking about the systems we’re building
+        while also building the artifactual doodads – or at least the highly
+        detailed instructions required for the compiler to build them.
+
+        In approaching Agentic Development, my hypothesis is that we need a way
+        to do exactly the same describing, constraining, and thinking that we
+        are and will remain skilled at, while letting go of the manual labour
+        that is writing what we collectively determined to be the latest
+        acceptable abstraction sitting on top of the little sparks zipping
+        around controlling a computer.
+
+        And with that, I posit that you should be able to copy and paste the
+        entirety of this essay into an agentic coding tool and it will output a
+        compiler for the Piton language and Belay framework.

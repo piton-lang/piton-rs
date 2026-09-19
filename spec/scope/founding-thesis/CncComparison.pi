@@ -1,0 +1,95 @@
+export anchor CncComparison:
+    description:
+        I realize I’ve probably already driven home my point and tucked it
+        nicely into bed. However, there’s one particular example I’ve found
+        myself thinking through regularly, the structure of which I think
+        functions well enough that it can imbue my thesis with a bit of sound
+        nuance.
+
+        My dad is an aerospace engineer, and he was very much present for the
+        transition from traditional machine operation to CNC (Computer Numerical
+        Control) machining. He has described many of the same “those damn
+        robots” attitudes we’re seeing now as our industry is facing what the
+        ambulance-chasing among us would call “extinction.” Pish posh, says the
+        piscine aristocracy.
+
+        Let’s discuss milling as an example; a spinning cutter moves through the
+        material being machined tiny little bit by tiny little bit, gradually
+        removing material until a big bland block of aluminum turns into a
+        smaller piece of aluminum shaped possibly less like a block. In
+        traditional machining, the hand of a machinist turns dials to move the
+        cutting point along the X, Y, and Z axes. Involved in this skill is a
+        combination of math, materials science, dexterity, and the tacit
+        understanding of how operations literally sound and feel when they’re
+        doing well or not so well.
+
+        CNC machining replaced the hand. With CNC, a most-uninteresting robot
+        composed of three motors, one each attached to the X, Y, and Z dials
+        does the turning. Those motors are controlled by a simple programming
+        language called G-code. And let’s be clear, even BASIC calls G-code
+        basic as it looks it up and down.
+
+        ```
+        G1 X40 Y0 F300
+        G1 X40 Y30
+        G1 X0 Y30
+        G1 X0 Y0
+        ```
+
+        G1 means linear movement. Move in a straight line from where you are to
+        where I tell you.
+
+        X40 means X coordinate of 40 units. Y0 is Y coordinate of 0 units.
+
+        F300 means “feed rate” of 300 units per unit of time. AKA, how quickly
+        we move.
+
+        So, yes. We made a rectangle in two dimensions. And bear in mind, CNC
+        milling is usually only useful in three dimensions – or at minimum what
+        the industry likes to call 2.5D Machining (they misplaced the other
+        half-dimension kind of like they misplaced their tape measure).
+
+        It’s a sort of turtle graphics approach to controlling the robot. And
+        while of course there’s more depth to the language than what I’ve shown
+        here, even this simple example demonstrates why the abstraction of
+        G-code itself became a lower-level substrate for another abstraction.
+        Turtle graphics all the way down.
+
+        But what CNC didn’t and doesn’t replace is the majority skill of the
+        machinist. Perhaps their specific kind of dexterity becomes less
+        relevant, and certainly the “literal feel” of the machine operation
+        meets a dead end at the closed-off entrance of a robot’s emotionally
+        damaged heart. But the rest stays, if not also given the space to gain
+        precision.
+
+        I hinted at the problem already. I also gave imprecise clues to it. It’s
+        repetition; if what we did is cut a rectangle, we’ll need to repeat that
+        again and again in the small increments the machine, cutter, and
+        material are able to physically handle as we move deeper into the billet
+        to achieve the desired depth of cut. And that’s just for an extruded
+        rectangle. Imagine what the code might look like for carving out a
+        complex three-dimensional curved surface.
+
+        There’s nothing stopping you from manually writing G-code that complex,
+        just like there’s nothing stopping you from building a banking system in
+        Brainfuck or building an editor-based operating system in LISP. But why
+        would you do that – to yourself or us?
+
+        And that’s where CAM (Computer-Aided Manufacturing) comes in. CAM
+        combines the input of the engineer’s 3D model (the design intent) with
+        the reformed machinist’s expertise in order to output G-code. The CAM
+        engineer may never touch the machine directly, nor may they ever type a
+        single line of G-code, but their involvement and knowledge are critical
+        to a functional outcome.
+
+        We could also acknowledge that what was once two jobs (engineer and
+        machinist) is now three jobs (engineer, machinist, and CAM engineer).
+        And I’m doing that by stating it, but I’ll leave it at that. Otherwise I
+        might lose the plot of this essay, kinda like – dammit, where’s my 10mm
+        socket.
+
+        While I’ve found the CNC comparison a useful framework through which to
+        organize my thoughts about recent changes in software development, it
+        also serves as a literal and pragmatic slice of history that’s far
+        enough back for the outcomes to be well-established while also close
+        enough to feel immediately comparable.

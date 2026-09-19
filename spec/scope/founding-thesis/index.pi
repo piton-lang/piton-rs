@@ -1,0 +1,10 @@
+from ./Introduction import Introduction
+from ./CncComparison import CncComparison
+from ./AgentAsCompiler import AgentAsCompiler
+from ./TheProblem import TheProblem
+
+export anchor FoundingThesis:
+    Introduction: @{Introduction}
+    CncComparison: @{CncComparison}
+    AgentAsCompiler: @{AgentAsCompiler}
+    TheProblem: @{TheProblem}

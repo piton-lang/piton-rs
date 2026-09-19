@@ -7,6 +7,8 @@ from ./Inference import Inference
 from ./Booleans import Booleans
 from ./Null import Null
 from ./Reference import Reference
+from ./SimpleTypes import SimpleTypes
+from ./ComplexTypes import ComplexTypes
 
 export anchor Types:
     overview: @{Overview}
@@ -18,3 +20,6 @@ export anchor Types:
     userDefined: @{Anchors}
     inferrence: @{Inference}
     reference: @{Reference}
+
+    simpleTypes: @{SimpleTypes}
+    complexTypes: @{ComplexTypes}
