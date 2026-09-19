@@ -1,0 +1,3 @@
+export abstract anchor Operator as operator:
+    description:: string
+    symbol:: string

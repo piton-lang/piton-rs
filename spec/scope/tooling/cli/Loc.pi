@@ -1,0 +1,10 @@
+use .
+
+export cli-command Loc:
+    commandName: loc
+    positionalArguments:
+        path: file or glob or none
+
+    description:
+        Checks for lines of code in the given path or all Piton files in the
+        current directory.

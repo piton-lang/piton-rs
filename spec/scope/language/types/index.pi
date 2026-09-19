@@ -3,9 +3,10 @@ from ./Numbers import Numbers
 from ./Strings import Strings
 from ./Collections import Collections
 from ./Anchors import Anchors
-from ./Inferrence import Inferrence
+from ./Inference import Inference
 from ./Booleans import Booleans
 from ./Null import Null
+from ./Reference import Reference
 
 export anchor Types:
     overview: @{Overview}
@@ -15,4 +16,5 @@ export anchor Types:
     null: @{Null}
     collections: @{Collections}
     userDefined: @{Anchors}
-    inferrence: @{Inferrence}
+    inferrence: @{Inference}
+    reference: @{Reference}

@@ -1,3 +1,7 @@
+from ../../operators/lib/Operator import Operator
+from ../../variables/TypeCoercion import TypeCoercion
+from ../Inference import Inference
+
 export abstract anchor Type as type:
     whatIsAType:
         A type describes what kind of value something is. It defines which
@@ -9,5 +13,12 @@ export abstract anchor Type as type:
         make sense. Each expression produces a value of a particular type, which
         may be explicitly declared or inferred by the compiler. When a value is
         used where its type is not allowed, the compiler reports a type error.
+
+    supportedOperators:: extends Operator[]:: null
+
+    unsupportedOperators:: string:
+        Any operator not explicitly listed as supported will throw a compiler
+        error.  Before throwing an error, the compiler will follow the rules of
+        @{TypeCoercion} and @{Inference}.
 
     description:: simple:: complex

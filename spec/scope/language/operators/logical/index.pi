@@ -1,0 +1,15 @@
+from ../lib/Operator import Operator
+from ./AndOperator import AndOperator
+from ./OrOperator import OrOperator
+from ./NegOperator import NegOperator
+
+export anchor LogicalOperators:
+    description: Nerds
+
+    operators:
+        + {LOGICAL_OPERATORS}
+
+export LOGICAL_OPERATORS:: extends Operator[]:
+    - {AndOperator}
+    - {OrOperator}
+    - {NegOperator}

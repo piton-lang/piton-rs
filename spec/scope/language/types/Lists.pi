@@ -1,4 +1,6 @@
-use ./Type
+use ./lib/Type
+from ../operators/concatenation/MergeOperator import MergeOperator
+from ../operators/concatenation/DupMergeOperator import DupMergeOperator
 
 export type Lists:
     description:
@@ -37,3 +39,7 @@ export type Lists:
         rather a language designed for description, a list is a construct
         intended for merging via inheritance; myList[0] is not very descriptive,
         is it?
+
+    supportedOperators:
+        - {MergeOperator}
+        - {DupMergeOperator}

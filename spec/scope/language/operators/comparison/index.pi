@@ -1,0 +1,20 @@
+from ../lib/Operator import Operator
+from ./EqOperator import EqOperator
+from ./NeqOperator import NeqOperator
+from ./LtOperator import LtOperator
+from ./LtEqOperator import LtEqOperator
+from ./GtOperator import GtOperator
+from ./GtEqOperator import GtEqOperator
+
+export anchor ComparisonOperators:
+    description: Introduces FOMO and jealousy.
+
+    operators: {COMPARISON_OPERATORS}
+
+export COMPARISON_OPERATORS:: extends Operator[]:
+    - {EqOperator}
+    - {NeqOperator}
+    - {LtOperator}
+    - {LtEqOperator}
+    - {GtOperator}
+    - {GtEqOperator}

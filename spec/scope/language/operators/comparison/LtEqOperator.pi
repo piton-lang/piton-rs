@@ -1,0 +1,5 @@
+use ../lib/Operator
+
+export operator LtEqOperator:
+    description: Less than or equal to operator.
+    symbol: <=

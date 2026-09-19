@@ -3,17 +3,13 @@ from ./SubtractionOperator import SubtractionOperator
 from ./MultiplicationOperator import MultiplicationOperator
 from ./DivisionOperator import DivisionOperator
 from ./ModuloOperator import ModuloOperator
+from ./lib/ArithmeticOperator import ArithmeticOperator
 
 export anchor ArithmeticOperators:
     description:
         They do math things when operating on numbers.
 
-        operators:: extends ArithmeticOperator[]:
-            - {AdditionOperator}
-            - {SubtractionOperator}
-            - {MultiplicationOperator}
-            - {DivisionOperator}
-            - {ModuloOperator}
+        operators: {ARITHMETIC_OPERATORS}
 
     orderOfPrecedence:
         ${self} precedence follows standard mathematical precedence:
@@ -23,7 +19,9 @@ export anchor ArithmeticOperators:
         Operators with the same precedence are evaluated from left to right.
         Parentheses may be used to alter the order of operations.
 
-export abstract anchor ArithmeticOperator as arithmetic-operator:
-    description:: string
-    symbol:: string
-    orderOfOperations:: string: ${ArithmeticOperators.orderOfPrecedence}
+export ARITHMETIC_OPERATORS:: extends ArithmeticOperator[]:
+    - {AdditionOperator}
+    - {SubtractionOperator}
+    - {MultiplicationOperator}
+    - {DivisionOperator}
+    - {ModuloOperator}

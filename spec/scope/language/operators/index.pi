@@ -1,5 +1,10 @@
 from ./ControlFlow import ControlFlow
-from ./ArithmeticOperators import ArithmeticOperators
+from ./arithmetic import ARITHMETIC_OPERATORS, ArithmeticOperators
+from ./comparison import COMPARISON_OPERATORS
+from ./logical import LOGICAL_OPERATORS
+from ./access import ACCESS_OPERATORS
+from ./concatenation import CONCATENATION_OPERATORS
+from ./conditional import CONDITIONAL_OPERATORS
 
 export anchor Operators:
     ControlFlow: {ControlFlow}
@@ -9,3 +14,11 @@ export anchor Operators:
         few slightly more unique ones. Let’s start with the standard ones.
 
         ArithmeticOperators: @{ArithmeticOperators}
+
+    allOperators:
+        + {ACCESS_OPERATORS}
+        + {ARITHMETIC_OPERATORS}
+        + {COMPARISON_OPERATORS}
+        + {CONCATENATION_OPERATORS}
+        + {CONDITIONAL_OPERATORS}
+        + {LOGICAL_OPERATORS}

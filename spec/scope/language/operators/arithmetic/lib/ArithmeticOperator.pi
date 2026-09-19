@@ -1,0 +1,5 @@
+use ../../lib/Operator
+from ../ import ArithmeticOperators
+
+export abstract operator ArithmeticOperator as arithmetic-operator:
+    orderOfOperations:: string: ${ArithmeticOperators.orderOfPrecedence}

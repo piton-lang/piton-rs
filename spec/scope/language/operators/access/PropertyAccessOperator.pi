@@ -1,0 +1,5 @@
+use ../lib/Operator
+
+export operator PropertyAccessOperator:
+    description: Accesses a property of an object.
+    symbol: .

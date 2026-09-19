@@ -1,4 +1,4 @@
-from ./TernaryOperator import TernaryOperator
+from ./conditional/TernaryOperator import TernaryOperator
 
 export anchor ControlFlow:
     ControlFlow:

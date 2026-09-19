@@ -1,0 +1,12 @@
+use ../lib/Operator
+from ../../variables/TypeCoercion import TypeCoercion
+
+export operator ConcatenationOperator:
+    description:
+        The concatenation operator (`+`) joins two strings into a single string,
+        preserving their order. For example, `"Hello" + " world"` evaluates to
+        `"Hello world"`.
+
+        Adheres to rules of @{TypeCoercion}
+
+    symbol: +

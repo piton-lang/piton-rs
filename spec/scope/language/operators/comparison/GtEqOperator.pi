@@ -1,0 +1,5 @@
+use ../lib/Operator
+
+export operator GtEqOperator:
+    description: Greater than or equal to operator.
+    symbol: >=

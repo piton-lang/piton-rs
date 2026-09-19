@@ -34,7 +34,7 @@ export anchor Anchors:
               - also supported.
               - [And, With, Bracket, Syntax]
 
-          numberTypes: 3.14 - 3.14
+          numberTypes: {3.14 - 3.14}
 
           booleanTypes: true
 

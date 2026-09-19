@@ -1,5 +1,5 @@
-export anchor Inferrence:
-    inferrence:
+export anchor Inference:
+    description:
         Unless specifically constrained to a type, a variable or property can
         hold any type. The type is inferred from the value.
 

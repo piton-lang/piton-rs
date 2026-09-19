@@ -1,4 +1,4 @@
-use ./Type
+use ./lib/Type
 
 from @piton/belay import Adapter
 from ./Anchors import Anchors
@@ -7,3 +7,5 @@ export type Reference:
     description:
         References are a type concept that primarily interact with @{Anchors}
         and even then have very specific results based on the ${Adapter}
+
+    supportedOperators: null

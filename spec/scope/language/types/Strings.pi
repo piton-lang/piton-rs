@@ -1,6 +1,8 @@
-use ./Type
+use ./lib/Type
 
 from ./Escaping import Escaping
+from ../operators/concatenation/ConcatenationOperator import
+    ConcatenationOperator
 
 export type Strings:
     description:
@@ -42,3 +44,6 @@ export type Strings:
             ```
             TODO: Write stuff about this
             ```
+
+    supportedOperators:
+        - {ConcatenationOperator}

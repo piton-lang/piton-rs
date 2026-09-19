@@ -1,5 +1,5 @@
 export anchor TypeCoercion:
-    TypeCoercion:
+    description:
         Type coercion in Piton is intentionally limited. When a value is
         constrained to multiple types, Piton evaluates the constraints from left
         to right and uses the first type the source value can validly represent.

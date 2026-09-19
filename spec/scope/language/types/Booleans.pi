@@ -1,5 +1,10 @@
-use ./Type
+use ./lib/Type
+from ../operators/concatenation/ConcatenationOperator import
+    ConcatenationOperator
 
 export type Booleans:
     description:
         Booleans are represented with lowercase `true` and `false`.
+
+    supportedOperators:
+        - {ConcatenationOperator}

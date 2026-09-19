@@ -1,0 +1,18 @@
+use @piton/belay
+
+export skill InspectSpec:
+    description: Reads the spec for the Piton language and answers questions.
+    useWhen: Explicitly Invoked
+    prompt:
+        Read the spec for the Piton language under spec/ and understand the
+        language and features.  The user will ask questions about it, so if
+        invoked without further instructions, summarize your understanding of
+        the language and report issues with the spec.
+
+    reportFormat:
+        All reports should be saved into the current directory as a nicely
+        formatted standalone HTML file.
+
+    reportingProblems:
+        When you're reporting problems, make sure you always include the file or
+        files that are causing the problem.

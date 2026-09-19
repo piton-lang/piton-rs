@@ -1,0 +1,5 @@
+use ../lib/Operator
+
+export operator AndOperator:
+    description: Logical AND operator
+    symbol: &&

@@ -1,7 +1,9 @@
-use ./Type
+use ./lib/Type
 
 export type Null:
     description:
         Null is represented with lowercase null. Null is a value that means
         "nothing" So yes, "null == null". Piton doesn’t have the concept of
         undefined or any other "nothing" value.
+
+    supportedOperators: null

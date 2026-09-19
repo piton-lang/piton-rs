@@ -1,0 +1,8 @@
+from ./PropertyAccessOperator import PropertyAccessOperator
+from ../lib/Operator import Operator
+
+export anchor AccessOperators:
+    operators: {ACCESS_OPERATORS}
+
+export ACCESS_OPERATORS:: extends Operator[]:
+    - {PropertyAccessOperator}

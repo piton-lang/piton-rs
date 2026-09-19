@@ -1,4 +1,6 @@
-use ./Type
+use ./lib/Type
+from ../operators/arithmetic/lib/ArithmeticOperator import ArithmeticOperator
+from ../operators/arithmetic import ARITHMETIC_OPERATORS
 
 export type Numbers:
     description:
@@ -15,3 +17,6 @@ export type Numbers:
 
         There is a single number type in all of Piton; type-wise there’s no
         difference between an int, a float, double, etc.
+
+    supportedOperators:
+        + {ARITHMETIC_OPERATORS}

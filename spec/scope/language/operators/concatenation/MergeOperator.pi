@@ -1,0 +1,8 @@
+use ../lib/Operator
+
+export operator MergeOperator:
+    description:
+        The merge operator (`+`) combines two values into a single value,
+        preserving their distinct elements and removing duplicates.
+
+    symbol: +

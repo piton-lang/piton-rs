@@ -1,6 +1,9 @@
-use ./Type
+use ./lib/Type
 
-from /scope/glossary/StringCoercion import StringCoercion
+from ../operators/concatenation/MergeOperator import MergeOperator
+from ../operators/concatenation/DupMergeOperator import DupMergeOperator
+from ../operators/lib/Operator import Operator
+from ../variables/TypeCoercion import TypeCoercion
 
 export type Dictionaries:
     description:
@@ -20,9 +23,14 @@ export type Dictionaries:
         letter characters and Unicode numeric characters. They cannot include
         spaces.
 
+    supportedOperators:: Operator[]
+        - {MergeOperator}
+        - {DupMergeOperator}
+
     validKeys:
-        Anything that can support @{StringCoercion} to a string is a valid key,
+        Anything that can support @{TypeCoercion} to a string is a valid key,
         so long as it doesn't contain spaces.
 
         So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and
-        `null` are all valid keys, while `This is a key` and `1 2 3` are not.
+        `null` are all valid keys and will be treated as strings, while
+        `This is a key` and `1 2 3` are not.

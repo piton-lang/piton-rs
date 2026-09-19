@@ -4,6 +4,7 @@ from ./variables import Variables
 from ./operators import Operators
 from ./expressions import Expressions
 from ./anchors import Anchors
+from ./reuse import Reuse
 
 export anchor Language:
     Overview: @{Overview}
@@ -12,3 +13,4 @@ export anchor Language:
     Operators: @{Operators}
     Expressions: @{Expressions}
     Anchors: @{Anchors}
+    Resue: @{Reuse}

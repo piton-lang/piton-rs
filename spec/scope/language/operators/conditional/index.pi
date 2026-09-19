@@ -1,0 +1,9 @@
+from ../lib/Operator import Operator
+from ./TernaryOperator import TernaryOperator
+
+export anchor ConditionalOperators:
+    description:
+    operators: {CONDITIONAL_OPERATORS}
+
+export CONDITIONAL_OPERATORS:: extends Operator[]:
+    - {TernaryOperator}
