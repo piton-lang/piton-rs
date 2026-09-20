@@ -1,0 +1,22 @@
+export abstract anchor Selection:
+    paths:: string[]: []
+    keyword:: null:: string: null
+    base:: null:: anchor: null
+    names:: string[]: []
+
+export anchor Selecting:
+    description:
+        Expectations and readiness thresholds each apply to some entities
+        and not others. Both choose them the same way, which is why both
+        extend the Selection anchor above.
+
+    rules:
+        ```text
+        paths     files whose path matches one of these globs, relative to the root
+        keyword   entities declared with this keyword, such as instruction
+        base      entities whose inheritance chain includes this anchor
+        names     entities with one of these names
+        ```
+
+        An entity is selected when it satisfies every selector that is given.
+        One that gives no selectors selects every entity.

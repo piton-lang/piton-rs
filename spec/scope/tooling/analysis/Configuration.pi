@@ -1,0 +1,75 @@
+from ./LanguageData import
+    ValueClass,
+    WordList,
+    WordMap
+from ./meaning/Patterns import StatementPattern
+from ./meaning/Normalization import EquivalenceRule
+from ./measures/Expectations import Expectation
+from ./measures/Readiness import ReadinessThreshold
+from ../project-config import ProjectConfig
+
+export abstract anchor AnalysisConfig as analysis-config:
+    expectations:: extends Expectation[]: []
+    readiness:: extends ReadinessThreshold[]: []
+    patterns:: extends StatementPattern[]: []
+    equivalences:: extends EquivalenceRule[]: []
+    wordLists:: extends WordList[]: []
+    wordMaps:: extends WordMap[]: []
+    valueClasses:: extends ValueClass[]: []
+
+export anchor Configuration:
+    description:
+        A project tailors analysis in one place: an analysis-config anchor,
+        referenced from the project configuration described in
+        @{ProjectConfig}. Everything a project can change is listed in the
+        AnalysisConfig anchor above, and nothing else can be changed.
+
+    whatCanBeChanged:
+        ```text
+        expectations    questions that define completeness for its entities
+        readiness       where it draws the implementation-ready line
+        patterns        extra ways of saying things its authors use
+        equivalences    extra rewrites between wordings
+        wordLists       extended or replaced word lists
+        wordMaps        extended or replaced word maps
+        valueClasses    extra value classes, such as its own color names
+        ```
+
+        A word list, word map or value class that extends a built-in one
+        replaces it. One that extends nothing is added beside the built-in
+        ones.
+
+    whatCannot:
+        A project cannot add derivation rules or expansion rules, change how
+        facts are formed, or change the order analysis works in. Those decide
+        what analysis is willing to claim a specification means, and they are
+        the same for every project so that every report means the same thing.
+
+    example:
+        ```piton fragment
+        use @piton/config
+
+        export piton-config Config:
+            root: ./spec
+            analysis: {ProjectAnalysis}
+
+        analysis-config ProjectAnalysis:
+            expectations:
+                - {InteractiveComponent}
+            readiness:
+                - {ShapeReady}
+        ```
+
+        This example is a fragment: it refers to an expectation and a
+        threshold defined elsewhere, and it uses the analysis-config keyword,
+        which nothing provides yet.
+
+    notYetImplemented:
+        The keywords for analysis configuration, analysis-config and the
+        keywords for everything it holds, are meant to come from
+        @piton/config, like the other configuration keywords. The current
+        implementation does not provide them: @piton/config accepts an
+        analysis property on piton-config without error, and nothing reads
+        it. Providing these keywords is part of implementing analysis. Until
+        then, examples in this section that use one declare it themselves, so
+        that they compile on their own.

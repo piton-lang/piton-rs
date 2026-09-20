@@ -24,6 +24,9 @@ export anchor Super:
         using the super keyword.
 
         ```piton
+        anchor BaseAnchor:
+            description: Description from BaseAnchor
+
         anchor ChildAnchor extends BaseAnchor:
             description:
                 ${super.description} and Description from ChildAnchor

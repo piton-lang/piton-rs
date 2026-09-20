@@ -1,0 +1,128 @@
+from ./DerivationStates import DerivationStates, Derived
+from ./Conditions import Conditions
+from ../model/OpenItems import Contradiction
+
+export abstract anchor DerivationRule as derivation-rule:
+    description:: string
+    needs:: string
+    gives:: string
+    examples:: string
+
+export anchor Derivation:
+    description:
+        Some facts follow from others without being written down. If the
+        button cannot be clicked while disabled, and clicking it invokes its
+        action, then its action is not invoked by a click while it is
+        disabled. Nobody wrote that sentence, but it follows.
+
+        Derivation rules produce such facts. Their results are always marked
+        @{Derived}, name the rule that produced them, and list the facts they
+        came from, so a derived fact is never mistaken for a stated one.
+
+    limits:
+        A derivation rule only takes explicit or derived facts as input, never
+        partial ones, as the states in @{DerivationStates} require. It never
+        introduces a subject, aspect or value that none of its inputs has. Rules
+        are applied over and over until no rule produces anything new, in the
+        order listed here, and since a rule can only add facts, this always
+        ends. The rules are the ones listed here; a project cannot add
+        derivation rules, because each one extends what analysis claims the
+        specification means.
+
+    theOneRuleThatSettlesDisagreement:
+        One rule, SpecificOverGeneral, settles a disagreement between two
+        facts instead of reporting it. A specification often states a general
+        rule and then an exception: the button can be clicked, and when
+        disabled it cannot. Reading that as a contradiction would be wrong,
+        and ignoring either statement would lose information.
+
+        The rule applies only in that narrow shape: a fact with no conditions,
+        and a fact about the same subject and aspect whose conditions are all
+        state conditions, as described in @{Conditions}, on an aspect with a
+        choice fact. Anything else that disagrees is a @{Contradiction}. Every
+        application of the rule is listed in the report, so the reading it chose
+        is always visible.
+
+    rules: {DERIVATION_RULES}
+
+    example:
+        For the Button, derivation adds three facts and restricts two.
+
+        ```text
+        d1  when Button.state = enabled: Button can be clicked
+            SpecificOverGeneral, then ChoiceComplement, from
+            description/s1/f1 and disabled/s3/f1;
+            description/s1/f1 is now restricted by d1
+
+        d2  when Button.state = disabled: on Button clicked: Button.action is not invoked
+            SuppressedEffect, from description/s2/f1 and disabled/s3/f1
+
+        d3  when Button.state = enabled: on Button clicked: invoke Button.action
+            SpecificOverGeneral, then ChoiceComplement, from
+            description/s2/f1 and d2;
+            description/s2/f1 is now restricted by d3
+        ```
+
+        The second disagreement only appears once d2 exists, which is why
+        rules are applied until nothing new is produced.
+
+export derivation-rule Inheritance:
+    description:
+        What is true of a base is true of an anchor that extends it, unless
+        the anchor overrides it. Piton's own inheritance rule decides what is
+        overridden: a property the anchor declares replaces the base's
+        property of the same name, so facts read from the base's property no
+        longer apply to the anchor. They are superseded, not contradicted.
+
+    needs: X extends B, and a fact about B not read from a property X overrides
+    gives: the same fact about X
+    examples: Button extends Control; Control.color = gray -> Button.color = gray
+
+export derivation-rule SpecificOverGeneral:
+    description:
+        A fact that holds always is restricted to hold only outside the
+        conditions of a more specific fact that disagrees with it. The general
+        fact is kept, marked restricted, and is no longer used as a
+        requirement or as input to other rules.
+
+    needs:
+        F has no conditions; G has the same subject and aspect, a different
+        value or the opposite polarity, and only state conditions on aspects
+        with a choice fact
+
+    gives: F, with the negation of G's conditions as its conditions
+    examples:
+        Button can be clicked; when Button.state = disabled: Button cannot be
+        clicked -> when Button.state is not disabled: Button can be clicked
+
+export derivation-rule ChoiceComplement:
+    description:
+        Not having one value of a choice means having one of the others. When
+        exactly one other value remains, the condition names it.
+
+    needs: a condition subject.aspect is not v, and subject.aspect is one of a set containing v
+    gives: the same condition written as the remaining values
+    examples:
+        when Button.state is not disabled, with Button.state is one of enabled,
+        disabled -> when Button.state = enabled
+
+export derivation-rule SuppressedEffect:
+    description:
+        If something cannot have an action done to it under a condition, then
+        whatever that action triggers does not happen under that condition.
+
+    needs:
+        on S action: E; and, under conditions C, S cannot be the object of
+        action
+
+    gives: under C, on S action, E does not happen
+    examples:
+        on Button clicked: invoke Button.action; when Button.state = disabled:
+        Button cannot be clicked -> when Button.state = disabled: on Button
+        clicked, Button.action is not invoked
+
+export DERIVATION_RULES:: extends DerivationRule[]:
+    - {Inheritance}
+    - {SpecificOverGeneral}
+    - {ChoiceComplement}
+    - {SuppressedEffect}

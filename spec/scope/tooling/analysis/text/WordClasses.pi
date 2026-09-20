@@ -1,0 +1,89 @@
+from ../LanguageData import LanguageData
+from ../Determinism import Determinism
+from ../model/OpenItems import Ambiguity
+
+export anchor WordClasses:
+    description:
+        A word class, also called a part of speech, is the grammatical job a
+        word does: button is a noun, click is a verb, blue is an adjective.
+        Knowing the class of each word is what lets analysis find the parts
+        of a statement in the next step.
+
+    classes:
+        ```text
+        noun            names a thing                  button, action, color
+        verb            names an action or a state     click, invoke, is
+        participle      a verb form used to describe   clicked, dimmed, disabled
+        adjective       describes a thing              blue, visible
+        adverb          describes a verb or adjective  slightly, never
+        determiner      introduces a noun              the, a, every
+        pronoun         stands for a named thing       it, its, they
+        preposition     relates words by place or role of, to, with, in
+        conjunction     joins words or clauses         and, or, but
+        condition       opens a condition              when, if, unless
+        negation        reverses a statement           not, cannot
+        modal           sets how firmly it binds       must, should, can
+        number          a number token                 300
+        reference       a Piton reference token        @ Button
+        unknown         not in the language data
+        ```
+
+    evidenceNotTruth:
+        A word class says how a word is used in a sentence, not what it means
+        in the specification. Disabled is a participle whether it names a
+        state of the button or something done to it; deciding which is the
+        work of the next chapter, using the specification's own facts. A word
+        class is evidence for that decision, never the decision itself.
+
+    howClassesAreFound:
+        Many words can belong to more than one class: click is a noun in a
+        click and a verb in click the button. So each word starts with every
+        class it could have, and rules narrow them down.
+
+        ```text
+        1  closed lists     words in the small lists of @{LanguageData}
+                            have exactly the class of their list
+        2  dictionary       other known words get every class the
+                            dictionary lists for them
+        3  word endings     unknown words get candidates from their ending:
+                            -ly adverb, -ed participle, -ing verb, -s noun or verb
+        4  neighbors        rules remove candidates that cannot fit where the
+                            word stands, such as a verb straight after the
+        ```
+
+        The closed lists and the dictionary are described in @{LanguageData}.
+        Every rule that removes a candidate is recorded, so a word's class can
+        always be explained by pointing at the list entry, dictionary entry or
+        rule that gave it.
+
+    neighborRules:
+        ```text
+        after a determiner                  not a verb, modal or participle
+        after a modal, such as can          a verb, and not a noun
+        after a form of be                  a participle or adjective before a noun or verb
+        after to                            a verb when a verb is a candidate
+        before a noun, after a determiner   an adjective or participle, not a noun
+        ```
+
+    whenCandidatesRemain:
+        When rules leave more than one candidate, the word keeps all of them.
+        The next step tries each, and if they lead to different facts, the
+        statement is recorded as an @{Ambiguity}. A word the language data
+        does not know at all is classed as unknown, and any statement that
+        needs to know its class cannot become a fact.
+
+    noStatisticalTagging:
+        Many language tools find word classes with a statistical model that
+        picks the most probable class. Analysis does not, because such a model
+        cannot explain its choice by pointing at a rule, and a choice that
+        cannot be explained cannot be traced. Why this matters, and where
+        the boundary lies, is described in @{Determinism}.
+
+    example:
+        ```text
+        It      pronoun        closed list
+        cannot  negation, modal  closed lists
+        be      verb           dictionary
+        clicked participle     dictionary: clicked is the past participle of click
+        .       punctuation
+        ```

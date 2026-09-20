@@ -1,0 +1,114 @@
+from ./Patterns import Patterns
+from ./Conditions import Conditions
+from ../LanguageData import AbleForms, ActionNouns
+from ../model/OpenItems import Ambiguity, Unrecognized
+
+export abstract anchor EquivalenceRule as equivalence-rule:
+    description:: string
+    rewrites:: string
+    into:: string
+    examples:: string
+
+export anchor Normalization:
+    description:
+        The same requirement can be written many ways. Normalization is what
+        makes different wordings of one requirement produce the same fact, so
+        that they can be counted, compared, and checked against each other.
+
+        It works in two places. The patterns described in @{Patterns} normalize
+        by design: every pattern produces one of a few canonical fact forms,
+        however the statement was worded. Before patterns run, equivalence rules
+        rewrite a statement from a wording no pattern reads into one a pattern
+        does.
+
+    onlyWhatIsWrittenDown:
+        Normalization only makes the rewrites this specification, or the
+        project's configuration, lists. Two wordings that mean the same thing
+        to a person are not normalized together unless a rule says they are.
+        A statement no rule and no pattern can read is not rewritten by
+        guessing; it is recorded as @{Unrecognized}.
+
+    howRulesApply:
+        Equivalence rules rewrite the parts of a statement, never its text,
+        and each rewrite is recorded in the fact's source record. A rule is
+        applied at most once to a statement, and rules do not rewrite each
+        other's output. If two rules would rewrite the same statement
+        differently, analysis records an @{Ambiguity} and applies neither.
+
+    example:
+        Three statements that a person would read as the same requirement.
+
+        ```text
+        The button cannot be clicked.
+            CapabilityStatement reads it directly.
+            -> Button cannot be clicked
+
+        The disabled button does not accept clicks.
+            AcceptActions rewrites does not accept clicks into cannot be clicked.
+            The modifier disabled becomes a condition, as described in Conditions.
+            -> when Button.state = disabled: Button cannot be clicked
+
+        Clicking the button is disabled.
+            No built-in rule reads a statement whose subject is an action.
+            -> unrecognized; no fact
+        ```
+
+        The third result is not a failure of analysis. It is analysis saying,
+        accurately, that it has no rule for that wording. A project that
+        writes this way can add one.
+
+        ```piton
+        // equivalence-rule comes from the analysis module. It is declared here only so
+        // that this example compiles on its own.
+        abstract anchor EquivalenceRule as equivalence-rule:
+            description:: string
+            rewrites:: string
+            into:: string
+            examples:: string
+
+        equivalence-rule ActionIsDisabled:
+            description: Our authors say an action is disabled to mean it cannot happen.
+            rewrites: action noun group as subject  +  is disabled
+            into: the action's object  +  cannot be  +  past participle of the action
+            examples: Clicking the button is disabled. -> The button cannot be clicked.
+        ```
+
+    conditionsAreNormalizedToo:
+        The ways of writing a condition, listed in @{Conditions}, all produce
+        the same condition. When disabled, unless enabled, and the disabled
+        button all give when Button.state = disabled, the second one only
+        because Button.state has exactly two values.
+
+    rules: {EQUIVALENCE_RULES}
+
+export equivalence-rule AbleForm:
+    description:
+        An able form from @{AbleForms} means the same as the capability it
+        names.
+
+    rewrites: subject  +  be  +  able form
+    into: subject  +  can be  +  past participle of the able form's verb
+    examples: The button is clickable. -> The button can be clicked.
+
+export equivalence-rule AcceptActions:
+    description:
+        Accepting an action noun from @{ActionNouns} means being able to have
+        that action done to you.
+
+    rewrites: subject  +  accepts, or does not accept  +  action noun
+    into: subject  +  can be, or cannot be  +  past participle of the noun's verb
+    examples: The button does not accept clicks. -> The button cannot be clicked.
+
+export equivalence-rule SplitCoordinatedSubjects:
+    description:
+        A statement whose subject is several things joined by and says the
+        same thing about each of them.
+
+    rewrites: subject and subject  +  rest
+    into: one statement per subject, each with the same rest
+    examples: Its color and text are dimmed. -> Its color is dimmed. Its text is dimmed.
+
+export EQUIVALENCE_RULES:: extends EquivalenceRule[]:
+    - {AbleForm}
+    - {AcceptActions}
+    - {SplitCoordinatedSubjects}

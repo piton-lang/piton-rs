@@ -1,0 +1,103 @@
+from ../LanguageData import DegreeWords, Hedges
+from ../meaning/Strengths import Strengths
+from ../meaning/Patterns import Patterns
+
+export anchor StatementParts:
+    description:
+        Once every word has a class, analysis looks for the parts of the
+        statement. There are only a few questions to answer.
+
+        ```text
+        What is the statement about?              the subject
+        What does it say about it?                the verb group
+        What value, thing or choice is involved?  the complement
+        Is it negated?                            the negation
+        How firmly does it bind?                  the modal
+        When does it hold?                        the conditions
+        How much, or how surely?                  the modifiers
+        ```
+
+        These parts are what patterns read, as described in @{Patterns}.
+
+    groups:
+        Words gather into groups before they become parts. A noun group is a
+        noun with the words that introduce and describe it: the disabled
+        button, its action. A verb group is a main verb with the words around
+        it that change how it binds: cannot be clicked.
+
+        ```text
+        noun group   [determiner or pronoun] [describing words] noun ['s]
+                     the disabled button, its action, the button's text
+
+        verb group   [modal] [negation] [forms of be or have] main verb
+                     cannot be clicked, is invoked, must not change
+        ```
+
+        Groups are found left to right, taking the longest group that fits
+        the classes of the words.
+
+    parts:
+        With groups found, the parts follow from their order.
+
+        ```text
+        subject      the noun group before the verb group
+        verb group   the first verb group
+        complement   what follows the verb group: a value, a noun group, or
+                     alternatives joined by or
+        negation     a negation inside the verb group
+        modal        a modal inside the verb group
+        conditions   clauses opened by a condition word, before or after
+        modifiers    degree words and hedges anywhere in the statement
+        ```
+
+        The verb group also says whether the subject does the action or has it
+        done to it. In the button clicks the link, the button does the
+        clicking. In the button is clicked, something else clicks the button.
+        A form of be followed by a past participle always means the action is
+        done to the subject.
+
+    readingOneStatement:
+        ```text
+        It cannot be clicked.
+
+        subject      It
+        verb group   cannot be clicked      done to the subject
+        negation     not, from cannot
+        modal        can, from cannot
+        complement   (none)
+        conditions   (none written here; the property adds one later)
+        ```
+
+        ```text
+        When clicked, its action is invoked.
+
+        condition    When clicked           no subject of its own
+        subject      its action
+        verb group   is invoked             done to the subject
+        complement   (none)
+        ```
+
+    modifiers:
+        Degree words from @{DegreeWords}, such as slightly, and hedges from
+        @{Hedges}, such as usually, are kept as modifiers rather than dropped.
+        A degree word says there is an amount that the statement does not
+        give. A hedge makes the statement uncommitted, as described in
+        @{Strengths}. Either way, the statement's meaning depends on them, so
+        losing them would make it look more precise than it is.
+
+    actionSubjects:
+        A subject that starts with a verb ending in -ing, such as clicking
+        the button, is an action rather than a thing. No built-in pattern
+        accepts an action as a subject, so such statements are unrecognized
+        unless a project adds an equivalence rule for them.
+
+    theTerms:
+        These ideas have names in linguistics, which are worth knowing when
+        reading about the subject elsewhere. A group is usually called a
+        phrase, so a noun group is a noun phrase. What this specification
+        calls a verb group and complement together are called the predicate:
+        everything a statement says about its subject. A clause is a subject
+        with its predicate. Working out which word depends on which, as the
+        steps above do, is called parsing, and the links found are called
+        dependencies. Analysis uses these fixed rules for it rather than a
+        general parser, so that every part it finds can be explained.

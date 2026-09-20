@@ -2,7 +2,7 @@ export anchor ImportLineBreaks:
     description:
         Linebreaks are allowed on imports/exports:
 
-        ```piton
+        ```piton fragment
         from ./file import
             FirstThing,
             SecondThing,

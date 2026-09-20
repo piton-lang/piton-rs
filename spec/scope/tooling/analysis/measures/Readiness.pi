@@ -1,0 +1,55 @@
+from ./Selection import Selecting, Selection
+
+export abstract anchor ReadinessThreshold extends Selection as readiness-threshold:
+    description:: string
+    minExplicitness:: null:: number: null
+    minResolutionRate:: null:: number: null
+    minCompleteness:: null:: number: null
+    maxAmbiguityRate:: null:: number: null
+    maxImplementationFreedom:: null:: number: null
+    maxContradictions:: number: 0
+
+export anchor Readiness:
+    description:
+        Implementation-ready is the point where a specification leaves an
+        implementer nothing meaningful to invent. It is not a claim that the
+        specification is perfect. It is a line a project draws: below it,
+        more should be written before anyone builds; above it, building can
+        start.
+
+    theDefaultLine:
+        With no threshold configured, an entity is ready only when it has no
+        open items of any kind and every expectation's question is answered.
+        That is strict on purpose: it means nothing is left to decide.
+
+    drawingYourOwn:
+        A project draws its own lines with readiness thresholds, each applied
+        to the entities it selects, as described in @{Selecting}. A threshold
+        sets a minimum or maximum for any measure; a limit left null is not
+        checked. Contradictions are never allowed unless a threshold says so,
+        because building from a contradiction means implementing one side of
+        it at random.
+
+        ```piton
+        // readiness-threshold comes from the analysis module. It is declared here only so
+        // that this example compiles on its own.
+        abstract anchor ReadinessThreshold as readiness-threshold:
+            description:: string
+            paths:: string[]: []
+            minCompleteness:: null:: number: null
+            maxImplementationFreedom:: null:: number: null
+
+        readiness-threshold ShapeReady:
+            description: Components can be built with a little freedom left.
+            paths:
+                - spec/shape/**
+            minCompleteness: 0.9
+            maxImplementationFreedom: 0.1
+        ```
+
+        An entity selected by more than one threshold must meet all of them.
+
+    theResult:
+        Each entity is reported as ready or not ready, and when it is not,
+        every limit it fails is listed with its value. A whole scope is ready
+        when every entity in it is.

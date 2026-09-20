@@ -1,0 +1,72 @@
+from ./LanguageData import LanguageData
+from ./Configuration import Configuration
+
+export anchor Determinism:
+    description:
+        Analysis is deterministic. Given the same inputs, it produces the same
+        semantic model, the same measures and the same instructions, byte for
+        byte, on any machine, every time. Without this, a requirement could
+        change between two runs with nobody having changed the
+        specification, and nothing analysis says could be trusted.
+
+    inputs:
+        These are all of the inputs. Nothing else can change the result.
+
+        ```text
+        the analyzed files, and every file they import
+        the version of the Piton compiler, which fixes the language rules
+        the version of the analyzer, which fixes the rules in this specification
+        the project's analysis configuration
+        the language data: the lists in this specification, any project
+          additions, and the dictionary's name and version
+        the arguments the command was run with
+        ```
+
+        Every report records each of them, and a fingerprint computed from
+        all of them together, so two reports can be compared only when their
+        fingerprints say they were produced the same way. The language data is
+        described in @{LanguageData}, the configuration in @{Configuration}.
+
+    whatItRulesOut:
+        ```text
+        generative models         no language model is asked anything
+        statistical choices       no result is chosen because it is likely
+        the network               nothing is fetched while analysis runs
+        the clock                 no result depends on the time, and reports
+                                  carry no timestamps
+        randomness                nothing is sampled or shuffled
+        the file system's order   files are always processed in path order
+        parallel timing           work may run in parallel, but results are
+                                  always put in the same order
+        ```
+
+    explainable:
+        Being repeatable is not enough. A statistical word tagger with fixed
+        weights gives the same answer every time, but it cannot say why, and
+        analysis must be able to say why. So every result in the model names
+        what produced it: a list entry, a dictionary entry, a pattern, or a
+        rule in this specification. Anything that cannot do that is outside
+        analysis, however repeatable it is.
+
+    theBoundary:
+        Some useful tools are probabilistic by nature, such as a model that
+        suggests what an unrecognized statement might mean. They are not part
+        of analysis, and nothing in this specification uses one.
+
+        If one is ever added beside analysis, it stays on the other side of a
+        fixed boundary. It may read the semantic model. Its output is always
+        labeled as a suggestion and shown separately. It never becomes a fact,
+        an open item, a measure, or an instruction, and it never changes the
+        command's exit status. A suggestion becomes part of the specification
+        only when a person writes it into the specification.
+
+    whyConservative:
+        Wrong certainty is worse than an honest unknown. An unknown is
+        reported, and someone decides it. A wrong fact is built, tested
+        against, and shipped, and nothing points back to where it went wrong.
+        So whenever a rule would have to assume something to produce a
+        result, analysis produces an open item instead.
+
+    numbers:
+        Measures are ratios of whole-number counts. They are computed exactly
+        and rounded half to even, to two decimal places, only when shown.

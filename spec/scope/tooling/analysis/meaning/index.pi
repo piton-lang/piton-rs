@@ -1,0 +1,42 @@
+from ./Resolution import Resolution
+from ./Normalization import Normalization
+from ./Patterns import Patterns
+from ./Conditions import Conditions
+from ./Facts import Facts
+from ./Strengths import Strengths
+from ./DerivationStates import DerivationStates
+from ./Relationships import Relationships
+from ./Derivation import Derivation
+from ./Provenance import Provenance
+
+export anchor Meaning:
+    description:
+        The previous chapter found the parts of each statement: what it is
+        about, what it says, and under what condition. This chapter turns
+        those parts into facts, and it is where analysis decides what the
+        specification means.
+
+        It does so in steps, each of which can stop short. A name that cannot
+        be resolved, a wording no rule reads, a condition that could be a
+        state or an event: each is recorded as exactly that, and the steps
+        after it work with whatever was understood.
+
+    steps:
+        ```text
+        resolve      link names in the statement to things the spec defines
+        normalize    rewrite known alternative wordings into ones patterns read
+        match        recognize the statement's pattern, and produce a fact
+        condition    attach the conditions the fact holds under
+        derive       add the facts that follow from the facts already found
+        ```
+
+        The steps are described in @{Resolution}, @{Normalization},
+        @{Patterns}, @{Conditions} and @{Derivation}. What a fact is, and the
+        parts it is made of, is described in @{Facts}, with its strength in
+        @{Strengths} and how it came to be known in @{DerivationStates}. The
+        links between things are described in @{Relationships}, and where
+        every result came from in @{Provenance}.
+
+    orderOfReading:
+        Facts is the best place to start, because every other section in this
+        chapter produces or describes a part of a fact.

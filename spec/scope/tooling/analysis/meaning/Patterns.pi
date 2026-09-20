@@ -1,0 +1,205 @@
+from ../text/StatementParts import StatementParts
+from ./Facts import
+    CapabilityForm,
+    ChoiceForm,
+    FactForm,
+    RelationForm,
+    TriggerForm,
+    ValueForm
+from ../LanguageData import RelationVerbs, TransformationVerbs
+from ../model/OpenItems import Ambiguity, Unrecognized
+
+export abstract anchor StatementPattern as statement-pattern:
+    description:: string
+    shape:: string
+    produces:: FactForm
+    examples:: string
+
+export anchor Patterns:
+    description:
+        A statement pattern is a rule that recognizes one way of saying one
+        kind of thing, and turns a statement said that way into a fact.
+        Patterns are the only way prose becomes facts. A statement that no
+        pattern recognizes produces no fact at all.
+
+    howAPatternReads:
+        A pattern does not read words directly. It reads the parts that were
+        found in the statement, as described in @{StatementParts}: its
+        subject, its verb group, what follows the verb, and its conditions.
+        A pattern's shape is written in those terms.
+
+        ```text
+        subject  +  be  +  a word from a value class
+        ```
+
+        This shape matches The button is blue: the subject is The button, the
+        verb group is is, and blue is in the Colors value class.
+
+    whenNothingMatches:
+        A normative statement that no pattern matches is recorded as
+        @{Unrecognized}. Everything that was understood about it is kept with
+        it: its subject if resolved, its conditions if recognized. Take this
+        statement.
+
+        ```text
+        The button looks better when disabled.
+        ```
+
+        The condition when disabled is recognized, and the subject resolves
+        to Button, but looks better matches no pattern. The result is an
+        unrecognized statement about Button while Button.state = disabled,
+        and no fact. That is the correct result: the sentence does not say
+        what better means, so there is nothing an implementation could be
+        checked against.
+
+    whenSeveralMatch:
+        The built-in patterns are written so that no statement can match two
+        of them. Project patterns can overlap with them or with each other. If
+        a statement matches more than one pattern, and they would produce
+        different facts, analysis records an @{Ambiguity} holding every
+        candidate fact and uses none of them. The order patterns are listed in
+        never decides between them.
+
+    projectPatterns:
+        A project can add patterns for the ways its own authors write, through
+        its analysis configuration. A project pattern uses the same shape
+        language as the built-in ones.
+
+    patterns: {STATEMENT_PATTERNS}
+
+export statement-pattern ValueStatement:
+    produces: {ValueForm}
+    description:
+        Something is described as having a value. The aspect comes from the
+        statement when it names one, as in its color is blue, and otherwise
+        from the value class of the value. When neither gives an aspect, the
+        fact is partial, with the aspect unresolved.
+
+        The complement is never a past participle of a transformation verb,
+        never alternatives joined by or, never a noun group starting with a
+        or an, and never something followed by that. Those are what
+        TransformationStatement, ChoiceStatement, RelationStatement and
+        CapabilityStatement read, and leaving them out keeps the patterns from
+        overlapping.
+
+    shape:
+        ```text
+        subject  +  be  +  adjective, noun group, number or quoted text
+        ```
+
+    examples:
+        ```text
+        The button is blue.          Button.color = blue
+        Its color is blue.           Button.color = blue
+        The label is "Save".         Label.? = "Save"         partial
+        The button is teal.          Button.? = teal          partial
+        ```
+
+export statement-pattern TransformationStatement:
+    produces: {ValueForm}
+    description:
+        Something is described as changed from what it otherwise is, using a
+        verb from @{TransformationVerbs}. The value is the transformation
+        applied to the thing itself, because the sentence says the color is
+        dimmed, not what color it becomes.
+
+    shape:
+        ```text
+        subject  +  be  +  past participle of a transformation verb
+        ```
+
+    examples:
+        ```text
+        Its color is dimmed.         Button.color = dim(Button.color)
+        The text is hidden.          Text = hide(Text)
+        ```
+
+export statement-pattern ChoiceStatement:
+    produces: {ChoiceForm}
+    description:
+        Something is described as being one of several alternatives. When all
+        the alternatives belong to one value class, the aspect is that class's
+        aspect. Otherwise the aspect is named state. That name is a convention
+        of this pattern, not something the statement says, and a structural
+        property named state or a value class takes precedence over it.
+
+    shape:
+        ```text
+        subject  +  can be  +  two or more alternatives joined by or
+        subject  +  is either  +  alternatives joined by or
+        subject  +  is one of  +  alternatives
+        ```
+
+    examples:
+        ```text
+        It can be enabled or disabled.     Button.state is one of enabled, disabled
+        It is either red or blue.          Button.color is one of red, blue
+        ```
+
+export statement-pattern CapabilityStatement:
+    produces: {CapabilityForm}
+    description:
+        Something is described as able, or unable, to do an action or to have
+        one done to it. There must be exactly one action; a list of
+        alternatives is a choice, not a capability.
+
+    shape:
+        ```text
+        subject  +  can or cannot  +  [be]  +  one verb
+        subject  +  is something that  +  can or cannot  +  [be]  +  one verb
+        ```
+
+    examples:
+        ```text
+        It cannot be clicked.                       Button cannot be clicked
+        A button is something that can be clicked.  Button can be clicked
+        ```
+
+export statement-pattern InvocationStatement:
+    produces: {TriggerForm}
+    description:
+        Something is run when an event happens. It needs an event condition,
+        and a clause that says something is invoked, using an invokes verb
+        from @{RelationVerbs}. Any other statement with an event condition is
+        read by the other patterns, and its fact becomes the effect of a
+        trigger on that event.
+
+    shape:
+        ```text
+        event condition  +  subject  +  be  +  past participle of an invokes verb
+        event condition  +  subject  +  invokes verb  +  noun group
+        ```
+
+    examples:
+        ```text
+        When clicked, its action is invoked.    on Button clicked: invoke Button.action
+        ```
+
+export statement-pattern RelationStatement:
+    produces: {RelationForm}
+    description:
+        One thing is related to another by a verb from @{RelationVerbs}, or
+        is classified as a kind of another, as in a button is a control. A
+        noun group that is something followed by that is not a
+        classification; it introduces a capability or a value, and belongs to
+        the other patterns.
+
+    shape:
+        ```text
+        subject  +  relation verb  +  noun group
+        a noun  +  is a  +  noun group
+        ```
+
+    examples:
+        ```text
+        The form requires a user.     Form requires User
+        A button is a control.        Button classifies-as Control
+        ```
+
+export STATEMENT_PATTERNS:: extends StatementPattern[]:
+    - {TransformationStatement}
+    - {ChoiceStatement}
+    - {CapabilityStatement}
+    - {InvocationStatement}
+    - {RelationStatement}
+    - {ValueStatement}

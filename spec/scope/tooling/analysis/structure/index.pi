@@ -1,0 +1,89 @@
+from ../meaning/Facts import Facts
+from ../meaning/Conditions import Conditions
+from ../meaning/Resolution import Resolution
+from ../model/OpenItems import Contradiction
+
+export anchor StructuralContext:
+    description:
+        Before analysis reads a single sentence, it already knows a great deal
+        about a specification, because Piton structure says it outright. It
+        knows which anchors exist, what properties they have, what they
+        extend, what they refer to, and what values some properties hold. The
+        compiler has already checked all of it.
+
+        So analysis starts with structure, and structure shapes everything it
+        does with prose. A sentence is never read on its own. It is read as a
+        sentence inside a particular property of a particular anchor, which
+        extends particular bases, in a file that imports particular names.
+
+    whatStructureGives:
+        ```text
+        entities          every top-level declaration, with its keyword, and
+                          whether it is abstract or exported
+        parts             every property, known by its path, such as Button.disabled
+        inheritance       the chain of bases each anchor extends, directly or
+                          through its keyword, and which properties it overrides
+        references        every @, dollar and brace reference, already resolved
+        names in scope    what each file declares, and what it imports, under
+                          which alias
+        types             every type constraint on a property
+        values            every property value that is structure rather than
+                          prose, and every value an expression evaluates to
+        examples          every code block
+        ```
+
+    structuralFacts:
+        Much of this becomes facts straight away, with the state structural.
+
+        ```piton
+        anchor Control:
+            description: Anything a person can operate.
+
+        export anchor Button extends Control:
+            label:: string: Save
+            color: blue
+        ```
+
+        ```text
+        Button inherits Control
+        Button defines Button.label, Button.color
+        Button.label = Save            constrained to string
+        Button.color = blue
+        ```
+
+        A property whose value is prose does not become a fact this way; its
+        prose is read by the steps that follow. What a fact is, and how its
+        parts are written, is described in @{Facts}.
+
+    theScopeOfAStatement:
+        Every statement is given its scope before its words are looked at.
+
+        ```text
+        entity         the anchor it is written in                  Button
+        property path  the property it is written in                Button.disabled
+        owner          what its pronouns can stand for              Button
+        names          every name the statement can refer to without
+                       qualification: the entity's parts, including
+                       inherited ones, aspects that facts give it, and
+                       everything the file declares or imports
+        condition      the condition its property stands for, if any
+        ```
+
+        How the scope is used to find what words refer to is described in
+        @{Resolution}, and how a property can stand for a condition in
+        @{Conditions}.
+
+    structureComesFirst:
+        When structure and prose could both answer a question, structure
+        answers it. An explicit reference beats a name that merely matches. A
+        property named disabled tells analysis more about the sentences in it
+        than any of those sentences can.
+
+        This is about interpretation, not truth. If structure says the color
+        is blue and prose says it is red, structure does not quietly win;
+        the two facts disagree, and that is reported as a @{Contradiction}.
+
+    whenTheCompilerFails:
+        Structure comes only from files the compiler accepts. A file that does
+        not compile contributes its compiler errors, and nothing else, because
+        its structure cannot be trusted.

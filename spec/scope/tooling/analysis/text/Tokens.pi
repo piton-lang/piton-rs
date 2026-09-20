@@ -1,0 +1,43 @@
+from ../structure import StructuralContext
+
+export anchor Tokens:
+    description:
+        A token is one piece of a statement that analysis treats as a unit: a
+        word, a number, a punctuation mark. Tokenizing is simply cutting a
+        statement into these pieces, and it follows fixed rules about where
+        one piece ends and the next begins.
+
+    kinds:
+        ```text
+        word           letters, digits, hyphens and apostrophes     disabled, submit-label
+        possessive     the 's ending, split off its word            button 's
+        number         digits, with an optional unit after them     300, 1.5, 300ms
+        quoted         text between matching quotes                 "Save"
+        code           text between backticks                       `piton build`
+        reference      a Piton reference written into the prose     @{Button}
+        punctuation    one mark                                     , . ; : ? !
+        symbol         any other single character                   = < > +
+        ```
+
+    referencesAreSpecial:
+        A Piton reference is one token, however long, and it is already
+        resolved: the compiler knows exactly what @\{Button} points at. This is
+        the most direct way prose can connect to structure, as described in
+        @{StructuralContext}, and analysis never second-guesses it.
+
+    quotedAndCodeAreOpaque:
+        Quoted text and code are single tokens that analysis does not look
+        inside. They are values to be kept exactly, not words to interpret:
+        the label is "Save" means the label is exactly Save.
+
+    position:
+        Every token remembers the line and column where it starts in the
+        source file, so that anything built from it can say where it came
+        from.
+
+    example:
+        ```text
+        When clicked, its action is invoked.
+
+        When | clicked | , | its | action | is | invoked | .
+        ```

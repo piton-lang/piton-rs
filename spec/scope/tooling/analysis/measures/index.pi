@@ -1,0 +1,148 @@
+from ./Expectations import Expectations
+from ./Readiness import Readiness
+from ./Selection import Selecting
+from ../meaning/DerivationStates import DerivationStates
+from ../meaning/Resolution import Resolution
+from ../model/OpenItems import OpenItems
+
+export abstract anchor Measure as measure:
+    question:: string
+    formula:: string
+    lowerIsBetter:: boolean: false
+    nullWhen:: null:: string: null
+
+export anchor Measures:
+    description:
+        A measure turns part of the semantic model into one number between 0
+        and 1, answering one question about a specification. Measures are
+        summaries: every number can be expanded into the list of facts, names
+        or open items it was counted from, and that list is always the more
+        useful thing to read.
+
+    names:
+        A measure is known in reports by its anchor name with a lowercase
+        first letter: ResolutionRate is resolutionRate.
+
+    whatIsMeasured:
+        Every measure is computed for each entity, and for any group of
+        entities, such as a directory, the whole project, or everything
+        declared with one keyword. A group's measure is not an average of its
+        entities' numbers: the counts are added up across the group first,
+        and the ratio is taken once, so a large entity counts for more than a
+        small one in proportion to how much it says.
+
+    whatIsNotMeasured:
+        No measure says a specification is correct, or that it is complete in
+        some absolute sense. There is no such thing as a 100 percent complete
+        specification of software, and nothing here pretends to compute one.
+        Completeness is measured against the questions a project chose to
+        ask, as described in @{Expectations}, and implementation-ready is a
+        line the project draws, as described in @{Readiness}. Both apply to
+        the entities they select, as described in @{Selecting}.
+
+    counts:
+        Alongside the measures, every report gives the counts they are made
+        from: statements by kind, facts by derivation state, names by
+        resolution outcome, and open items by kind.
+
+    example:
+        The Button, analyzed with only the built-in expectation.
+
+        ```text
+        explicitness            0.70   7 of 10 facts are explicit
+        resolutionRate          0.64   7 of 11 names resolved
+        completeness            0.40   2 of 5 questions answered
+        ambiguityRate           0.00   0 of 7 statements ambiguous
+        connectivity            0.00   nothing else refers to Button, and it refers
+                                       to nothing else
+        implementationFreedom   0.27   3 open items, against 8 requirements
+        ```
+
+    measures: {MEASURES}
+
+export measure Explicitness:
+    question: How much of what analysis knows was said outright?
+    formula:
+        ```text
+        explicit facts / (all facts + unrecognized statements)
+        ```
+
+        Explicit facts are the structural and stated ones, as defined in
+        @{DerivationStates}. All facts includes derived and partial ones.
+
+    nullWhen: the entity has no facts and no unrecognized statements
+
+export measure ResolutionRate:
+    question: How many of the names used in prose lead to something defined?
+    formula:
+        ```text
+        resolved names / all names
+        ```
+
+        Names are every noun group, pronoun, possessive and transformation
+        verb that resolution was asked about, as described in @{Resolution}.
+        Introduced, ambiguous and unresolved names are not resolved.
+
+    nullWhen: the entity's prose uses no names
+
+export measure Completeness:
+    question: How many of the questions expectations ask does the specification answer?
+    formula:
+        ```text
+        answered questions / questions asked
+        ```
+
+    nullWhen: no expectation applies, which cannot happen while DefinedParts applies to everything
+
+export measure AmbiguityRate:
+    question: How much of what was said can be read more than one way?
+    lowerIsBetter: true
+    formula:
+        ```text
+        statements with an ambiguity / statements
+        ```
+
+        Statements counts statements only, not questions or asides.
+
+    nullWhen: the entity has no statements
+
+export measure Connectivity:
+    question: How well is the entity tied into the rest of the specification?
+    formula:
+        ```text
+        whole project:  0.4 * reached + 0.3 * min(1, referencedBy / 3) + 0.3 * min(1, refersTo / 3)
+        files only:     0.5 * min(1, referencedBy / 3) + 0.5 * min(1, refersTo / 3)
+        ```
+
+        ReferencedBy and refersTo count other entities linked to this one by
+        any edge in the semantic model. Reached is 1 when the entity's file
+        is reached from the entry and 0 when it is not; it is only known when
+        a whole project is analyzed. Three links either way count as fully
+        connected.
+
+export measure ImplementationFreedom:
+    question: How much would an implementer still have to decide on their own?
+    lowerIsBetter: true
+    formula:
+        ```text
+        open items / (open items + requirements)
+        ```
+
+        Open items are every gap, ambiguity, contradiction and unrecognized
+        statement, as described in @{OpenItems}. Requirements are facts that
+        become requirements in instructions: facts that are not partial,
+        restricted, contested or uncommitted.
+
+        This is the measure analysis exists to drive down. At 0, every
+        decision the specification touches has been made by its author. At 1,
+        it has said nothing an implementation could be held to.
+
+    nullWhen: the entity has neither open items nor requirements
+
+export MEASURES:: extends Measure[]:
+    - {Explicitness}
+    - {ResolutionRate}
+    - {Completeness}
+    - {AmbiguityRate}
+    - {Connectivity}
+    - {ImplementationFreedom}

@@ -1,0 +1,91 @@
+from ../LanguageData import Abbreviations, FirstPerson
+from ../meaning/Normalization import SplitCoordinatedSubjects
+from ./WordClasses import WordClasses
+
+export anchor Segmentation:
+    description:
+        Analysis cannot work on a whole block of prose at once. Segmentation
+        cuts it into statements: pieces small enough that each says one
+        thing. It works from large to small, through three units.
+
+        ```text
+        paragraph   lines of prose with no blank line between them
+        sentence    ends with a period, question mark or exclamation mark
+        statement   one claim, which may be a whole sentence or part of one
+        ```
+
+    findingProse:
+        Prose is read from the syntax tree, never from the compiled output,
+        so nothing is lost to compilation. Consecutive text lines form a
+        paragraph; a blank line, a property, a list item or a code block ends
+        it. A property whose value sits on its own line counts as prose when
+        the value has four or more words; shorter values, like color: blue,
+        are structure. Comments are dropped. Code blocks are not prose; they
+        are kept as examples.
+
+        A list item is a statement when it has a verb, as in a list of
+        rules, and a value when it does not, as in a list of names.
+
+        Before anything else, curly quotes become straight ones and runs of
+        whitespace become single spaces.
+
+    sentences:
+        A paragraph is cut into sentences after a period, question mark or
+        exclamation mark that is followed by a space and then a capital
+        letter, a quote, a bracket, a backtick, or a Piton reference. The
+        period in an abbreviation from @{Abbreviations} never ends a
+        sentence.
+
+    kindsOfSentence:
+        Not every sentence states a requirement. Each is one of three kinds.
+
+        ```text
+        Does super work on lists?                    a question
+        I've found this useful in larger projects.   an aside
+        super on a list spreads the parent's items.  a statement
+        ```
+
+        A question ends with a question mark. An aside uses a word from
+        @{FirstPerson} and no modal that binds, such as must. Questions and
+        asides are counted, but analysis draws no facts from them. Every
+        other sentence is a statement.
+
+    statements:
+        A sentence can make more than one claim, and a statement is one
+        claim. A sentence is cut into statements where it joins two clauses,
+        each with its own verb, with and, but, or a semicolon.
+
+        ```text
+        The button is blue and when disabled it cannot be clicked.
+
+        statement 1   The button is blue
+        statement 2   when disabled it cannot be clicked
+        ```
+
+        A condition stays with the clause it belongs to, as when disabled does
+        here, because a condition cut loose from its clause no longer limits
+        anything. When the second clause has no subject of its own, as in the
+        button is blue and cannot be clicked, it takes the first clause's.
+
+        Finding where one clause ends and the next begins needs to know which
+        words are verbs, so this last cut is made after words are classified,
+        as described in @{WordClasses}. A sentence whose subject is a list of
+        things is split later still, by @{SplitCoordinatedSubjects}.
+
+    numbering:
+        Statements are numbered from 1 within each property, in order, so a
+        statement is known by its property path and number: the third
+        statement in Button's disabled property is Button.disabled/s3.
+
+    example:
+        The running example's prose becomes seven statements.
+
+        ```text
+        Button.description/s1   A button is something that can be clicked.
+        Button.description/s2   When clicked, its action is invoked.
+        Button.description/s3   The button is blue.
+        Button.description/s4   It can be enabled or disabled.
+        Button.disabled/s1      Its color is dimmed.
+        Button.disabled/s2      Its text is dimmed.
+        Button.disabled/s3      It cannot be clicked.
+        ```

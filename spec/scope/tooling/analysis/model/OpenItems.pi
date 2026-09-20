@@ -1,0 +1,128 @@
+from ../meaning/Facts import Facts
+from ../meaning/Conditions import Conditions
+from ../meaning/Derivation import SpecificOverGeneral
+from ./DetectionRules import DetectionRules
+
+export abstract anchor OpenItemKind as open-item-kind:
+    description:: string
+    forTheImplementer:: string
+
+export abstract anchor OpenItem:
+    id:: string
+    kind:: OpenItemKind
+    rule:: string
+    subject:: null:: string
+    question:: string
+    candidates:: string[]: []
+    facts:: string[]: []
+    statement:: null:: string
+
+export anchor OpenItems:
+    description:
+        An open item is something analysis could not settle: a part nobody
+        defined, a sentence with two readings, two facts that cannot both be
+        true, a statement no rule could read. Each one is a decision the
+        specification left for someone else to make.
+
+        Open items are not failures of analysis. They are among its most
+        useful results, because every one of them is a place where an
+        implementer would otherwise have made the decision alone, silently,
+        and possibly differently from what the author meant.
+
+    fourKinds:
+        ```text
+        gap             something exists, but not enough is said about it
+        ambiguity       what is said can be read more than one way
+        contradiction   what is said cannot all be true
+        unrecognized    what is said matched no rule analysis has
+        ```
+
+        They are the anchors in OPEN_ITEM_KINDS below. Each open item is
+        found by one detection rule, listed in @{DetectionRules}.
+
+    whatAnOpenItemHolds:
+        Every open item states the question it leaves open, in plain words,
+        and points at everything involved. Its shape is the OpenItem anchor
+        above.
+
+        ```text
+        question    what would have to be decided     What does Button.action do?
+        subject     what it is about                  Button.action
+        facts       facts involved, by id             description/s2/f1
+        candidates  for an ambiguity, each reading
+        statement   the statement it came from        Button.description/s2
+        rule        the detection rule that found it  introduced-part
+        ```
+
+    kinds: {OPEN_ITEM_KINDS}
+
+export open-item-kind Gap:
+    description:
+        The specification shows that something exists, but does not say
+        enough about it to build it. Its action is invoked says Button has an
+        action, and says when it runs, but never says what it is.
+
+        A gap keeps what is known apart from what is not. The button is
+        slightly dimmed tells analysis that a dimming applies to the button,
+        which becomes a fact. How much, by what operation, and whether dim is
+        defined elsewhere are not known, and each becomes a gap attached to
+        that fact.
+
+    forTheImplementer: Do not fill this in. It has not been decided.
+
+export open-item-kind Ambiguity:
+    description:
+        The information analysis has allows more than one materially
+        different reading of what the specification says, and choosing one
+        would need an assumption. Materially different means the readings
+        would produce different facts. A sentence that could be phrased more
+        neatly but has only one reading is not ambiguous.
+
+        An ambiguity lists every reading as a candidate fact, and none of them
+        is used. It is not an error in the specification; it is information
+        about where the specification could be read differently by different
+        people.
+
+    forTheImplementer: Do not pick a reading. The author has not said which is meant.
+
+export open-item-kind Contradiction:
+    description:
+        Two or more facts cannot all be true at once. Neither is chosen over
+        the other. Both facts are kept, marked contested, and neither is used
+        as a requirement or as input to derivation until the specification is
+        changed.
+
+        Two facts contradict each other when they have the same subject and
+        aspect, their conditions overlap, as defined in @{Conditions}, and
+        they disagree: they give different values, one is the negation of the
+        other, or one gives a value outside a choice the other defines.
+
+        Some apparent disagreements are not contradictions, because a rule
+        settles them. A property an anchor overrides replaces its base's,
+        which is Piton's own rule. A transformation of a value, such as
+        dim(Button.color), builds on that value rather than disagreeing with
+        it. And a general fact with a more specific exception is settled by
+        @{SpecificOverGeneral}. Anything else that disagrees is a
+        contradiction.
+
+        An aspect has one value under any given condition, unless its
+        property is a list or the statement gives a list of values, as in its
+        colors are blue and white. Facts are described in @{Facts}.
+
+    forTheImplementer: Do not implement either side. The specification must be corrected first.
+
+export open-item-kind Unrecognized:
+    description:
+        A normative statement that no pattern could read. Whatever was
+        understood about it is kept: its subject, if it resolved, and its
+        conditions, if they were recognized. So the button looks better when
+        disabled is recorded as an unrecognized statement about Button while
+        Button.state = disabled, and nothing more.
+
+    forTheImplementer: The requirement in this statement was not understood. Ask before acting on it.
+
+export OPEN_ITEM_KINDS:: extends OpenItemKind[]:
+    - {Gap}
+    - {Ambiguity}
+    - {Contradiction}
+    - {Unrecognized}

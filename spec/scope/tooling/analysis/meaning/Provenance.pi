@@ -1,0 +1,63 @@
+from ../structure import StructuralContext
+
+export abstract anchor SourceRecord:
+    file:: string
+    line:: number
+    entity:: string
+    propertyPath:: string
+    text:: string
+    rules:: string[]
+    inputs:: string[]
+
+export anchor Provenance:
+    description:
+        Every result analysis produces can be traced back to the words or
+        structure it came from. This is not a convenience. If an
+        implementation turns out to be wrong because a requirement was wrong,
+        the requirement has to lead back to the sentence that said it, so the
+        sentence can be fixed.
+
+    whatIsRecorded:
+        Each fact carries a source record, whose shape is the SourceRecord
+        anchor below.
+
+        ```text
+        file          where it was written               button.pi
+        line          the line its statement starts on   9
+        entity        the entity it belongs to           Button
+        propertyPath  the property it was written in     Button.disabled
+        text          the original words, unchanged      It cannot be clicked.
+        rules         every rule applied, in order       scope condition, capability pattern
+        inputs        facts it was derived from          (none)
+        ```
+
+        A structural fact records the declaration it was read from. A derived
+        fact has no text of its own; its inputs name the facts it came from,
+        and each of those has its own record, so a derived fact can always be
+        followed back to source text in a finite number of steps.
+
+    neverLost:
+        Normalization changes how a fact is written, never where it came from.
+        The text in a source record is the original text, not a cleaned up
+        version, and it is kept even when the fact that came from it is
+        partial or was never produced at all.
+
+    bothDirections:
+        Tracing works both ways. From a fact, the source record leads to the
+        text. From any statement, analysis can list every fact, condition and
+        open item that came from it, including when the answer is none.
+
+    example:
+        ```text
+        when Button.state = disabled: Button cannot be clicked
+          id        button.pi#Button.disabled/s3/f1
+          file      button.pi, line 9
+          property  Button.disabled
+          text      It cannot be clicked.
+          rules     statement split, pronoun it -> Button,
+                    scope condition disabled -> Button.state = disabled,
+                    capability pattern
+        ```
+
+        The structure that made disabled a condition is described in
+        @{StructuralContext}.

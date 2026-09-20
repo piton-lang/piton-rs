@@ -1,0 +1,100 @@
+from ./Principles import Principles
+from ./RunningExample import RunningExample
+from ./structure import StructuralContext
+from ./text import Text
+from ./meaning import Meaning
+from ./model import SemanticModel
+from ./measures import Measures
+from ./instructions import Instructions
+from ./LanguageData import LanguageData
+from ./Determinism import Determinism
+from ./Configuration import Configuration
+from ./Output import Output
+from ../cli/Analyze import Analyze
+
+from ./meaning/Facts export Fact, FactForm
+from ./meaning/Conditions export Condition, ConditionKind
+from ./meaning/Provenance export SourceRecord
+from ./meaning/DerivationStates export DerivationState
+from ./meaning/Strengths export Strength
+from ./meaning/Relationships export RelationshipKind
+from ./model/OpenItems export OpenItem, OpenItemKind
+from ./measures export Measure
+from ./Configuration export AnalysisConfig
+from ./measures/Expectations export Expectation
+from ./measures/Readiness export ReadinessThreshold
+from ./meaning/Patterns export StatementPattern
+from ./meaning/Normalization export EquivalenceRule
+from ./LanguageData export
+    ValueClass,
+    WordList,
+    WordMap
+
+export anchor Analysis:
+    description:
+        A Piton specification says things in two ways. Some of it is
+        structure: anchors, properties, references, values, which the
+        compiler reads exactly. Most of it is prose, which can be precise or
+        vague, complete or full of holes, and which the compiler does not
+        read at all.
+
+        A specification can therefore be perfectly valid Piton and still say
+        almost nothing. An anchor with a name and a few empty properties
+        compiles cleanly. Analysis is how the difference becomes visible: it
+        works out what a specification actually says, what follows from it,
+        and what it leaves open, without guessing and without asking a
+        language model.
+
+    theStory:
+        This section reads like a pipeline, and each chapter is one stage of
+        it.
+
+        ```text
+        Piton already gives us structure.                     structure
+            |
+        Some of it contains prose.
+        Break the prose into statements.                      text
+        Find the words, and what kind of word each is.
+        Find what each statement is about, and what it says.
+            |
+        Link those names to things the specification defines. meaning
+        Normalize wordings we have rules for.
+        Turn statements into facts, with their conditions.
+        Derive what follows from them.
+        Keep everything else as unresolved.
+            |
+        Connect the facts into one model.                     model
+        Find its gaps, ambiguities and contradictions.
+            |
+        Measure how explicit, complete and connected it is,   measures
+        and how much an implementer would have to invent.
+            |
+        Compile what is known into explicit instructions      instructions
+        for an implementation agent.
+        ```
+
+        The stages are described in @{StructuralContext}, @{Text},
+        @{Meaning}, @{SemanticModel}, @{Measures} and @{Instructions}, in that
+        order. Every stage is illustrated with the same small specification,
+        @{RunningExample}, which is the best place to start.
+
+    principles: @{Principles}
+
+    alongTheWay:
+        Three sections support every stage. @{LanguageData} lists everything
+        analysis knows about words. @{Determinism} explains what makes the
+        same input always give the same result, and where that guarantee
+        stops. @{Configuration} lists what a project can change.
+
+    using:
+        Analysis is run with @{Analyze}, and what it shows is described in
+        @{Output}.
+
+    whatIsPublic:
+        The shapes of analysis results, Fact, Condition, SourceRecord and
+        OpenItem, are exported, along with the kinds they are built from, so
+        that other tools and specifications can refer to them. So are the
+        anchors a project uses to configure analysis: AnalysisConfig,
+        Expectation, ReadinessThreshold, StatementPattern, EquivalenceRule,
+        WordList, WordMap and ValueClass. Everything else, including every
+        built-in rule and word list, is internal to this section.

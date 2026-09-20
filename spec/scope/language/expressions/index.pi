@@ -43,6 +43,9 @@ export anchor Expressions:
         evaluate to 3 you’ll need to use the {} expression syntax:
 
         ```piton
+        a: 1
+        b: 2
+
         result: {a + b}
         ```
 

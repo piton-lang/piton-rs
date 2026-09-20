@@ -1,0 +1,77 @@
+from ../model/OpenItems import OpenItems
+
+export abstract anchor DerivationState as derivation-state:
+    description:: string
+    explicit:: boolean
+    usableAsInput:: boolean
+
+export anchor DerivationStates:
+    description:
+        Every fact records how analysis came to know it. This is the most
+        important property of a fact, because it is what stops a guess from
+        passing for something the specification said.
+
+        There are four states. Structural and stated facts are explicit: the
+        specification said them, in structure or in words. Derived facts
+        follow from explicit facts by a rule written in this specification.
+        Partial facts are what is left when a statement was understood only
+        in part.
+
+    invariant:
+        A partial fact never becomes a requirement, and never feeds a rule
+        that derives another fact. Whatever was not understood about it is
+        recorded as an open item, as described in @{OpenItems}. There is no
+        state for a guess, because analysis does not guess.
+
+    states: {DERIVATION_STATES}
+
+    example:
+        ```text
+        color: blue                      structural   Button.color = blue
+        The button is blue.              stated       Button.color = blue
+        (Button extends Control, and
+         Control is blue)                derived      Button.color = blue
+        The button is teal.              partial      Button.? = teal
+        ```
+
+        The last line is partial because teal is not in any value class, so
+        analysis knows the button is teal but not which aspect of it teal
+        describes.
+
+export derivation-state Structural:
+    explicit: true
+    usableAsInput: true
+    description:
+        Read from Piton structure: a property's value, a type constraint, an
+        extends clause, a reference. Structure is the most reliable source,
+        because the compiler has already checked it.
+
+export derivation-state Stated:
+    explicit: true
+    usableAsInput: true
+    description:
+        Read from a single prose statement by a statement pattern, with every
+        part resolved. Nothing was added beyond what the pattern and the
+        language data justify.
+
+export derivation-state Derived:
+    explicit: false
+    usableAsInput: true
+    description:
+        Produced by a derivation rule from other facts that are structural,
+        stated or derived. The fact names the rule and every fact it came
+        from.
+
+export derivation-state Partial:
+    explicit: false
+    usableAsInput: false
+    description:
+        Read from a statement that was only partly understood: a pattern
+        matched, but some part could not be resolved. The fact keeps every
+        part that was resolved and marks each part that was not.
+
+export DERIVATION_STATES:: extends DerivationState[]:
+    - {Structural}
+    - {Stated}
+    - {Derived}
+    - {Partial}

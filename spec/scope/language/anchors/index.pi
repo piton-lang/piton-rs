@@ -59,8 +59,8 @@ export anchor Anchors:
           "stringValue": "String types are supported.",
           "listTypes": ["List types", "are", "supported."],
           "nestedLists": [
-            "List types are",
-            ["also supported.", [["And", "With", "Bracket", "Syntax"]]]
+            "Nested list types are",
+            ["also supported.", ["And", "With", "Bracket", "Syntax"]]
           ],
           "numberTypes": 0,
           "booleanTypes": true,

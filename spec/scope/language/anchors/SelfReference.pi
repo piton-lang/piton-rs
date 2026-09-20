@@ -34,6 +34,10 @@ export anchor SelfReference:
         anchor Base:
             name: Base Anchor
             baseDescription: This is ${this.name}
+
+        anchor Child extends Base:
+            name: Child Anchor
+            childDescription: This is ${self.name}
         ```
 
         While the rest of the example remains the same. The JSON output will

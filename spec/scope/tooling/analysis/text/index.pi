@@ -1,0 +1,25 @@
+from ./Segmentation import Segmentation
+from ./Tokens import Tokens
+from ./WordClasses import WordClasses
+from ./StatementParts import StatementParts
+
+export anchor Text:
+    description:
+        Prose is where most of a specification's meaning lives, and where it
+        is least precise. This chapter covers how analysis takes a block of
+        prose apart, from paragraphs down to single words, and then puts the
+        pieces back together as statements with a known shape.
+
+        Nothing in this chapter decides what anything means. It only finds
+        the pieces that meaning will be built from in the next chapter.
+
+    steps:
+        ```text
+        segment     paragraphs into sentences, and sentences into statements
+        tokenize    statements into words, numbers, references and punctuation
+        classify    each word as a noun, verb, adjective and so on
+        find parts  what the statement is about, what it says, and when
+        ```
+
+        The steps are described in @{Segmentation}, @{Tokens},
+        @{WordClasses} and @{StatementParts}.

@@ -1,6 +1,7 @@
 from ./Compile import Compile
 from ./Check import Check
 from ./Agent import Agent
+from ./Analyze import Analyze
 from ./Build import Build
 from ./Format import Format
 from ./Lsp import Lsp
@@ -14,6 +15,7 @@ export anchor Cli:
 
     commands:
         - {Agent}
+        - {Analyze}
         - {Build}
         - {Check}
         - {Compile}

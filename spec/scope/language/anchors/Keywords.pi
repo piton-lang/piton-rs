@@ -20,6 +20,9 @@ export anchor Keywords:
         That is exactly equivalent to using extends:
 
         ```piton
+        anchor MyAnchor:
+            description: This is a description of my anchor
+
         anchor ChildAnchor extends MyAnchor:
             description:
                 + {super.description}
@@ -31,6 +34,9 @@ export anchor Keywords:
         same effect.
 
         ```piton
+        anchor MyAnchor as my-anchor:
+            description: This is a description of my anchor
+
         anchor OtherBase:
             description: Other Base
 
@@ -43,6 +49,12 @@ export anchor Keywords:
         This would be equivalent to:
 
         ```piton
+        anchor MyAnchor as my-anchor:
+            description: This is a description of my anchor
+
+        anchor OtherBase:
+            description: Other Base
+
         anchor ChildAnchor extends MyAnchor, OtherBase:
             description:
                 + {super.description}
