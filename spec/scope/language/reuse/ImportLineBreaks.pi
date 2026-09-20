@@ -10,5 +10,5 @@ export anchor ImportLineBreaks:
         ```
 
         piton format will automatically add linebreaks to imports/exports if
-        there are more than 2 items or if the line exceeds 80 columns, and it
+        there are greater than 2 items or if the line exceeds 80 columns, and it
         will sort the imports.

@@ -1,5 +1,3 @@
-from ../analysis/Configuration import Configuration
-
 export anchor ProjectConfig:
     description:
         If the compiler finds a piton.config.pi file in the current working
@@ -29,11 +27,3 @@ export anchor ProjectConfig:
             adapters:
                 - {ClaudeAdapter}
         ```
-
-    analysis:
-        A project configuration can also name an analysis configuration, with an
-        analysis property that refers to an analysis-config anchor. It is
-        optional; without it, analysis runs with its built-in rules and word
-        lists only. The current implementation accepts this property but does
-        not read it yet. What an analysis configuration can hold is described in
-        @{Configuration}.

@@ -10,6 +10,9 @@ export anchor ImportExport:
             description: This is my anchor
         ```
 
+        haha is red
+        haha is blue
+
         To bring those into another file you use the from...import syntax:
 
         ```piton fragment

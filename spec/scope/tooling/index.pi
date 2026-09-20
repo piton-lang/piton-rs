@@ -1,8 +1,6 @@
 from ./cli import Cli
 from ./project-config import ProjectConfig
-from ./analysis import Analysis
 
 export anchor Tooling:
     cli: @{Cli}
     projectConfig: @{ProjectConfig}
-    analysis: @{Analysis}
