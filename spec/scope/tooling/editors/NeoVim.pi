@@ -1,0 +1,4 @@
+use ../editors
+
+export editor NeoVim:
+    syntaxHighlighter: "vim"

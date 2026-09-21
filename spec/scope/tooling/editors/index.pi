@@ -1,0 +1,6 @@
+from ./Zed export *
+
+export abstract anchor Editor as editor:
+    description:: string: Editing plugin for ${self}
+
+    syntaxHighlighter:: string:: string[]

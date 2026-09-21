@@ -1,0 +1,36 @@
+# Modules
+
+## Description
+
+In a complex project, it’s likely that you’ll end up with hundreds of files that all work together, often grouped by domain or structured for reusability. Every complex layer of a codebase should be as self-contained as possible, requiring minimal inputs and outputs, and that even extends to imports.
+Consider a situation where you’re importing twenty anchors from one directory. That’s a lot of boilerplate, and it’s something likely to be repeated every time you want to import that functionality.
+To solve for this annoyance Piton supports folders-as-modules with an index.pi file. When an index.pi file is present in a directory, you can now import anything exported from that file simply by pointing to the directory.
+```
+myCurrentFile.pi
+
+path/
+  to/
+    directory/
+      index.pi
+```
+And in myCurrentFile.pi you could have:
+```piton fragment
+from ./path/to/directory import MyAnchor
+```
+There are several ways to build an index.pi file.
+```piton fragment
+from ./MyAnchor import MyAnchor
+export MyAnchor
+```
+That functions, but it’s a bit verbose. There is a modification of the from...import syntax that allows you to be a bit more concise:
+```piton fragment
+from ./MyAnchor export MyAnchor
+```
+And a slight modification of that that’s even more concise:
+```piton fragment
+from ./MyAnchor export *
+```
+from...export also supports renaming exports:
+```piton fragment
+from ./MyAnchor export MyAnchor MyAliasedAnchor, MyOtherAnchor MyOtherAliasedAnchor
+```

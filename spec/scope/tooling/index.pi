@@ -1,8 +1,28 @@
 from ./cli import Cli
 from ./project-config import ProjectConfig
 from ./frameworks import Frameworks
+from ./editors import Zed
+from ./editors/VsCode import VsCode
+from ./editors/Emacs import Emacs
+from ./editors/Helix import Helix
+from ./editors/JetBrains import JetBrains
+from ./editors/Kate import Kate
+from ./editors/NeoVim import NeoVim
+from ./editors/Sublime import Sublime
+from ./editors/Vim import Vim
 
 export anchor Tooling:
     cli: @{Cli}
     projectConfig: @{ProjectConfig}
     frameworks: @{Frameworks}
+
+    editors:
+        - @{Emacs}
+        - @{Helix}
+        - @{JetBrains}
+        - @{Kate}
+        - @{NeoVim}
+        - @{Sublime}
+        - @{Vim}
+        - @{VsCode}
+        - @{Zed}

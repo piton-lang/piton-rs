@@ -1,0 +1,4 @@
+use .
+
+export editor Helix:
+    syntaxHighlighter: ["tree-sitter", "lsp"]

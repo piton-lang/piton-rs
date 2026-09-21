@@ -1,0 +1,4 @@
+use .
+
+export editor JetBrains:
+    syntaxHighlighter: "jetbrains"

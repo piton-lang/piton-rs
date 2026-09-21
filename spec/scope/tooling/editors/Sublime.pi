@@ -1,0 +1,4 @@
+use .
+
+export editor Sublime:
+    syntaxHighlighter: sublime-syntax

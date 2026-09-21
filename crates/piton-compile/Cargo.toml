@@ -1,0 +1,13 @@
+[package]
+name = "piton-compile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+piton-core.workspace = true
+piton-syntax.workspace = true
+indexmap.workspace = true
+
+[dev-dependencies]
+piton-emit.workspace = true

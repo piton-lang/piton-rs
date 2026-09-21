@@ -1,0 +1,12 @@
+# Import Line Breaks
+
+## Description
+
+Linebreaks are allowed on imports/exports:
+```piton fragment
+from ./file import
+    FirstThing,
+    SecondThing,
+    ThirdThing
+```
+piton format will automatically add linebreaks to imports/exports if there are greater than 2 items or if the line exceeds 80 columns, and it will sort the imports.

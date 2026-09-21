@@ -1,0 +1,4 @@
+use .
+
+export editor Zed:
+    syntaxHighlighter: ["tree-sitter", "lsp"]

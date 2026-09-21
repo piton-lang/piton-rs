@@ -1,0 +1,19 @@
+[package]
+name = "piton-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "piton"
+path = "src/main.rs"
+
+[dependencies]
+piton-core.workspace = true
+piton-syntax.workspace = true
+piton-compile.workspace = true
+piton-emit.workspace = true
+piton-belay.workspace = true
+piton-lsp.workspace = true
+clap.workspace = true
+globset.workspace = true

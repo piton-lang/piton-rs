@@ -1,0 +1,13 @@
+[package]
+name = "piton-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+piton-core.workspace = true
+piton-syntax.workspace = true
+piton-compile.workspace = true
+piton-emit.workspace = true
+tower-lsp.workspace = true
+tokio.workspace = true

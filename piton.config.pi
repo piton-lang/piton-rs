@@ -11,7 +11,7 @@ export piton-config PitonLanguageTest:
         - {BelayConfiguration}
 
 belay-config BelayConfiguration:
-    codeRoot: ./src
+    codeRoot: ./crates
     shapeRoot: ./spec/shape
 
     adapters:

@@ -1,0 +1,8 @@
+use ../cli
+from /scope/analysis import Analysis
+
+export cli-command Analyze:
+    commandName: analyze
+
+    description:
+        Runs @{Analysis} on the project
