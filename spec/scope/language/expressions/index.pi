@@ -3,6 +3,10 @@ from ../types/Dictionaries import Dictionaries
 from ../types/Anchors import Anchors
 from ../types/ComplexTypes import ComplexTypes
 from ../types/Strings import Strings
+from ./ReferenceExpression import ReferenceExpression
+from ./NumericExpression import NumericExpression
+from ./StringExpression import StringExpression
+from ./StandardExpression import StandardExpression
 
 export anchor Expressions:
     description:
@@ -77,3 +81,9 @@ export anchor Expressions:
 
         We haven’t discussed anchors yet, but they resolve by reference, and the
         original identity is preserved.
+
+    expressionTypes:
+        - @{StandardExpression}
+        - @{NumericExpression}
+        - @{ReferenceExpression}
+        - @{StringExpression}

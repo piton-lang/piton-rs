@@ -1,0 +1,66 @@
+from ./Framework import FrameworkSpecification
+
+export anchor ShapeMapping extends FrameworkSpecification:
+    description:
+        The shape tree approximately mirrors the application source tree.
+        Instructions attach to the closest existing implementation scope.
+
+    requirements:
+        - Determine an instruction's relative directory beneath shapeRoot.
+        - Resolve that relative directory beneath codeRoot.
+        - Place scoped guidance there when the corresponding directory exists.
+        - Otherwise walk upward to the nearest existing corresponding directory.
+        - Stop fallback at codeRoot.
+        - Combine all instructions resolving to the same destination scope.
+        - Preserve the original relative structure in the compiled shape-reference tree.
+
+    examples:
+        matchingDirectory:
+            source: spec/shape/components/button/Button.pi
+            existingScope: src/components/button
+            genericOutput: src/components/button/AGENTS.md
+        sharedDirectory:
+            sources:
+                - spec/shape/components/input/Input.pi
+                - spec/shape/components/input/InputDesign.pi
+            existingScope: src/components/input
+            genericOutput: src/components/input/AGENTS.md
+        missingDirectory:
+            source: spec/shape/components/nonexistent/Component.pi
+            existingScope: src/components
+            genericOutput: src/components/AGENTS.md
+
+    qualification:
+        AGENTS.md illustrates generic placement. Each adapter selects its
+        supported filename. Fallback changes scoped placement, not the original
+        location preserved in the shape-reference tree.
+
+export anchor ShapeRootReference extends FrameworkSpecification:
+    description:
+        The special export __BELAY_SHAPE__ identifies the compiled shape root
+        for the current output target.
+
+    requirements:
+        - Make __BELAY_SHAPE__ available as an explicit import from Belay.
+        - Resolve it during compilation rather than at agent runtime.
+        - Resolve its path relative to the generated file containing its use.
+        - Resolve it separately for each adapter and output location.
+
+    documentedClaudeLocation: .claude/reference/shape
+
+export anchor AnchorReferences extends FrameworkSpecification:
+    description:
+        A reference connects generated guidance to another anchor's compiled
+        representation without embedding all of its content at the use site.
+
+    requirements:
+        - Serialize reached, referenced anchors into the target's reference directory.
+        - Preserve their relative source structure in that directory.
+        - Render referential interpolation as a Markdown link to the compiled artifact.
+        - Keep referential links distinct from inline value serialization.
+        - Do not replace lazy Markdown links with Claude-specific eager import syntax.
+
+    qualification:
+        The documented referential interpolation uses the at-sign sigil. Later
+        discussions leave its underlying reference type and non-Markdown
+        representation unresolved; this specifies only the Belay Markdown intent.

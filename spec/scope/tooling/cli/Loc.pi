@@ -2,9 +2,26 @@ use .
 
 export cli-command Loc:
     commandName: loc
-    positionalArguments:
-        path: file or glob or none
 
     description:
-        Checks for lines of code in the given path or all Piton files in the
-        current directory.
+        Counts lines of Piton source for specific files or the project
+
+    emit: false
+
+    count:
+        total
+        code
+        comments
+        blank
+
+    groupBy:
+        file
+
+    summary: true
+
+    diagnostics:
+        errors: false
+        warnings: false
+
+    exitCode:
+        success: 0

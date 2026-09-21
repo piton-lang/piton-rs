@@ -1,0 +1,80 @@
+from ./Framework import FrameworkSpecification
+
+export anchor ProposedBuildGuarantees extends FrameworkSpecification:
+    description:
+        Proposed rules that make the documented output behavior safe and
+        reproducible enough to implement. These require adoption into the
+        authoritative project specification.
+
+    status: proposed
+
+    requirements:
+        - Produce identical bytes for identical source, configuration, directory state, and toolchain.
+        - Define a stable order for instructions combined into a shared output file.
+        - Emit metadata and primary body fields once rather than duplicating them in the remainder.
+        - Quote and escape frontmatter values according to the target format.
+        - Detect collisions caused by normalized names or competing adapter output paths.
+        - Report a missing generated reference target instead of emitting a broken link.
+        - Report unsupported target metadata instead of silently claiming it was enforced.
+        - Track generated files so cleanup cannot delete unrelated user-authored files.
+        - Report the originating source anchor and property when generation fails.
+        - Keep resolved output paths within their configured output boundaries.
+
+export anchor ProposedPermissionBoundary extends FrameworkSpecification:
+    description:
+        Written instructions express intended behavior. Actual restrictions
+        depend on enforcement by the consuming platform.
+
+    status: proposed
+
+    requirements:
+        - Distinguish advisory prompt text from platform-enforced permissions.
+        - Claim enforcement only for controls the target platform actually applies.
+        - Diagnose a requested enforced restriction that the adapter cannot represent.
+
+export anchor OpenDecisions:
+    description:
+        Resolve these questions against the current Piton and Belay source
+        before treating this consolidated draft as an executable contract.
+
+    languageSyntax:
+        Confirm whether the current foundational declaration remains anchor or
+        has moved to spec, and confirm abstract export and keyword alias syntax.
+
+    referenceDirectory:
+        Adapter.pi proposes a single reference directory with a shape
+        subdirectory per target. Adopt or revise this convention before
+        implementing it; earlier source mixed reference and references.
+
+    configuration:
+        Define required and optional configuration properties, path bases,
+        behavior without shapeRoot, and behavior when codeRoot does not exist.
+
+    instructionScope:
+        Define placement for instructions outside shapeRoot and the exact
+        anchor-level emission rule within reachable source files.
+
+    referenceIdentity:
+        Finalize the reference value type, cross-target identity, and behavior
+        when an anchor has more than one generated representation.
+
+    stringInterpolation:
+        Finalize whether stringifying an anchor yields its source name,
+        compiled name, or another explicitly defined representation.
+
+    metadataTypes:
+        Specify tools, allowed-tools, and model types and their mapping for
+        each adapter. The prose examples do not establish a complete schema.
+
+    naming:
+        Specify skill filename normalization, command name normalization before
+        the x- prefix, acronym splitting, and name-collision handling.
+
+    workflowModel:
+        Decide whether workflows remain compositions of the four constructs.
+        Do not add a workflow keyword solely from examples of agent processes.
+
+    targetCoverage:
+        The adapters directory now defines Claude Code, Codex, and OpenCode
+        mappings. Pin supported tool versions before implementing those mappings;
+        these documents specify proposed Belay behavior, not tested integrations.

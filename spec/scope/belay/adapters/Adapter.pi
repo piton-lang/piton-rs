@@ -1,0 +1,70 @@
+// Shared contract for output adapters. This is specification vocabulary,
+// not a finalized replacement for the runtime belay-agent-adapter schema.
+export abstract anchor Adapter:
+    description:: string
+    targetId:: string
+    instructionFile:: string
+    referenceRoot:: string
+
+    status: proposed Belay adapter contract
+    documentationChecked: 2026-09-21
+
+    requirements:
+        - Consume resolved constructs after Piton imports and inheritance have been evaluated.
+        - Map Instruction, Skill, Command, and Agent explicitly for the selected target.
+        - Preserve the common Markdown content rules inside target-specific containers.
+        - Distinguish native support from translation and unsupported behavior.
+        - Fail with an actionable diagnostic when required behavior cannot be represented.
+        - Apply only explicitly configured model and permission settings.
+        - Keep target settings separate from extra prose properties in each construct.
+        - Resolve generated Markdown links from the file containing the link.
+        - Resolve __BELAY_SHAPE__ to the selected adapter's compiled shape directory.
+        - Record the target version used to validate the generated artifacts.
+
+    paths:
+        description:
+            Adapter paths are relative to the application project root, while
+            scoped instruction destinations are resolved through codeRoot and
+            shapeRoot. The project-root configuration mechanism remains open.
+        proposedConvention:
+            Ordinary references live beneath referenceRoot. Shapes live in its
+            shape subdirectory. These paths are Belay-owned conventions and are
+            not platform discovery directories. Never assume automatic loading.
+        collisionPolicy:
+            Normalize names before output planning. Reject collisions unless
+            the artifacts are deliberately shared and identical in content,
+            reference resolution, and activation behavior.
+
+    metadata:
+        description:
+            Platform-specific options belong to the selected adapter's mapping.
+            Their placement in author-facing Piton configuration remains open.
+        requirements:
+            - Validate native options against the selected platform version.
+            - Serialize YAML or TOML with a format-aware encoder.
+            - Keep role, prompt, and other prose out of duplicated metadata fields.
+            - Reject permission translations that would silently widen access.
+
+    unsupportedBehavior:
+        description:
+            A prompt that requests restraint is not an enforced restriction.
+            Do not silently turn agents into skills or commands into automatic
+            skills when that changes their intended activation.
+
+    multipleAdapters:
+        description:
+            Check the complete output plan before writing. Codex and OpenCode
+            can share AGENTS.md paths, and OpenCode can discover other adapters'
+            skills. File separation alone does not guarantee target isolation.
+        requirements:
+            - Reject incompatible writes to a shared instruction file.
+            - Coalesce identical shared guidance only once.
+            - Diagnose duplicate discoverable skills across enabled adapters.
+            - Require an explicit deployment choice when cross-discovery changes behavior.
+
+    validation:
+        - Verify all generated relative links point to planned outputs.
+        - Verify discovery metadata and body content are emitted exactly once.
+        - Verify a command retains the x- prefix after target-name normalization.
+        - Verify generated filenames and serialized native metadata against the target schema.
+        - Verify unsupported requested capabilities produce diagnostics before output is committed.

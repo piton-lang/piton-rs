@@ -1,0 +1,56 @@
+from ./Framework import FrameworkSpecification
+
+export anchor MarkdownSerialization extends FrameworkSpecification:
+    description:
+        Belay serializes resolved construct content as readable Markdown while
+        preserving the structure of the source.
+
+    requirements:
+        - Render anchor names and prose-bearing property names as word-separated titles.
+        - Use heading levels to represent the hierarchy of prose-bearing properties.
+        - Use bold labels when the hierarchy exceeds Markdown's six heading levels.
+        - Serialize primitive values to their textual representation.
+        - Render explicit lists as Markdown lists with nested indentation.
+        - Render pure dictionaries as indentation-based structures inside code fences.
+        - Preserve the order of prose and structured content within implicit mixed lists.
+        - Render pure dictionaries embedded in mixed content as fenced structures.
+        - Apply target-specific frontmatter and body layout around the serialized content.
+
+    examples:
+        propertyTitle:
+            sourceName: myProperty
+            renderedTitle: My Property
+        primitiveText:
+            booleanValue: false
+            renderedBoolean: "false"
+            numericValue: 42
+            renderedNumber: "42"
+
+export anchor InterpolationBoundary extends FrameworkSpecification:
+    description:
+        Piton evaluates expressions; the selected output mode determines how
+        their results appear in generated artifacts.
+
+    requirements:
+        - Follow the current Piton specification for expression evaluation and casts.
+        - Preserve the distinction between intrinsic values, strings, and references.
+        - Render Belay references as links to the applicable compiled target.
+        - Do not infer reference identity from a display heading alone.
+
+    historicalBehavior:
+        The September 11 text describes string interpolation of a complex
+        anchor as its compiled name without title expansion. Subsequent
+        discussion revisits name, value, and reference semantics. Final behavior
+        must be reconciled with the current language specification.
+
+export anchor Compilation extends FrameworkSpecification:
+    description: Resolve a Belay project and emit the artifacts selected by its adapters.
+    requirements:
+        - Obtain reachable and validated constructs from the Piton compiler.
+        - Build a target-specific output plan for each configured adapter.
+        - Resolve instruction placement and reference destinations before rendering.
+        - Detect shared paths and cross-target discovery conflicts across the entire plan.
+        - Serialize content using the shared rules and each adapter's native format.
+        - Validate links, metadata, names, and output ownership before writing.
+    serialization: {MarkdownSerialization}
+    interpolation: {InterpolationBoundary}

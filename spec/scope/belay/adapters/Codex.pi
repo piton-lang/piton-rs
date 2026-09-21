@@ -1,0 +1,78 @@
+from ./Adapter import Adapter
+
+// Native format sources, checked 2026-09-21:
+// https://learn.chatgpt.com/docs/build-skills
+// https://learn.chatgpt.com/docs/agent-configuration/agents-md
+// https://learn.chatgpt.com/docs/agent-configuration/subagents
+// https://learn.chatgpt.com/docs/custom-prompts
+export anchor CodexAdapter extends Adapter:
+    description: Compile Belay constructs into project-local Codex artifacts.
+    targetId: codex
+    instructionFile: AGENTS.md
+    referenceRoot: .codex/reference
+
+    instruction:
+        output: AGENTS.md at the scope selected by ShapeMapping
+        format: Markdown
+        rules:
+            - Diagnose a same-directory AGENTS.override.md that shadows generated guidance.
+            - Account for the configured instruction byte limit.
+            - Do not generate override files merely to win precedence.
+        loading:
+            Codex builds a root-to-working-directory instruction chain at run
+            start. Descendant placement does not guarantee initial loading from
+            a session started above it.
+
+    skill:
+        output: .agents/skills/<name>/SKILL.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            name: Normalized construct name
+            description: Description followed by Use when and useWhen
+        body: Prompt followed by serialized additional content
+
+    command:
+        support: translated to an explicitly invoked Codex skill
+        output: .agents/skills/x-<name>/SKILL.md
+        policyOutput: .agents/skills/x-<name>/agents/openai.yaml
+        metadata:
+            name: x- followed by the normalized construct name
+            description: Command description
+        policy:
+            allow_implicit_invocation: false
+        body: Command prompt followed by serialized additional content
+        invocation: $x-<name>
+        rules:
+            - Nest allow_implicit_invocation under policy in the generated YAML.
+            - Do not emit deprecated personal custom prompts as repository commands.
+            - Do not invent a project-local .codex/commands discovery directory.
+
+    agent:
+        output: .codex/agents/<name>.toml
+        format: TOML
+        fields:
+            name: Normalized construct name
+            description: Agent description
+            developer_instructions: Role introduction, prompt, and serialized additional content
+        optionalFields:
+            - model
+            - model_reasoning_effort
+            - sandbox_mode
+        rules:
+            - Serialize the complete instruction body as a valid TOML string.
+            - Omit absent options rather than imposing model or sandbox defaults.
+            - Do not translate a generic tool list into an invented tools field.
+        qualification:
+            This targets the documented standalone custom-agent format, not
+            older role-registration layouts or every hosted Codex surface.
+
+    permissions:
+        description:
+            Native sandbox and approval configuration govern execution.
+            Generated guidance cannot override the active runtime's controls.
+            Unsupported per-command tool or model settings must be diagnosed.
+
+    checks:
+        - Commands produce both the skill and its explicit-invocation policy file.
+        - Agent output parses as TOML and contains the three required identity and instruction fields.
+        - Shadowed or over-budget instruction output is reported before being called usable.

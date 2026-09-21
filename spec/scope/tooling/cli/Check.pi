@@ -1,8 +1,27 @@
 use ../cli
-from ./Compile import Compile
 
-export cli-command Check extends Compile:
+export cli-command Check:
     commandName: check
 
     description:
         Checks specific files or the project and reports errors
+
+    emit: false
+
+    validate:
+        syntax
+        imports
+        references
+        types
+        inheritance
+        composition
+        exports
+        circular-dependencies
+
+    diagnostics:
+        errors: true
+        warnings: true
+
+    exitCode:
+        success: 0
+        errors: 1

@@ -1,0 +1,71 @@
+from ./Adapter import Adapter
+
+// Native format sources, checked 2026-09-21:
+// https://code.claude.com/docs/en/memory
+// https://code.claude.com/docs/en/skills
+// https://code.claude.com/docs/en/sub-agents
+export anchor ClaudeCodeAdapter extends Adapter:
+    description: Compile Belay constructs into project-local Claude Code artifacts.
+    targetId: claude-code
+    instructionFile: CLAUDE.md
+    referenceRoot: .claude/reference
+
+    instruction:
+        output: CLAUDE.md at the scope selected by ShapeMapping
+        format: Markdown
+        rules:
+            - Combine guidance for the same scope in one file.
+            - Preserve a separate compiled shape reference beneath .claude/reference/shape.
+        loading:
+            Ancestor guidance loads at startup; nested guidance loads when
+            Claude reads within that subtree. Placement does not make every
+            nested instruction part of the initial context.
+
+    skill:
+        output: .claude/skills/<name>/SKILL.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            name: Normalized construct name
+            description: Description followed by Use when and useWhen
+        body: Prompt followed by serialized additional content
+        rules:
+            - Use the same normalized name for the directory and metadata.
+            - Preserve native allowed-tools and model options only when explicitly configured.
+
+    command:
+        support: translated to a manually invoked Claude skill
+        output: .claude/skills/x-<name>/SKILL.md
+        metadata:
+            name: x- followed by the normalized construct name
+            description: Command description
+            disable-model-invocation: true
+        body: Command prompt followed by serialized additional content
+        invocation: /x-<name>
+        rationale:
+            Claude unifies custom commands with skills. The older commands
+            directory remains supported, but this adapter chooses skills for
+            new output. Do not emit both representations of one command.
+
+    agent:
+        output: .claude/agents/<name>.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            name: Normalized construct name
+            description: Agent description
+            tools: Explicit native tool list when configured
+            model: Explicit native model selector when configured
+        body: Role introduction followed by prompt and serialized additional content
+        rules:
+            - Preserve agent identity independently of display headings.
+            - Omit optional settings when absent so native defaults remain effective.
+
+    permissions:
+        description:
+            Skill allowed-tools grants and subagent tool selection serve
+            different purposes. Do not interpret either as a portable sandbox
+            definition or copy it into another platform without a mapping.
+
+    checks:
+        - A command produces one x-prefixed skill with automatic invocation disabled.
+        - Two constructs normalizing to the same skill identity cause a collision diagnostic.
+        - Nested instructions retain their mapped scope and target-relative links.

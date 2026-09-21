@@ -4,4 +4,38 @@ export cli-command Reach:
     commandName: reach
 
     description:
-        Reports which files are reached and which are stranded
+        Analyzes which parts of the specbase are reachable from specific files,
+        anchors, or the project
+
+    emit: false
+
+    traverse:
+        imports
+        references
+        inheritance
+        composition
+
+    direction:
+        outgoing
+
+    include:
+        direct
+        transitive
+
+    report:
+        reachable
+        unreachable
+        depth
+        paths
+
+    groupBy:
+        source
+
+    summary: true
+
+    diagnostics:
+        errors: false
+        warnings: false
+
+    exitCode:
+        success: 0

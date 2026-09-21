@@ -1,0 +1,18 @@
+from ./Construct import Construct
+from ../Framework import FrameworkSpecification
+
+export abstract anchor Command extends Construct as command:
+    pass
+
+export anchor CommandBehavior extends FrameworkSpecification:
+    description:
+        A command provides an explicit entrypoint for invoking a prompt or
+        directing work through skills and other guidance.
+
+    requirements:
+        - Require description and prompt strings.
+        - Emit a native command or the explicit-invocation equivalent defined by the adapter.
+        - Prefix the generated command name with x- to distinguish it from a skill.
+        - Map description and prompt to the command representation selected by the adapter.
+        - Emit allowed-tools and model metadata when supplied and supported by the adapter.
+        - Serialize additional properties after the primary prompt.

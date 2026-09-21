@@ -1,0 +1,89 @@
+// Belay purpose, configuration, and common specification structure.
+
+export abstract anchor FrameworkSpecification:
+    description:: string
+    requirements:: list
+
+export anchor FrameworkPurpose extends FrameworkSpecification:
+    description:
+        Belay is the framework bundled with Piton for describing agentic
+        instructions, skills, commands, and agents, and compiling them into
+        artifacts understood by configured agentic platforms.
+
+    requirements:
+        - Express reusable agent behavior as structured Piton source.
+        - Connect descriptions of what should exist with guidance for building it.
+        - Preserve composition through Piton anchors and inheritance.
+        - Produce platform-specific artifacts through configured adapters.
+        - Keep Piton and Belay open source independently of Suspense licensing.
+
+export anchor SourceAuthority extends FrameworkSpecification:
+    description:
+        Piton source and project configuration define the intended system and
+        agent guidance. Compiled artifacts are derived representations of that
+        source, rather than an independent specification.
+
+    requirements:
+        - Make lasting specification changes in the originating Piton source.
+        - Derive generated guidance from the resolved source and configuration.
+        - Treat implementation as something to assess against the specification.
+        - Distinguish predictable artifact generation from probabilistic agent behavior.
+
+export anchor FrameworkBoundaries extends FrameworkSpecification:
+    description:
+        Piton supplies language semantics, Belay supplies agentic vocabulary
+        and output behavior, and Suspense supplies an authoring and orchestration
+        environment around them.
+
+    requirements:
+        - Defer parsing and expression evaluation to Piton.
+        - Defer imports, exports, inheritance, and reachability to Piton.
+        - Use adapters to translate resolved Belay constructs into target artifacts.
+        - Leave execution of generated instructions to the consuming agentic platform.
+        - Do not require Suspense to author or compile a Belay project.
+        - Do not treat successful compilation as proof of correct agent execution.
+
+export anchor ProjectConfiguration extends FrameworkSpecification:
+    description:
+        A project enables Belay through the frameworks property of its Piton
+        configuration, using an instance of belay-config.
+
+    requirements:
+        - Register the Belay configuration in the project frameworks list.
+        - Use codeRoot to identify the application's source-code root.
+        - Use shapeRoot, when configured, to identify the architectural instruction root.
+        - Use adapters to select the output targets for the project.
+        - Require individual files to use or import the framework definitions they need.
+        - Do not interpret framework registration as an implicit import in every file.
+
+    documentedNames:
+        package: @piton/belay
+        configurationKeyword: belay-config
+        agentAdapterKeyword: belay-agent-adapter
+        codeRoot: ./src/
+        shapeRoot: ./spec/shape/
+
+    qualification:
+        These names document the existing configuration surface. This file does
+        not redefine the configuration or adapter schemas, whose complete
+        required fields are not established by the available material.
+
+export anchor ConstructComposition extends FrameworkSpecification:
+    description:
+        Belay constructs are ordinary Piton anchors with framework-specific
+        meaning. Their keyword forms provide reusable vocabulary without
+        introducing a separate composition language.
+
+    requirements:
+        - Expose Agent, Instruction, Skill, and Command as the four agentic constructs.
+        - Associate those anchors with agent, instruction, skill, and command.
+        - Allow abstract anchors to provide shared structure and behavior.
+        - Resolve inherited properties according to the Piton language specification.
+        - Validate required properties on concrete constructs after inheritance resolves.
+        - Preserve additional properties for serialization into the generated guidance.
+        - Compile only source files reachable from the configured entrypoints.
+
+    qualification:
+        The four-construct surface does not exclude configuration anchors,
+        adapters, or special compile-time exports. The older Reference and
+        Instruction-only design is not used as the public construct model here.

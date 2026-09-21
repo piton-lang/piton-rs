@@ -1,0 +1,86 @@
+from ./Adapter import Adapter
+
+// Native format sources, checked 2026-09-21:
+// https://opencode.ai/docs/rules/
+// https://opencode.ai/docs/skills/
+// https://opencode.ai/docs/commands/
+// https://opencode.ai/docs/agents/
+export anchor OpenCodeAdapter extends Adapter:
+    description: Compile Belay constructs into project-local OpenCode artifacts.
+    targetId: opencode
+    instructionFile: AGENTS.md
+    referenceRoot: .opencode/reference
+
+    instruction:
+        output: AGENTS.md at the scope selected by ShapeMapping
+        format: Markdown
+        loading:
+            OpenCode searches local rule files upward from the working
+            directory and prefers AGENTS.md over its CLAUDE.md fallback.
+            Do not assume Claude's nested-loading behavior or Codex's chain.
+        rules:
+            - Preserve scoped output placement without claiming identical activation across tools.
+            - Use explicit instructions configuration when the selected deployment needs additional files.
+            - Do not load all nested instructions globally merely to make them discoverable.
+        openQuestion:
+            Confirm nested-file activation for the pinned OpenCode release
+            before promising shape-scope behavior beyond documented startup discovery.
+
+    skill:
+        output: .opencode/skills/<name>/SKILL.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            name: Normalized construct name
+            description: Description followed by Use when and useWhen
+        body: Prompt followed by serialized additional content
+        rules:
+            - Require a name of 1 to 64 lowercase alphanumeric characters with single hyphen separators.
+            - Match name metadata to the containing directory.
+            - Reject descriptions outside the supported 1 to 1024 character range.
+            - Do not rely on unrecognized frontmatter to enforce policy.
+        discovery:
+            OpenCode also discovers compatible Claude and .agents skill
+            directories. Check cross-adapter identities before installing
+            several generated skill trees into one project.
+
+    command:
+        support: native
+        output: .opencode/commands/x-<name>.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            description: Command description
+            agent: Explicit target agent when configured
+            model: Explicit provider-qualified model when configured
+        body: Command prompt followed by serialized additional content
+        invocation: /x-<name>
+        rules:
+            - Derive command identity from the filename.
+            - Preserve explicitly authored runtime argument placeholders.
+            - Do not emit Claude-specific allowed-tools as an enforced command setting.
+
+    agent:
+        output: .opencode/agents/<name>.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            description: Agent description
+            mode: Explicit primary, subagent, or all selection
+            model: Explicit provider-qualified model when configured
+            permission: Explicit native permission map when configured
+        body: Role introduction followed by prompt and serialized additional content
+        proposedDefaultMode: subagent
+        rules:
+            - Derive agent identity from the filename.
+            - Prefer native permission entries over the deprecated tools option.
+            - Validate native options instead of copying metadata from another adapter.
+
+    permissions:
+        description:
+            Map permissions only when their meanings are equivalent. Native
+            allow, ask, and deny entries are not interchangeable with a prose
+            tool list. Reject ambiguous conversions.
+
+    checks:
+        - A command keeps its x-prefixed filename and native frontmatter.
+        - Agent mode is explicit in generated output.
+        - Duplicate skills discovered through other adapters are reported.
+        - Required scope behavior that cannot be established for the target version is diagnosed.

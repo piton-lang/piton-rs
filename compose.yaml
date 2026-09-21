@@ -1,0 +1,61 @@
+services:
+  claude:
+    build:
+      context: .
+      args:
+        USER_ID: ${LOCAL_UID:-1000}
+        GROUP_ID: ${LOCAL_GID:-1000}
+
+    image: claude-code-sandbox:latest
+
+    hostname: claude-sandbox
+
+    stdin_open: true
+    tty: true
+
+    # Only this directory from the host is exposed.
+    volumes:
+      - type: bind
+        source: ${PROJECT_DIR}
+        target: /workspace
+
+      # Claude's own persistent config/authentication/home.
+      - type: volume
+        source: claude-home
+        target: /home/claude
+
+    working_dir: /workspace
+
+    environment:
+      HOME: /home/claude
+      TERM: ${TERM:-xterm-256color}
+      COLORTERM: ${COLORTERM:-truecolor}
+
+    # Claude Code needs the internet, but basically nothing else.
+    network_mode: bridge
+
+    # Remove Linux capabilities it doesn't need.
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    # Stop fork bombs / accidental insanity.
+    pids_limit: 1024
+
+    # Adjust these to taste.
+    mem_limit: 16g
+    cpus: 8
+
+    # Container filesystem itself is disposable.
+    # Project + Claude home remain writable.
+    read_only: true
+
+    tmpfs:
+      - /tmp:size=4g,exec
+      - /run:size=128m
+
+volumes:
+  claude-home:
+    name: claude-code-home

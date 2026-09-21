@@ -1,0 +1,4 @@
+// Shared required fields for Belay's four constructs.
+export abstract anchor Construct:
+    description:: string
+    prompt:: string
