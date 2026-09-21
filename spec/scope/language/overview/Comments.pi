@@ -4,8 +4,10 @@ export anchor Comments:
         created with "//".
 
         ```piton
+        \\\
         // This is a comment
         myVariable: 42 // This is also a comment
+        \\\
         ```
 
         `piton format` will always put a space between the "//" and the comment

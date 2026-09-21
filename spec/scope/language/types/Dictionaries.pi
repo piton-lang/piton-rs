@@ -11,9 +11,11 @@ export type Dictionaries:
         to define them:
 
         ```piton
+        \\\
         firstLevel:
             secondLevel:
                 thirdLevel: This is a string
+        \\\
         ```
 
         You can use dot syntax to access keys in a dictionary.

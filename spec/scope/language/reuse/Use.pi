@@ -4,11 +4,13 @@ export anchor Use:
         use keyword. It brings into scope of the current file any exported
         user-defined keywords.
 
-        ```piton fragment
+        ```piton
+        \\\
         use ./CustomKeywords
 
         my-custom-keyword Wow:
             description: amazing
+        \\\
         ```
 
         `use` only brings in keywords. It does not import anything else that was

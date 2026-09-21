@@ -5,31 +5,37 @@ export anchor Super:
         retrieve values from the base?
 
         ```piton
+        \\\
         anchor BaseAnchor:
             description: Description from BaseAnchor
 
         anchor ChildAnchor extends BaseAnchor:
             description: Description from ChildAnchor
+        \\\
         ```
 
         This of course will simply use the child anchor’s value.
 
         ```json
+        \\\
         {
           "description": "Description from ChildAnchor"
         }
+        \\\
         ```
 
         But if we wanted to specifically pull from the parent, that is possible
         using the super keyword.
 
         ```piton
+        \\\
         anchor BaseAnchor:
             description: Description from BaseAnchor
 
         anchor ChildAnchor extends BaseAnchor:
             description:
                 ${super.description} and Description from ChildAnchor
+        \\\
         ```
 
         As with the previous example of multiple inheritance, the anchor could
@@ -43,7 +49,9 @@ export anchor Super:
         So the resulting JSON would be:
 
         ```json
+        \\\
         {
           "description": "Description from BaseAnchor and Description from ChildAnchor"
         }
+        \\\
         ```

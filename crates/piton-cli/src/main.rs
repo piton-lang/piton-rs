@@ -38,6 +38,21 @@ enum Command {
         args: Vec<String>,
     },
 
+    /// Run semantic analysis on the project
+    ///
+    /// Combines linguistic analysis of the prose with structural knowledge of
+    /// the Piton source to report statements that contradict each other.
+    Analyze {
+        /// Files or anchor names to analyze; defaults to the whole project
+        targets: Vec<String>,
+        /// Show every piece of evidence behind a finding
+        #[arg(long)]
+        explain: bool,
+        /// Lowest severity to report: error, warning, or information
+        #[arg(long)]
+        min_severity: Option<String>,
+    },
+
     /// Build the project as configured by piton.config.pi
     Build {
         /// Path to a piton.config.pi file
@@ -104,6 +119,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let code = match cli.command {
         Command::Agent { agent, args } => commands::agent::run(&agent, &args),
+        Command::Analyze {
+            targets,
+            explain,
+            min_severity,
+        } => commands::analyze::run(&targets, explain, min_severity.as_deref()),
         Command::Build { config, dry_run } => commands::build::run(config.as_deref(), dry_run),
         Command::Check { paths } => commands::check::run(&paths),
         Command::Compile {

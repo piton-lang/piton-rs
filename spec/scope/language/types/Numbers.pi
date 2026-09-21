@@ -9,10 +9,12 @@ export type Numbers:
         readability.
 
         ```piton
+        \\\
         myInt: 123
         myFloat: 3.14
         mySmallFloat: 0.14
         myBigNumber: 1_200_000.00
+        \\\
         ```
 
         There is a single number type in all of Piton; type-wise there’s no

@@ -5,6 +5,7 @@ export anchor StructuralInheritance:
         keyword.
 
         ```piton
+        \\\
         anchor FirstBaseAnchor:
             firstBaseAnchorProperty: Hello from the First Base Anchor
             description: Description from FirstBaseAnchor
@@ -15,17 +16,20 @@ export anchor StructuralInheritance:
 
         anchor ChildAnchor extends FirstBaseAnchor, SecondBaseAnchor:
             childAnchorProperty: Hello from Child Anchor
+        \\\
         ```
 
         And as JSON:
 
         ```json
+        \\\
         {
           "firstBaseAnchorProperty": "Hello from the First Base Anchor",
           "secondBaseAnchorProperty": "Hello from the Second Base Anchor",
           "description": "Description from SecondBaseAnchor",
           "childAnchorProperty": "Hello from Child Anchor"
         }
+        \\\
         ```
 
         One particular thing to note here is that both FirstBaseAnchor and

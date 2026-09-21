@@ -7,20 +7,24 @@ export anchor CircularImports:
         For example
 
         ```piton
+        \\\
         anchor A:
             This anchor talks about ${B}
 
         anchor B:
             This anchor talks about ${A}
+        \\\
         ```
 
         Is perfectly fine because \ ${A} \ and \ ${B} \ both settle to a string.
 
         However
 
-        ```piton fragment
+        ```piton
+        \\\
         A: {B}
         B: {A}
+        \\\
         ```
 
         Is a compile error because it simply cannot resolve.

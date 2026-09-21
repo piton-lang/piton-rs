@@ -1,4 +1,5 @@
 use ./lib/Type
+from ./Dictionaries import Dictionaries
 
 export type Anchors:
     description:
@@ -7,5 +8,7 @@ export type Anchors:
         promotes inheritance. However, it’s a larger and more advanced topic
         than belongs in this introductory part of the guide, so instead we’ve
         devoted an entire section to it later on.
+
+    validKeys: {Dictionaries.validKeys}
 
     supportedOperators: null

@@ -11,3 +11,9 @@ Read the complete spec for the Piton, Belay framework, and all associated featur
 - chumsky
 - rowan
 - tower-lsp
+
+# Xtask
+
+```
+install: Should build the release and install it locally.
+```

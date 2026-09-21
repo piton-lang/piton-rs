@@ -14,6 +14,7 @@ export anchor Collections:
         matter):
 
         ```piton
+        \\\
         combined:
             This is a string
 
@@ -24,6 +25,7 @@ export anchor Collections:
 
             nestedDictionary:
                 deeplyNestedDictionary: This is a string
+        \\\
         ```
 
         And this scenario is where Piton takes a little liberty in syntax
@@ -33,6 +35,7 @@ export anchor Collections:
         As JSON that would be:
 
         ```json
+        \\\
         {
           "combined": [
             "This is a string",
@@ -44,6 +47,7 @@ export anchor Collections:
             }
           ]
         }
+        \\\
         ```
 
         We’re sacrificing the otherwise simple rules of syntax here only because
@@ -60,9 +64,11 @@ export anchor Collections:
         Similarly\:
 
         ```piton
+        \\\
         combined:
           - dictionaryInsideAList:
               nested: value
+        \\\
         ```
 
         Since the dictionaryInsideAList is inside an explicit list, you cannot

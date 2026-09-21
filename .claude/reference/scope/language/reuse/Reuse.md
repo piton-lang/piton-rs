@@ -20,4 +20,8 @@ Fundamental to Piton is the ability to compose a larger codebase from smaller fo
 
 [Modules](Modules.md)
 
+## Use
+
+[Use](Use.md)
+
 Links in this document point at reference files. Read one when the work touches what it describes.

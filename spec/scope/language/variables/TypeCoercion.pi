@@ -8,7 +8,9 @@ export anchor TypeCoercion:
         the target type. For example:
 
         ```piton
+        \\\
         value:: string:: number: 42
+        \\\
         ```
 
         This evaluates to the string “42” because string is the first compatible
@@ -18,7 +20,9 @@ export anchor TypeCoercion:
         another type:
 
         ```piton
+        \\\
         value:: boolean:: string: "false"
+        \\\
         ```
 
         This evaluates to the string “false”, not the boolean false.

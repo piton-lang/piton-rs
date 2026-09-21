@@ -25,9 +25,8 @@ export anchor Cli:
         - {Reach}
 
 export abstract anchor CliCommand as cli-command:
-    abstract:: string: Command invokable by the cli by running piton <command>
+    description:: string: Command invokable by the cli by running piton <command>
     commandName:: string
-    description:: string
 
     positionalArguments:: dictionary:: null: null
     namedArguments:: dictionary:: null: null

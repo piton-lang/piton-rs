@@ -8,6 +8,7 @@ export anchor Keywords:
         And it’s very simple to do:
 
         ```piton
+        \\\
         anchor MyAnchor as my-anchor:
             description: This is a description of my anchor
 
@@ -15,11 +16,13 @@ export anchor Keywords:
             description:
                 + {super.description}
                 My additional description
+        \\\
         ```
 
         That is exactly equivalent to using extends:
 
         ```piton
+        \\\
         anchor MyAnchor:
             description: This is a description of my anchor
 
@@ -27,6 +30,7 @@ export anchor Keywords:
             description:
                 + {super.description}
                 My additional description
+        \\\
         ```
 
         By its nature, a user-defined keyword does not allow for multiple
@@ -34,6 +38,7 @@ export anchor Keywords:
         same effect.
 
         ```piton
+        \\\
         anchor MyAnchor as my-anchor:
             description: This is a description of my anchor
 
@@ -44,11 +49,13 @@ export anchor Keywords:
             description:
                 + {super.description}
                 My additional description
+        \\\
         ```
 
         This would be equivalent to:
 
         ```piton
+        \\\
         anchor MyAnchor as my-anchor:
             description: This is a description of my anchor
 
@@ -59,6 +66,7 @@ export anchor Keywords:
             description:
                 + {super.description}
                 My additional description
+        \\\
         ```
 
         Note that the user-defined keyword will be the first anchor in the

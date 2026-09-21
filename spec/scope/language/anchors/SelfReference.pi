@@ -5,6 +5,7 @@ export anchor SelfReference:
         the following example:
 
         ```piton
+        \\\
         anchor Base:
             name: Base Anchor
             baseDescription: This is ${self.name}
@@ -12,16 +13,19 @@ export anchor SelfReference:
         anchor Child extends Base:
             name: Child Anchor
             childDescription: This is ${self.name}
+        \\\
         ```
 
         As JSON this would compile to:
 
         ```json
+        \\\
         {
           "name": "Child Anchor",
           "baseDescription": "This is Child Anchor",
           "childDescription": "This is Child Anchor"
         }
+        \\\
         ```
 
         This is reasonable and expected behaviour, but I’ve often found when
@@ -31,6 +35,7 @@ export anchor SelfReference:
         imagine we change self to this:
 
         ```piton
+        \\\
         anchor Base:
             name: Base Anchor
             baseDescription: This is ${this.name}
@@ -38,22 +43,26 @@ export anchor SelfReference:
         anchor Child extends Base:
             name: Child Anchor
             childDescription: This is ${self.name}
+        \\\
         ```
 
         While the rest of the example remains the same. The JSON output will
         now be:
 
         ```json
+        \\\
         {
           "name": "Child Anchor",
           "baseDescription": "This is Base Anchor",
           "childDescription": "This is Child Anchor"
         }
+        \\\
         ```
 
         And just for absolute clarity, let’s take this example one step further:
 
         ```piton
+        \\\
         anchor Base:
             name: Base Anchor
             baseDescription: This is ${this.name}
@@ -65,16 +74,19 @@ export anchor SelfReference:
 
         anchor FinalChild extends MidChild:
             name: FinalChild Anchor
+        \\\
         ```
 
         Will output
 
         ```json
+        \\\
         {
           "name": "FinalChild Anchor",
           "baseDescription": "Override on baseDescription MidChild Anchor",
           "childDescription": "This is FinalChild Anchor"
         }
+        \\\
         ```
 
         As you can see, this gets pinned to wherever it’s used, while self

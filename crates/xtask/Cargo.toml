@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+# Deliberately dependency-free: `cargo xtask` should be usable without waiting
+# for a dependency tree to build first.
+[dependencies]

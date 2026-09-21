@@ -4,6 +4,7 @@ export anchor Inference:
         hold any type. The type is inferred from the value.
 
         ```markdown
+        \\\
         | Expression            | Inferred As                                                                        |
         | --------------------- | ---------------------------------------------------------------------------------- |
         | `true`                | `boolean`                                                                          |
@@ -16,4 +17,5 @@ export anchor Inference:
         | `\// Just Text`       | `string`                                                                           |
         | `"// Also Just Text"` | `string`                                                                           |
         | `${}`                 | `string`                                                                           |
+        \\\
         ```

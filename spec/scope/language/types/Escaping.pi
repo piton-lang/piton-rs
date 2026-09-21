@@ -8,3 +8,6 @@ export anchor Escaping:
 
         \\\\ \\\ \\ \ {1 + 2 + 3} \ \\ \\\ \\\\ would become
         \\\ \\ \ {1 + 2 + 3} \ \\ \\\.
+
+    multiLine:
+        Multi-line escape blocks are valid.

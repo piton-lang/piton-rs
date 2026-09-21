@@ -24,6 +24,10 @@ pub enum SyntaxKind {
     FENCE_MARK,
     /// Verbatim content inside a fenced block.
     FENCE_TEXT,
+    /// A backslash run that delimits a multi-line escape block.
+    ESCAPE_MARK,
+    /// Literal content inside a multi-line escape block.
+    ESCAPE_TEXT,
     PATH,
 
     COLON,
@@ -92,6 +96,7 @@ pub enum SyntaxKind {
     MERGE_ITEM,
     PROSE_LINE,
     FENCE,
+    ESCAPE_BLOCK,
     TYPE_CONSTRAINT,
     VALUE,
     INLINE_LIST,

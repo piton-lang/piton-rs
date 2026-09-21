@@ -3,7 +3,9 @@ export anchor TypeConstraints:
         You can add type constraints to variables using ::
 
         ```piton
+        \\\
         myVariable:: number: 42
+        \\\
         ```
 
         Note that the whitespace after both :: and : is
@@ -24,14 +26,18 @@ export anchor TypeConstraints:
         However, if you flip it around:
 
         ```piton
+        \\\
         myVariable:: string:: number: 42
+        \\\
         ```
 
         myVariable will be a string since 42 can also be a string and string is
         evaluated first and wins. One final example:
 
         ```piton
+        \\\
         myVariable:: boolean:: number:: string: "false"
+        \\\
         ```
 
         Since "false" is explicitly quoted, it fails the boolean constraint, and

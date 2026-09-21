@@ -7,6 +7,7 @@ export type Lists:
         Lists can be defined two ways, Markdown/YAML-style or inline.
 
         ```piton
+        \\\
         markdownStyle:
             - One
             - List
@@ -15,22 +16,27 @@ export type Lists:
             - Line
 
         inlineStyle: [This, is, a, list, of, strings]
+        \\\
         ```
 
     nestedLists:
         It’s possible to do nested lists:
 
         ```piton
+        \\\
         nestedMarkdownList:
             - Level 1
                 - Level 2
                     - Level 3
+        \\\
         ```
 
         Which is equivalent to:
 
         ```piton
+        \\\
         inlineMultiList: [Level 1, [Level 2, [Level 3]]]
+        \\\
         ```
 
     access:

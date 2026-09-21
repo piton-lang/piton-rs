@@ -48,11 +48,28 @@ pub fn count(source: &str) -> Counts {
     let mut counts = Counts::default();
     let mut in_fence = false;
     let mut fence_ticks = 0usize;
+    let mut escape_run: Option<usize> = None;
 
     for line in source.lines() {
         counts.total += 1;
         let trimmed = line.trim();
         let ticks = trimmed.chars().take_while(|c| *c == '`').count();
+        let backslashes = (!trimmed.is_empty() && trimmed.chars().all(|c| c == '\\'))
+            .then(|| trimmed.chars().count());
+
+        // A multi-line escape block is content, whatever it contains.
+        if let Some(run) = escape_run {
+            counts.code += 1;
+            if backslashes == Some(run) {
+                escape_run = None;
+            }
+            continue;
+        }
+        if let Some(run) = backslashes {
+            escape_run = Some(run);
+            counts.code += 1;
+            continue;
+        }
 
         if in_fence {
             counts.code += 1;

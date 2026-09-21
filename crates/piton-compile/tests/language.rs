@@ -884,3 +884,88 @@ fn a_reference_renders_as_a_link_and_a_value_renders_inline() {
     assert!(rendered.contains("## Inline\n\n### V\n\n1"), "{rendered}");
     assert!(rendered.contains(markdown::LINK_FOOTER), "{rendered}");
 }
+
+#[test]
+fn a_paragraph_that_is_a_quoted_string_loses_its_quotes() {
+    // Quotes are syntax when they wrap a whole paragraph, and punctuation when
+    // they sit inside a sentence.
+    let source = r#"export anchor A:
+    text:
+        In one place we say "The Save Button is Blue" and elsewhere we say
+        "The Save Button is Red".
+
+        Example
+
+        "The Save Button is Blue"
+
+        may produce a claim.
+"#;
+    assert_eq!(
+        text_of(&property(source, "A", "text")),
+        "In one place we say \"The Save Button is Blue\" and elsewhere we say \"The Save Button is Red\".\nExample\nThe Save Button is Blue\nmay produce a claim."
+    );
+}
+
+#[test]
+fn a_quoted_value_never_coerces_even_when_it_looks_like_another_type() {
+    let source = r#"export anchor A:
+    looksBoolean:: boolean:: string: "false"
+    looksNumeric:: number:: string: "42"
+    plainBoolean:: boolean:: string: false
+"#;
+    assert_eq!(text_of(&property(source, "A", "looksBoolean")), "false");
+    assert_eq!(text_of(&property(source, "A", "looksNumeric")), "42");
+    assert_eq!(property(source, "A", "plainBoolean"), Value::Bool(false));
+}
+
+#[test]
+fn an_unconstrained_quoted_value_stays_a_string() {
+    let source = "export anchor A:\n    n: \"42\"\n    b: \"true\"\n";
+    assert_eq!(text_of(&property(source, "A", "n")), "42");
+    assert_eq!(text_of(&property(source, "A", "b")), "true");
+}
+
+#[test]
+fn a_multi_line_escape_block_is_literal() {
+    // Everything the compiler would otherwise read -- a property, a comment, an
+    // interpolation -- survives exactly as written.
+    let source = "export anchor A:\n    body:\n        \\\\\\\n        key: not a property\n        // not a comment\n        {1 + 2}\n        \\\\\\\n";
+    assert_eq!(
+        text_of(&property(source, "A", "body")),
+        "key: not a property\n// not a comment\n{1 + 2}"
+    );
+}
+
+#[test]
+fn an_escape_block_joins_the_prose_around_it() {
+    let source = "export anchor A:\n    body:\n        Before.\n\n        \\\\\\\n        literal: text\n        \\\\\\\n\n        After.\n";
+    assert_eq!(
+        text_of(&property(source, "A", "body")),
+        "Before.\nliteral: text\nAfter."
+    );
+}
+
+#[test]
+fn an_escape_block_inside_a_fence_leaves_only_the_fence() {
+    let source = "export anchor A:\n    body:\n        ```piton\n        \\\\\\\n        anchor B:\n            v: ${super.x}\n        \\\\\\\n        ```\n";
+    assert_eq!(
+        text_of(&property(source, "A", "body")),
+        "```piton\nanchor B:\n    v: ${super.x}\n```",
+        "the delimiters are consumed and nothing inside is evaluated"
+    );
+}
+
+#[test]
+fn an_escape_block_suppresses_interpolation_without_a_fence() {
+    let sandbox = Sandbox::new("escape-no-interp");
+    sandbox.file(
+        "main.pi",
+        "export anchor A:\n    body:\n        \\\\\\\n        ${NotDefined}\n        \\\\\\\n",
+    );
+    let compilation = sandbox.compile("main.pi");
+    assert!(
+        !compilation.diagnostics.iter().any(|d| d.is_error()),
+        "a literal block resolves no symbols: {:#?}",
+        compilation.diagnostics.as_slice()
+    );
+}

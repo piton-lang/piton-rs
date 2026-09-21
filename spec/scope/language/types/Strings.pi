@@ -10,9 +10,11 @@ export type Strings:
         assigned to, or indented on the next line:
 
         ```piton
+        \\\
         sameLine: Hello, World!
         nextLine:
             Hello, World!
+        \\\
         ```
 
         The leading whitespace on a string block is discarded, as that’s part of
@@ -24,11 +26,13 @@ export type Strings:
         include a blank line.
 
         ```
+        \\\
         myString:
             This broken string is not considered
             a line break.
 
             While this *is* on a new line because there was a blank line above.
+        \\\
         ```
 
         When compiled, we’ll get two lines:
@@ -44,6 +48,9 @@ export type Strings:
             ```
             TODO: Write stuff about this
             ```
+
+            Code blocks are not escaped.  So often, you'll want to but an escape
+            block inside the codeBlock.
 
     supportedOperators:
         - {ConcatenationOperator}

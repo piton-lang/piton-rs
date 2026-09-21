@@ -2,8 +2,10 @@ use .
 
 export cli-command Compile:
     commandName: compile
+
     positionalArguments:
         path: file or glob
+
     namedArguments:
         adapter: Valid options are [ json, yaml, markdown ]
         write: null
@@ -13,8 +15,8 @@ export cli-command Compile:
 
         Pointing at a single file, compile will output the compiled result to
         stdout.  Glob-based paths won't work unless we also use
-        @{self.namedArguments.write}
+        ${self.namedArguments.write}
 
-        If @{self.namedArguments.write} is set, the compiled result will be
+        If ${self.namedArguments.write} is set, the compiled result will be
         written to a file with the appropriate extension for the selected
-        @{self.namedArguments.adapter} that lives next to the input file.
+        ${self.namedArguments.adapter} that lives next to the input file.

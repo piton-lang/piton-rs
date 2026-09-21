@@ -1,0 +1,5 @@
+[alias]
+# Repository automation lives in `crates/xtask`, so it can be written in Rust
+# and run anywhere cargo runs, rather than in a shell script that only works on
+# some machines.
+xtask = "run --quiet --package xtask --"

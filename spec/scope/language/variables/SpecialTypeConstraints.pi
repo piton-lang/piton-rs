@@ -15,6 +15,7 @@ export anchor SpecialTypeConstraints:
         dictionary, and anchor.
 
         ```piton
+        \\\
         a:: complex: [1, 2, 3]
         b:: complex:
             a:: number: 1
@@ -29,4 +30,5 @@ export anchor SpecialTypeConstraints:
             - NestedObject:
                 a:: number: 1
                 b:: number: 2
+        \\\
         ```

@@ -33,14 +33,23 @@ impl Module {
 
     /// The directory imports inside this module resolve relative to.
     pub fn directory(&self) -> PathBuf {
+        // A package root stands in for that package's index file, so a relative
+        // import written in it resolves from inside the package rather than
+        // from beside it.
+        let name = self.path.to_string_lossy();
+        if prelude::PACKAGE_ROOTS.iter().any(|root| *root == name) {
+            return self.path.clone();
+        }
         self.path
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."))
     }
 
+    /// True when the module comes from a bundled package rather than the
+    /// project's own sources.
     pub fn is_package(&self) -> bool {
-        self.path.to_string_lossy().starts_with('@')
+        prelude::is_package_path(&self.path.to_string_lossy())
     }
 }
 
@@ -170,6 +179,23 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
     };
     let base = normalize(&base);
 
+    // A relative import written inside a bundled package resolves against that
+    // package's virtual filesystem, never against the disk.
+    let key = base.to_string_lossy().replace('\\', "/");
+    if prelude::is_package_path(&key) {
+        if prelude::is_package(&key) {
+            return Ok(PathBuf::from(key));
+        }
+        let index = format!("{key}/index");
+        if prelude::is_package(&index) {
+            return Ok(PathBuf::from(index));
+        }
+        return Err(ResolveError::NotFound {
+            written: text.to_string(),
+            tried: vec![PathBuf::from(key), PathBuf::from(index)],
+        });
+    }
+
     // `./Foo` may mean `./Foo.pi` or `./Foo/index.pi`; `.` and `./dir` mean the
     // directory's index.
     let with_extension = if base.extension().is_some_and(|e| e == "pi") {
@@ -215,9 +241,10 @@ impl ResolveError {
     pub fn help(&self) -> Option<String> {
         match self {
             ResolveError::UnknownPackage(_) => Some(format!(
-                "bundled packages are `{}` and `{}`",
-                prelude::CONFIG_PACKAGE,
-                prelude::BELAY_PACKAGE
+                "bundled packages are {}",
+                prelude::PACKAGE_ROOTS
+                    .map(|name| format!("`{name}`"))
+                    .join(" and ")
             )),
             ResolveError::NotFound { .. } => Some(
                 "a directory resolves to its `index.pi`; check the path is relative to this file"

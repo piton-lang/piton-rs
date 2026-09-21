@@ -17,4 +17,9 @@ Any operator not explicitly listed as supported will throw a compiler error.  Be
 
 There is exactly one user-defined type, and it’s called an anchor. This is something that can be shaped by other types via properties and promotes inheritance. However, it’s a larger and more advanced topic than belongs in this introductory part of the guide, so instead we’ve devoted an entire section to it later on.
 
+## Valid Keys
+
+Anything that can support [TypeCoercion](../variables/TypeCoercion.md) to a string is a valid key, so long as it doesn't contain spaces.
+So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and `null` are all valid keys and will be treated as strings, while `This is a key` and `1 2 3` are not.
+
 Links in this document point at reference files. Read one when the work touches what it describes.

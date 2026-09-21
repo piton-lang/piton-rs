@@ -725,23 +725,14 @@ fn build_slots_for(
     // Report anything in an anchor body that is not a property: it is parsed
     // but never emitted, and silently dropping it hides real mistakes.
     for item in &decl.body.items {
-        if !matches!(
-            item,
-            ast::BlockItem::Property(_) | ast::BlockItem::Pass(_)
-        ) {
-            diagnostics.push(
-                Diagnostic::warning(
-                    "non-property-in-anchor",
-                    format!("`{}` contains content that is not a property and will not be emitted", def.name),
-                    &module_path,
-                    item.span(),
-                )
-                .with_help(
-                    "an anchor body is a set of properties; reserved words such as `null` and `anchor` cannot be property names"
-                        .to_string(),
-                ),
-            );
+        if matches!(item, ast::BlockItem::Property(_) | ast::BlockItem::Pass(_)) {
+            continue;
         }
+        let (message, help) = describe_non_property(item, &def.name);
+        diagnostics.push(
+            Diagnostic::warning("non-property-in-anchor", message, &module_path, item.span())
+                .with_help(help),
+        );
     }
 
     // A concrete anchor must supply a value for every abstract slot it inherits.
@@ -773,6 +764,29 @@ fn build_slots_for(
 
     resolution.store.anchor_mut(anchor).slots = slots;
     done.insert(anchor);
+}
+
+/// Explains why one line of an anchor body is not a property.
+///
+/// The causes are different enough that one shared message helps nobody: a
+/// reserved word needs renaming, while a stray code fence needs indenting under
+/// a property.
+fn describe_non_property(item: &ast::BlockItem, anchor: &str) -> (String, String) {
+    match item {
+        ast::BlockItem::Fence(_) => (
+            format!("a code fence in the body of `{anchor}` has no property to attach to, so it will not be emitted"),
+            "indent it under a property, so it becomes that property's value".to_string(),
+        ),
+        ast::BlockItem::ListItem(_) | ast::BlockItem::Merge(_) => (
+            format!("a list item in the body of `{anchor}` has no property to attach to, so it will not be emitted"),
+            "an anchor body holds `key: value` properties; put the list under one".to_string(),
+        ),
+        _ => (
+            format!("a line in the body of `{anchor}` is not a property and will not be emitted"),
+            "an anchor body holds `key: value` properties; a key is any text without spaces, followed by a colon and a space"
+                .to_string(),
+        ),
+    }
 }
 
 /// Finds the closest candidate by edit distance, for "did you mean" help.

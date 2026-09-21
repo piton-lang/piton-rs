@@ -9,7 +9,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 - description: The merge operator (`+`) combines two values into a single value, preserving their distinct elements and removing duplicates.
   symbol: +
-- description: null
+- description: The merge operator combines two values into a single value, preserving all elements, not removing duplicates.
   symbol: ++
 
 ## Unsupported Operators

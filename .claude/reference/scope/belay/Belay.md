@@ -187,7 +187,7 @@ The September 11 text describes string interpolation of a complex anchor as its 
     - Resolve it during compilation rather than at agent runtime.
     - Resolve its path relative to the generated file containing its use.
     - Resolve it separately for each adapter and output location.
-  documentedClaudeLocation: ../../shape
+  documentedClaudeLocation: .claude/reference/shape
 - description: A reference connects generated guidance to another anchor's compiled representation without embedding all of its content at the use site.
   requirements:
     - Serialize reached, referenced anchors into the target's reference directory.
@@ -247,7 +247,7 @@ The September 11 text describes string interpolation of a complex anchor as its 
     format: Markdown
     rules:
       - Combine guidance for the same scope in one file.
-      - Preserve a separate compiled shape reference beneath ../../shape.
+      - Preserve a separate compiled shape reference beneath .claude/reference/shape.
     loading: Ancestor guidance loads at startup; nested guidance loads when Claude reads within that subtree. Placement does not make every nested instruction part of the initial context.
   skill:
     output: .claude/skills/<name>/SKILL.md

@@ -20,7 +20,9 @@ ${}
 - Convert numbers to their textual representation.
 - Convert booleans to lowercase true or false.
 - Convert null to the string null.
-- Convert anchors and collections only according to explicitly defined stringification rules.
+- Convert lists a string representation.
+- Convert dictionaries to the name of the variable/property.
+- Convert anchors to their name.
 - Do not reinterpret the resulting string as source syntax or another expression.
 
 ## Composition

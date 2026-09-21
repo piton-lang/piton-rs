@@ -3,6 +3,7 @@ export anchor SuperOnLists:
         super on lists gets some extra attention that’s worth noting.
 
         ```piton
+        \\\
         anchor BaseAnchor:
             items:
                 - A
@@ -15,6 +16,7 @@ export anchor SuperOnLists:
                 - D
                 - E
                 - F
+        \\\
         ```
 
         This example will yield a final items of ["A", "B", "C", "D", "E", "F"].
@@ -26,6 +28,7 @@ export anchor SuperOnLists:
         the + concatenation operator.
 
         ```piton
+        \\\
         anchor BaseAnchor:
             items:
                 - A
@@ -39,6 +42,7 @@ export anchor SuperOnLists:
                 - C
                 - D
                 + {super.items}
+        \\\
         ```
 
         The change is that ChildAnchor now also contains A, B, C, and D, and
@@ -50,6 +54,7 @@ export anchor SuperOnLists:
         One last example uses the ++ operator.
 
         ```piton
+        \\\
         anchor BaseAnchor:
             items:
                 - A
@@ -63,4 +68,5 @@ export anchor SuperOnLists:
                 - C
                 - D
                 ++ {super.items}
+        \\\
         ```

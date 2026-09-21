@@ -1,4 +1,4 @@
-export NestedTypeConstraints:
+export anchor NestedTypeConstraints:
     nestedTypeConstraints:
         It is possible to constrain nested keys inside a dictionary.
 

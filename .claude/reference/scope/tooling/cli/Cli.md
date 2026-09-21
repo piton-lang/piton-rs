@@ -6,22 +6,22 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 
 ## Commands
 
-- commandName: agent
-  description: Launches the specified agent with Piton fluency.
+- description: Launches the specified agent with Piton fluency.
+  commandName: agent
   positionalArguments:
     agent: Which agent to run [ claude ]
   namedArguments: null
-- commandName: analyze
-  description: Runs [Analysis](../../analysis/Analysis.md) on the project
+- description: Runs [Analysis](../../analysis/Analysis.md) on the project
+  commandName: analyze
   positionalArguments: null
   namedArguments: null
-- commandName: build
-  description: Builds the project as configured by piton.config.pi
+- description: Builds the project as configured by piton.config.pi
+  commandName: build
   positionalArguments:
     config: optional path to piton.config.pi file
   namedArguments: null
-- commandName: check
-  description: Checks specific files or the project and reports errors
+- description: Checks specific files or the project and reports errors
+  commandName: check
   positionalArguments: null
   namedArguments: null
   emit: false
@@ -32,23 +32,23 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   exitCode:
     success: 0
     errors: 1
-- commandName: compile
-  description: Compiles Piton
-Pointing at a single file, compile will output the compiled result to stdout.  Glob-based paths won't work unless we also use null
-If null is set, the compiled result will be written to a file with the appropriate extension for the selected Valid options are [ json, yaml, markdown ] that lives next to the input file.
+- description: Compiles Piton
+    Pointing at a single file, compile will output the compiled result to stdout.  Glob-based paths won't work unless we also use null
+    If null is set, the compiled result will be written to a file with the appropriate extension for the selected Valid options are [ json, yaml, markdown ] that lives next to the input file.
+  commandName: compile
   positionalArguments:
     path: file or glob
   namedArguments:
     adapter: Valid options are [ json, yaml, markdown ]
     write: null
-- commandName: format
-  description: Applies canonical formatting.
+- description: Applies canonical formatting.
+  commandName: format
   positionalArguments:
     path: file or glob
   namedArguments:
     check: Only check the files, and report problems.  Don't write.
-- commandName: loc
-  description: Counts lines of Piton source for specific files or the project
+- description: Counts lines of Piton source for specific files or the project
+  commandName: loc
   positionalArguments: null
   namedArguments: null
   emit: false
@@ -60,8 +60,8 @@ If null is set, the compiled result will be written to a file with the appropria
     warnings: false
   exitCode:
     success: 0
-- commandName: lsp
-  description: Runs the Piton language server
+- description: Runs the Piton language server
+  commandName: lsp
   positionalArguments: null
   namedArguments: null
   Diagnostics:
@@ -103,8 +103,8 @@ If null is set, the compiled result will be written to a file with the appropria
       WorkspaceIndexing: Maintain an index of symbols, relationships, references, exports, inheritance, and composition across the project so navigation and completion remain fast.
       EditorSelectionRanges: Understand Piton's semantic structure so expanding selection moves naturally from a value to a property, declaration, anchor, and enclosing spec.
       Folding: Provide folding ranges for anchors, specs, skills, agents, multiline values, documentation blocks, and other structural Piton constructs.
-- commandName: reach
-  description: Analyzes which parts of the specbase are reachable from specific files, anchors, or the project
+- description: Analyzes which parts of the specbase are reachable from specific files, anchors, or the project
+  commandName: reach
   positionalArguments: null
   namedArguments: null
   emit: false

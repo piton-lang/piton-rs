@@ -3,7 +3,7 @@
 ## Description
 
 Linebreaks are allowed on imports/exports:
-```piton fragment
+```piton
 from ./file import
     FirstThing,
     SecondThing,

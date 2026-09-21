@@ -25,7 +25,9 @@ export anchor Expressions:
         Easy expression using literals:
 
         ```piton
+        \\\
         myVariable: {1 + 2}
+        \\\
         ```
 
         `myVariable` will be evaluated to 3. Evaluation will of course follow
@@ -38,19 +40,23 @@ export anchor Expressions:
         Let’s look at this example:
 
         ```piton
+        \\\
         a: 1
         b: 2
         result: a + b
+        \\\
         ```
 
         `result` will be evaluated to the string "a + b". In order for this to
         evaluate to 3 you’ll need to use the {} expression syntax:
 
         ```piton
+        \\\
         a: 1
         b: 2
 
         result: {a + b}
+        \\\
         ```
 
         This makes the job of the compiler much easier, and lets us avoid the
@@ -64,12 +70,14 @@ export anchor Expressions:
         we use @{ComplexTypes} like @{Lists}, @{Dictionaries}, and @{Anchors}.
 
         ```piton
+        \\\
         myList: [1, 2, 3]
 
         myDictionary:
             list: {myList}
 
         newList: {myDictionary.list + [4, 5, 6]}
+        \\\
         ```
 
         newList will evaluate to [1, 2, 3, 4, 5, 6].

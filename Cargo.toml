@@ -2,12 +2,14 @@
 resolver = "2"
 members = [
     "crates/piton-core",
+    "crates/piton-analyze",
     "crates/piton-syntax",
     "crates/piton-compile",
     "crates/piton-emit",
     "crates/piton-belay",
     "crates/piton-lsp",
     "crates/piton-cli",
+    "crates/xtask",
 ]
 
 [workspace.package]
@@ -19,6 +21,7 @@ repository = "https://github.com/mctavishdynamics/piton"
 
 [workspace.dependencies]
 piton-core = { path = "crates/piton-core" }
+piton-analyze = { path = "crates/piton-analyze" }
 piton-syntax = { path = "crates/piton-syntax" }
 piton-compile = { path = "crates/piton-compile" }
 piton-emit = { path = "crates/piton-emit" }

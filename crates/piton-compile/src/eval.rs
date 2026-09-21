@@ -118,10 +118,17 @@ impl<'a> Evaluator<'a> {
             .push(Diagnostic::error(code, message, path, span));
     }
 
-    fn warn(&mut self, code: &str, message: impl Into<String>, module: ModuleId, span: Span) {
+    fn warn_with_help(
+        &mut self,
+        code: &str,
+        message: impl Into<String>,
+        help: impl Into<String>,
+        module: ModuleId,
+        span: Span,
+    ) {
         let path = self.path(module);
         self.diagnostics
-            .push(Diagnostic::warning(code, message, path, span));
+            .push(Diagnostic::warning(code, message, path, span).with_help(help));
     }
 
     // -- anchors --------------------------------------------------------
@@ -316,7 +323,7 @@ impl<'a> Evaluator<'a> {
     ) -> Evaluated {
         let has_prose = pieces
             .iter()
-            .any(|p| matches!(p, Piece::Prose(_) | Piece::Fence(_)));
+            .any(|p| matches!(p, Piece::Prose(_) | Piece::Fence(_) | Piece::Escape(_)));
         let has_list = pieces
             .iter()
             .any(|p| matches!(p, Piece::ListItem(_) | Piece::Merge(..)));
@@ -369,7 +376,7 @@ impl<'a> Evaluator<'a> {
 
                 for piece in pieces {
                     match piece {
-                        Piece::Prose(_) | Piece::Fence(_) => {
+                        Piece::Prose(_) | Piece::Fence(_) | Piece::Escape(_) => {
                             flush_list!();
                             run.push(piece.clone());
                         }
@@ -455,7 +462,11 @@ impl<'a> Evaluator<'a> {
             }
         }
 
+        // Each paragraph is considered on its own, because a paragraph that
+        // *is* a quoted string is a quoted literal whose quotes are syntax,
+        // while quotes inside a sentence are ordinary punctuation.
         let mut paragraphs: Vec<Text> = Vec::new();
+        let mut quoted_paragraphs: Vec<bool> = Vec::new();
         for piece in pieces {
             match piece {
                 Piece::Prose(lines) => {
@@ -466,7 +477,17 @@ impl<'a> Evaluator<'a> {
                         }
                         text.push_text(&self.prose_line_text(line, context));
                     }
-                    paragraphs.push(text.trim());
+                    let trimmed = text.trim();
+                    match unquote_literal(&trimmed) {
+                        Some(inner) => {
+                            paragraphs.push(inner);
+                            quoted_paragraphs.push(true);
+                        }
+                        None => {
+                            paragraphs.push(trimmed);
+                            quoted_paragraphs.push(false);
+                        }
+                    }
                 }
                 Piece::Fence(fence) => {
                     let mut text = Text::empty();
@@ -478,6 +499,21 @@ impl<'a> Evaluator<'a> {
                     }
                     text.push_literal(ticks);
                     paragraphs.push(text);
+                    quoted_paragraphs.push(false);
+                }
+                Piece::Escape(block) => {
+                    // The delimiters were consumed by the parser; what is left
+                    // is taken exactly as written, with no interpolation and no
+                    // literal inference.
+                    let mut text = Text::empty();
+                    for (index, line) in block.lines.iter().enumerate() {
+                        if index > 0 {
+                            text.push_literal("\n");
+                        }
+                        text.push_literal(line);
+                    }
+                    paragraphs.push(text);
+                    quoted_paragraphs.push(false);
                 }
                 _ => {}
             }
@@ -492,6 +528,15 @@ impl<'a> Evaluator<'a> {
                 combined.push_literal("\n");
             }
             combined.push_text(paragraph);
+        }
+
+        // A value that is nothing but a quoted literal is explicitly a string
+        // and never coerces, so it skips literal inference entirely.
+        if paragraphs.len() == 1 && quoted_paragraphs[0] {
+            return Evaluated {
+                value: Value::Str(combined),
+                quoted: true,
+            };
         }
 
         let single_line = paragraphs.len() <= 1
@@ -916,12 +961,16 @@ impl<'a> Evaluator<'a> {
                 // Reference identity for non-anchor values is listed as an open
                 // question in the specification. Rather than fail a build over
                 // an unfinished rule, fall back to the value itself and say so.
-                self.warn(
+                //
+                // The help matters more than the warning here: `@{...}` asks for
+                // a link to a compiled document, and only an anchor has one.
+                self.warn_with_help(
                     "reference-not-an-anchor",
                     format!(
-                        "`@{{...}}` resolved to {} rather than an anchor; using its value instead",
+                        "`@{{...}}` resolved to {} rather than an anchor, so there is no document to link to; its value is used instead",
                         other.kind()
                     ),
+                    reference_help(other),
                     context.module,
                     span,
                 );
@@ -1069,6 +1118,7 @@ impl<'a> Evaluator<'a> {
 enum Piece {
     Prose(Vec<ProseLine>),
     Fence(ast::Fence),
+    Escape(ast::EscapeBlock),
     ListItem(ast::ListItem),
     Merge(MergeOp, ast::MergeItem),
     Property(Property),
@@ -1079,6 +1129,7 @@ fn collect_pieces(block: &Block, out: &mut Vec<Piece>) {
         match item {
             BlockItem::Prose(Paragraph { lines, .. }) => out.push(Piece::Prose(lines.clone())),
             BlockItem::Fence(fence) => out.push(Piece::Fence(fence.clone())),
+            BlockItem::Escape(block) => out.push(Piece::Escape(block.clone())),
             BlockItem::ListItem(item) => out.push(Piece::ListItem(item.clone())),
             BlockItem::Merge(merge) => out.push(Piece::Merge(merge.op, merge.clone())),
             BlockItem::Property(property) => out.push(Piece::Property(property.clone())),
@@ -1108,6 +1159,32 @@ fn split_nested_list(mixed: Mixed) -> Vec<Value> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// What to do about an `@{...}` that did not resolve to an anchor.
+fn reference_help(value: &Value) -> String {
+    match value {
+        // A dictionary usually means the declaration is missing its `anchor`
+        // keyword, so it became an exported variable instead.
+        Value::Dict(_) | Value::Mixed(_) => {
+            "if the target is meant to be an anchor, declare it with `anchor`; only anchors compile to a document that can be linked"
+                .to_string()
+        }
+        // Reading a property gives a value, not the anchor that holds it.
+        _ => "`@{...}` links to an anchor's compiled document; to insert this value as text, use `${...}`"
+            .to_string(),
+    }
+}
+
+/// Returns the contents of a text that is entirely one double-quoted literal.
+///
+/// Text carrying a reference is never a plain literal, so it is left alone.
+fn unquote_literal(text: &Text) -> Option<Text> {
+    let plain = text.as_plain()?;
+    if plain.len() >= 2 && plain.starts_with('"') && plain.ends_with('"') {
+        return Some(Text::plain(plain[1..plain.len() - 1].to_string()));
+    }
+    None
+}
 
 /// Applies literal inference to text that was not constrained to a type.
 fn infer(text: Text, single_line: bool) -> Evaluated {

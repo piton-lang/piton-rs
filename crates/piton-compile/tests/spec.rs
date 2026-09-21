@@ -20,33 +20,17 @@ fn compile_spec() -> Compilation {
     Compilation::build(project)
 }
 
-/// The one error the specification currently contains.
-///
-/// `DupMergeOperator` writes `description:` with nothing after it, which is a
-/// null, while the `operator` keyword constrains `description` to a string. The
-/// compiler is right to reject it; this test pins the finding so a regression
-/// would show up as a *different* error rather than as silence.
-const KNOWN_SPEC_ERRORS: &[&str] = &["`DupMergeOperator.description` is null but is constrained to string"];
-
 #[test]
-fn the_specification_compiles_apart_from_known_issues() {
+fn the_specification_compiles() {
     let compilation = compile_spec();
     let root = repo_root();
     let errors: Vec<String> = compilation
         .diagnostics
         .iter()
         .filter(|d| d.is_error())
-        .filter(|d| !KNOWN_SPEC_ERRORS.iter().any(|known| d.message.contains(known)))
         .map(|d| diagnostics::render(d, compilation.source_of(&d.file), Some(&root)))
         .collect();
-    assert!(errors.is_empty(), "{} unexpected errors:\n{}", errors.len(), errors.join("\n"));
-
-    for known in KNOWN_SPEC_ERRORS {
-        assert!(
-            compilation.diagnostics.iter().any(|d| d.message.contains(known)),
-            "expected the compiler to still report: {known}"
-        );
-    }
+    assert!(errors.is_empty(), "{} errors:\n{}", errors.len(), errors.join("\n"));
 }
 
 #[test]

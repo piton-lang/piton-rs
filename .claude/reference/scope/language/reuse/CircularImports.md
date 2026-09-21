@@ -13,7 +13,7 @@ anchor B:
 ```
 Is perfectly fine because ${A} and ${B} both settle to a string.
 However
-```piton fragment
+```piton
 A: {B}
 B: {A}
 ```

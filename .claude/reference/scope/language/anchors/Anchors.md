@@ -1,5 +1,9 @@
 # Anchors
 
+## Type Reference
+
+[Anchors](../types/Anchors.md)
+
 ## Description
 
 An object is a value. An anchor is a named structural declaration that can participate in inheritance, typing, exports, and language-level composition.

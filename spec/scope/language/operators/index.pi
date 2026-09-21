@@ -1,10 +1,10 @@
 from ./ControlFlow import ControlFlow
 from ./arithmetic import ARITHMETIC_OPERATORS, ArithmeticOperators
-from ./comparison import COMPARISON_OPERATORS
-from ./logical import LOGICAL_OPERATORS
-from ./access import ACCESS_OPERATORS
-from ./concatenation import CONCATENATION_OPERATORS
-from ./conditional import CONDITIONAL_OPERATORS
+from ./comparison import COMPARISON_OPERATORS, ComparisonOperators
+from ./logical import LOGICAL_OPERATORS, LogicalOperators
+from ./access import ACCESS_OPERATORS, AccessOperators
+from ./concatenation import CONCATENATION_OPERATORS, ConcatenationOperators
+from ./conditional import CONDITIONAL_OPERATORS, ConditionalOperators
 
 export anchor Operators:
     ControlFlow: {ControlFlow}
@@ -13,7 +13,12 @@ export anchor Operators:
         Piton supports a pretty standard if not small set of operators, plus a
         few slightly more unique ones. Let’s start with the standard ones.
 
-        ArithmeticOperators: @{ArithmeticOperators}
+    AccessOperators: @{AccessOperators}
+    ArithmeticOperators: @{ArithmeticOperators}
+    ComparisonOperators: @{ComparisonOperators}
+    ConcatenationOperators: @{ConcatenationOperators}
+    ConditionalOperators: @{ConditionalOperators}
+    LogicalOperators: @{LogicalOperators}
 
     allOperators:
         + {ACCESS_OPERATORS}

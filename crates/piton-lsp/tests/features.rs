@@ -288,12 +288,44 @@ fn formatting_reports_no_change_for_canonical_files() {
 
 #[test]
 fn diagnostics_reach_the_editor() {
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
+    let file = "spec/scope/language/types/Escaping.pi";
+    let path = fixture.root.join(file);
+    let original = std::fs::read_to_string(&path).expect("readable");
+
+    // Introduce a problem in an unsaved buffer rather than relying on the
+    // specification having one: a clean specbase is the goal, not a test
+    // fixture.
+    fixture.world.set_document(
+        path.clone(),
+        format!("{original}\nexport anchor Broken:\n    value: {{NotDefined}}\n"),
+    );
+    fixture.world.recompile(Some(&path));
+
     let grouped = fixture.world.diagnostics_by_file();
-    let total: usize = grouped.values().map(Vec::len).sum();
-    assert!(total > 0, "the specification has known issues to report");
+    let reported = grouped.get(&path).expect("the edited file is reported");
+    assert!(
+        reported.iter().any(|d| d.code == "unresolved-symbol"),
+        "{reported:#?}"
+    );
     assert!(
         grouped.keys().all(|path| !path.to_string_lossy().starts_with('@')),
         "bundled packages should not be reported to the editor"
     );
+}
+
+#[test]
+fn a_clean_specbase_reports_nothing() {
+    let fixture = Fixture::new();
+    let problems: Vec<String> = fixture
+        .world
+        .diagnostics_by_file()
+        .iter()
+        .flat_map(|(path, items)| {
+            items
+                .iter()
+                .map(move |d| format!("{}: {}", path.display(), d.message))
+        })
+        .collect();
+    assert!(problems.is_empty(), "{problems:#?}");
 }

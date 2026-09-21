@@ -18,3 +18,7 @@ export skill BuildTooling:
         - chumsky
         - rowan
         - tower-lsp
+
+    xtask:
+        install:
+            Should build the release and install it locally.

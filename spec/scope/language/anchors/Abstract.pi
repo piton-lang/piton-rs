@@ -6,12 +6,14 @@ export anchor Abstract:
         all undefined abstract properties.
 
         ```piton
+        \\\
         abstract anchor Skill:
           description:: string
 
 
         anchor ConcreteSkill extends Skill:
           description: This must be a string as defined by the abstract
+        \\\
         ```
 
         We’ll introduce a new bit of terminology here in that a concrete anchor
@@ -36,6 +38,7 @@ export anchor Abstract:
             represent inheritance hierarchy. Take the following example.
 
             ```piton
+            \\\
             abstract anchor A:
               description:: string
 
@@ -47,6 +50,7 @@ export anchor Abstract:
                 listOfB:: B[]
 
                 listOfExtendsA:: extends A[]
+            \\\
             ```
 
             Here, we have defined an anchor A with a description and an anchor B

@@ -265,6 +265,12 @@ impl Builder<'_> {
                 BlockItem::Fence(fence) => {
                     self.index.structures.push((fence.span, "fence".to_string()));
                 }
+                BlockItem::Escape(block) => {
+                    // Literal content has no symbols to index, but it folds.
+                    self.index
+                        .structures
+                        .push((block.span, "escape block".to_string()));
+                }
                 BlockItem::Pass(_) => {}
             }
         }

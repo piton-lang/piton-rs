@@ -290,6 +290,9 @@ pub enum BlockItem {
     /// A fenced code block. Its contents are verbatim: no comments, no escapes,
     /// and no expression interpolation.
     Fence(Fence),
+    /// A multi-line escape block. Its contents are literal and its delimiters
+    /// are consumed.
+    Escape(EscapeBlock),
     /// `pass` — an intentionally empty body.
     Pass(Span),
 }
@@ -302,6 +305,7 @@ impl BlockItem {
             BlockItem::Merge(merge) => merge.span,
             BlockItem::Prose(paragraph) => paragraph.span,
             BlockItem::Fence(fence) => fence.span,
+            BlockItem::Escape(block) => block.span,
             BlockItem::Pass(span) => *span,
         }
     }
@@ -413,6 +417,19 @@ pub struct Interpolation {
     pub span: Span,
     pub sigil: Sigil,
     pub expr: Expr,
+}
+
+/// A run of lines delimited by backslash-only lines.
+///
+/// The delimiters are syntax: they are consumed, and what sits between them is
+/// taken exactly as written.
+#[derive(Debug, Clone)]
+pub struct EscapeBlock {
+    pub span: Span,
+    /// Content lines with the block's base indentation removed.
+    pub lines: Vec<String>,
+    /// Length of the backslash run that delimits the block.
+    pub run: usize,
 }
 
 #[derive(Debug, Clone)]

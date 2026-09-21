@@ -4,8 +4,11 @@ from ./SuperOnLists import SuperOnLists
 from ./SelfReference import SelfReference
 from ./Abstract import Abstract
 from ./Keywords import Keywords
+from ../types/Anchors import Anchors AnchorType
 
 export anchor Anchors:
+    typeReference: @{AnchorType}
+
     description:
         An object is a value. An anchor is a named structural declaration that
         can participate in inheritance, typing, exports, and language-level
@@ -17,6 +20,7 @@ export anchor Anchors:
         characteristics as well.
 
         ```piton
+        \\\
         anchor MyFirstAnchor:
           whatIsAnAnchor:
             An anchor is a kind of object or document that is structured via
@@ -49,11 +53,13 @@ export anchor Anchors:
               As you may have noticed, Piton supports the `this` keyword for
               accessing properties on the current anchor. We'll talk about this
               later.
+        \\\
         ```
 
         If we look at how this would compile to JSON, it would look like this:
 
         ```json
+        \\\
         {
           "whatIsAnAnchor": "An anchor is a kind of object or document that is structured via properties and values.",
           "stringValue": "String types are supported.",
@@ -69,6 +75,7 @@ export anchor Anchors:
           "booleanOperatorsOr": true,
           "thisKeyword": "As you may have noticed, Piton supports the `this` keyword for accessing properties on the current anchor. We'll talk about this later."
         }
+        \\\
         ```
 
         StructuralInheritance: @{StructuralInheritance}

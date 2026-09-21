@@ -11,7 +11,7 @@ use piton_core::{Diagnostic, Span};
 use rowan::{GreenNode, GreenNodeBuilder};
 
 use crate::ast::*;
-use crate::kind::{is_reserved, SyntaxKind, SyntaxNode};
+use crate::kind::{SyntaxKind, SyntaxNode};
 use crate::prose;
 
 /// The result of parsing one file.
@@ -69,6 +69,22 @@ enum FenceRole {
     Close,
 }
 
+/// What a line is doing with respect to multi-line escape blocks.
+///
+/// A line whose entire content is a run of backslashes delimits a block whose
+/// contents are literal. The delimiters are syntax and are consumed; a run
+/// embedded in a line of text keeps the inline meaning instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EscapeRole {
+    None,
+    /// The opening line, carrying the length of the backslash run.
+    Open(usize),
+    /// Literal content.
+    Body,
+    /// The closing line.
+    Close,
+}
+
 #[derive(Debug, Clone)]
 struct Line {
     indent: usize,
@@ -84,6 +100,14 @@ struct Line {
     code_span: Span,
     blank: bool,
     fence: FenceRole,
+    escape: EscapeRole,
+}
+
+impl Line {
+    /// True when the line delimits an escape block and produces no content.
+    fn is_escape_delimiter(&self) -> bool {
+        matches!(self.escape, EscapeRole::Open(_) | EscapeRole::Close)
+    }
 }
 
 impl Line {
@@ -112,14 +136,47 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
         raw.push((0, ""));
     }
 
-    // Pass one: find fenced regions so their contents are never treated as
-    // structure. A fence closes on a line whose only content is a backtick run
-    // at least as long as the opener.
+    // Pass one: find the regions whose contents are never treated as structure.
+    //
+    // Two kinds nest here. A code fence closes on a line whose only content is
+    // a backtick run at least as long as the opener. A multi-line escape block
+    // opens and closes on a line whose only content is a backslash run, and its
+    // contents are literal -- so a fence marker inside an escape block does not
+    // close the fence, and the escape delimiters are consumed rather than
+    // emitted.
     let mut fence_roles = vec![FenceRole::None; raw.len()];
+    let mut escape_roles = vec![EscapeRole::None; raw.len()];
     let mut open: Option<(usize, usize, usize)> = None; // (line, ticks, indent)
+    let mut escape: Option<(usize, usize)> = None; // (line, run length)
+
     for (index, (_, text)) in raw.iter().enumerate() {
         let indent = text.len() - text.trim_start().len();
         let trimmed = text.trim();
+        let run = backslash_run(trimmed);
+
+        // An open escape block swallows everything until its matching run, so
+        // it is checked before anything else.
+        if let Some((_, opener_run)) = escape {
+            if run == Some(opener_run) {
+                escape_roles[index] = EscapeRole::Close;
+                escape = None;
+            } else {
+                escape_roles[index] = EscapeRole::Body;
+            }
+            if open.is_some() {
+                fence_roles[index] = FenceRole::Body;
+            }
+            continue;
+        }
+        if let Some(length) = run {
+            escape_roles[index] = EscapeRole::Open(length);
+            escape = Some((index, length));
+            if open.is_some() {
+                fence_roles[index] = FenceRole::Body;
+            }
+            continue;
+        }
+
         let ticks = trimmed.chars().take_while(|c| *c == '`').count();
         match open {
             None => {
@@ -161,6 +218,16 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
             Span::new(raw[start].0, raw[start].0 + raw[start].1.len()),
         ));
     }
+    if let Some((start, length)) = escape {
+        diagnostics.push(Diagnostic::warning(
+            "unterminated-escape-block",
+            format!(
+                "multi-line escape block is never closed; it needs a line of {length} backslashes"
+            ),
+            path,
+            Span::new(raw[start].0, raw[start].0 + raw[start].1.len()),
+        ));
+    }
 
     // Pass two: build line records, and check that indentation is consistent.
     let mut indent_char: Option<char> = None;
@@ -171,8 +238,10 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
         let content_start = start + indent_text.len();
         let body = &text[indent_text.len()..];
         let fence = fence_roles[index];
+        let escape = escape_roles[index];
+        let verbatim = fence != FenceRole::None || escape != EscapeRole::None;
 
-        if fence == FenceRole::None && !body.trim().is_empty() {
+        if !verbatim && !body.trim().is_empty() {
             if let Some(first) = indent_text.chars().next() {
                 match indent_char {
                     None => indent_char = Some(first),
@@ -193,11 +262,12 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
 
         // Comments are lexical, so they are removed before the line is
         // classified. The green tree recovers them from the gaps between
-        // significant tokens, which is how the CST stays lossless.
-        let code_text = if fence == FenceRole::None {
-            prose::split_comment(body).0
-        } else {
+        // significant tokens, which is how the CST stays lossless. Verbatim
+        // content keeps everything, including what looks like a comment.
+        let code_text = if verbatim {
             body
+        } else {
+            prose::split_comment(body).0
         };
 
         let code_trimmed = code_text.trim_end();
@@ -208,8 +278,9 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
             end: start + text.len(),
             code: code_trimmed.to_string(),
             code_span: Span::new(content_start, content_start + code_trimmed.len()),
-            blank: code_trimmed.trim().is_empty() && fence == FenceRole::None,
+            blank: code_trimmed.trim().is_empty() && !verbatim,
             fence,
+            escape,
         });
     }
 
@@ -672,6 +743,14 @@ impl<'a> Parser<'a> {
                 self.enter(SyntaxKind::BLOCK, line.start);
             }
 
+            if let EscapeRole::Open(run) = line.escape {
+                flush!();
+                let block = self.parse_escape_block(&line, run);
+                end = block.span.end;
+                items.push(BlockItem::Escape(block));
+                continue;
+            }
+
             if let FenceRole::Open(ticks) = line.fence {
                 flush!();
                 let fence = self.parse_fence(&line, ticks);
@@ -753,12 +832,26 @@ impl<'a> Parser<'a> {
         let mut lines = Vec::new();
         let mut end = open.end;
         while let Some(line) = self.peek().cloned() {
+            // An escape block inside a fence contributes its contents and not
+            // its delimiters, which is how a code example can quote syntax the
+            // compiler would otherwise read.
+            if line.is_escape_delimiter() {
+                self.pos += 1;
+                self.token(SyntaxKind::ESCAPE_MARK, line.code_span);
+                end = line.end;
+                continue;
+            }
             match line.fence {
                 FenceRole::Body => {
                     self.pos += 1;
                     let text = &self.source[line.start..line.end];
                     lines.push(strip_indent(text, base_indent));
-                    self.token(SyntaxKind::FENCE_TEXT, Span::new(line.start, line.end));
+                    let kind = if line.escape == EscapeRole::Body {
+                        SyntaxKind::ESCAPE_TEXT
+                    } else {
+                        SyntaxKind::FENCE_TEXT
+                    };
+                    self.token(kind, Span::new(line.start, line.end));
                     end = line.end;
                 }
                 FenceRole::Close => {
@@ -776,6 +869,42 @@ impl<'a> Parser<'a> {
             info,
             lines,
             ticks,
+        }
+    }
+
+    /// Parses a multi-line escape block, consuming its delimiters.
+    fn parse_escape_block(&mut self, open: &Line, run: usize) -> EscapeBlock {
+        let start = open.start;
+        let base_indent = open.indent;
+        self.enter(SyntaxKind::ESCAPE_BLOCK, start);
+        self.token(SyntaxKind::ESCAPE_MARK, open.code_span);
+        self.pos += 1;
+
+        let mut lines = Vec::new();
+        let mut end = open.end;
+        while let Some(line) = self.peek().cloned() {
+            match line.escape {
+                EscapeRole::Body => {
+                    self.pos += 1;
+                    let text = &self.source[line.start..line.end];
+                    lines.push(strip_indent(text, base_indent));
+                    self.token(SyntaxKind::ESCAPE_TEXT, Span::new(line.start, line.end));
+                    end = line.end;
+                }
+                EscapeRole::Close => {
+                    self.pos += 1;
+                    self.token(SyntaxKind::ESCAPE_MARK, line.code_span);
+                    end = line.end;
+                    break;
+                }
+                _ => break,
+            }
+        }
+        self.leave(end);
+        EscapeBlock {
+            span: Span::new(start, end),
+            lines,
+            run,
         }
     }
 
@@ -1015,8 +1144,14 @@ struct DeclarationHeader {
 /// Recognizes `name`, `name:: type`, `name: value`, and combinations.
 ///
 /// `text` must already have its indentation removed; `start` is its absolute
-/// offset. Returns `None` when the line is not a property, which is how a line
-/// such as `null: The absence of a value` stays prose: `null` is reserved.
+/// offset.
+///
+/// A key is anything that coerces to a string and contains no spaces, so
+/// `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are all keys. A word that
+/// is a keyword elsewhere is still a key here: what makes `anchor MyAnchor:` a
+/// declaration and `anchor: a description` a property is the colon, not the
+/// word. Only a leading `-` or `+` is excluded, because those open a list item
+/// and a merge.
 fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
     let name_len = text
         .char_indices()
@@ -1030,12 +1165,6 @@ fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
         return None;
     }
     let name = &text[..name_len];
-    if !name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') {
-        return None;
-    }
-    if is_reserved(name) {
-        return None;
-    }
 
     let mut cursor = name_len;
     let mut constraints = Vec::new();
@@ -1217,6 +1346,14 @@ fn parse_declaration_header(text: &str, start: usize) -> Option<DeclarationHeade
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+/// The length of a backslash run when `text` is nothing but backslashes.
+fn backslash_run(text: &str) -> Option<usize> {
+    if text.is_empty() || !text.chars().all(|c| c == '\\') {
+        return None;
+    }
+    Some(text.chars().count())
+}
 
 fn leading_len(text: &str) -> usize {
     text.len() - text.trim_start().len()
@@ -1483,11 +1620,41 @@ mod tests {
     }
 
     #[test]
-    fn reserved_words_are_not_properties() {
-        let parse = parse_str("anchor A:\n    null: The absence of a value\n    anchor: core\n    string: A unicode string\n");
+    fn any_space_free_key_is_a_property() {
+        // A key is anything that coerces to a string without spaces, keywords
+        // and numbers included.
+        let parse = parse_str(
+            "anchor A:\n    null: The absence of a value\n    anchor: core\n    string: A unicode string\n    123: numeric\n    foo-bar: hyphenated\n    false: boolean-looking\n",
+        );
+        assert_clean(&parse);
         let anchor = parse.file.anchors().next().expect("anchor");
         let names: Vec<_> = anchor.body.properties().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, vec!["string"]);
+        assert_eq!(
+            names,
+            vec!["null", "anchor", "string", "123", "foo-bar", "false"]
+        );
+    }
+
+    #[test]
+    fn a_keyword_followed_by_a_space_is_still_a_declaration() {
+        // The colon is what separates the two readings.
+        let parse = parse_str("anchor MyAnchor:\n    v: 1\n");
+        assert_clean(&parse);
+        assert_eq!(parse.file.anchors().next().expect("anchor").name, "MyAnchor");
+
+        let parse = parse_str("use ./lib/Type\n\nanchor A:\n    use: a property named use\n");
+        assert_clean(&parse);
+        assert!(matches!(parse.file.items[0], Item::Use(_)));
+        let names: Vec<_> = parse
+            .file
+            .anchors()
+            .next()
+            .expect("anchor")
+            .body
+            .properties()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["use"]);
     }
 
     #[test]
@@ -1570,6 +1737,114 @@ mod tests {
             .expect("fence");
         assert_eq!(fence.info, "piton");
         assert_eq!(fence.lines, vec!["key: value", "- not a list"]);
+    }
+
+    #[test]
+    fn an_escape_block_consumes_its_delimiters() {
+        let source = "anchor A:\n    body:\n        \\\\\\\n        key: not a property\n        // not a comment\n        {not an expression}\n        \\\\\\\n";
+        let parse = parse_str(source);
+        assert_clean(&parse);
+        assert_eq!(parse.syntax().text().to_string(), source, "still lossless");
+
+        let anchor = parse.file.anchors().next().expect("anchor");
+        let block = anchor
+            .body
+            .properties()
+            .next()
+            .expect("property")
+            .value
+            .block
+            .as_ref()
+            .expect("block");
+        let escape = block
+            .items
+            .iter()
+            .find_map(|item| match item {
+                BlockItem::Escape(escape) => Some(escape),
+                _ => None,
+            })
+            .expect("escape block");
+        assert_eq!(escape.run, 3);
+        assert_eq!(
+            escape.lines,
+            vec!["key: not a property", "// not a comment", "{not an expression}"]
+        );
+        assert_eq!(block.items.len(), 1, "the delimiters produce nothing");
+    }
+
+    #[test]
+    fn an_escape_block_inside_a_fence_keeps_only_its_contents() {
+        let source = "anchor A:\n    body:\n        ```piton\n        \\\\\\\n        anchor B:\n            v: ${super.x}\n        \\\\\\\n        ```\n";
+        let parse = parse_str(source);
+        assert_clean(&parse);
+        assert_eq!(parse.syntax().text().to_string(), source);
+
+        let anchor = parse.file.anchors().next().expect("anchor");
+        let block = anchor
+            .body
+            .properties()
+            .next()
+            .expect("property")
+            .value
+            .block
+            .as_ref()
+            .expect("block");
+        let fence = block
+            .items
+            .iter()
+            .find_map(|item| match item {
+                BlockItem::Fence(fence) => Some(fence),
+                _ => None,
+            })
+            .expect("fence");
+        assert_eq!(fence.lines, vec!["anchor B:", "    v: ${super.x}"]);
+    }
+
+    #[test]
+    fn only_a_matching_run_closes_an_escape_block() {
+        // A longer or shorter run is content, which is what lets a block quote
+        // another block's delimiters.
+        let source = "anchor A:\n    body:\n        \\\\\n        \\\\\\\n        inner\n        \\\\\n";
+        let parse = parse_str(source);
+        let anchor = parse.file.anchors().next().expect("anchor");
+        let block = anchor
+            .body
+            .properties()
+            .next()
+            .expect("property")
+            .value
+            .block
+            .as_ref()
+            .expect("block");
+        let escape = block
+            .items
+            .iter()
+            .find_map(|item| match item {
+                BlockItem::Escape(escape) => Some(escape),
+                _ => None,
+            })
+            .expect("escape block");
+        assert_eq!(escape.run, 2);
+        assert_eq!(escape.lines, vec!["\\\\\\", "inner"]);
+    }
+
+    #[test]
+    fn an_unterminated_escape_block_is_reported() {
+        let parse = parse_str("anchor A:\n    body:\n        \\\\\\\n        never closed\n");
+        assert!(parse
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "unterminated-escape-block"));
+    }
+
+    #[test]
+    fn a_backslash_run_inside_a_line_keeps_its_inline_meaning() {
+        // Only a line that is *nothing but* backslashes delimits a block.
+        let parse = parse_str("anchor A:\n    body: so \\ x \\ ends here\n");
+        assert_clean(&parse);
+        let anchor = parse.file.anchors().next().expect("anchor");
+        let property = anchor.body.properties().next().expect("property");
+        assert!(property.value.inline.is_some(), "still an ordinary prose line");
     }
 
     #[test]

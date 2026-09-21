@@ -29,6 +29,7 @@ pub fn format(source: &str, path: &Path) -> String {
     let mut out = String::new();
     let mut stack: Vec<usize> = Vec::new();
     let mut fence: Option<(usize, usize, usize)> = None; // (ticks, base indent, depth)
+    let mut escape: Option<(usize, usize, usize)> = None; // (run, base indent, depth)
     let mut offset = 0usize;
 
     for raw in source.split_inclusive('\n') {
@@ -52,6 +53,17 @@ pub fn format(source: &str, path: &Path) -> String {
             continue;
         }
 
+        // A multi-line escape block is literal, so only its indentation moves.
+        if let Some((run, base, depth)) = escape {
+            let closing = trimmed.chars().count() == run && trimmed.chars().all(|c| c == '\\');
+            let relative = indent.saturating_sub(base);
+            push_line(&mut out, depth, relative, trimmed);
+            if closing {
+                escape = None;
+            }
+            continue;
+        }
+
         if let Some((ticks, base, depth)) = fence {
             let closing = trimmed.chars().take_while(|c| *c == '`').count() >= ticks
                 && trimmed.chars().all(|c| c == '`');
@@ -69,6 +81,12 @@ pub fn format(source: &str, path: &Path) -> String {
         }
 
         let depth = depth_for(&mut stack, indent);
+
+        if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\\') {
+            escape = Some((trimmed.chars().count(), indent, depth));
+            push_line(&mut out, depth, 0, trimmed);
+            continue;
+        }
 
         let opening = trimmed.chars().take_while(|c| *c == '`').count();
         if opening >= 3 {
@@ -308,6 +326,22 @@ mod tests {
             fmt(source),
             "anchor A:\n    body:\n        ```piton\n        key: value\n          nested: 2\n        ```\n"
         );
+    }
+
+    #[test]
+    fn escape_blocks_keep_their_relative_indentation() {
+        let source = "anchor A:\n  body:\n    \\\\\\\n    key: value\n      nested: 2\n    \\\\\\\n";
+        assert_eq!(
+            fmt(source),
+            "anchor A:\n    body:\n        \\\\\\\n        key: value\n          nested: 2\n        \\\\\\\n"
+        );
+    }
+
+    #[test]
+    fn escape_block_contents_are_never_rewritten() {
+        // Comment spacing is a formatting rule for code, not for literal text.
+        let source = "anchor A:\n    body:\n        \\\\\\\n        //no space added here\n        \\\\\\\n";
+        assert_eq!(fmt(source), source);
     }
 
     #[test]
