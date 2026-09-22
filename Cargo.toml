@@ -11,6 +11,11 @@ members = [
     "crates/xtask",
 ]
 
+# The Zed extension is a WebAssembly component built for `wasm32-wasip2`, not a
+# crate this workspace builds. It carries its own `[workspace]`, and naming it
+# here says so rather than leaving it to be discovered.
+exclude = ["editors/zed"]
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

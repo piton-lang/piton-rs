@@ -2,3 +2,11 @@ use ../../cli
 
 export cli-command Untether:
     commandName: untether
+    description:
+        Moved an installed package from to the specRoot/untetherd directory
+        while also rewriting any imports
+    positionalArgs:
+        packageName: the name of the package to untether
+    namedArgs:
+        as: the name to give the untethered package
+        no-rewrite: Don't rename any imports, simply move the package

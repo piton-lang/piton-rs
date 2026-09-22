@@ -5,7 +5,7 @@ Every editor the specification names, and what each one needs.
 | Editor | Highlighting | Language server | Directory |
 | --- | --- | --- | --- |
 | VS Code | TextMate | bundled client | [`vscode`](vscode) |
-| Zed | tree-sitter | built in | [`zed`](zed) |
+| Zed | tree-sitter | WebAssembly extension | [`zed`](zed) |
 | Helix | tree-sitter | built in | [`helix`](helix) |
 | Emacs | tree-sitter or regex | eglot | [`emacs`](emacs) |
 | Neovim | Vim syntax or tree-sitter | lspconfig | [`neovim`](neovim) |
@@ -15,7 +15,17 @@ Every editor the specification names, and what each one needs.
 | JetBrains | TextMate bundle | LSP4IJ | [`jetbrains`](jetbrains) |
 
 The grammar shared by Zed, Helix, Emacs and Neovim lives in
-[`tree-sitter-piton`](tree-sitter-piton).
+[`tree-sitter-piton`](tree-sitter-piton). Zed keeps its own copy of the queries,
+because a Zed extension reads them from its own `languages/piton/` directory.
+Some of them are the same query — `highlights.scm` and `injections.scm`, which a
+test holds byte for byte identical — and the rest are not, because Zed's capture
+vocabulary is its own: it indents from `@indent` where Neovim indents from
+`@indent.begin`, and it has queries for brackets, the outline and vim's text
+objects that the others have no equivalent of.
+
+Zed is also the one editor here that needs code: `extension.toml` can declare
+that Piton has a language server but has nowhere to name the program, so
+[`zed/src/piton.rs`](zed/src/piton.rs) finds `piton` and hands Zed the command.
 
 ## Install the binary first
 

@@ -2,3 +2,7 @@ use ../../cli
 
 export cli-command Remove:
     commandName: remove
+    description:
+        Remove a package from the project
+    positionalArgs:
+        package: name of the package to remove

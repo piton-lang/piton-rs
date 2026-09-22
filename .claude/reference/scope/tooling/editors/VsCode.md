@@ -2,7 +2,7 @@
 
 ## Description
 
-Editing plugin for VsCode
+Editing plugin for VsCode Has full support for the LSP
 
 ## Syntax Highlighter
 

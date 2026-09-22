@@ -2,7 +2,7 @@
 
 ## Description
 
-Editing plugin for Emacs
+Editing plugin for Emacs Has full support for the LSP
 
 ## Syntax Highlighter
 

@@ -11,3 +11,6 @@ piton-compile.workspace = true
 piton-emit.workspace = true
 tower-lsp.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

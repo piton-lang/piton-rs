@@ -1,0 +1,24 @@
+[
+  { "token_type": "class", "style": ["type"] },
+  { "token_type": "property", "style": ["property"] },
+  { "token_type": "variable", "style": ["variable"] },
+  { "token_type": "keyword", "style": ["keyword"] },
+  { "token_type": "comment", "style": ["comment"] },
+  { "token_type": "string", "style": ["string"] },
+  { "token_type": "number", "style": ["number"] },
+  { "token_type": "operator", "style": ["operator"] },
+  { "token_type": "namespace", "style": ["string.special.path", "string.special", "string"] },
+  { "token_type": "type", "style": ["type"] },
+
+  {
+    "token_type": "class",
+    "token_modifiers": ["definition"],
+    "style": ["type.definition", "type"]
+  },
+  {
+    "token_type": "class",
+    "token_modifiers": ["abstract"],
+    "style": ["type"],
+    "font_style": "italic"
+  }
+]

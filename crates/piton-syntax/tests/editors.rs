@@ -10,7 +10,12 @@ use std::path::{Path, PathBuf};
 
 use piton_syntax::language;
 
-/// Every query shipped with the language, in both copies.
+/// Every query shipped with the language.
+///
+/// The grammar's own queries are written in the vocabulary Helix and Neovim
+/// read; Zed's are written in Zed's, which is why the two sets are not the same
+/// files. Both are checked against the grammar here, because a query naming a
+/// node the grammar does not define fails to compile whoever reads it.
 const QUERY_FILES: &[&str] = &[
     "tree-sitter-piton/queries/highlights.scm",
     "tree-sitter-piton/queries/injections.scm",
@@ -19,7 +24,35 @@ const QUERY_FILES: &[&str] = &[
     "tree-sitter-piton/queries/indents.scm",
     "zed/languages/piton/highlights.scm",
     "zed/languages/piton/injections.scm",
-    "zed/languages/piton/indents.scm",
+    "zed/languages/piton/brackets.scm",
+    "zed/languages/piton/outline.scm",
+    "zed/languages/piton/overrides.scm",
+    "zed/languages/piton/textobjects.scm",
+];
+
+/// The queries Zed reads, and the capture names each one is allowed to use.
+///
+/// Zed matches these by name and silently ignores the rest, which is how a
+/// `zed/languages/piton/indents.scm` written in Neovim's vocabulary -- with
+/// `@indent.begin` where Zed wants `@indent` -- sat in this directory doing
+/// nothing at all. A wrong capture name is not an error anywhere; it is just an
+/// editor that does not do the thing.
+const ZED_CAPTURES: &[(&str, &[&str])] = &[
+    ("brackets", &["open", "close"]),
+    ("outline", &["name", "item", "context", "context.extra", "annotation"]),
+    (
+        "textobjects",
+        &[
+            "function.around",
+            "function.inside",
+            "class.around",
+            "class.inside",
+            "comment.around",
+            "comment.inside",
+        ],
+    ),
+    ("injections", &["injection.language", "injection.content"]),
+    ("indents", &["indent", "start", "end", "outdent"]),
 ];
 
 fn repo_root() -> PathBuf {
@@ -205,6 +238,7 @@ fn the_server_is_always_invoked_the_same_way() {
         ("sublime/README.md", r#"["piton", "lsp"]"#),
         ("kate/README.md", r#"["piton", "lsp"]"#),
         ("jetbrains/README.md", "piton lsp"),
+        ("zed/src/piton.rs", r#"&["lsp"]"#),
     ] {
         let text = read(definition);
         assert!(
@@ -345,7 +379,10 @@ fn the_editor_queries_match_the_grammars_own() {
     // Zed keeps its own copy of the queries, because a Zed extension reads
     // them from `languages/<name>/`. Two copies drift: one of them was still
     // matching `"pass"` after the other had moved to `(pass_statement)`.
-    for name in ["highlights", "indents", "injections"] {
+    //
+    // Only the queries whose capture vocabulary Zed shares are copies.
+    // `indents.scm` is not one of them -- see `zed_indentation_is_a_line_rule`.
+    for name in ["highlights", "injections"] {
         let canonical = read(&format!("tree-sitter-piton/queries/{name}.scm"));
         let copy = read(&format!("zed/languages/piton/{name}.scm"));
         assert_eq!(
@@ -428,4 +465,184 @@ fn quoted_tokens(query: &str) -> Vec<String> {
     out.sort();
     out.dedup();
     out
+}
+
+// ---------------------------------------------------------------------------
+// Zed
+// ---------------------------------------------------------------------------
+
+/// The Zed extension has to ship the code that starts the server.
+///
+/// `extension.toml` can declare that Piton has a language server, but it has
+/// nowhere to say which program to run: the only thing that can tell Zed that
+/// is a compiled `language_server_command`. An extension that declares a
+/// server and ships no WebAssembly declares one Zed cannot start, and says so
+/// only once a `.pi` file is opened.
+#[test]
+fn the_zed_extension_ships_the_code_that_starts_the_server() {
+    let manifest = read("zed/extension.toml");
+    assert!(
+        manifest.contains("[language_servers.piton]"),
+        "`zed/extension.toml` should declare the language server"
+    );
+
+    let cargo = read("zed/Cargo.toml");
+    assert!(
+        cargo.contains("zed_extension_api"),
+        "`zed/Cargo.toml` should depend on `zed_extension_api`"
+    );
+    assert!(
+        cargo.contains(r#"crate-type = ["cdylib"]"#),
+        "a Zed extension is a WebAssembly component, so the crate is a cdylib"
+    );
+    assert!(
+        cargo.contains("[workspace]"),
+        "`zed/Cargo.toml` needs its own `[workspace]`: the extension is built \
+         for `wasm32-wasip2`, not for the host, so the repository's workspace \
+         must not claim it"
+    );
+
+    let source = read("zed/src/piton.rs");
+    for needle in [
+        "fn language_server_command",
+        "register_extension!",
+        "fn language_server_initialization_options",
+        "fn language_server_workspace_configuration",
+    ] {
+        assert!(
+            source.contains(needle),
+            "`zed/src/piton.rs` should implement `{needle}`"
+        );
+    }
+}
+
+/// The repository's workspace must leave the extension alone.
+///
+/// It is a `cdylib` for `wasm32-wasip2`. Built for the host it fails to link,
+/// so `cargo test` at the root would stop on it.
+#[test]
+fn the_workspace_excludes_the_zed_extension() {
+    let path = repo_root().join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&path).expect("workspace manifest");
+    assert!(
+        manifest.contains(r#"exclude = ["editors/zed"]"#),
+        "the workspace should exclude `editors/zed`"
+    );
+}
+
+/// Zed reads captures by name, so a query has to use the names Zed reads.
+///
+/// This is the check that would have caught the `indents.scm` this directory
+/// used to ship: it was a copy of the grammar's, written in Neovim's
+/// vocabulary, and every capture in it was one Zed ignores.
+#[test]
+fn zed_queries_use_captures_zed_reads() {
+    for (name, allowed) in ZED_CAPTURES {
+        let relative = format!("zed/languages/piton/{name}.scm");
+        let Ok(query) = std::fs::read_to_string(editors().join(&relative)) else {
+            continue; // Not every query has to exist.
+        };
+        for capture in captures(&query) {
+            assert!(
+                allowed.contains(&capture.as_str()),
+                "{relative} captures `@{capture}`, which Zed does not read. \
+                 It reads {}.",
+                allowed
+                    .iter()
+                    .map(|name| format!("`@{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
+}
+
+/// Indentation in Zed is a line pattern, and has to stay one.
+///
+/// Zed's `@indent` measures a node that spans the lines it indents. The grammar
+/// has no such node -- indentation is deliberately not in it, so an anchor's
+/// header is a line and its body is not part of it -- which leaves the rule
+/// with nowhere to live but `config.toml`.
+#[test]
+fn zed_indentation_is_a_line_rule() {
+    let config = read("zed/languages/piton/config.toml");
+    assert!(
+        config.contains(r#"increase_indent_pattern = ":\\s*$""#),
+        "`zed/languages/piton/config.toml` should indent after a line ending \
+         in a colon"
+    );
+    assert!(
+        !editors().join("zed/languages/piton/indents.scm").exists(),
+        "the grammar has no node an `@indent` could measure, so an \
+         `indents.scm` here can only be a no-op"
+    );
+}
+
+/// Every scope a bracket opts out of has to be a scope `overrides.scm` defines.
+///
+/// `not_in = ["verbatim"]` naming a scope no query captures is not an error
+/// anywhere; it just never applies.
+#[test]
+fn zed_brackets_only_name_scopes_the_overrides_define() {
+    let overrides = read("zed/languages/piton/overrides.scm");
+    let defined = captures(&overrides)
+        .into_iter()
+        // `@comment.inclusive` defines the `comment` scope with an inclusive
+        // range, which is a property of the range rather than part of the name.
+        .map(|capture| capture.trim_end_matches(".inclusive").to_string())
+        .collect::<Vec<_>>();
+
+    let config = read("zed/languages/piton/config.toml");
+    for line in config.lines() {
+        let Some((_, rest)) = line.split_once("not_in = [") else {
+            continue;
+        };
+        let list = rest.split(']').next().expect("a closing bracket");
+        for scope in list.split(',') {
+            let scope = scope.trim().trim_matches('"');
+            if scope.is_empty() {
+                continue;
+            }
+            assert!(
+                defined.contains(&scope.to_string()),
+                "`config.toml` keeps a bracket out of the `{scope}` scope, \
+                 which `overrides.scm` does not define"
+            );
+        }
+    }
+}
+
+/// Capture names a query introduces, which is every `@name` in it.
+fn captures(query: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in query.lines() {
+        let line = line.trim();
+        if line.starts_with(';') {
+            continue;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let mut index = 0;
+        while index < chars.len() {
+            if chars[index] != '@' {
+                index += 1;
+                continue;
+            }
+            let start = index + 1;
+            let mut cursor = start;
+            while cursor < chars.len()
+                && (chars[cursor].is_ascii_alphanumeric()
+                    || chars[cursor] == '_'
+                    || chars[cursor] == '.')
+            {
+                cursor += 1;
+            }
+            if cursor > start {
+                names.push(chars[start..cursor].iter().collect::<String>());
+            }
+            index = cursor.max(start);
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
 }

@@ -1,0 +1,5 @@
+# Zed builds the extension itself, and fetches and builds the grammar into
+# `grammars/`. Neither belongs in the repository.
+/target
+/grammars
+*.wasm
