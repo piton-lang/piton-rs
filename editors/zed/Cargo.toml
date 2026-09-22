@@ -1,0 +1,22 @@
+[package]
+name = "zed-piton"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mctavishdynamics/piton"
+description = "The Zed extension for Piton."
+
+# A Zed extension is a WebAssembly component, so the crate has to be a cdylib.
+# It is built for `wasm32-wasip2` rather than the host, which is why it is not a
+# member of the repository's workspace: an empty `[workspace]` table makes this
+# directory a workspace of its own, and `cargo build` at the repository root
+# leaves it alone.
+[workspace]
+
+[lib]
+path = "src/piton.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7.0"

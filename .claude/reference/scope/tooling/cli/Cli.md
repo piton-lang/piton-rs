@@ -124,3 +124,30 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     warnings: false
   exitCode:
     success: 0
+- description: Remove a package from the project
+  commandName: remove
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    package: name of the package to remove
+- description: Clones and "un-gits" a repository into the tethers directory
+  commandName: tether
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    source: Path to the git repository
+- description: Moved an installed package from to the specRoot/untetherd directory while also rewriting any imports
+  commandName: untether
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    packageName: the name of the package to untether
+  namedArgs:
+    as: the name to give the untethered package
+    no-rewrite: Don't rename any imports, simply move the package
+- description: Using the dependencies in the piton.config.pi, update all packages
+  commandName: update
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    packages: optional list of package names to update; if not provided, all packages will be updated

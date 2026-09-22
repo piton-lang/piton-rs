@@ -2,7 +2,7 @@
 
 ## Description
 
-Editing plugin for Sublime
+Editing plugin for Sublime Has full support for the LSP
 
 ## Syntax Highlighter
 

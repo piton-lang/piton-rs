@@ -20,3 +20,9 @@ commit = "5d2fa75e8776694e316c6505bc8ba646121e56b8"
 [language_servers.piton]
 name = "Piton"
 languages = ["Piton"]
+
+# The server keys everything off the file's path, so the identifier only has to
+# be stable. Naming it keeps Zed from sending the display name, which is
+# capitalised.
+[language_servers.piton.language_ids]
+"Piton" = "piton"

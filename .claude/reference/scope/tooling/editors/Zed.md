@@ -2,7 +2,7 @@
 
 ## Description
 
-Editing plugin for Zed
+Editing plugin for Zed Has full support for the LSP
 
 ## Syntax Highlighter
 

@@ -2,7 +2,7 @@ use ../../cli
 
 export cli-command Tether:
     commandName: tether
-    description:
+    description: Clones and "un-gits" a repository into the tethers directory
 
     positionalArgs:
         source: Path to the git repository

@@ -2,7 +2,7 @@
 
 ## Description
 
-Editing plugin for NeoVim
+Editing plugin for NeoVim Has full support for the LSP
 
 ## Syntax Highlighter
 

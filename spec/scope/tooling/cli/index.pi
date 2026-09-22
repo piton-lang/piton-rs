@@ -22,10 +22,10 @@ export anchor Cli:
         - {Loc}
         - {Lsp}
         - {Reach}
-        - {Remove}
-        - {Tether}
-        - {Untether}
-        - {Update}
+        // - {Remove}
+        // - {Tether}
+        // - {Untether}
+        // - {Update}
 
 export abstract anchor CliCommand as cli-command:
     description:: string: Command invokable by the cli by running piton <command>

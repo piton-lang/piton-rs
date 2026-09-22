@@ -2,7 +2,7 @@
 
 ## Description
 
-Editing plugin for Helix
+Editing plugin for Helix Has full support for the LSP
 
 ## Syntax Highlighter
 

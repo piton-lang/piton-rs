@@ -3,25 +3,46 @@ grammar = "piton"
 path_suffixes = ["pi"]
 line_comments = ["// "]
 autoclose_before = "}]),"
-tab_size = 4
-hard_tabs = false
 
 # The language prefers four spaces and does not make it configurable, so the
 # editor should not offer to.
+tab_size = 4
+hard_tabs = false
+
+# A declaration or a key that ends in a colon opens a block, and the block is
+# the indented lines beneath it.
+#
+# This is a line pattern rather than an `indents.scm` because the grammar has
+# no node to hang one on: indentation is deliberately not in the grammar, so
+# nothing there spans a body for Zed's `@indent` to measure.
+increase_indent_pattern = ":\\s*$"
+
+# Keys and user keywords are kebab-case, so a hyphen is part of a word:
+# double-clicking `no-rewrite` should take all of it, and typing the hyphen
+# should carry on querying the language server rather than starting a new
+# query at `r`.
+word_characters = ["-"]
+completion_query_characters = ["-"]
+
+# `not_in` names scopes from `overrides.scm`. A quotation mark typed in prose
+# is a quotation mark; only in an expression is it the start of a string.
 [[brackets]]
 start = "{"
 end = "}"
 close = true
 newline = false
+not_in = ["comment", "verbatim"]
 
 [[brackets]]
 start = "["
 end = "]"
 close = true
 newline = false
+not_in = ["comment", "verbatim"]
 
 [[brackets]]
 start = "\""
 end = "\""
 close = true
 newline = false
+not_in = ["comment", "string", "verbatim"]
