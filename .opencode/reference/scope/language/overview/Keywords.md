@@ -1,5 +1,0 @@
-# Keywords
-
-## Keywords
-
-Keywords are reserved words that have special meaning in Piton. string, false, anchor, export, etc. are all examples. A unique aspect of Piton is that you can define your own keywords that act as a sort of syntactic sugar for inheritance. But that's a topic we'll discuss later. Keywords must be all lowercase and can be kebab-case.

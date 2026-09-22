@@ -197,25 +197,79 @@ fn every_definition_uses_four_spaces() {
     );
 }
 
-/// Pressing enter after a line that ends in a colon lands inside the block it
-/// opened.
+/// Pressing enter after a line that opens a block lands inside it.
 ///
 /// The specification asks for it in `Lsp.pi`, and the server answers
 /// `textDocument/onTypeFormatting` for the clients that ask. Not every client
-/// does, so the editors that can express the rule themselves have to.
+/// does, so the editors that can express the rule themselves have to -- and
+/// they have to express it the same way, so the pattern lives in one place.
+const BLOCK_OPENS: &str = r"^[^/\s][^:]*:\s*$|^\s*[^:/\s]+(::\s*[^:/\s]+)*:\s*$|^\s*[-+]{1,2}\s+[^:/\s]+(::\s*[^:/\s]+)*:\s*$";
+
 #[test]
 fn every_definition_indents_after_a_colon() {
+    // A line opens a block when it ends where a value would begin: a
+    // declaration at the margin, `key:`, `key:: type:`, `- key:`. A colon
+    // inside a value opens nothing -- `prompt: Careful: ` ends a sentence
+    // rather than a property. JSON and TOML double every backslash.
+    let config_form = BLOCK_OPENS.replace('\\', "\\\\");
+
     for (definition, needle) in [
-        ("zed/languages/piton/config.toml", r#"increase_indent_pattern = ":\\s*$""#),
-        ("vscode/language-configuration.json", r#""increaseIndentPattern": ":\\s*$""#),
-        ("vim/indent/piton.vim", r"':\s*$'"),
-        ("emacs/piton-mode.el", r#".*:[ \t]*$"#),
+        (
+            "zed/languages/piton/config.toml",
+            format!("increase_indent_pattern = \"{config_form}\""),
+        ),
+        (
+            "vscode/language-configuration.json",
+            format!("\"increaseIndentPattern\": \"{config_form}\""),
+        ),
+        (
+            "vscode/language-configuration.json",
+            format!("\"beforeText\": \"{config_form}\""),
+        ),
+        ("vim/indent/piton.vim", r"':\s*$'".to_string()),
+        ("emacs/piton-mode.el", r#".*:[ \t]*$"#.to_string()),
     ] {
         let text = read(definition);
         assert!(
-            text.contains(needle),
-            "{definition} should indent after a line ending in a colon (`{needle}`)"
+            text.contains(&needle),
+            "{definition} should indent after a line that opens a block (`{needle}`)"
         );
+    }
+}
+
+/// The pattern the editors run has to agree with the language server about
+/// which lines open a block.
+///
+/// Zed compiles it with Rust's regex crate, so it has to compile there -- a
+/// pattern VS Code accepts but Rust rejects would leave Zed indenting on its
+/// own stale rule. And it has to draw the same line the server draws between
+/// a key's colon and a value's, or the two would fight over every newline.
+#[test]
+fn the_block_opens_pattern_agrees_with_the_server() {
+    let pattern = regex::Regex::new(BLOCK_OPENS).expect(
+        "the pattern has to compile under Rust's regex crate, which is what Zed runs it through",
+    );
+
+    for line in [
+        "export type N:",
+        "anchor A extends B as command:",
+        "    frameworks:",
+        "    config:: dictionary:",
+        "    - frameworks:",
+        "    ++ key:",
+    ] {
+        assert!(pattern.is_match(line), "`{line}` opens a block");
+    }
+
+    for line in [
+        "    prompt: Careful:",
+        "    a note: like this:",
+        "    // note:",
+        "    //note:",
+        "    title: a book",
+        "greeting: Well:",
+    ] {
+        assert!(!pattern.is_match(line), "`{line}` opens nothing");
     }
 }
 
@@ -589,10 +643,13 @@ fn zed_queries_use_captures_zed_reads() {
 #[test]
 fn zed_indentation_is_a_line_rule() {
     let config = read("zed/languages/piton/config.toml");
+    // The rule itself is asserted against the shared pattern by
+    // `every_definition_indents_after_a_colon`; what matters here is that it
+    // is a line pattern in `config.toml` at all.
     assert!(
-        config.contains(r#"increase_indent_pattern = ":\\s*$""#),
-        "`zed/languages/piton/config.toml` should indent after a line ending \
-         in a colon"
+        config.contains(r#"increase_indent_pattern = ""#),
+        "`zed/languages/piton/config.toml` should carry the block-opening \
+         line pattern"
     );
     assert!(
         !editors().join("zed/languages/piton/indents.scm").exists(),

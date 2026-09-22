@@ -13,7 +13,7 @@ The strategy for packages is managed vendored dependencies.  What that means is 
 A package declaration is just a `Package as package` anchor that can be located anywhere within a specbase, but it must be included in the main piton.config.pi file.
 The Package anchor is exposed by the `@piton/packaging` import/use.
 ```piton
-export abstract anchor Package as package:
+export abstract anchor PitonPackage as piton-package:
     name:: string:: null: null
     root:: string
     dependencies:: string[]:: null: null

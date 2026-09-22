@@ -22,3 +22,9 @@ belay-config BelayFrameworkConfig:
     adapters:
         - {ClaudeAdapter}
 ```
+
+## Exports
+
+The piton.config.pi file exports its main piton-config anchor, and the [Lsp](../cli/Lsp.md) needs to be aware that it's a project config, not just a regular Piton file.
+
+Links in this document point at reference files. Read one when the work touches what it describes.

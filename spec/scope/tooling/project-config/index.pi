@@ -1,3 +1,4 @@
+from ../cli/Lsp import Lsp
 export anchor ProjectConfig:
     description:
         If the compiler finds a piton.config.pi file in the current working
@@ -27,3 +28,8 @@ export anchor ProjectConfig:
             adapters:
                 - {ClaudeAdapter}
         ```
+
+    exports:
+        The piton.config.pi file exports its main piton-config anchor, and the
+        @{Lsp} needs to be aware that it's a project config, not just a regular
+        Piton file.

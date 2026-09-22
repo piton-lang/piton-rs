@@ -11,12 +11,12 @@
   ],
   "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""]],
   "indentationRules": {
-    "increaseIndentPattern": ":\\s*$",
+    "increaseIndentPattern": "^[^/\\s][^:]*:\\s*$|^\\s*[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$|^\\s*[-+]{1,2}\\s+[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$",
     "decreaseIndentPattern": "^\\s*$"
   },
   "onEnterRules": [
     {
-      "beforeText": ":\\s*$",
+      "beforeText": "^[^/\\s][^:]*:\\s*$|^\\s*[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$|^\\s*[-+]{1,2}\\s+[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$",
       "action": { "indent": "indent" }
     },
     {

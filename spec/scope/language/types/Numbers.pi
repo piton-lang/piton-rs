@@ -1,5 +1,4 @@
 use ./lib/Type
-from ../operators/arithmetic/lib/ArithmeticOperator import ArithmeticOperator
 from ../operators/arithmetic import ARITHMETIC_OPERATORS
 
 export type Numbers:

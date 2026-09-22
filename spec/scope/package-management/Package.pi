@@ -8,7 +8,7 @@ export anchor Package:
 
         ```piton
         \\\
-        export abstract anchor Package as package:
+        export abstract anchor PitonPackage as piton-package:
             name:: string:: null: null
             root:: string
             dependencies:: string[]:: null: null

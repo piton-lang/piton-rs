@@ -10,9 +10,7 @@ use std::path::PathBuf;
 
 use piton_compile::{Compilation, ModuleId, Symbol};
 use piton_core::{AnchorId, Span};
-use piton_syntax::ast::{
-    self, BlockItem, Expr, ExprKind, Item, ProseSegment, ValueNode,
-};
+use piton_syntax::ast::{self, BlockItem, Expr, ExprKind, Item, ProseSegment, ValueNode};
 
 /// What a span in the source refers to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +179,15 @@ impl Builder<'_> {
                     let target = self.resolve(&decl.name);
                     self.push(decl.name_span, target, Role::Definition, &decl.name);
                     self.index.structures.push((decl.span, decl.name.clone()));
+                    // `value:: extends Operator[]` references `Operator` just as
+                    // a property constraint does. Skipping it made an import of
+                    // that name look unused.
+                    for constraint in &decl.constraints {
+                        if let ast::TypeName::Named(name) = &constraint.name {
+                            let target = self.resolve(name);
+                            self.push(constraint.span, target, Role::Reference, name);
+                        }
+                    }
                     self.walk_value(&decl.value, None);
                 }
                 Item::Anchor(decl) => self.walk_anchor(decl),
@@ -263,7 +270,9 @@ impl Builder<'_> {
                     }
                 }
                 BlockItem::Fence(fence) => {
-                    self.index.structures.push((fence.span, "fence".to_string()));
+                    self.index
+                        .structures
+                        .push((fence.span, "fence".to_string()));
                 }
                 BlockItem::Escape(block) => {
                     // Literal content has no symbols to index, but it folds.
@@ -341,14 +350,18 @@ impl Builder<'_> {
     fn field_owner(&self, base: &Expr, owner: Option<AnchorId>) -> Option<AnchorId> {
         match &base.kind {
             ExprKind::This | ExprKind::SelfRef => owner,
-            ExprKind::Super => owner
-                .and_then(|anchor| self.compilation.store().anchor(anchor).bases.last().copied()),
-            ExprKind::Name(name) => {
-                match self.compilation.resolution.lookup(self.module, name) {
-                    Some(Symbol::Anchor(anchor)) => Some(anchor),
-                    _ => None,
-                }
-            }
+            ExprKind::Super => owner.and_then(|anchor| {
+                self.compilation
+                    .store()
+                    .anchor(anchor)
+                    .bases
+                    .last()
+                    .copied()
+            }),
+            ExprKind::Name(name) => match self.compilation.resolution.lookup(self.module, name) {
+                Some(Symbol::Anchor(anchor)) => Some(anchor),
+                _ => None,
+            },
             _ => None,
         }
     }
