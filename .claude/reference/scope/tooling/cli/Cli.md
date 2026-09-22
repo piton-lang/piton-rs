@@ -12,14 +12,32 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     agent: Which agent to run [ claude ]
   namedArguments: null
 - description: Runs [Analysis](../../analysis/Analysis.md) on the project
+    Just running `piton analyze` will run the analysis and report errors and warning.
+    null reports how much of the specbase the analysis was able to read, as a share of the sentences it examined, and breaks the remainder down by the reason each one was not read.
+    Analysis only understands the sentence shapes it has rules for, so a run that reports nothing is ambiguous on its own: it can mean the prose agrees, or it can mean very little of it was read. null is what separates those two, and it names the words used as verbs that the lexicon does not know, since those are what limit the share that can be read.
+    Setting Valid options are [ human, interpretation ] to interpretation restates what the analysis understood as a Markdown document, written for a coding agent rather than for a reader of the specification.
+    Each claim is rebuilt as a flat sentence and grouped under the anchor it constrains, with the line it came from. The sentences are generated from the extracted claims rather than copied from the source, so a restatement that reads oddly is a claim that was read oddly, and the verb is written as the relation it was understood as.
+    The document states what share of the prose produced a claim, because a restatement that silently covered part of a specification would be worse than none.
   commandName: analyze
-  positionalArguments: null
-  namedArguments: null
+  positionalArguments:
+    target: file or anchor to analyze, defaulting to the whole project
+  namedArguments:
+    explain: null
+    claims: null
+    coverage: null
+    format: Valid options are [ human, interpretation ]
+    min-severity: Valid options are [ error, warning, information ]
 - description: Builds the project as configured by piton.config.pi
   commandName: build
   positionalArguments:
     config: optional path to piton.config.pi file
   namedArguments: null
+  manifest: In a .piton directory that lives alongside the piton.config.pi file, a manifest.json file will be written with the build output.
+    ```
+    {
+        "generated": [ pathToGeneratedFiles ]
+    }
+    ```
 - description: Checks specific files or the project and reports errors
   commandName: check
   positionalArguments: null
@@ -35,12 +53,15 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 - description: Compiles Piton
     Pointing at a single file, compile will output the compiled result to stdout.  Glob-based paths won't work unless we also use null
     If null is set, the compiled result will be written to a file with the appropriate extension for the selected Valid options are [ json, yaml, markdown ] that lives next to the input file.
+    If null is set, the result is wrapped with the source files it was compiled from. A build tool that imports a Piton file has to know which other files to watch, and only the compiler knows: imports resolve through the module graph, and a package may keep a file somewhere the importing text never names.
+    Bundled package files are left out, since they live inside the compiler rather than on disk.
   commandName: compile
   positionalArguments:
     path: file or glob
   namedArguments:
     adapter: Valid options are [ json, yaml, markdown ]
     write: null
+    dependencies: null
 - description: Applies canonical formatting.
   commandName: format
   positionalArguments:

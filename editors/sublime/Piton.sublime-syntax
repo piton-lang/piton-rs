@@ -1,0 +1,169 @@
+%YAML 1.2
+---
+# Piton for Sublime Text.
+#
+# Piton is whitespace-structured and most of its content is prose, so this
+# highlights the structure and leaves the prose alone.
+name: Piton
+file_extensions: [pi]
+scope: source.piton
+version: 2
+
+variables:
+  keyword_name: '[a-z][a-z0-9]*(?:-[a-z0-9]+)*'
+  identifier: '[A-Za-z_][A-Za-z0-9_]*'
+  builtin_type: '\b(?:string|number|boolean|null|list|dictionary|anchor|reference|any|simple|complex)\b'
+
+contexts:
+  main:
+    - include: escape-block
+    - include: fence
+    - include: comment
+    - include: import
+    - include: declaration
+    - include: property
+    - include: markers
+    - include: interpolation
+
+  # A line of backslashes delimits a block whose contents are literal.
+  escape-block:
+    - match: '^\s*(\\+)\s*$'
+      captures:
+        1: punctuation.definition.escape.begin.piton
+      push:
+        - meta_scope: string.unquoted.escape-block.piton
+        - match: '^\s*\\+\s*$'
+          captures:
+            0: punctuation.definition.escape.end.piton
+          pop: true
+
+  # Fenced content is verbatim: no comments, no interpolation.
+  fence:
+    - match: '^\s*(`{3,})\s*([A-Za-z0-9_+-]*)\s*$'
+      captures:
+        1: punctuation.definition.raw.begin.piton
+        2: constant.other.language-name.piton
+      push:
+        - meta_scope: markup.raw.block.piton
+        - match: '^\s*`{3,}\s*$'
+          captures:
+            0: punctuation.definition.raw.end.piton
+          pop: true
+
+  # A comment opens only after whitespace, so `https://x` is not one.
+  comment:
+    - match: '(?<=^|\s)(//)'
+      captures:
+        1: punctuation.definition.comment.piton
+      push:
+        - meta_scope: comment.line.double-slash.piton
+        - match: '$\n?'
+          pop: true
+
+  import:
+    - match: '^\s*(use)\s+(\S+)'
+      captures:
+        1: keyword.control.import.piton
+        2: string.unquoted.module-path.piton
+    - match: '^\s*(from)\s+(\S+)\s+(import|export)\b'
+      captures:
+        1: keyword.control.import.piton
+        2: string.unquoted.module-path.piton
+        3: keyword.control.import.piton
+
+  # `[export] [abstract] <keyword> Name [as kw] [extends A, B]:`
+  declaration:
+    - match: '^\s*(?:(export)\s+)?(?:(abstract)\s+)?({{keyword_name}})\s+({{identifier}})'
+      captures:
+        1: keyword.control.piton
+        2: storage.modifier.piton
+        3: storage.type.piton
+        4: entity.name.type.piton
+      push:
+        - match: '(as)\s+({{keyword_name}})'
+          captures:
+            1: keyword.control.piton
+            2: entity.name.function.piton
+        - match: '\b(extends)\b'
+          scope: keyword.control.piton
+        - match: '\b([A-Z]{{identifier}})\b'
+          scope: entity.other.inherited-class.piton
+        - match: ':\s*$'
+          scope: punctuation.separator.piton
+          pop: true
+        - match: '$\n?'
+          pop: true
+
+  # A key is any text without spaces followed by a colon. Keywords are keys
+  # here too: the colon is what separates the two readings.
+  property:
+    - match: '^\s*(?:(export)\s+)?([^\s:]+)(?=(?:::[^:\n]+)*:(?:\s|$))'
+      captures:
+        1: keyword.control.piton
+        2: variable.other.member.piton
+      push:
+        - match: '(::)\s*(?:(extends)\s+)?({{builtin_type}})'
+          captures:
+            1: punctuation.separator.piton
+            2: keyword.control.piton
+            3: support.type.piton
+        - match: '(::)\s*(?:(extends)\s+)?({{identifier}})'
+          captures:
+            1: punctuation.separator.piton
+            2: keyword.control.piton
+            3: entity.name.type.piton
+        - match: ':'
+          scope: punctuation.separator.key-value.piton
+          set: value
+
+  value:
+    - meta_scope: string.unquoted.piton
+    - include: interpolation
+    - match: '$\n?'
+      pop: true
+
+  markers:
+    # `pass` is an intentionally empty body.
+    - match: '^\s*(pass)\s*$'
+      captures:
+        1: keyword.control.piton
+    - match: '^\s*(-)(?=\s|$)'
+      captures:
+        1: punctuation.definition.list.piton
+    # `+` merges and deduplicates; `++` keeps duplicates.
+    - match: '^\s*(\+\+?)(?=\s|$)'
+      captures:
+        1: keyword.operator.merge.piton
+
+  # Four sigils: intrinsic, string, numeric, and reference.
+  interpolation:
+    - match: '(?<!\\)(\$\{|#\{|@\{|\{)'
+      captures:
+        1: punctuation.section.interpolation.begin.piton
+      push:
+        - meta_scope: meta.interpolation.piton
+        - match: '\}'
+          scope: punctuation.section.interpolation.end.piton
+          pop: true
+        - include: expression
+
+  expression:
+    - match: '\b(true|false|null)\b'
+      scope: constant.language.piton
+    - match: '\b(this|self|super)\b'
+      scope: variable.language.piton
+    - match: '\b\d[\d_]*(?:\.[\d_]+)?\b'
+      scope: constant.numeric.piton
+    - match: '"'
+      scope: punctuation.definition.string.begin.piton
+      push:
+        - meta_scope: string.quoted.double.piton
+        - match: '\\.'
+          scope: constant.character.escape.piton
+        - match: '"'
+          scope: punctuation.definition.string.end.piton
+          pop: true
+    - match: '\+\+|==|!=|<=|>=|&&|\|\||[+\-*/%<>!?:.]'
+      scope: keyword.operator.piton
+    - match: '\b[A-Z]{{identifier}}\b'
+      scope: entity.name.type.piton

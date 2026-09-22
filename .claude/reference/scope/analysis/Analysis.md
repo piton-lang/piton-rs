@@ -3,7 +3,7 @@
 ## Pitch
 
 The idea is to use a combination of static analysis and NLP to produce a deterministic analysis of a Piton file or a Piton project. Given that Piton is largely unstructured text organized in a structured format, we need a way to further parse the text to check what it says against cohesive intent.
-Take this example:
+Note this is an example and should only be viewed as a conceptual example, not a focus of implementation. Take this example:
 We might have a spec for a large application, and in one location we say "The Save Button is Blue" and elsewhere we say "The Save Button is Red".
 We'd want to use NLP to identify what the prose is describing and what it is saying; "save button" should be identified as a subject with as much specificity as the prose and surrounding context allow, while "blue" and "red" should be identified as competing descriptions of the same property.
 Static analysis of the Piton structure can then determine whether those descriptions are likely to refer to the same conceptual subject. Anchor ancestry, references, imports, scope, relationships, and structural proximity can all strengthen or weaken that conclusion.

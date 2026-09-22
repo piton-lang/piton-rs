@@ -106,6 +106,25 @@ pub fn walk(root: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Resolves a path the user typed to the form the module graph stores.
+///
+/// A project is loaded from absolute paths, so a module is keyed by one. A
+/// relative path typed on the command line has to be resolved against the
+/// working directory before it will match anything, which is what makes
+/// `piton analyze spec/Thing.pi` find the same module as the absolute form.
+pub fn canonical_target(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    // `canonicalize` also resolves symlinks, which would stop the result
+    // matching a graph keyed by the path as written; normalizing does not.
+    piton_compile::module::normalize(&absolute)
+}
+
 /// Shortens a path for display relative to the project root.
 pub fn display(path: &Path, root: &Path) -> String {
     path.strip_prefix(root)

@@ -48,6 +48,16 @@ enum Command {
         /// Show every piece of evidence behind a finding
         #[arg(long)]
         explain: bool,
+        /// List every claim that was extracted, and stop
+        #[arg(long)]
+        claims: bool,
+        /// Report how much of the specbase the analysis could read, and stop
+        #[arg(long)]
+        coverage: bool,
+        /// Output format: human, or interpretation for a restatement of what
+        /// the analysis understood
+        #[arg(long)]
+        format: Option<String>,
         /// Lowest severity to report: error, warning, or information
         #[arg(long)]
         min_severity: Option<String>,
@@ -82,6 +92,10 @@ enum Command {
         /// Write each result next to its input with the adapter's extension
         #[arg(long)]
         write: bool,
+        /// Wrap the result with the source files it was compiled from, for a
+        /// build tool that has to watch them
+        #[arg(long)]
+        dependencies: bool,
     },
 
     /// Apply canonical formatting
@@ -122,15 +136,26 @@ fn main() -> ExitCode {
         Command::Analyze {
             targets,
             explain,
+            claims,
+            coverage,
+            format,
             min_severity,
-        } => commands::analyze::run(&targets, explain, min_severity.as_deref()),
+        } => commands::analyze::run(
+            &targets,
+            explain,
+            claims,
+            coverage,
+            format.as_deref(),
+            min_severity.as_deref(),
+        ),
         Command::Build { config, dry_run } => commands::build::run(config.as_deref(), dry_run),
         Command::Check { paths } => commands::check::run(&paths),
         Command::Compile {
             path,
             adapter,
             write,
-        } => commands::compile::run(&path, &adapter, write),
+            dependencies,
+        } => commands::compile::run(&path, &adapter, write, dependencies),
         Command::Format { path, check } => commands::format::run(path.as_deref(), check),
         Command::Loc { paths } => commands::loc::run(&paths),
         Command::Lsp => commands::lsp::run(),

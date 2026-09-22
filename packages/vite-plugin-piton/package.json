@@ -1,0 +1,32 @@
+{
+  "name": "vite-plugin-piton",
+  "version": "0.1.0",
+  "description": "Import .pi files in Vite, with hot reload and dependency tracking.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./renderers": {
+      "types": "./dist/renderers.d.ts",
+      "import": "./dist/renderers.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/"
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0 || ^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "tree-sitter-piton",
+  "version": "0.1.0",
+  "description": "Piton grammar for tree-sitter",
+  "main": "bindings/node",
+  "keywords": ["parser", "piton"],
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.piton",
+      "file-types": ["pi"],
+      "injection-regex": "^piton$"
+    }
+  ],
+  "devDependencies": {
+    "tree-sitter-cli": "^0.22.0"
+  }
+}

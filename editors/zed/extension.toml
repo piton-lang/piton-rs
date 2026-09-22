@@ -1,0 +1,16 @@
+id = "piton"
+name = "Piton"
+description = "Piton language support: tree-sitter highlighting and the Piton language server."
+version = "0.1.0"
+schema_version = 1
+authors = ["Piton"]
+repository = "https://github.com/mctavishdynamics/piton"
+
+[grammars.piton]
+repository = "https://github.com/mctavishdynamics/piton"
+path = "editors/tree-sitter-piton"
+commit = "HEAD"
+
+[language_servers.piton]
+name = "Piton"
+languages = ["Piton"]

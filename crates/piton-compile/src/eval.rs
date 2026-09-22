@@ -65,6 +65,15 @@ pub struct Outcome {
     pub anchors: HashMap<AnchorId, Properties>,
     pub variables: HashMap<VariableId, Value>,
     pub diagnostics: Vec<Diagnostic>,
+    /// Text an anchor quoted rather than asserted, keyed by the anchor it was
+    /// written in.
+    ///
+    /// Quotation marks around a whole paragraph are syntax: they mark the text
+    /// as *mentioned*. Evaluation strips them, because the quotes are not part
+    /// of the value, and that would otherwise leave a quoted example
+    /// indistinguishable from a statement the document makes. Recording it here
+    /// keeps the distinction available to anything that reads the prose back.
+    pub mentioned: HashMap<AnchorId, Vec<String>>,
 }
 
 /// Evaluates every anchor and variable in the resolution.
@@ -76,6 +85,7 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
         variables: HashMap::new(),
         variable_stack: Vec::new(),
         anchors: HashMap::new(),
+        mentioned: HashMap::new(),
         diagnostics: Vec::new(),
     };
 
@@ -92,6 +102,7 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
         anchors: evaluator.anchors,
         variables: evaluator.variables,
         diagnostics: evaluator.diagnostics,
+        mentioned: evaluator.mentioned,
     }
 }
 
@@ -104,6 +115,7 @@ struct Evaluator<'a> {
     variables: HashMap<VariableId, Value>,
     variable_stack: Vec<VariableId>,
     anchors: HashMap<AnchorId, Properties>,
+    mentioned: HashMap<AnchorId, Vec<String>>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -516,6 +528,24 @@ impl<'a> Evaluator<'a> {
                     quoted_paragraphs.push(false);
                 }
                 _ => {}
+            }
+        }
+
+        // A paragraph written entirely inside quotation marks is being
+        // mentioned. The quotes come off, so the note is kept instead.
+        if let Some(anchor) = context.derived {
+            for (paragraph, quoted) in paragraphs.iter().zip(&quoted_paragraphs) {
+                if !quoted {
+                    continue;
+                }
+                if let Some(text) = paragraph.as_plain() {
+                    if !text.trim().is_empty() {
+                        self.mentioned
+                            .entry(anchor)
+                            .or_default()
+                            .push(text.to_string());
+                    }
+                }
             }
         }
 

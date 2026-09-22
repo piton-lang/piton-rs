@@ -9,6 +9,7 @@ export cli-command Compile:
     namedArguments:
         adapter: Valid options are [ json, yaml, markdown ]
         write: null
+        dependencies: null
 
     description:
         Compiles Piton
@@ -20,3 +21,12 @@ export cli-command Compile:
         If ${self.namedArguments.write} is set, the compiled result will be
         written to a file with the appropriate extension for the selected
         ${self.namedArguments.adapter} that lives next to the input file.
+
+        If ${self.namedArguments.dependencies} is set, the result is wrapped
+        with the source files it was compiled from. A build tool that imports a
+        Piton file has to know which other files to watch, and only the
+        compiler knows: imports resolve through the module graph, and a package
+        may keep a file somewhere the importing text never names.
+
+        Bundled package files are left out, since they live inside the compiler
+        rather than on disk.

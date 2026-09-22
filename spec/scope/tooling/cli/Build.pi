@@ -7,3 +7,15 @@ export cli-command Build:
 
     description:
         Builds the project as configured by piton.config.pi
+
+    manifest:
+        In a .piton directory that lives alongside the piton.config.pi file,
+        a manifest.json file will be written with the build output.
+
+        ```
+        \\\
+        {
+            "generated": [ pathToGeneratedFiles ]
+        }
+        \\\
+        ```

@@ -1,0 +1,88 @@
+/**
+ * Running the Piton compiler.
+ *
+ * The compiler is the `piton` binary rather than a reimplementation in
+ * TypeScript. Anything else would be a second implementation of the language
+ * that could disagree with the first, and the disagreement would surface as a
+ * build that succeeds while `piton check` fails.
+ */
+
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const run = promisify(execFile);
+
+/** Output formats the compiler can render a file through. */
+export type Adapter = 'json' | 'yaml' | 'markdown';
+
+/** A compiled file, with the sources it was built from. */
+export interface Compiled {
+  /** The rendered output, as text in the adapter's own format. */
+  value: string;
+  /**
+   * Every `.pi` file the compilation read, including the entry.
+   *
+   * Imports resolve through the module graph, so a file can depend on one the
+   * importing text never names. Watching these is what makes an edit to an
+   * imported file reload the importer.
+   */
+  dependencies: string[];
+}
+
+export interface CompilerOptions {
+  /** Path to the `piton` binary. */
+  binary: string;
+  /** Directory to run in, so a relative `piton.config.pi` resolves. */
+  cwd: string;
+}
+
+/**
+ * Raised when the compiler reports a problem.
+ *
+ * The compiler's own diagnostics are the message. They name the file, line and
+ * cause already, and rewriting them here would only make them worse.
+ */
+export class PitonError extends Error {
+  constructor(
+    readonly file: string,
+    readonly diagnostics: string,
+  ) {
+    super(diagnostics.trim() || `piton failed on ${file}`);
+    this.name = 'PitonError';
+  }
+}
+
+/** Compiles one file, and reports what it read. */
+export async function compile(
+  file: string,
+  adapter: Adapter,
+  options: CompilerOptions,
+): Promise<Compiled> {
+  let stdout: string;
+  try {
+    const result = await run(
+      options.binary,
+      ['compile', '--adapter', adapter, '--dependencies', file],
+      { cwd: options.cwd, maxBuffer: 64 * 1024 * 1024 },
+    );
+    stdout = result.stdout;
+  } catch (error) {
+    const failure = error as { stderr?: string; stdout?: string; code?: string };
+    if (failure.code === 'ENOENT') {
+      throw new PitonError(
+        file,
+        `cannot run \`${options.binary}\`. Install the Piton compiler, or set ` +
+          `the \`binary\` option to its path.`,
+      );
+    }
+    throw new PitonError(file, failure.stderr ?? failure.stdout ?? String(error));
+  }
+
+  let parsed: Compiled;
+  try {
+    parsed = JSON.parse(stdout) as Compiled;
+  } catch {
+    throw new PitonError(file, `the compiler returned output that is not JSON:\n${stdout}`);
+  }
+  return parsed;
+}

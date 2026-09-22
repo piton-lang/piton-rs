@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language SYSTEM "language.dtd">
+<!--
+  Piton for Kate, via KSyntaxHighlighting.
+
+  Piton is whitespace-structured and most of its content is prose, so this
+  highlights the structure and leaves the prose alone. Everything beyond
+  highlighting comes from the language server, `piton lsp`.
+-->
+<language name="Piton"
+          section="Sources"
+          version="1"
+          kateversion="5.79"
+          extensions="*.pi"
+          mimetype="text/x-piton"
+          indenter="normal"
+          license="MIT OR Apache-2.0"
+          author="Piton">
+  <highlighting>
+    <list name="declaration">
+      <item>use</item>
+      <item>from</item>
+      <item>import</item>
+      <item>export</item>
+      <item>anchor</item>
+      <item>abstract</item>
+      <item>as</item>
+      <item>extends</item>
+      <item>pass</item>
+    </list>
+    <list name="types">
+      <item>string</item>
+      <item>number</item>
+      <item>boolean</item>
+      <item>null</item>
+      <item>list</item>
+      <item>dictionary</item>
+      <item>anchor</item>
+      <item>reference</item>
+      <item>any</item>
+      <item>simple</item>
+      <item>complex</item>
+    </list>
+    <list name="constants">
+      <item>true</item>
+      <item>false</item>
+      <item>null</item>
+    </list>
+    <list name="selfReference">
+      <item>this</item>
+      <item>self</item>
+      <item>super</item>
+    </list>
+
+    <contexts>
+      <context name="Normal" attribute="Prose" lineEndContext="#stay">
+        <!-- A line of backslashes delimits a block whose contents are literal. -->
+        <RegExpr String="^\s*\\+\s*$" attribute="Marker" context="EscapeBlock"/>
+        <!-- Fenced content is verbatim. -->
+        <RegExpr String="^\s*`{3,}.*$" attribute="Marker" context="Fence"/>
+        <!-- A comment opens only after whitespace. -->
+        <RegExpr String="(^|\s)//.*$" attribute="Comment"/>
+
+        <RegExpr String="^\s*(use|from)\s+" attribute="Keyword" context="ImportPath"/>
+        <keyword String="declaration" attribute="Keyword"/>
+
+        <!-- A key is any text without spaces followed by a colon. -->
+        <RegExpr String="^\s*[^\s:]+(?=(::[^:]*)*:(\s|$))" attribute="Property"/>
+        <RegExpr String="::\s*(extends\s+)?" attribute="Operator" context="TypeConstraint"/>
+
+        <RegExpr String="^\s*-(?=\s|$)" attribute="Marker"/>
+        <RegExpr String="^\s*\+\+?(?=\s|$)" attribute="Operator"/>
+
+        <RegExpr String="(\$|#|@)?\{" attribute="Sigil" context="Interpolation"/>
+      </context>
+
+      <context name="ImportPath" attribute="Path" lineEndContext="#pop">
+        <keyword String="declaration" attribute="Keyword"/>
+        <DetectChar char="," attribute="Operator"/>
+        <RegExpr String="\*" attribute="Marker"/>
+      </context>
+
+      <context name="TypeConstraint" attribute="Type" lineEndContext="#pop">
+        <keyword String="types" attribute="DataType"/>
+        <StringDetect String="[]" attribute="Operator"/>
+        <DetectChar char=":" attribute="Operator" context="#pop"/>
+      </context>
+
+      <context name="Interpolation" attribute="Expression" lineEndContext="#pop">
+        <DetectChar char="}" attribute="Sigil" context="#pop"/>
+        <keyword String="constants" attribute="Constant"/>
+        <keyword String="selfReference" attribute="Builtin"/>
+        <RegExpr String="\b\d[\d_]*(\.[\d_]+)?\b" attribute="Number"/>
+        <DetectChar char="&quot;" attribute="String" context="String"/>
+        <RegExpr String="\+\+|==|!=|&lt;=|&gt;=|&amp;&amp;|\|\||[-+*/%&lt;&gt;!?:.]" attribute="Operator"/>
+        <RegExpr String="\b[A-Z][A-Za-z0-9_]*\b" attribute="Type"/>
+      </context>
+
+      <context name="String" attribute="String" lineEndContext="#pop">
+        <RegExpr String="\\." attribute="Escape"/>
+        <DetectChar char="&quot;" attribute="String" context="#pop"/>
+      </context>
+
+      <context name="Fence" attribute="Verbatim" lineEndContext="#stay">
+        <RegExpr String="^\s*`{3,}\s*$" attribute="Marker" context="#pop"/>
+      </context>
+
+      <context name="EscapeBlock" attribute="Verbatim" lineEndContext="#stay">
+        <RegExpr String="^\s*\\+\s*$" attribute="Marker" context="#pop"/>
+      </context>
+    </contexts>
+
+    <itemDatas>
+      <itemData name="Prose"      defStyleNum="dsNormal"/>
+      <itemData name="Comment"    defStyleNum="dsComment"/>
+      <itemData name="Keyword"    defStyleNum="dsKeyword"/>
+      <itemData name="Property"   defStyleNum="dsVariable"/>
+      <itemData name="Type"       defStyleNum="dsDataType"/>
+      <itemData name="DataType"   defStyleNum="dsBuiltIn"/>
+      <itemData name="Constant"   defStyleNum="dsConstant"/>
+      <itemData name="Builtin"    defStyleNum="dsBuiltIn"/>
+      <itemData name="Number"     defStyleNum="dsDecVal"/>
+      <itemData name="String"     defStyleNum="dsString"/>
+      <itemData name="Escape"     defStyleNum="dsSpecialChar"/>
+      <itemData name="Operator"   defStyleNum="dsOperator"/>
+      <itemData name="Marker"     defStyleNum="dsSpecialChar"/>
+      <itemData name="Sigil"      defStyleNum="dsSpecialChar"/>
+      <itemData name="Path"       defStyleNum="dsString"/>
+      <itemData name="Expression" defStyleNum="dsNormal"/>
+      <itemData name="Verbatim"   defStyleNum="dsVerbatimString"/>
+    </itemDatas>
+  </highlighting>
+
+  <general>
+    <comments>
+      <comment name="singleLine" start="//"/>
+    </comments>
+    <keywords casesensitive="1" additionalDeliminator="-"/>
+  </general>
+</language>

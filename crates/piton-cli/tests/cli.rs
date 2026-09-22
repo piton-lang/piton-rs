@@ -523,6 +523,130 @@ export anchor Second:
 }
 
 #[test]
+fn a_relative_file_argument_resolves() {
+    // The module graph is keyed by absolute paths, so a relative argument has
+    // to be resolved before it will match anything.
+    let fixture = Fixture::new("relative-target");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./Design import Design\n\nexport anchor Root:\n    uses: {Design}\n",
+    );
+    fixture.write(
+        "spec/Design.pi",
+        "export anchor Design:\n    palette: The save button is blue.\n    theme: The save button is red.\n",
+    );
+
+    for target in ["spec/Design.pi", "./spec/Design.pi"] {
+        let (_, stderr, code) = fixture.run(&["analyze", target]);
+        assert_eq!(code, 1, "`{target}` should be found and analysed:\n{stderr}");
+        assert!(stderr.contains("describe `save button` incompatibly"), "{stderr}");
+    }
+
+    let (stdout, stderr, code) = fixture.run(&["reach", "spec/Design.pi"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Design"), "{stdout}");
+}
+
+#[test]
+fn analyze_reads_the_whole_project() {
+    // Two anchors in separate files, neither of them the entry point.
+    let fixture = Fixture::new("whole-project");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./Palette import Palette\nfrom ./Theme import Theme\n\nexport anchor Root:\n    a: {Palette}\n    b: {Theme}\n",
+    );
+    fixture.write(
+        "spec/Palette.pi",
+        "export anchor Palette:\n    rule: The save button is blue.\n",
+    );
+    fixture.write(
+        "spec/Theme.pi",
+        "export anchor Theme:\n    rule: The save button is red.\n",
+    );
+
+    let (_, stderr, code) = fixture.run(&["analyze"]);
+    assert_eq!(code, 0, "distant files produce a weaker finding:\n{stderr}");
+    assert!(stderr.contains("describe `save button` incompatibly"), "{stderr}");
+    assert!(stderr.contains("Palette.pi"), "{stderr}");
+    assert!(stderr.contains("Theme.pi"), "{stderr}");
+}
+
+#[test]
+fn bare_analyze_reports_errors_and_exits_non_zero() {
+    // The specification says running `piton analyze` reports errors and
+    // warnings, so it has to do that with no arguments and no flags.
+    let fixture = Fixture::new("bare-analyze");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "export anchor Cli:\n    description:\n        The CLI is written in Rust.\n        The CLI is written in Python.\n",
+    );
+
+    let (_, stderr, code) = fixture.run(&["analyze"]);
+    assert_eq!(code, 1, "an error has to fail the run:\n{stderr}");
+    assert!(stderr.starts_with("error:"), "{stderr}");
+    assert!(stderr.contains("The CLI is written in Rust."), "{stderr}");
+    assert!(stderr.contains("The CLI is written in Python."), "{stderr}");
+    assert!(stderr.contains("1 error, 0 warnings"), "{stderr}");
+}
+
+#[test]
+fn analyze_lists_what_it_read() {
+    let fixture = Fixture::new("claims");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "export anchor Design:\n    palette: The save button is blue.\n    note: Read the specification carefully.\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["analyze", "--claims"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Design.palette"), "{stdout}");
+    assert!(stdout.contains("subject: save button"), "{stdout}");
+    assert!(stdout.contains("value: blue"), "{stdout}");
+    // An imperative is a claim about the anchor it was written in, and it is
+    // a requirement rather than a statement of fact.
+    assert!(stdout.contains("Read the specification"), "{stdout}");
+    assert!(stdout.contains("subject: design"), "{stdout}");
+    assert!(stdout.contains("[required]"), "{stdout}");
+    // The adverb is shown in the source line but is not part of the claim.
+    assert!(stdout.contains("value: specification\n"), "{stdout}");
+    assert!(stderr.contains("2 claims from 1 file"), "{stderr}");
+}
+
+#[test]
+fn analyze_ignores_a_quoted_example() {
+    // Quoting a statement is describing it, not making it.
+    let fixture = Fixture::new("quoted-example");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "export anchor Doc:\n    example:\n        For example:\n\n        \"The save button is blue\"\n\n        and elsewhere\n\n        \"The save button is red\"\n",
+    );
+
+    let (_, stderr, code) = fixture.run(&["analyze"]);
+    assert_eq!(code, 0, "an example is not a contradiction:\n{stderr}");
+    assert!(stderr.contains("no contradictions found"), "{stderr}");
+}
+
+#[test]
 fn help_lists_every_documented_command() {
     let output = Command::new(binary()).arg("--help").output().expect("help");
     let text = String::from_utf8_lossy(&output.stdout);
@@ -551,4 +675,117 @@ fn rebuilding_produces_identical_bytes() {
     assert_eq!(code, 0, "{stderr}");
     let after: Vec<String> = paths.iter().map(|p| fixture.read(p)).collect();
     assert_eq!(before, after, "a second build must produce the same bytes");
+}
+
+#[test]
+fn analyze_reports_coverage() {
+    let fixture = Fixture::new("analyze-coverage");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config
+
+export piton-config Config:
+    root: ./spec
+    entry: ./spec/index.pi
+",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "export anchor Design:
+    a: The save button is blue.
+    b: The parser will frobnicate the input.
+",
+    );
+
+    let (stdout, _, code) = fixture.run(&["analyze", "--coverage"]);
+    assert_eq!(code, 0, "coverage reports, it does not judge: {stdout}");
+    assert!(stdout.contains("Specbase"), "{stdout}");
+    // One of two sentences read.
+    assert!(stdout.contains("50.0% of the specbase was read"), "{stdout}");
+    // And it names what stopped the other one.
+    assert!(stdout.contains("no verb the lexicon knows"), "{stdout}");
+    assert!(stdout.contains("frobnicate"), "{stdout}");
+}
+
+#[test]
+fn analyze_restates_what_it_understood() {
+    let fixture = Fixture::new("analyze-interpretation");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "export anchor SkillAdapter:\n    \
+         a: The save button is blue.\n    \
+         b: Emit the prompt as the skill body.\n    \
+         c: The adapters emit a skill.\n",
+    );
+
+    let (stdout, _, code) = fixture.run(&["analyze", "--format=interpretation"]);
+    assert_eq!(code, 0, "{stdout}");
+    assert!(stdout.starts_with("# Specification interpretation"), "{stdout}");
+    // Grouped under the anchor it constrains, with its source line.
+    assert!(stdout.contains("## SkillAdapter"), "{stdout}");
+    assert!(stdout.contains("spec/index.pi:"), "{stdout}");
+
+    // A predication is restated as what something is.
+    assert!(stdout.contains("Save button is blue."), "{stdout}");
+    // An imperative is restated against the anchor, as a requirement.
+    assert!(
+        stdout.contains("SkillAdapter must produce the prompt."),
+        "{stdout}"
+    );
+    // The verb is the relation it was read as, and it agrees with a plural
+    // subject.
+    assert!(stdout.contains("Adapters produce a skill."), "{stdout}");
+
+    // The reading is partial, and says so.
+    assert!(stdout.contains("partial reading"), "{stdout}");
+}
+
+#[test]
+fn analyze_rejects_an_unknown_format() {
+    let fixture = Fixture::new("analyze-bad-format");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write("spec/index.pi", "export anchor A:\n    a: The button is blue.\n");
+
+    let (_, stderr, code) = fixture.run(&["analyze", "--format=yaml"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("unknown format `yaml`"), "{stderr}");
+}
+
+#[test]
+fn compile_can_report_what_it_read() {
+    let fixture = Fixture::new("compile-dependencies");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "spec/base.pi",
+        "export anchor Base:\n    kind: base\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./base import Base\n\nexport anchor Thing:\n    uses: {Base}\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&[
+        "compile",
+        "--adapter",
+        "json",
+        "--dependencies",
+        "spec/index.pi",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("\"value\""), "{stdout}");
+    // The imported file is a dependency even though the caller never named it.
+    assert!(stdout.contains("spec/base.pi"), "{stdout}");
+    assert!(stdout.contains("spec/index.pi"), "{stdout}");
+    // A bundled package lives in the binary and cannot be watched.
+    assert!(!stdout.contains("\"@piton"), "{stdout}");
 }

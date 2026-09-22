@@ -11,6 +11,9 @@ from ./editors/NeoVim import NeoVim
 from ./editors/Sublime import Sublime
 from ./editors/Vim import Vim
 
+from ./vite import VitePlugin
+from ./astro import AstroPlugin
+
 export anchor Tooling:
     cli: @{Cli}
     projectConfig: @{ProjectConfig}
@@ -26,3 +29,7 @@ export anchor Tooling:
         - @{Vim}
         - @{VsCode}
         - @{Zed}
+
+    consumption:
+        - @{AstroPlugin}
+        - @{VitePlugin}

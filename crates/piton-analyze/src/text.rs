@@ -18,6 +18,11 @@ pub struct Token {
     pub lemma: String,
     /// Offset of the token within the text it was taken from.
     pub offset: usize,
+    /// True when punctuation separated this token from the one before it.
+    ///
+    /// A noun phrase does not reach back across a comma, so this is what stops
+    /// a subject swallowing the clause in front of it.
+    pub break_before: bool,
 }
 
 impl Token {
@@ -67,7 +72,7 @@ pub fn sentences(text: &str) -> Vec<Sentence> {
             let terminal = matches!(ch, '.' | '!' | '?' | ';');
             let line_break = ch == '\n';
 
-            if terminal && !ends_abbreviation(segment, offset) {
+            if terminal && !ends_abbreviation(segment, offset) && !inside_token(&chars, index) {
                 let end = next_boundary(&chars, index + 1);
                 push_sentence(&mut out, segment, start, end, base);
                 start = end;
@@ -149,6 +154,21 @@ fn prose_segments(text: &str) -> Vec<(&str, usize)> {
     out
 }
 
+/// True when a terminal character is inside a token rather than ending one.
+///
+/// `AGENTS.md`, `index.pi` and `3.14` all carry a period that no sentence ends
+/// on. A following lowercase letter or digit with no space is the signal: a
+/// real sentence break is followed by a space, and `end.Next` still splits.
+fn inside_token(chars: &[(usize, char)], index: usize) -> bool {
+    if chars[index].1 != '.' {
+        return false;
+    }
+    match chars.get(index + 1) {
+        Some((_, next)) => next.is_ascii_lowercase() || next.is_ascii_digit(),
+        None => false,
+    }
+}
+
 /// True when the period at `offset` closes a known abbreviation or a single
 /// initial rather than a sentence.
 fn ends_abbreviation(text: &str, offset: usize) -> bool {
@@ -178,7 +198,9 @@ pub fn tokenize(text: &str) -> Vec<Token> {
     let mut current = String::new();
     let mut start = 0usize;
 
-    let flush = |current: &mut String, start: usize, out: &mut Vec<Token>| {
+    let mut pending_break = false;
+
+    let flush = |current: &mut String, start: usize, out: &mut Vec<Token>, brk: &mut bool| {
         if current.is_empty() {
             return;
         }
@@ -192,6 +214,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
             normalized,
             text,
             offset: start,
+            break_before: std::mem::take(brk),
         });
     };
 
@@ -202,10 +225,14 @@ pub fn tokenize(text: &str) -> Vec<Token> {
             }
             current.push(ch);
         } else {
-            flush(&mut current, start, &mut out);
+            flush(&mut current, start, &mut out, &mut pending_break);
+            // A noun phrase does not reach back across punctuation.
+            if matches!(ch, ',' | ';' | ':' | '(' | ')' | '—' | '–') {
+                pending_break = true;
+            }
         }
     }
-    flush(&mut current, start, &mut out);
+    flush(&mut current, start, &mut out, &mut pending_break);
     out
 }
 
@@ -274,7 +301,12 @@ fn is_plausible_stem(stem: &str) -> bool {
     stem.chars().count() >= 3 && stem.chars().any(|c| "aeiouy".contains(c))
 }
 
-/// Undoes the consonant doubling English adds before `-ing` and `-ed`.
+/// Repairs the stem left behind by `-ing` and `-ed`.
+///
+/// English drops a silent `e` and doubles a final consonant before those
+/// endings, so stripping them leaves something that is not the stem: `saved`
+/// gives `sav` and `stopped` gives `stopp`. Putting the `e` back matters
+/// because `save` has to match the `save` in `save button`.
 fn undouble(stem: &str) -> String {
     let chars: Vec<char> = stem.chars().collect();
     if chars.len() >= 3 {
@@ -284,11 +316,53 @@ fn undouble(stem: &str) -> String {
             return chars[..chars.len() - 1].iter().collect();
         }
     }
-    // A bare consonant cluster usually wants its `e` back: `us` -> `use`.
-    if chars.len() >= 2 && !"aeiouy".contains(chars[chars.len() - 1]) {
-        return stem.to_string();
+    if needs_silent_e(&chars) {
+        return format!("{stem}e");
     }
     stem.to_string()
+}
+
+/// True when a stripped stem lost a silent `e`.
+///
+/// Two cases, following the usual rules: an ending that only occurs with one
+/// (`-at`, `-bl`, `-iz`), and a short stem ending consonant-vowel-consonant,
+/// where `sav` wants `save` but `render` does not want `rendere`.
+fn needs_silent_e(chars: &[char]) -> bool {
+    let stem: String = chars.iter().collect();
+    if stem.ends_with("at") || stem.ends_with("bl") || stem.ends_with("iz") {
+        return true;
+    }
+    if measure(chars) != 1 {
+        return false;
+    }
+    let mut tail = chars.iter().rev();
+    let (Some(last), Some(middle), Some(first)) = (tail.next(), tail.next(), tail.next()) else {
+        return false;
+    };
+    // `w`, `x` and `y` never take the `e`.
+    is_consonant(*first)
+        && !is_consonant(*middle)
+        && is_consonant(*last)
+        && !matches!(last, 'w' | 'x' | 'y')
+}
+
+fn is_consonant(ch: char) -> bool {
+    !"aeiou".contains(ch)
+}
+
+/// Counts the vowel-consonant runs in a stem, which is how long a stem is in
+/// the sense that matters for restoring an `e`.
+fn measure(chars: &[char]) -> usize {
+    let mut count = 0;
+    let mut previous_was_vowel = false;
+    for (index, ch) in chars.iter().enumerate() {
+        let vowel = !is_consonant(*ch) || (*ch == 'y' && index > 0 && is_consonant(chars[index - 1]));
+        if previous_was_vowel && !vowel {
+            count += 1;
+        }
+        previous_was_vowel = vowel;
+    }
+    count
 }
 
 fn irregular(word: &str) -> Option<&'static str> {
@@ -306,6 +380,27 @@ fn irregular(word: &str) -> Option<&'static str> {
         ("does", "do"),
         ("did", "do"),
         ("doing", "do"),
+        // Irregular verb forms, so a past tense reaches the verb it belongs to.
+        ("wrote", "write"),
+        ("written", "write"),
+        ("made", "make"),
+        ("built", "build"),
+        ("held", "hold"),
+        ("found", "find"),
+        ("gave", "give"),
+        ("given", "give"),
+        ("ran", "run"),
+        ("kept", "keep"),
+        ("threw", "throw"),
+        ("thrown", "throw"),
+        ("shown", "show"),
+        ("became", "become"),
+        ("chose", "choose"),
+        ("chosen", "choose"),
+        ("left", "leave"),
+        ("sent", "send"),
+        ("meant", "mean"),
+        ("lost", "lose"),
         ("children", "child"),
         ("people", "person"),
         ("men", "man"),
@@ -379,6 +474,11 @@ mod tests {
         assert_eq!(lemma("buttons"), "button");
         assert_eq!(lemma("copies"), "copy");
         assert_eq!(lemma("matched"), "match");
+        // A silent `e` comes back; a longer stem does not gain one.
+        assert_eq!(lemma("saved"), "save");
+        assert_eq!(lemma("organized"), "organize");
+        assert_eq!(lemma("rendering"), "render");
+        assert_eq!(lemma("reporting"), "report");
         // Words that merely end in those letters are left alone.
         assert_eq!(lemma("class"), "class");
         assert_eq!(lemma("status"), "status");

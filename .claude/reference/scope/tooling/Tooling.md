@@ -24,4 +24,9 @@
 - [VsCode](editors/VsCode.md)
 - [Zed](editors/Zed.md)
 
+## Consumption
+
+- [AstroPlugin](astro/AstroPlugin.md)
+- [VitePlugin](vite/VitePlugin.md)
+
 Links in this document point at reference files. Read one when the work touches what it describes.

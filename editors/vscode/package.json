@@ -1,0 +1,47 @@
+{
+  "name": "piton",
+  "displayName": "Piton",
+  "description": "Syntax highlighting and language support for Piton",
+  "version": "0.1.0",
+  "publisher": "piton",
+  "license": "MIT OR Apache-2.0",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:piton"],
+  "main": "./client.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "piton",
+        "aliases": ["Piton", "piton"],
+        "extensions": [".pi"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "piton",
+        "scopeName": "source.piton",
+        "path": "./syntaxes/piton.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Piton",
+      "properties": {
+        "piton.server.path": {
+          "type": "string",
+          "default": "piton",
+          "description": "Path to the piton executable. The language server runs as `piton lsp`."
+        },
+        "piton.server.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the Piton language server."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

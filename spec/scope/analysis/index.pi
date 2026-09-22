@@ -6,7 +6,8 @@ export anchor Analysis:
         need a way to further parse the text to check what it says against
         cohesive intent.
 
-        Take this example:
+        Note this is an example and should only be viewed as a conceptual
+        example, not a focus of implementation. Take this example:
 
         We might have a spec for a large application, and in one location we
         say "The Save Button is Blue" and elsewhere we say

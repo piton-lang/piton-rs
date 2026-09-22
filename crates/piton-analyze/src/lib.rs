@@ -24,16 +24,17 @@
 
 pub mod claim;
 pub mod lexicon;
+pub mod nlg;
 pub mod structure;
 pub mod text;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use piton_compile::{Compilation, ModuleId};
 use piton_core::{AnchorId, MixedItem, Severity, Span, Value};
 
-use claim::Claim;
+use claim::{Claim, Phrase};
 use structure::{Relation, Site, Structure};
 use text::Sentence;
 
@@ -48,6 +49,12 @@ pub enum Scope {
     /// One anchor.
     Anchor(AnchorId),
 }
+
+/// The contradiction strength below which a finding is not reported.
+///
+/// A pair the lexicon cannot relate scores below this, so it is observed but
+/// stays quiet unless someone lowers the bar with `--min-severity`.
+pub const DEFAULT_MINIMUM_CONTRADICTION: f64 = 0.4;
 
 /// Tuning that must be recorded, because the same source and the same settings
 /// have to produce the same result.
@@ -68,7 +75,7 @@ impl Default for Settings {
             // of anything on their own.
             minimum_structural: 0.15,
             minimum_semantic: 0.5,
-            minimum_contradiction: 0.4,
+            minimum_contradiction: DEFAULT_MINIMUM_CONTRADICTION,
         }
     }
 }
@@ -140,12 +147,75 @@ pub struct Finding {
 #[derive(Debug, Clone, Default)]
 pub struct Report {
     pub findings: Vec<Finding>,
+    /// Every statement that produced a comparable claim, in source order.
+    ///
+    /// Reported by `piton analyze --claims`: a run that finds nothing should
+    /// still be able to show what it read.
+    pub statements: Vec<Statement>,
     /// How many statements produced a comparable claim.
     pub claims: usize,
     /// How many sentences were examined.
     pub sentences: usize,
     /// How many pairs were compared after the locality cutoffs.
     pub compared: usize,
+    /// What the analysis read and what it did not.
+    pub coverage: Coverage,
+}
+
+/// How much of the specbase the analysis could read.
+///
+/// The analysis only reads two sentence shapes, and the rest produces nothing.
+/// That is deliberate, but it means a clean run is ambiguous on its own: it can
+/// mean the prose agrees, or it can mean almost none of it was read. This is
+/// the number that tells those apart.
+#[derive(Debug, Default, Clone)]
+pub struct Coverage {
+    /// Files holding at least one anchor in scope.
+    pub files: usize,
+    /// Anchors in scope.
+    pub anchors: usize,
+    /// Properties on those anchors.
+    pub properties: usize,
+    /// Values that are prose, which is all the analysis can read. Counts
+    /// nested values too, so this is not a subset of `properties`.
+    pub prose_values: usize,
+    /// Sentences found in that prose.
+    pub sentences: usize,
+    /// Sentences that produced a comparable claim.
+    pub claims: usize,
+    /// Sentences the document was quoting rather than asserting.
+    pub mentioned: usize,
+    /// Sentences that produced no claim, counted by reason.
+    pub gaps: BTreeMap<String, usize>,
+    /// Values that are not prose at all: a list item, an enum value, an
+    /// identifier. They are excluded from `sentences`, because counting
+    /// `claude-code` as an unread sentence says nothing about how much of the
+    /// prose was understood.
+    pub fragments: usize,
+    /// Words that sit where a verb would but that the lexicon does not name,
+    /// most frequent first. These are what would widen coverage.
+    pub unknown_verbs: Vec<(String, usize)>,
+}
+
+/// Running counts while statements are collected.
+#[derive(Default)]
+struct Tally {
+    prose_values: usize,
+    sentences: usize,
+    mentioned: usize,
+    fragments: usize,
+    gaps: BTreeMap<String, usize>,
+    unknown_verbs: BTreeMap<String, usize>,
+}
+
+impl Coverage {
+    /// The share of sentences that produced a claim, from 0 to 1.
+    pub fn understood(&self) -> f64 {
+        if self.sentences == 0 {
+            return 0.0;
+        }
+        self.claims as f64 / self.sentences as f64
+    }
 }
 
 impl Report {
@@ -165,12 +235,14 @@ impl Report {
 
 /// Runs the analysis.
 pub fn analyze(compilation: &Compilation, scope: &Scope, settings: &Settings) -> Report {
-    let statements = collect_statements(compilation, scope);
+    let (statements, coverage) = collect_statements(compilation, scope);
     let structure = Structure::build(compilation);
 
     let mut report = Report {
         claims: statements.len(),
-        sentences: statements.len(),
+        sentences: coverage.sentences,
+        statements: statements.clone(),
+        coverage,
         ..Report::default()
     };
 
@@ -223,6 +295,13 @@ pub fn analyze(compilation: &Compilation, scope: &Scope, settings: &Settings) ->
         });
     }
 
+    report.statements.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(a.span().start.cmp(&b.span().start))
+            .then(a.sentence.offset.cmp(&b.sentence.offset))
+    });
+
     // Output order must not depend on traversal order.
     report.findings.sort_by(|a, b| {
         a.severity
@@ -265,7 +344,7 @@ fn explain(
 }
 
 /// Walks the resolved values and pulls out every sentence that makes a claim.
-fn collect_statements(compilation: &Compilation, scope: &Scope) -> Vec<Statement> {
+fn collect_statements(compilation: &Compilation, scope: &Scope) -> (Vec<Statement>, Coverage) {
     let anchors: Vec<AnchorId> = match scope {
         Scope::Anchor(anchor) => vec![*anchor],
         Scope::Module(module) => compilation
@@ -286,6 +365,9 @@ fn collect_statements(compilation: &Compilation, scope: &Scope) -> Vec<Statement
     };
 
     let mut out = Vec::new();
+    let mut tally = Tally::default();
+    let mut coverage = Coverage::default();
+    let mut files: BTreeSet<PathBuf> = BTreeSet::new();
     // An inherited property resolves onto every anchor that inherits it, so the
     // same sentence would otherwise be collected once per descendant and
     // reported that many times. Keying on the declaration that supplies the
@@ -300,6 +382,11 @@ fn collect_statements(compilation: &Compilation, scope: &Scope) -> Vec<Statement
             // A bundled package is the compiler's own vocabulary.
             continue;
         }
+        // An imperative's subject is the anchor it was written in.
+        let context = Phrase::from_name(&def.name);
+        coverage.anchors += 1;
+        coverage.properties += def.properties.len();
+        files.insert(path.clone());
         for (name, value) in &def.properties {
             // Point at the declaration that supplies the value, which for an
             // inherited property is in the base that declares it.
@@ -316,6 +403,7 @@ fn collect_statements(compilation: &Compilation, scope: &Scope) -> Vec<Statement
             };
             let owner = def.slots.get(name).map(|slot| slot.owner).unwrap_or(anchor);
             let mut collected = Vec::new();
+            let mut collected_gaps: Vec<(String, claim::Gap)> = Vec::new();
             visit(
                 value,
                 name,
@@ -327,8 +415,36 @@ fn collect_statements(compilation: &Compilation, scope: &Scope) -> Vec<Statement
                 },
                 &path,
                 &def.name,
+                context.as_ref(),
                 &mut collected,
+                &mut collected_gaps,
+                &mut tally,
             );
+            // A statement the document quoted is one it described, not one it
+            // made. The quotes are gone from the value by now, so the
+            // compilation is asked instead.
+            let before = collected.len();
+            collected.retain(|statement| {
+                !compilation.is_mentioned(anchor, &statement.sentence.text)
+            });
+            tally.mentioned += before - collected.len();
+            for (text, gap) in collected_gaps {
+                if !seen.insert((owner, name.clone(), text)) {
+                    continue;
+                }
+                if gap == claim::Gap::NotASentence {
+                    tally.fragments += 1;
+                    continue;
+                }
+                tally.sentences += 1;
+                if let claim::Gap::UnknownVerb {
+                    candidate: Some(word),
+                } = &gap
+                {
+                    *tally.unknown_verbs.entry(word.clone()).or_default() += 1;
+                }
+                *tally.gaps.entry(gap.as_str().to_string()).or_default() += 1;
+            }
             for statement in collected {
                 let key = (
                     owner,
@@ -336,12 +452,27 @@ fn collect_statements(compilation: &Compilation, scope: &Scope) -> Vec<Statement
                     statement.sentence.text.clone(),
                 );
                 if seen.insert(key) {
+                    tally.sentences += 1;
                     out.push(statement);
                 }
             }
         }
     }
-    out
+
+    // A mentioned statement was read successfully and then set aside, so it
+    // counts against neither the claims nor the gaps.
+    coverage.files = files.len();
+    coverage.prose_values = tally.prose_values;
+    coverage.sentences = tally.sentences;
+    coverage.claims = out.len();
+    coverage.mentioned = tally.mentioned;
+    coverage.gaps = tally.gaps;
+    coverage.fragments = tally.fragments;
+    let mut verbs: Vec<(String, usize)> = tally.unknown_verbs.into_iter().collect();
+    // Frequency first, then alphabetically, so the list is deterministic.
+    verbs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    coverage.unknown_verbs = verbs;
+    (out, coverage)
 }
 
 fn visit(
@@ -350,16 +481,27 @@ fn visit(
     site: &Site,
     path: &PathBuf,
     anchor_name: &str,
+    context: Option<&Phrase>,
     out: &mut Vec<Statement>,
+    gaps: &mut Vec<(String, claim::Gap)>,
+    tally: &mut Tally,
 ) {
     match value {
         Value::Str(text) => {
+            tally.prose_values += 1;
             // References inside prose are links, not words; rendering them as
             // their anchor name keeps the sentence readable.
             let rendered = text.to_string();
             let cleaned = strip_reference_markers(&rendered);
             for sentence in text::sentences(&cleaned) {
-                if let Some(claim) = claim::extract(&sentence) {
+                let claim = match claim::explain(&sentence, context) {
+                    Ok(claim) => claim,
+                    Err(gap) => {
+                        gaps.push((sentence.text.clone(), gap));
+                        continue;
+                    }
+                };
+                {
                     out.push(Statement {
                         site: Site {
                             property: property_path.to_string(),
@@ -375,13 +517,13 @@ fn visit(
         }
         Value::List(items) => {
             for item in items {
-                visit(item, property_path, site, path, anchor_name, out);
+                visit(item, property_path, site, path, anchor_name, context, out, gaps, tally);
             }
         }
         Value::Dict(map) => {
             for (name, item) in map {
                 let nested = format!("{property_path}.{name}");
-                visit(item, &nested, site, path, anchor_name, out);
+                visit(item, &nested, site, path, anchor_name, context, out, gaps, tally);
             }
         }
         Value::Mixed(mixed) => {
@@ -394,17 +536,20 @@ fn visit(
                             site,
                             path,
                             anchor_name,
+                            context,
                             out,
+                            gaps,
+                            tally,
                         );
                     }
                     MixedItem::List(items) => {
                         for entry in items {
-                            visit(entry, property_path, site, path, anchor_name, out);
+                            visit(entry, property_path, site, path, anchor_name, context, out, gaps, tally);
                         }
                     }
                     MixedItem::Entry(name, value) => {
                         let nested = format!("{property_path}.{name}");
-                        visit(value, &nested, site, path, anchor_name, out);
+                        visit(value, &nested, site, path, anchor_name, context, out, gaps, tally);
                     }
                 }
             }

@@ -65,6 +65,7 @@
     ".claude/reference/scope/language/variables/TypeConstraints.md",
     ".claude/reference/scope/language/variables/Variables.md",
     ".claude/reference/scope/tooling/Tooling.md",
+    ".claude/reference/scope/tooling/astro/AstroPlugin.md",
     ".claude/reference/scope/tooling/cli/Cli.md",
     ".claude/reference/scope/tooling/editors/Emacs.md",
     ".claude/reference/scope/tooling/editors/Helix.md",
@@ -77,6 +78,7 @@
     ".claude/reference/scope/tooling/editors/Zed.md",
     ".claude/reference/scope/tooling/frameworks/Frameworks.md",
     ".claude/reference/scope/tooling/project-config/ProjectConfig.md",
+    ".claude/reference/scope/tooling/vite/VitePlugin.md",
     ".claude/skills/build-tooling/SKILL.md",
     ".claude/skills/inspect-spec/SKILL.md"
   ]

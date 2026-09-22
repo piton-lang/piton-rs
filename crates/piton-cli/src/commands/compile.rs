@@ -8,7 +8,7 @@ use piton_emit::{Adapter, MarkdownContext};
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
-pub fn run(path: &str, adapter: &str, write: bool) -> u8 {
+pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
     let adapter: Adapter = match adapter.parse() {
         Ok(adapter) => adapter,
         Err(message) => {
@@ -69,7 +69,10 @@ pub fn run(path: &str, adapter: &str, write: bool) -> u8 {
             continue;
         }
 
-        let rendered = render(&compilation, input, adapter);
+        let mut rendered = render(&compilation, input, adapter);
+        if dependencies {
+            rendered = envelope(&compilation, &rendered);
+        }
         if write {
             let destination = input.with_extension(adapter.extension());
             if let Err(error) = std::fs::write(&destination, &rendered) {
@@ -130,4 +133,60 @@ fn render(compilation: &Compilation, file: &Path, adapter: Adapter) -> String {
             source_root: &compilation.project.source_root,
         },
     )
+}
+
+/// Wraps a rendered result with the source files it was compiled from.
+///
+/// A build tool that imports a `.pi` file has to know which other files to
+/// watch, and the only thing that knows is the compilation: imports resolve
+/// through the module graph, and a package may put a file somewhere the
+/// importing text never names. So the compiler says, rather than the build
+/// tool guessing.
+///
+/// Bundled package files are left out. They live inside the binary rather than
+/// on disk, so nothing can watch them and their contents only change when the
+/// compiler itself does.
+fn envelope(compilation: &Compilation, rendered: &str) -> String {
+    let mut paths: Vec<String> = compilation
+        .graph()
+        .iter()
+        .map(|module| module.path.clone())
+        .filter(|path| !path.to_string_lossy().starts_with('@'))
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
+    paths.sort();
+    paths.dedup();
+
+    let list = paths
+        .iter()
+        .map(|path| format!("    {}", json_string(path)))
+        .collect::<Vec<_>>()
+        .join(",\n");
+
+    // The rendered output is already text in the adapter's own format, so it
+    // is carried as a string rather than spliced in as JSON: a Markdown render
+    // is not JSON, and a caller that wants the value parses it themselves.
+    format!(
+        "{{\n  \"value\": {},\n  \"dependencies\": [\n{list}\n  ]\n}}\n",
+        json_string(rendered.trim_end())
+    )
+}
+
+/// Quotes a string as JSON.
+fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }

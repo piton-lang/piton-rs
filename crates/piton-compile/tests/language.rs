@@ -1,6 +1,6 @@
 //! The language semantics, checked against the examples in the specification.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use piton_compile::{Compilation, Project};
 use piton_core::{AnchorView, Value};

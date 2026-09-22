@@ -4,6 +4,7 @@ pub mod ast;
 pub mod expr;
 pub mod format;
 pub mod kind;
+pub mod language;
 pub mod parser;
 pub mod prose;
 

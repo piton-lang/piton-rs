@@ -1,6 +1,6 @@
 //! `piton reach` — report what the entrypoints can and cannot see.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use piton_compile::reach;
 
@@ -20,7 +20,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     } else {
         let mut roots = Vec::new();
         for target in targets {
-            let path = PathBuf::from(target);
+            let path = project::canonical_target(Path::new(target));
             if path.is_file() {
                 match compilation.graph().id_for(&path) {
                     Some(module) => {

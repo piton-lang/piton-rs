@@ -1,0 +1,23 @@
+# Piton for Helix.
+#
+# Append to ~/.config/helix/languages.toml, then run `hx --grammar fetch` and
+# `hx --grammar build`. The `piton` binary must be on PATH; install it with
+# `cargo xtask install`.
+
+[language-server.piton]
+command = "piton"
+args = ["lsp"]
+
+[[language]]
+name = "piton"
+scope = "source.piton"
+file-types = ["pi"]
+comment-token = "//"
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["piton"]
+roots = ["piton.config.pi"]
+auto-format = false
+
+[[grammar]]
+name = "piton"
+source = { git = "https://github.com/mctavishdynamics/piton", rev = "HEAD", subpath = "editors/tree-sitter-piton" }

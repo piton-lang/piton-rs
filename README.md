@@ -44,7 +44,7 @@ what would happen. `cargo xtask` on its own lists the tasks.
 | Command | What it does |
 | --- | --- |
 | `piton agent <agent>` | Builds the project, then launches the agent with a primer on how to read it |
-| `piton analyze [targets]` | Reports statements that contradict each other; `--explain` shows every piece of evidence |
+| `piton analyze [targets]` | Reports statements that contradict each other, and exits 1 on any error; `--claims` lists what it read, `--explain` shows the evidence |
 | `piton build [config]` | Compiles the project configured by `piton.config.pi`; `--dry-run` reports without writing |
 | `piton check [paths]` | Validates syntax, imports, references, types, inheritance, composition, exports, and circular dependencies; exits 1 on any error |
 | `piton compile <path>` | Renders one file, or a `--write` glob, through `--adapter json\|yaml\|markdown` |
@@ -65,6 +65,8 @@ crates/piton-belay     the Belay framework and its three target adapters
 crates/piton-lsp       the language server
 crates/piton-cli       the `piton` binary
 crates/xtask           repository automation, run as `cargo xtask <task>`
+editors/               syntax definitions and language-server wiring
+packages/              the Vite and Astro plugins, which have to be JavaScript
 ```
 
 The parser produces a typed AST *and* a lossless rowan tree. The AST is what the
@@ -84,19 +86,180 @@ semantic, structural, and contradiction — combine into a severity. An error
 takes all three to be strong; a weak leg degrades the finding rather than
 suppressing it.
 
+Two claim shapes are recognized: a copular statement says what something *is*,
+and a relational one says what it *does* to something else — `the adapter emits
+a skill` compares with `the adapter does not emit a skill` the way `blue`
+compares with `red`.
+
+A relational claim does not need its subject written down. A specification is
+largely written in the imperative — `Emit the prompt as the skill body`,
+`Reject ambiguous conversions` — where the subject is elided rather than
+absent: it is the anchor the sentence was written in. So the structure supplies
+it, which is what structure does everywhere else here, and the claim is read as
+a requirement rather than a statement of fact. Two anchors that each say what
+they do stay separate subjects, so one adapter emitting what another does not
+is not a contradiction.
+
 Extraction is rule-based over a curated lexicon. There is no statistical
-part-of-speech tagger and no dependency parser, so claims come only from copular
-statements, and the lexicon's relations are the only ones the analysis acts on.
+part-of-speech tagger and no dependency parser, so claims come only from those
+two shapes, and the lexicon's relations are the only ones the analysis acts on.
+
+Relation verbs are grouped by what they assert, and a group is a claim that its
+members say the same thing: `generates` meets `emits`, while `emits a skill`
+and `exposes a skill` stay apart, because in a specification they are not the
+same statement. A word belongs to one group only, since the groups become a
+single map and a second listing would silently overwrite the first. Groups that
+are opposites stay separate — `strengthens` and `weakens` are not one relation
+— which keeps them from wrongly agreeing, at the cost of their not being able
+to contradict each other either; only a value pair the lexicon knows to be
+exclusive does that. Linking
+verbs are not in this table at all: `becomes`, `remains` and `seems` predicate
+their complement the way `is` does, so they are copulas, and `combined becomes
+an implicit list` is read as what that value *is*. Having no tagger also decides which words can be verbs at all.
+English spells many nouns and verbs alike, and `list`, `import`, `output` and
+`reference` are Piton's own nouns far more often than they are verbs, so they
+are left out: read as verbs they cost more claims than they add. Where a word
+genuinely is both, the sentence decides — every candidate is tried in order and
+the first that yields a claim wins, so `the build writes a manifest` is about
+writing, not building.
 That is the point rather than a gap: a sentence it cannot read produces no
 claim, and a value pair it knows nothing about produces no contradiction.
 `The parser is fast` and `The parser is careful` are not a conflict, because
 nothing establishes that they are.
 
-Three rules keep it from inventing conflicts. Quoted text is being *mentioned*,
-so a document that writes `we say "the button is blue"` has described a
-statement rather than made one. Fenced blocks are data, not prose. And two
-phrases only count as one subject when their modifiers are identical or one set
-contains the other, so `the save button` and `the cancel button` stay separate.
+Uncertainty degrades a finding rather than removing it. When the lexicon knows
+two values exclude each other — `blue` and `red`, `visible` and `hidden` — the
+contradiction is certain. When it knows nothing about them, what decides is the
+frame around them, and whether the claim predicates or relates.
+
+`is written in Rust` and `is written in Python` share a predicate and differ
+only in its complement. A subject has one answer to what it *is*, so that is a
+contradiction, and in one property of one anchor it is an error. The same two
+sentences in loosely related anchors carry the same linguistic evidence and
+weaker structural evidence, so the finding degrades rather than disappearing.
+
+`contains a skill` and `contains a command` share a frame too, but a relation
+takes many objects at once, so they do not compete. A restrictive adverb is what
+closes it: `lists can only contain strings` and `lists can only contain
+booleans` each admit one answer and nothing else, so they conflict however many
+objects the verb would otherwise take. Neither `is fast` nor `is careful`
+conflict — they share no frame and can both hold: those observations are kept
+but score below the reporting threshold, where `--min-severity information` can
+still find them.
+
+Adverbs are also why the subject comes out right. Walking back from the verb in
+`lists can only contain strings`, the analysis steps over `can` and `only` alike;
+without an adverb class it would stop at `only` and file the claim under a
+subject that does not exist.
+
+Structural evidence ranks the way authors write. One anchor referencing another
+is a claim that the two are about each other, which says more about a shared
+subject than a shared base does: two operators can inherit one base and still
+describe different things. So a reference outranks common ancestry, and both
+outrank living in the same file.
+
+Negation is the other thing a closed-class table has to get right, because a
+missed negative does not produce a weaker finding — it produces the opposite
+one. A contraction is a single token, since the tokenizer keeps an apostrophe
+inside a word, so `won't` and `hasn't` are listed whole rather than split. A
+negative that sits inside a noun phrase is kept with the phrase and recorded on
+it: `no` is a determiner, and stripping it as a function word would turn `no
+cursor is visible` into the claim that one is. `without` negates in the same way
+a preposition normally would not. Two negatives in one claim cancel.
+
+Existential `there` names nothing, so it is classed as a pronoun and the
+sentence yields no claim. Reading it as a subject would merge every `there
+is...` sentence in a project into a single subject that does not exist.
+
+Several rules keep it from inventing conflicts. Quoted text is being
+*mentioned*, so a document that writes `we say "the button is blue"`, or sets a
+quoted example on its own line, has described a statement rather than made one.
+Fenced blocks are data, not prose. A phrase longer than a noun phrase, or one
+carrying a pronoun, means the sentence was not understood, so it yields no
+claim. And two phrases only count as one subject when their modifiers are
+identical or one set contains the other, so `the save button` and `the cancel
+button` stay separate.
+
+`--claims` lists every claim that was extracted, with the file and property it
+came from. A run that reports nothing is the goal rather than a sign that
+nothing happened, and this is how to see what was actually read.
+
+`--format=interpretation` restates what the analysis understood, as a Markdown
+document meant for a coding agent rather than for someone reading the
+specification — the source already says what it says, and says it better. Each
+claim is rebuilt as a flat sentence and grouped under the anchor it constrains,
+with the line it came from. The noun phrases keep the author's words, since a
+restatement built from stems would read as `The analysi must report example`,
+but the verb is written as the relation it was understood as, so `emits` comes
+back as `produces` and the reader can see which family the sentence landed in.
+Mood, polarity and restriction are the reading rather than the prose, so an
+imperative becomes an explicit requirement against its anchor. A restatement
+that reads oddly is a claim that was extracted oddly, which is the signal worth
+having. The document opens by stating what share of the prose produced a claim,
+because a restatement that silently covered part of a specification would be
+worse than none.
+
+`--coverage` answers the same question in aggregate, because a clean run is
+ambiguous on its own: it can mean the prose agrees, or it can mean almost none
+of it was read. Values that are not prose at all — a list of adapter names, an
+enum value, a flag — are counted separately rather than as unread sentences,
+since whether `claude-code` was understood is not a question about the prose.
+It reports the share of the remaining sentences that produced a claim, and
+accounts for the rest — every sentence is either read or counted under the
+reason it was not, so the buckets reconcile with the total rather than trailing
+off into an unexplained remainder. Sentences the document quoted, and sentences
+inherited onto several anchors, are counted once and not held against the
+score.
+
+It also names the words used as verbs that the lexicon does not know, ranked by
+how often they occur, since those are what cap the share that can be read.
+Those are identified by position rather than guessed at: a word directly after
+a modal or auxiliary is a verb in any English sentence, and a word that cannot
+be placed that confidently is left out of the list rather than invented into
+it.
+
+## Editor support
+
+`editors/` covers every editor the specification names — VS Code, Zed, Helix,
+Emacs, Neovim, Vim, Sublime Text, Kate and JetBrains — each with a syntax
+definition in its own format and the wiring to run `piton lsp`.
+
+Highlighting is the part that can be done from the text alone. Everything else
+needs the resolved program, so it comes from the server. That split is what the
+specification asks for: Zed, Helix and Emacs are listed as
+`["tree-sitter", "lsp"]`, VS Code as `["textmate", "lsp"]`.
+
+Nine syntax definitions describing one language is nine chances to disagree with
+it, so `crates/piton-syntax/src/language.rs` holds the keyword lists and
+`crates/piton-syntax/tests/editors.rs` checks every definition against them.
+That test is not decoration: it caught `pass` missing from five of the nine.
+
+## Consuming a specification from a build
+
+`packages/vite-plugin-piton` makes `import spec from './app.pi'` work in Vite,
+and `packages/astro-piton` adds the same to Astro. They are the only parts of
+this repository that are not Rust, because a Vite plugin has to be JavaScript
+to be loaded by Vite.
+
+Neither reimplements the language. Both spawn the `piton` binary, so there is
+one compiler and one set of diagnostics, and a build that succeeds is one
+`piton check` agrees with. A second implementation in TypeScript could disagree
+with the first, and the disagreement would show up as a build that passes while
+the checker fails.
+
+Hot reload needs to know more than Vite can see. Vite tracks the imports it
+finds in JavaScript; it cannot see one `.pi` file importing another, and a
+package can keep a file somewhere the importing text never names. So
+`piton compile --dependencies` wraps a result with every source file the
+compilation read, and the plugin watches all of them. That flag exists for
+these packages and is the whole of what they need from the compiler beyond
+rendering.
+
+Those packages cannot be exercised from a Rust test, so what is tested here is
+the seam: `crates/piton-cli/tests/packages.rs` reads the command line the
+plugin writes and checks the compiler still accepts it, and checks that the
+adapters named in the plugin are the adapters the compiler has. A renamed flag
+fails in this suite rather than in someone else's project.
 
 ## The language server
 

@@ -1,0 +1,317 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Piton",
+  "scopeName": "source.piton",
+  "fileTypes": [
+    "pi"
+  ],
+  "patterns": [
+    {
+      "include": "#escape-block"
+    },
+    {
+      "include": "#fence"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#import"
+    },
+    {
+      "include": "#pass"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#property"
+    },
+    {
+      "include": "#list-marker"
+    },
+    {
+      "include": "#merge-marker"
+    },
+    {
+      "include": "#interpolation"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "comments": "A comment runs to the end of the line. There is no block form.",
+      "match": "(?<=^|\\s)(//).*$",
+      "captures": {
+        "0": {
+          "name": "comment.line.double-slash.piton"
+        },
+        "1": {
+          "name": "punctuation.definition.comment.piton"
+        }
+      }
+    },
+    "escape-block": {
+      "comments": "A line of backslashes delimits a block whose contents are literal.",
+      "begin": "^(\\s*)(\\\\+)\\s*$",
+      "end": "^\\s*\\2\\s*$",
+      "beginCaptures": {
+        "2": {
+          "name": "punctuation.definition.escape.begin.piton"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.escape.end.piton"
+        }
+      },
+      "name": "string.unquoted.escape-block.piton",
+      "patterns": []
+    },
+    "fence": {
+      "comments": "Fenced content is verbatim: no comments, no interpolation.",
+      "begin": "^\\s*(`{3,})\\s*([A-Za-z0-9_+-]*)\\s*$",
+      "end": "^\\s*\\1`*\\s*$",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.raw.begin.piton"
+        },
+        "2": {
+          "name": "entity.name.type.fence.piton"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.raw.end.piton"
+        }
+      },
+      "name": "markup.raw.block.piton",
+      "patterns": [
+        {
+          "include": "#escape-block"
+        }
+      ]
+    },
+    "import": {
+      "patterns": [
+        {
+          "comments": "`use` brings keywords into scope and nothing else.",
+          "match": "^\\s*(use)\\s+(\\S+)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.piton"
+            },
+            "2": {
+              "name": "string.unquoted.module-path.piton"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(from)\\s+(\\S+)\\s+(import|export)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.piton"
+            },
+            "2": {
+              "name": "string.unquoted.module-path.piton"
+            },
+            "3": {
+              "name": "keyword.control.import.piton"
+            }
+          }
+        },
+        {
+          "comments": "`export Name` re-exports an already bound symbol.",
+          "match": "^\\s*(export)\\s+([A-Z][A-Za-z0-9_]*)\\s*$",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.piton"
+            },
+            "2": {
+              "name": "entity.name.type.anchor.piton"
+            }
+          }
+        }
+      ]
+    },
+    "declaration": {
+      "comments": "`[export] [abstract] <keyword> Name [as kw] [extends A, B]:` \u2014 the keyword may be user-defined.",
+      "match": "^\\s*(?:(export)\\s+)?(?:(abstract)\\s+)?([a-z][a-z0-9-]*)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(as)\\s+([a-z][a-z0-9-]*))?(?:\\s+(extends)\\s+([^:]+))?\\s*:",
+      "captures": {
+        "1": {
+          "name": "keyword.control.piton"
+        },
+        "2": {
+          "name": "storage.modifier.abstract.piton"
+        },
+        "3": {
+          "name": "storage.type.anchor.piton"
+        },
+        "4": {
+          "name": "entity.name.type.anchor.piton"
+        },
+        "5": {
+          "name": "keyword.control.as.piton"
+        },
+        "6": {
+          "name": "entity.name.function.keyword.piton"
+        },
+        "7": {
+          "name": "keyword.control.extends.piton"
+        },
+        "8": {
+          "name": "entity.other.inherited-class.piton"
+        }
+      }
+    },
+    "property": {
+      "comments": "A key is any text without spaces followed by a colon; keywords are keys here too.",
+      "match": "^\\s*(?:(export)\\s+)?([^\\s:]+)((?:::\\s*[^:\\n]+?)*)\\s*(:)(?=\\s|$)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.piton"
+        },
+        "2": {
+          "name": "variable.other.property.piton"
+        },
+        "3": {
+          "patterns": [
+            {
+              "include": "#type-constraint"
+            }
+          ]
+        },
+        "4": {
+          "name": "punctuation.separator.key-value.piton"
+        }
+      }
+    },
+    "type-constraint": {
+      "patterns": [
+        {
+          "match": "(::)\\s*(extends\\s+)?\\b(string|number|boolean|null|list|dictionary|anchor|reference|any|simple|complex)\\b(\\[\\])?",
+          "captures": {
+            "1": {
+              "name": "punctuation.separator.type.piton"
+            },
+            "2": {
+              "name": "keyword.control.extends.piton"
+            },
+            "3": {
+              "name": "support.type.builtin.piton"
+            },
+            "4": {
+              "name": "punctuation.definition.list.piton"
+            }
+          }
+        },
+        {
+          "match": "(::)\\s*(extends\\s+)?([A-Za-z_][A-Za-z0-9_]*)(\\[\\])?",
+          "captures": {
+            "1": {
+              "name": "punctuation.separator.type.piton"
+            },
+            "2": {
+              "name": "keyword.control.extends.piton"
+            },
+            "3": {
+              "name": "entity.name.type.piton"
+            },
+            "4": {
+              "name": "punctuation.definition.list.piton"
+            }
+          }
+        }
+      ]
+    },
+    "list-marker": {
+      "match": "^\\s*(-)(?=\\s|$)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.list.begin.piton"
+        }
+      }
+    },
+    "merge-marker": {
+      "comments": "`+` merges and deduplicates; `++` concatenates and keeps duplicates.",
+      "match": "^\\s*(\\+\\+?)(?=\\s|$)",
+      "captures": {
+        "1": {
+          "name": "keyword.operator.merge.piton"
+        }
+      }
+    },
+    "interpolation": {
+      "comments": "Four sigils: intrinsic, string, numeric, and reference.",
+      "begin": "(?<!\\\\)(\\$\\{|#\\{|@\\{|\\{)",
+      "end": "\\}",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.begin.piton"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.piton"
+        }
+      },
+      "name": "meta.embedded.expression.piton",
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "expression": {
+      "patterns": [
+        {
+          "include": "#interpolation"
+        },
+        {
+          "match": "\\b(true|false|null)\\b",
+          "name": "constant.language.piton"
+        },
+        {
+          "match": "\\b(this|self|super)\\b",
+          "name": "variable.language.piton"
+        },
+        {
+          "comments": "Numbers allow underscore separators and need a leading zero.",
+          "match": "\\b\\d[\\d_]*(\\.[\\d_]+)?\\b",
+          "name": "constant.numeric.piton"
+        },
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.piton",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.piton"
+            }
+          ]
+        },
+        {
+          "match": "\\+\\+|==|!=|<=|>=|&&|\\|\\||[+\\-*/%<>!?:]",
+          "name": "keyword.operator.piton"
+        },
+        {
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+          "name": "entity.name.type.anchor.piton"
+        },
+        {
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b",
+          "name": "variable.other.piton"
+        }
+      ]
+    },
+    "pass": {
+      "comments": "`pass` is an intentionally empty body.",
+      "match": "^\\s*(pass)\\s*$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.pass.piton"
+        }
+      }
+    }
+  }
+}

@@ -34,10 +34,10 @@ pub enum Relation {
     ImportPath,
     /// The same source file.
     SameFile,
-    /// One anchor references or embeds the other.
-    Composed,
     /// The two anchors share a base.
     SharedBase,
+    /// One anchor references or embeds the other.
+    Composed,
     /// One anchor inherits from the other.
     Inheritance,
     /// The same anchor, different properties.
@@ -53,9 +53,12 @@ impl Relation {
             Relation::SameProperty => 1.0,
             Relation::SameAnchor => 0.9,
             Relation::Inheritance => 0.85,
-            Relation::SharedBase => 0.7,
-            Relation::Composed => 0.65,
-            Relation::SameFile => 0.55,
+            // A reference is the author saying these two are about each other,
+            // which is stronger evidence of a shared subject than a shared base:
+            // two operators inherit one base and are still different subjects.
+            Relation::Composed => 0.8,
+            Relation::SharedBase => 0.65,
+            Relation::SameFile => 0.6,
             Relation::ImportPath => 0.4,
             Relation::SameDirectory => 0.35,
             Relation::SameProject => 0.15,
@@ -122,13 +125,14 @@ impl<'a> Structure<'a> {
         {
             return Relation::Inheritance;
         }
-        if self.shares_a_base(left.anchor, right.anchor) {
-            return Relation::SharedBase;
-        }
+        // Checked in the order they rank, so the strongest relationship wins.
         if self.composed[left.anchor.0 as usize].contains(&right.anchor)
             || self.composed[right.anchor.0 as usize].contains(&left.anchor)
         {
             return Relation::Composed;
+        }
+        if self.shares_a_base(left.anchor, right.anchor) {
+            return Relation::SharedBase;
         }
         if left.module == right.module {
             return Relation::SameFile;
@@ -201,7 +205,8 @@ mod tests {
     fn relations_are_ordered_local_before_global() {
         assert!(Relation::SameProperty > Relation::SameAnchor);
         assert!(Relation::SameAnchor > Relation::Inheritance);
-        assert!(Relation::Inheritance > Relation::SameFile);
+        assert!(Relation::Inheritance > Relation::Composed);
+        assert!(Relation::Composed > Relation::SameFile);
         assert!(Relation::SameFile > Relation::SameDirectory);
         assert!(Relation::SameDirectory > Relation::SameProject);
     }
@@ -212,8 +217,8 @@ mod tests {
             Relation::SameProperty,
             Relation::SameAnchor,
             Relation::Inheritance,
-            Relation::SharedBase,
             Relation::Composed,
+            Relation::SharedBase,
             Relation::SameFile,
             Relation::ImportPath,
             Relation::SameDirectory,

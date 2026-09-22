@@ -1,0 +1,27 @@
+name = "Piton"
+grammar = "piton"
+path_suffixes = ["pi"]
+line_comments = ["// "]
+autoclose_before = "}]),"
+tab_size = 4
+hard_tabs = false
+
+# The language prefers four spaces and does not make it configurable, so the
+# editor should not offer to.
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = false
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = false
+
+[[brackets]]
+start = "\""
+end = "\""
+close = true
+newline = false
