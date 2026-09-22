@@ -24,8 +24,8 @@ There is exactly one user-defined type, and it’s called an anchor. This is som
 
 ## Valid Keys
 
-A key may contain Unicode letters, Unicode digits, underscores, and hyphens. It may not contain spaces or any other character.
-Every key is a string. Keys that look like other literals or reserved words, such as `123`, `false`, `null`, or `type`, are allowed and are always treated as strings, including in property access.
-So `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are valid keys, while `This is a key`, `a.b`, and `x:y` are not.
+Keys can have Unicode letters, Unicode numbers, underscores, and hyphens. Nothing else, and no spaces.
+Keys are always strings, even when they look like something else. So `123`, `false`, and `null` are fine as keys, and they're still just strings when you access them.
+So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and `null` are all valid keys, while `This is a key` and `a.b` are not.
 
 Links in this document point at reference files. Read one when the work touches what it describes.

@@ -18,6 +18,6 @@ Any operator not explicitly listed as supported will throw a compiler error.  Be
 
 ## Description
 
-Null is represented with lowercase null. Null is a value that means nothing, so `{null == null}` is true. Piton doesn’t have the concept of undefined or any other nothing value.
+Null is represented with lowercase null. Null is a value that means "nothing" So yes, `{null == null}` is true. Piton doesn’t have the concept of undefined or any other "nothing" value.
 
 Links in this document point at reference files. Read one when the work touches what it describes.

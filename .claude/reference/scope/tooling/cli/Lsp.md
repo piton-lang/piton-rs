@@ -2,7 +2,7 @@
 
 ## Description
 
-Runs the Piton language server. Enter and indentation behavior follows the shared editor behavior rules in the editors section.
+Runs the Piton language server. For what enter and indenting should do, see the editor behavior rules in the editors section.
 
 ## Command Name
 
@@ -19,9 +19,10 @@ null
 ## Features
 
 ```
-diagnostics: Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Optional properties, those with a default value, are never reported as missing.
+diagnostics: Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
 completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
-  Don't autocomplete things that don't exist, and don't propose anything on an empty value: after `property: ` the likely intent is to type unstructured text.
+  However, don't autocomplete things that don't exist.
+  Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
   Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
 autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
 hoverInformation: Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
@@ -32,7 +33,6 @@ documentSymbols: Expose the structural contents of the current Piton file as an 
 workspaceSymbols: Allow fast searching across all named constructs in the entire specbase regardless of which file defines them.
 semanticHighlighting: Highlight Piton constructs according to their semantic meaning rather than syntax alone, distinguishing anchors, references, properties, inherited values, exports, imports, expressions, types, and keywords.
 inlayHints: Show useful inferred information inline, such as resolved types, inherited origins, composition sources, or the anchor from which a value ultimately derives.
-signatureHelp: When using constructs with parameters or structured inputs, show the expected fields, types, defaults, and documentation for the active argument.
 codeActions: Offer context-sensitive fixes and transformations such as importing a missing symbol, creating an unresolved anchor, adding an export, qualifying an ambiguous reference, or resolving a simple inheritance conflict.
 importOrganization: Detect unused, duplicate, invalid, or unnecessarily broad imports and provide an action to clean and normalize them.
 formatting: Format Piton source according to the canonical language style, particularly indentation, spacing, declaration layout, expressions, imports, and multiline structures.
@@ -44,8 +44,8 @@ referenceResolution: Resolve symbolic references such as anchors and `@{...}` ex
 expressionValidation: Parse and validate Piton expressions inside `{...}`, `${...}`, `#{...}`, and `@{...}` expression forms according to their expected output type.
 expressionTypeInformation: Show the inferred output type of an expression and warn when the expression cannot produce the type required by its interpolation form or destination.
 exportValidation: Track explicit exports and report attempts to import or reference symbols that are not visible outside their defining module.
-moduleResolution: Resolve relative and root-based Piton imports according to the project configuration and report missing modules and invalid paths. Circular imports are allowed and are not reported.
-circularDependencyDetection: Detect cycles between modules, anchors, inheritance chains, or references where Piton semantics prohibit them, which are unresolvable value cycles and inheritance cycles,, and show the cycle that caused the error.
+moduleResolution: Resolve relative and root-based Piton imports according to the project configuration and report missing modules and invalid paths. Circular imports are fine, so don't report them.
+circularDependencyDetection: Find cycles that can't resolve, and anchors that end up extending themselves, and show the cycle that caused the error. Circular imports are fine and aren't reported.
 relatedSymbolNavigation: Provide navigation between closely related constructs such as an abstract and its implementations, a base anchor and its extensions, or a symbol and the constructs that compose it.
 hierarchyView: Expose inheritance and composition relationships as a hierarchy so the editor can show parents, children, extensions, and implementations of a selected construct.
 resolvedValueInspection: Allow the editor to show the final resolved value of a property after inheritance, overrides, composition, and expressions have been applied.

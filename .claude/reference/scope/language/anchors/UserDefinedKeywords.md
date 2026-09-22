@@ -23,7 +23,7 @@ anchor ChildAnchor extends MyAnchor:
         ${super.description}
         My additional description
 ```
-An anchor can be declared with only one keyword, but it can still use extends to inherit from other anchors as well.
+You can only use one keyword on an anchor, however you can still use extends to inherit from other anchors as well.
 ```piton
 anchor MyAnchor as my-anchor:
     description: This is a description of my anchor
@@ -49,5 +49,5 @@ anchor ChildAnchor extends OtherBase, MyAnchor:
         ${super.description}
         My additional description
 ```
-Note that the keyword's anchor is always placed last in the inheritance chain, so it wins collisions against anything listed in extends. Here ChildAnchor's description begins with “This is a description of my anchor”.
-A user-defined keyword may not be one of the reserved words.
+Note that the user-defined keyword will be the last anchor in the inheritance chain, and so it wins any collisions with what's in extends. So here ChildAnchor's description starts with “This is a description of my anchor”.
+You can't use a reserved word as a keyword.

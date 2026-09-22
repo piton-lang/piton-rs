@@ -79,13 +79,13 @@ It’s this combination of structure and prose both as first-class citizens that
 ##### Introduction
 
 The Piton language, while primarily intended for writing Agentic constructs, is also at its core a declarative language for defining data. So before we get into discussing the agentic stuff, let's take a look at the language itself through the lens of just data.
-There's one thing to make very clear upfront: There is no runtime for Piton. Piton compiles to data through renderers such as JSON, YAML, and Markdown. While that ultimately simplifies the mental model, it's important to keep this in mind as you're learning how to use the language.
+There's one thing to make very clear upfront: There is no runtime for Piton. Piton compiles to data -- JSON, YAML, Markdown, etc. -- via renderers. While that ultimately simplifies the mental model, it's important to keep this in mind as you're learning how to use the language.
 
 #### Files And Modules
 
 ##### Source Files And Modules
 
-Piton files carry the .pi extension. Directories with an index.pi file act as modules; see [Modules](scope/language/reuse/Modules.md).
+Piton files carry the .pi extension. Directories with an index.pi file become modules, which we cover in [Modules](scope/language/reuse/Modules.md).
 
 #### Whitespace
 
@@ -102,17 +102,17 @@ Comments are line-only. There are no block comments. Comments are created with "
 // This is a comment
 myVariable: 42 // This is also a comment
 ```
-`piton format` will always put a space between the "//" and the comment text, so you might as well get used to doing it yourself. It never reformats the text of a comment, so commented-out code keeps its layout.
+`piton format` will always put a space between the "//" and the comment text, so you might as well get used to doing it yourself. It won't touch anything else in the comment though, so commented-out code stays as it is.
 
 #### Keywords
 
 ##### Keywords
 
-Keywords are reserved words that have special meaning in Piton. A unique aspect of Piton is that you can define your own keywords that act as a sort of syntactic sugar for inheritance; see [UserDefinedKeywords](scope/language/anchors/UserDefinedKeywords.md). Keywords must be all lowercase and can be kebab-case.
+Keywords are reserved words that have special meaning in Piton. string, false, anchor, export, etc. are all examples. A unique aspect of Piton is that you can define your own keywords that act as a sort of syntactic sugar for inheritance. But that's a topic we'll discuss later in [UserDefinedKeywords](scope/language/anchors/UserDefinedKeywords.md). Keywords must be all lowercase and can be kebab-case.
 
 ##### Reserved
 
-The following words are reserved. A user-defined keyword may not use any of them.
+These are all reserved, so you can't use them for your own keywords.
 ```
 anchor abstract export from import use as extends pass
 this self super
@@ -120,11 +120,11 @@ true false null
 any simple complex
 string number boolean list dictionary
 ```
-Reserved words may still be used as dictionary and property keys, where they are always plain strings.
+You can still use them as keys though. As keys they're just strings.
 
 ##### Pass
 
-`pass` is the body of an anchor that declares no properties of its own. It is required because an anchor declaration must have an indented body.
+Use `pass` when an anchor doesn't have any properties of its own. An anchor always needs something indented under it, so pass fills that spot.
 ```piton
 anchor Base:
     name: Base
@@ -167,7 +167,7 @@ A list of values. Value types can be mixed as long as it’s not constrained by 
 
 ###### Dictionary
 
-A dictionary of key-value pairs. Keys are always strings, and value types can be mixed as long as it’s not constrained by a type annotation.
+A dictionary of key-value pairs. Key types must be strings, and value types can be mixed as long as it’s not constrained by a type annotation.
 
 ###### Anchor
 
@@ -198,7 +198,7 @@ The compiler uses types to check whether expressions and assignments make sense.
   symbol: /
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
-- description: Returns the remainder of dividing two numbers. The result takes the sign of the dividend, so `-7 % 3` evaluates to `-1`. A zero divisor is a compiler error.
+- description: Returns the remainder of two numbers. The result keeps the sign of the left side, so `-7 % 3` is `-1`. Modulo by zero is a compiler error.
   symbol: %
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
@@ -232,10 +232,10 @@ There is a single number type in all of Piton; type-wise there’s no difference
 
 ##### Representation
 
-Numbers are IEEE 754 64-bit floating point values.
-Negative literals are written with a leading minus, such as `-5`. A list item marker is always followed by a space (`- 5`), so `-5` is a number and `- 5` is a list item containing 5.
-Exponent notation such as `1e3` is not supported.
-When serialized, a number uses its shortest round-trip form, so `1_200_000.00` is written as `1200000` and `0.50` as `0.5`.
+Under the hood, numbers are 64-bit floats (IEEE 754).
+Negative numbers are written with a minus, like `-5`. List items always have a space after the dash, so `-5` is a number and `- 5` is a list item.
+There's no exponent notation, so no `1e3`.
+When compiled, numbers are written in their shortest form, so `1_200_000.00` becomes `1200000` and `0.50` becomes `0.5`.
 
 #### Strings
 
@@ -246,10 +246,15 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Supported Operators
 
-- description: The concatenation operator (`+`) joins two strings into a single string, preserving their order. For example, `{"Hello" + "World"}` evaluates to `HelloWorld`.
-    When exactly one operand is a string, the other operand is first converted using the [StringExpression](scope/language/expressions/StringExpression.md) rules, so `{2 + "Hello"}` evaluates to the string `2Hello`. An operand with no string representation is a compiler error.
-    Adheres to rules of [TypeCoercion](scope/language/variables/TypeCoercion.md)
+- description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](scope/language/expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
+  symbol: ++
 - description: Equality operator.
   symbol: ==
 - description: Inequality operator.
@@ -279,12 +284,12 @@ The leading whitespace on a string block is discarded, as that’s part of the s
 
 ##### Quotes
 
-Quote characters have no special meaning in a value. They are ordinary characters and are kept in the string, so `greeting: "Hello"` holds the seven-character string `"Hello"`, quotes included.
-Inside an expression, bare words are symbols, so string literals within braces are written in double quotes: `{"Hello" + name}`. There the quotes delimit the literal and are not part of its value.
+Quotes don't mean anything special. They're just characters, so `greeting: "Hello"` is the string `"Hello"`, quotes and all.
+The one exception is inside an expression. There, bare words are symbols, so you write strings in double quotes: `{"Hello" + name}`. In that case the quotes aren't part of the string.
 
 ##### Line Breaks
 
-Within a string block, a single line break joins the two lines with a space. A blank line produces a paragraph break (two newline characters). Several consecutive blank lines collapse into one paragraph break.
+Within a string block, you can add line breaks without affecting the structure of the string. To start a new paragraph, you must include a blank line. More than one blank line in a row still counts as one.
 ```piton
 myString:
     This broken string is not considered
@@ -303,24 +308,23 @@ While this *is* a new paragraph because there was a blank line above.
 
 ###### Description
 
-Piton has a single escape form: wrap the text in backslashes. The opening and closing delimiters are each a run of backslashes followed or preceded by one space, and exactly that one space on each side is removed. Everything between the delimiters is literal.
-So \ {1 + 2 + 3} \ would become {1 + 2 + 3}.
-There is no single-character escape. To escape one character, wrap it: \ : \ becomes :.
+Escaping works a little differently in Piton than other languages. To escape special characters, you simply wrap them in backslashes, with a space on each side. The spaces are part of the wrapper, so they get removed. So for example \ {1 + 2 + 3} \ would become {1 + 2 + 3}.
+That's the only way to escape. Even a single character gets wrapped: \ : \ becomes :.
 
 ###### Stacking
 
-The closing delimiter is the same number of backslashes as the opening one, so the content may contain any shorter run of backslashes. To escape text that itself contains an escape, use a longer delimiter:
+You can stack backslashes to escape backslashes themselves. The closing wrapper has to match the opening one, so anything inside can use fewer backslashes:
 \\\ \\ \ {1 + 2 + 3} \ \\ \\\ would become \\ \ {1 + 2 + 3} \ \\.
 
 ###### Multi Line
 
-A line containing only a run of backslashes opens a multi-line escape block, and the next line containing only the same run closes it. Every line in between is literal, keeping its line breaks and its indentation relative to the delimiter lines.
-By convention the specification uses three backslashes for these blocks inside code fences.
+Multi-line escape blocks are valid. Put the backslashes on a line by themselves to open the block, and again to close it. Everything in between is kept as is, line breaks and indentation included.
+This spec uses three backslashes for these.
 
 ##### Code Blocks
 
-Markdown code fences are ordinary text to Piton. Their content is parsed like any other string content, so interpolation, comments, list markers, and property syntax inside a fence are still interpreted.
-To keep a fence's content literal, wrap it in a multi-line escape block inside the fence, as every example in this specification does.
+Code blocks are not escaped. To Piton they're just text, so anything inside them still gets parsed: expressions, comments, lists, all of it.
+So often, you'll want to put an escape block inside the code block. Every example in this spec does that.
 
 #### Booleans
 
@@ -370,7 +374,7 @@ Any operator not explicitly listed as supported will throw a compiler error.  Be
 
 ##### Description
 
-Null is represented with lowercase null. Null is a value that means nothing, so `{null == null}` is true. Piton doesn’t have the concept of undefined or any other nothing value.
+Null is represented with lowercase null. Null is a value that means "nothing" So yes, `{null == null}` is true. Piton doesn’t have the concept of undefined or any other "nothing" value.
 
 #### Collections
 
@@ -388,12 +392,13 @@ The compiler uses types to check whether expressions and assignments make sense.
 ###### Supported Operators
 
 - description: The merge operator (`+`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and removes duplicates. When a value appears more than once, the last occurrence is kept and earlier ones are dropped, so `[A, B, C, D] + [A, B, C]` evaluates to `[D, A, B, C]`.
-    On dictionaries it performs a shallow merge. Keys from both operands are kept, and when both operands define the same key the right operand's value replaces the left one wholesale.
+    On lists it joins them in order and removes duplicates. If a value shows up more than once, the last one is kept. So `[A, B, C, D] + [A, B, C]` gives you `[D, A, B, C]`.
+    On dictionaries it's a shallow merge. You get the keys from both, and if both have the same key, the right side wins.
   symbol: +
-- description: The duplicate-preserving merge operator (`++`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and keeps every element, including duplicates, so `[A, B, C, D] ++ [A, B, C]` evaluates to `[A, B, C, D, A, B, C]`.
-    On dictionaries it performs a deep merge. When both operands define the same key and both values are dictionaries, those dictionaries are merged recursively by the same rule. Otherwise the right operand's value wins.
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
   symbol: ++
 - description: Equality operator.
   symbol: ==
@@ -432,6 +437,27 @@ Which is equivalent to:
 inlineMultiList: [Level 1, [Level 2, [Level 3]]]
 ```
 
+###### Dictionaries In Lists
+
+Anything indented under a list item isn't part of that item. It becomes the next item in the list. So a dictionary indented under an item is its own item, right after it:
+```piton
+repos:
+    - https://github.com/piton-lang/piton-rs
+        tag: v1
+    - https://github.com/piton-lang/other
+```
+```json
+{
+  "repos": [
+    "https://github.com/piton-lang/piton-rs",
+    { "tag": "v1" },
+    "https://github.com/piton-lang/other"
+  ]
+}
+```
+A list item is never a key, even with a colon at the end. `- Settings:` is just the string `Settings:`.
+For lists indented under a dictionary key, see the Dictionaries type.
+
 ###### Access
 
 Piton intentionally does not provide a way to access items within a list. Because this is not a runtime-based general purpose language but rather a language designed for description, a list is a construct intended for merging via inheritance; myList[0] is not very descriptive, is it?
@@ -448,12 +474,13 @@ The compiler uses types to check whether expressions and assignments make sense.
 - description: Accesses a property of an object.
   symbol: .
 - description: The merge operator (`+`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and removes duplicates. When a value appears more than once, the last occurrence is kept and earlier ones are dropped, so `[A, B, C, D] + [A, B, C]` evaluates to `[D, A, B, C]`.
-    On dictionaries it performs a shallow merge. Keys from both operands are kept, and when both operands define the same key the right operand's value replaces the left one wholesale.
+    On lists it joins them in order and removes duplicates. If a value shows up more than once, the last one is kept. So `[A, B, C, D] + [A, B, C]` gives you `[D, A, B, C]`.
+    On dictionaries it's a shallow merge. You get the keys from both, and if both have the same key, the right side wins.
   symbol: +
-- description: The duplicate-preserving merge operator (`++`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and keeps every element, including duplicates, so `[A, B, C, D] ++ [A, B, C]` evaluates to `[A, B, C, D, A, B, C]`.
-    On dictionaries it performs a deep merge. When both operands define the same key and both values are dictionaries, those dictionaries are merged recursively by the same rule. Otherwise the right operand's value wins.
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
   symbol: ++
 - description: Equality operator.
   symbol: ==
@@ -474,15 +501,35 @@ firstLevel:
 ```
 You can use dot syntax to access keys in a dictionary. firstLevel.secondLevel.thirdLevel would yield “This is a string”.
 
+###### Lists In Dictionaries
+
+A list indented under a key is that key's value. If the key also has something above the list, like text or another dictionary, the value becomes an implicit list (see Collections) and the list goes in as a single item:
+```piton
+plain:
+    - x
+    - y
+mixed:
+    text
+    - x
+    - y
+```
+```json
+{
+  "plain": ["x", "y"],
+  "mixed": ["text", ["x", "y"]]
+}
+```
+For dictionaries indented under a list item, see the Lists type.
+
 ###### Valid Keys
 
-A key may contain Unicode letters, Unicode digits, underscores, and hyphens. It may not contain spaces or any other character.
-Every key is a string. Keys that look like other literals or reserved words, such as `123`, `false`, `null`, or `type`, are allowed and are always treated as strings, including in property access.
-So `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are valid keys, while `This is a key`, `a.b`, and `x:y` are not.
+Keys can have Unicode letters, Unicode numbers, underscores, and hyphens. Nothing else, and no spaces.
+Keys are always strings, even when they look like something else. So `123`, `false`, and `null` are fine as keys, and they're still just strings when you access them.
+So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and `null` are all valid keys, while `This is a key` and `a.b` are not.
 
 ###### Hyphenated Keys
 
-A hyphen between identifier characters is part of the identifier, so `{config.foo-bar}` reads the key `foo-bar`. Subtraction requires spaces around the operator: `{a - b}`.
+A hyphen in the middle of a name is part of the name, so `{config.foo-bar}` reads the key `foo-bar`. If you want subtraction, put spaces around it: `{a - b}`.
 
 ##### Combining Collection Types
 
@@ -514,15 +561,15 @@ And this scenario is where Piton takes a little liberty in syntax strictness for
 }
 ```
 We’re sacrificing the otherwise simple rules of syntax here only because this is an inherently intuitive form for a human. We’ll let the compiler do a bit of heavy lifting to make the human’s job nicer.
-The same implicit list appears when a standard expression with a complex result sits inside text. See {Foo} for details becomes a list of the text before the expression, a copy of Foo's value, and the text after it.
+You'll get the same implicit list if you put a list, dictionary, or anchor in the middle of some text with {}. So See {Foo} for details becomes a list with “See”, a copy of Foo, and “for details”.
 One additional gotcha with Piton is that, with an implicit list, dictionary properties declared directly within the mixed block remain addressable; we’re still able to directly reference combined.nestedDictionary.deeplyNestedDictionary and get back “This is a string”. As I said previously, Piton does not allow for list accessors, so trying to access either the string or the list is not possible.
 The same is true here:
 ```piton
 combined:
-  - dictionaryInsideAList:
-      nested: value
+    - First item
+        nested: value
 ```
-Since the dictionaryInsideAList is inside an explicit list, you cannot access that dictionary anymore. I’m just pointing this out because it is syntactically possible, though arguably not a very wise choice in structuring your data.
+Since the dictionary is an item in an explicit list, you cannot access that dictionary anymore. I’m just pointing this out because it is syntactically possible, though arguably not a very wise choice in structuring your data.
 
 #### User Defined
 
@@ -550,9 +597,9 @@ There is exactly one user-defined type, and it’s called an anchor. This is som
 
 ##### Valid Keys
 
-A key may contain Unicode letters, Unicode digits, underscores, and hyphens. It may not contain spaces or any other character.
-Every key is a string. Keys that look like other literals or reserved words, such as `123`, `false`, `null`, or `type`, are allowed and are always treated as strings, including in property access.
-So `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are valid keys, while `This is a key`, `a.b`, and `x:y` are not.
+Keys can have Unicode letters, Unicode numbers, underscores, and hyphens. Nothing else, and no spaces.
+Keys are always strings, even when they look like something else. So `123`, `false`, and `null` are fine as keys, and they're still just strings when you access them.
+So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and `null` are all valid keys, while `This is a key` and `a.b` are not.
 
 #### Inference
 
@@ -567,13 +614,13 @@ Unless specifically constrained to a type, a variable or property can hold any t
 | `42`                    | `number`                                                           |
 | `-42`                   | `number`                                                           |
 | `42 things`             | `string`                                                           |
-| `A + B`                 | `string` (no braces, so it is the text "A + B")                    |
-| `{A + B}`               | The result type of `+` for the operand types; see ConcatenationOperators |
+| `A + B`                 | `string` (no braces, so it's just text)                             |
+| `{A + B}`               | Depends on what A and B are; see ConcatenationOperators            |
 | `This costs $5 + tax`   | `string`                                                           |
-| `Total: {a + b}`        | `string` (braces with surrounding text interpolate)                |
+| `Total: {a + b}`        | `string` (there's other text around it)                             |
 | `null`                  | `null`                                                             |
-| `"false"`               | `string` (the quotes are part of the value)                        |
-| `\ // \ Just Text`      | `string` (the escaped `//` is not a comment)                       |
+| `"false"`               | `string` (the quotes are part of it)                               |
+| `\ // \ Just Text`      | `string` (the `//` is escaped, so it's not a comment)               |
 | `${}`                   | `string`                                                           |
 ```
 
@@ -586,7 +633,10 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Supported Operators
 
-null
+- description: Equality operator.
+  symbol: ==
+- description: Inequality operator.
+  symbol: !=
 
 ##### Unsupported Operators
 
@@ -594,17 +644,21 @@ Any operator not explicitly listed as supported will throw a compiler error.  Be
 
 ##### Description
 
-A reference is produced by [ReferenceExpression](scope/language/expressions/ReferenceExpression.md) and identifies an anchor, or a property within one, without copying its value. It keeps that identity until output, where the selected renderer decides how it is written. Frameworks such as Belay build on the renderer's representation.
+A reference comes from a [ReferenceExpression](scope/language/expressions/ReferenceExpression.md). It points at an anchor, or a property on one, instead of copying it. How it ends up looking in the output is up to the renderer, and frameworks like Belay build on top of that.
 
 ##### Renderers
 
 ```
-json: By default a reference is written as a string holding the path of the referenced output file relative to the referring file, a colon, and the dot path of the referenced value, such as `../file.json:Anchor.property`.
-  If the target cannot be addressed by a dot path, the part after the colon is whatever the referenced property rendered as, such as `../file.txt:Something`. If that is not possible either, it is the source line number, such as `../file.json:42`.
-  The representation is a renderer option.
+json: By default a reference becomes a string: the path to the other file (relative to this one), a colon, and the dot path to the value. So `../file.json:Anchor.property`.
+  If there's no dot path to it, you get whatever the property turned into instead, like `../file.txt:Something`. And if that doesn't work either, you get the line number, like `../file.json:42`.
+  You can change this with a renderer option.
 yaml: Same as json, with the yaml output file.
-markdown: A relative Markdown link to the referenced anchor's rendered output, using the anchor's name as link text and its heading as the fragment. A reference to Button from a sibling file links the text Button to ./Button.md#button.
+markdown: A relative Markdown link to wherever the anchor was rendered, with the anchor's name as the link text. So a reference to Button from a file next to it links Button to ./Button.md#button. A reference to a property links Button.color to ./Button.md#color.
 ```
+
+##### Equality
+
+Two references are equal if they point at the same thing.
 
 #### Simple Types
 
@@ -659,12 +713,12 @@ myVariable will be a string since 42 can also be a string and string is evaluate
 ```piton
 myVariable:: boolean:: number:: string: "false"
 ```
-The quotes are part of the value, so it is neither a boolean nor a number, and myVariable is the string `"false"`.
+The quotes are part of the value, so it isn't a boolean or a number. myVariable is the string `"false"`, quotes and all.
 
 ##### Required And Optional
 
-A constrained property with no value is required: anything that extends or implements the anchor must give it a value, and that value must satisfy the constraint. Allowing null in the constraint lets the value be null, but it must still be written.
-A constrained property with a default value is optional. The idiom for an optional property is a nullable constraint with a null default:
+In an abstract anchor, if a property has a type constraint but no value, it's required. Anything that extends the anchor has to give it a value. Adding null to the constraint means that value can be null, but you still have to write it.
+If it has a default value, it's optional. The usual way to write an optional property is to allow null and default to null:
 ```piton
 abstract anchor Card:
     title:: string
@@ -675,11 +729,12 @@ anchor MyCard extends Card:
     title: Hello
     subtitle: null
 ```
-Here title and subtitle are required (subtitle may be null), and footer is optional. Tooling such as the language server treats optional properties accordingly: it does not report them as missing.
+Here title and subtitle are required (subtitle can be null), and footer is optional. The language server won't complain about a missing optional property.
 
 ##### Empty Values
 
-A property must have a value. A property name followed by nothing, with no value on the same line and no indented block, is a compiler error. Write null explicitly for an absent value.
+A property has to have a value. A name with nothing after it and nothing indented under it is a compiler error. If you mean nothing, write null.
+The only exception is a required property in an abstract anchor, like title above. Anywhere else, a type constraint with no value is still a compiler error.
 
 #### List Type Constraints
 
@@ -710,7 +765,7 @@ There are three additional type annotations that we can use when we want to deal
 The any constraint will allow any type, simple, complex, number, string, boolean, etc.
 The simple type will allow any simple type, which we’ve previously defined, but includes string, number, boolean, and null. It specifically avoids lists, dictionaries, and anchors.
 The complex type allows for any complex type, in other words, list, dictionary, and anchor.
-Two more forms work with any type constraint. Appending [] constrains a list of that type, such as `string[]`. Prefixing an anchor type with extends accepts any anchor whose inheritance chain includes that anchor, such as `extends Operator[]`; see the abstract anchors section.
+There are two more you can use with any type. Add [] to the end for a list of that type, like `string[]`. And put extends in front of an anchor type to accept anything that inherits from it, like `extends Operator[]`. We'll cover that one with abstract anchors.
 ```piton
 a:: complex: [1, 2, 3]
 b:: complex:
@@ -723,9 +778,7 @@ f:: any: 1
 g:: any: Hello, World
 h:: any:
     - String
-    - NestedObject:
-        a:: number: 1
-        b:: number: 2
+    - [1, 2, 3]
 ```
 
 #### Type Coercion
@@ -733,19 +786,26 @@ h:: any:
 ##### Description
 
 Type coercion in Piton is intentionally limited. When a value is constrained to multiple types, Piton evaluates the constraints from left to right and uses the first type the source value can validly represent.
-A number literal may be coerced to a string when a string constraint comes first. For example:
+Numbers can be coerced into strings. For example:
 ```piton
 value:: string:: number: 42
 ```
 This evaluates to the string “42” because string is the first compatible constraint.
-Booleans and null are never coerced. Under a string constraint the literals true, false, and null are a compiler error rather than text:
+Coercing a literal keeps it exactly as written. An expression gets evaluated first, so its result is what gets coerced:
+```piton
+written:: string: 1.0
+evaluated:: string: {1.0}
+```
+written is the string “1.0”. evaluated is the string “1”, because {1.0} is the number 1 before it becomes a string.
+Booleans and null are never coerced. So this is a compiler error, not the string “false”:
 ```piton fragment
 flag:: string: false
 ```
-To get the text, stringify explicitly with `${false}`.
-Quote characters have no special meaning in a value, so a quoted value is simply a string that includes its quotes. `value:: boolean:: string: "false"` evaluates to the seven-character string `"false"`, because `"false"` is not a boolean literal.
-Likewise, values that are already structurally typed, such as lists, dictionaries, and anchors, are not coerced into unrelated types.
+If you want the string, use `${false}`.
+Quotes don't do anything special, so a quoted value is just a string with quotes in it. `value:: boolean:: string: "false"` is the string `"false"`, quotes and all, because `"false"` isn't a boolean.
+Likewise, lists, dictionaries, and anchors are never coerced into unrelated types.
 If none of the declared constraints can accept the value it is a compiler error.
+This is all about type constraints. Operators like + have their own rules.
 
 #### Mutability
 
@@ -758,7 +818,7 @@ Given that there is no runtime for Piton, all variables are immutable. If we int
 ##### Scope
 
 Since variables are defined at the top level of the file in which they’re defined, that file is their scope; they are a “global” within that file. You can export a variable or anchor to make it available to other files and modules, and we’ll cover modules in just a few sections.
-A bare name inside an expression always refers to a file-level variable or an imported symbol, even inside an anchor. Properties of the current anchor are reached through this or self; a sibling property is never found by its bare name.
+Inside an expression, a plain name always means a variable from the file (or something you imported), even inside an anchor. To get at a property on the anchor you're in, use this or self.
 ```piton
 x: top-level
 
@@ -793,7 +853,7 @@ Piton supports a pretty standard if not small set of operators, plus a few sligh
 
 ##### Description
 
-Perform arithmetic on numbers.
+They do math things when operating on numbers.
 
 ##### Operators
 
@@ -813,7 +873,7 @@ Perform arithmetic on numbers.
   symbol: /
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
-- description: Returns the remainder of dividing two numbers. The result takes the sign of the dividend, so `-7 % 3` evaluates to `-1`. A zero divisor is a compiler error.
+- description: Returns the remainder of two numbers. The result keeps the sign of the left side, so `-7 % 3` is `-1`. Modulo by zero is a compiler error.
   symbol: %
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
@@ -827,15 +887,15 @@ Operators with the same precedence are evaluated from left to right. Parentheses
 
 ##### Description
 
-Compare two values and produce a boolean.
+Compares two values and gives you a boolean.
 
 ##### Equality
 
-`==` and `!=` apply to every type. Simple values compare by value. Lists and dictionaries compare structurally, element by element and key by key. Anchors compare by identity, so two anchors are equal only when they are the same anchor.
+`==` and `!=` work on every type. Lists and dictionaries are equal if everything inside them is equal. Anchors are only equal if they're the same anchor, and references are only equal if they point at the same thing.
 
 ##### Ordering
 
-`<`, `<=`, `>`, and `>=` apply to numbers and to strings. Strings compare by Unicode code point. Ordering any other type, or a number against a string, is a compiler error.
+`<`, `<=`, `>`, and `>=` work on numbers and strings. Strings are compared by Unicode code point. Anything else, or a number against a string, is a compiler error.
 
 ##### Operators
 
@@ -860,28 +920,31 @@ Operators that join strings, lists, and dictionaries.
 
 ##### Operators
 
-- description: The concatenation operator (`+`) joins two strings into a single string, preserving their order. For example, `{"Hello" + "World"}` evaluates to `HelloWorld`.
-    When exactly one operand is a string, the other operand is first converted using the [StringExpression](scope/language/expressions/StringExpression.md) rules, so `{2 + "Hello"}` evaluates to the string `2Hello`. An operand with no string representation is a compiler error.
-    Adheres to rules of [TypeCoercion](scope/language/variables/TypeCoercion.md)
+- description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](scope/language/expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
 - description: The merge operator (`+`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and removes duplicates. When a value appears more than once, the last occurrence is kept and earlier ones are dropped, so `[A, B, C, D] + [A, B, C]` evaluates to `[D, A, B, C]`.
-    On dictionaries it performs a shallow merge. Keys from both operands are kept, and when both operands define the same key the right operand's value replaces the left one wholesale.
+    On lists it joins them in order and removes duplicates. If a value shows up more than once, the last one is kept. So `[A, B, C, D] + [A, B, C]` gives you `[D, A, B, C]`.
+    On dictionaries it's a shallow merge. You get the keys from both, and if both have the same key, the right side wins.
   symbol: +
-- description: The duplicate-preserving merge operator (`++`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and keeps every element, including duplicates, so `[A, B, C, D] ++ [A, B, C]` evaluates to `[A, B, C, D, A, B, C]`.
-    On dictionaries it performs a deep merge. When both operands define the same key and both values are dictionaries, those dictionaries are merged recursively by the same rule. Otherwise the right operand's value wins.
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
   symbol: ++
 
 ##### Plus Dispatch
 
-The `+` symbol is shared by [AdditionOperator](scope/language/operators/arithmetic/AdditionOperator.md), [ConcatenationOperator](scope/language/operators/concatenation/ConcatenationOperator.md), and [MergeOperator](scope/language/operators/concatenation/MergeOperator.md). The operand types select which one applies.
+The `+` symbol is shared by [AdditionOperator](scope/language/operators/arithmetic/AdditionOperator.md), [ConcatenationOperator](scope/language/operators/concatenation/ConcatenationOperator.md), and [MergeOperator](scope/language/operators/concatenation/MergeOperator.md). Which one you get depends on the types on each side.
 ```markdown
 | Left       | Right      | Operation                              |
 | ---------- | ---------- | -------------------------------------- |
 | number     | number     | AdditionOperator                       |
-| string     | any        | ConcatenationOperator                  |
-| any        | string     | ConcatenationOperator                  |
+| string     | simple     | ConcatenationOperator                  |
+| simple     | string     | ConcatenationOperator                  |
+| string     | complex    | implicit list                          |
+| complex    | string     | implicit list                          |
 | list       | list       | MergeOperator                          |
 | dictionary | dictionary | MergeOperator                          |
 | other      | other      | compiler error                         |
@@ -891,12 +954,12 @@ The `+` symbol is shared by [AdditionOperator](scope/language/operators/arithmet
 
 ##### Description
 
-Select between values based on a boolean condition.
+Picks between two values based on a boolean.
 
 ##### Operators
 
 - description: The ternary operator selects between two expressions based on a condition, using the syntax `condition ? consequent : alternative`. If the condition is true, the consequent is evaluated and returned; otherwise, the alternative is evaluated and returned. Only the selected expression is evaluated.
-    The condition must evaluate to a boolean. Piton has no truthiness, so a condition of any other type is a compiler error.
+    The condition has to be a boolean. There's no truthiness in Piton, so anything else is a compiler error.
     Ternary operators can be chained; a ternary can be in the consequent or alternative slots.
   symbol: `<condition> ? <consequent> : <alternative>`
 
@@ -904,7 +967,7 @@ Select between values based on a boolean condition.
 
 ##### Description
 
-Combine or negate boolean values. Operands must be booleans; any other type is a compiler error.
+Combine or negate booleans. Anything that isn't a boolean is a compiler error.
 
 ##### Operators
 
@@ -914,6 +977,24 @@ Combine or negate boolean values. Operands must be booleans; any other type is a
   symbol: ||
 - description: Logical negation operator
   symbol: !
+
+#### Precedence
+
+Higher rows go first. Operators on the same row go left to right, except the ternary, which goes right to left. Parentheses change the order.
+```markdown
+| Precedence | Operators          |
+| ---------- | ------------------ |
+| 1 highest  | `.`                |
+| 2          | `!`                |
+| 3          | `*` `/` `%`        |
+| 4          | `+` `-` `++`       |
+| 5          | `<` `<=` `>` `>=`  |
+| 6          | `==` `!=`          |
+| 7          | `&&`               |
+| 8          | `||`               |
+| 9 lowest   | `? :`              |
+```
+So `{1 + 2 == 3 && !false}` is `{((1 + 2) == 3) && (!false)}`, and `{a ? b : c ? d : e}` is `{a ? b : (c ? d : e)}`.
 
 #### All Operators
 
@@ -935,7 +1016,7 @@ Combine or negate boolean values. Operands must be booleans; any other type is a
   symbol: /
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
-- description: Returns the remainder of dividing two numbers. The result takes the sign of the dividend, so `-7 % 3` evaluates to `-1`. A zero divisor is a compiler error.
+- description: Returns the remainder of two numbers. The result keeps the sign of the left side, so `-7 % 3` is `-1`. Modulo by zero is a compiler error.
   symbol: %
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
@@ -951,20 +1032,21 @@ Combine or negate boolean values. Operands must be booleans; any other type is a
   symbol: >
 - description: Greater than or equal to operator.
   symbol: >=
-- description: The concatenation operator (`+`) joins two strings into a single string, preserving their order. For example, `{"Hello" + "World"}` evaluates to `HelloWorld`.
-    When exactly one operand is a string, the other operand is first converted using the [StringExpression](scope/language/expressions/StringExpression.md) rules, so `{2 + "Hello"}` evaluates to the string `2Hello`. An operand with no string representation is a compiler error.
-    Adheres to rules of [TypeCoercion](scope/language/variables/TypeCoercion.md)
+- description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](scope/language/expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
 - description: The merge operator (`+`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and removes duplicates. When a value appears more than once, the last occurrence is kept and earlier ones are dropped, so `[A, B, C, D] + [A, B, C]` evaluates to `[D, A, B, C]`.
-    On dictionaries it performs a shallow merge. Keys from both operands are kept, and when both operands define the same key the right operand's value replaces the left one wholesale.
+    On lists it joins them in order and removes duplicates. If a value shows up more than once, the last one is kept. So `[A, B, C, D] + [A, B, C]` gives you `[D, A, B, C]`.
+    On dictionaries it's a shallow merge. You get the keys from both, and if both have the same key, the right side wins.
   symbol: +
-- description: The duplicate-preserving merge operator (`++`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and keeps every element, including duplicates, so `[A, B, C, D] ++ [A, B, C]` evaluates to `[A, B, C, D, A, B, C]`.
-    On dictionaries it performs a deep merge. When both operands define the same key and both values are dictionaries, those dictionaries are merged recursively by the same rule. Otherwise the right operand's value wins.
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
   symbol: ++
 - description: The ternary operator selects between two expressions based on a condition, using the syntax `condition ? consequent : alternative`. If the condition is true, the consequent is evaluated and returned; otherwise, the alternative is evaluated and returned. Only the selected expression is evaluated.
-    The condition must evaluate to a boolean. Piton has no truthiness, so a condition of any other type is a compiler error.
+    The condition has to be a boolean. There's no truthiness in Piton, so anything else is a compiler error.
     Ternary operators can be chained; a ternary can be in the consequent or alternative slots.
   symbol: `<condition> ? <consequent> : <alternative>`
 - description: Logical AND operator
@@ -978,7 +1060,7 @@ Combine or negate boolean values. Operands must be booleans; any other type is a
 
 #### Description
 
-Expressions combine values and operators to produce a result. Nothing is evaluated unless it is wrapped in braces, such as {a + b} or {1 + 2}; outside braces, 1 + 2 is just text. Evaluation follows Piton’s type and operator rules, resolves forward references, and preserves anchor identity. Unresolved or cyclic references are compiler errors.
+Expressions combine values and operators to produce a result. Nothing gets evaluated unless it's in braces, like {a + b} or {1 + 2}. Without braces, 1 + 2 is just text. Evaluation follows Piton’s type and operator rules and resolves forward references. Unresolved or cyclic references are compiler errors.
 
 #### Story
 
@@ -987,7 +1069,7 @@ Easy expression using literals:
 ```piton
 myVariable: {1 + 2}
 ```
-`myVariable` will be evaluated to 3. Evaluation will of course follow all the rules we’ve previously defined about types as operators; {2 + "Hello"} will evaluate to a string 2Hello. Bare words inside braces are symbols, so a string literal inside an expression is written in double quotes.
+`myVariable` will be evaluated to 3. Evaluation will of course follow all the rules we’ve previously defined about types as operators; {2 + "Hello"} will evaluate to a string 2Hello. Inside braces, bare words are treated as symbols, so strings go in double quotes.
 An important thing to note is that an expression must be wrapped in curly braces, otherwise it'll be interpreted as a [Strings](scope/language/types/Strings.md).
 Let’s look at this example:
 ```piton
@@ -1015,15 +1097,15 @@ newList: {myDictionary.list + [4, 5, 6]}
 ```
 newList will evaluate to [1, 2, 3, 4, 5, 6].
 In this case, {myList} resolves to the value of myList, which is then assigned to myDictionary.list. The newList expression resolves myDictionary.list, combines that value with [4, 5, 6], and evaluates to [1, 2, 3, 4, 5, 6].
-We haven’t discussed anchors yet, but they resolve by reference, and the original identity is preserved.
+Anchors get copied in too, but the copy still knows it's Foo. So if x is {Foo}, then {x == Foo} is true, ${x} is “Foo”, and x passes a Foo type constraint. If you want a link instead of a copy, use @{Foo}.
 
 #### Expressions In Text
 
-When the entire value is a single expression, such as total: {a + b}, the value keeps the expression's type. When an expression appears alongside other text, what happens depends on the form and the result.
-The ${x} form stringifies the result and concatenates it with the surrounding text, so the value is a string.
-The {x} form with a simple result (string, number, boolean, or null) splices the result into the text, so Total: {a + b} is the string “Total: 3”.
-The {x} form with a complex result (list, dictionary, or anchor) copies the value in. The property becomes an implicit list of the text before it, the value, and the text after it, as described for mixed collections. So See {Foo} for details becomes a list of “See”, the content of Foo, and “for details”.
-The @{x} form inserts a reference, which the renderer writes as a link or path.
+If the whole value is just an expression, like total: {a + b}, it keeps its type. If there's other text around it, it depends.
+${x} turns the result into a string, so the whole thing is just a string.
+{x} with a simple value (string, number, boolean, or null) drops the value into the text, so Total: {a + b} is “Total: 3”.
+{x} with a list, dictionary, or anchor copies it in. That turns the property into an implicit list, same as when you mix types in a collection. So See {Foo} for details becomes a list with “See”, a copy of Foo, and “for details”.
+@{x} puts in a reference, which ends up as a link or a path.
 
 #### Expression Types
 
@@ -1042,7 +1124,7 @@ The @{x} form inserts a reference, which the renderer writes as a link or path.
       - Preserve native value types in structured output.
       - Serialize an anchor as its resolved content rather than a link to it.
       - Apply the output format's serialization rules when textual output is required.
-  inText: When a standard expression shares its value with other text, a simple result is spliced into the text as a string, and a complex result makes the value an implicit list of the surrounding text and the copied value.
+  inText: If there's other text around it, a simple value gets dropped into the text, and a list, dictionary, or anchor turns the whole thing into an implicit list.
 - description: Evaluates an expression and converts its result to a number.
   syntax: #{expression}
   evaluation:
@@ -1059,26 +1141,27 @@ The @{x} form inserts a reference, which the renderer writes as a link or path.
     description: The result is a numeric value that can participate in enclosing expressions, including arithmetic and further conversions.
   output:
     description: Preserve the numeric type in structured output. Convert it to text only when required by the surrounding output format.
-- description: Evaluates an expression and produces a reference to its result, preserving the identity of the referenced anchor rather than embedding its value or converting it to a string.
+- description: Evaluates an expression and produces a reference to its result, preserving the identity of the referenced anchor or property rather than embedding its value or converting it to a string.
   syntax: @{}
   evaluation:
     - Evaluate the enclosed expression using normal expression rules.
-    - Require the result to identify a referenceable anchor.
-    - Preserve that anchor's identity until output serialization.
-    - Report an error if the expression cannot resolve to a referenceable anchor.
+    - Require the result to identify an anchor or a property on one.
+    - Preserve that anchor's or property's identity until output serialization.
+    - Report an error if the expression cannot resolve to an anchor or a property on one.
   compilation:
-    - Include the referenced anchor in the compilation dependency graph.
-    - Resolve its output location through the active renderer, or the framework adapter built on it.
+    - Include the referenced anchor in the compilation dependency graph. For a property, that's the anchor it's on.
+    - Resolve its output location through the renderer, or the framework adapter on top of it.
     - Resolve each reference independently for each configured output target.
     - Report an error if the target cannot represent or resolve the reference.
   markdown:
     description: Render a Markdown link to the referenced anchor's compiled representation, relative to the file containing the reference.
     requirements:
-      - Use the referenced anchor's display name as the link text.
+      - Use the referenced anchor's name as the link text, or Anchor.property for a property.
       - Link to the specific anchor when several anchors share an output file.
+      - For a property, link to its heading.
       - Preserve lazy access rather than automatically including the referenced content.
   otherFormats:
-    description: Each renderer must define how anchor identity is represented; see the Reference type for the defaults. A reference must not silently become an embedded copy or a plain name string when the target has no defined reference representation.
+    description: Each renderer decides what a reference looks like. See the Reference type for the defaults. A reference must not silently become an embedded copy or a plain name string when the target has no defined reference representation.
 - description: Evaluates an expression and converts its result to a string.
   syntax: ${}
   evaluation:
@@ -1090,9 +1173,9 @@ The @{x} form inserts a reference, which the renderer writes as a link or path.
     - Convert numbers to their textual representation.
     - Convert booleans to lowercase true or false.
     - Convert null to the string null.
-    - Convert an anchor to its source name, the identifier it was declared with.
-    - Convert a named list or dictionary to its qualified name, such as Anchor.propertyName, or the variable name at the top level of a file.
-    - Report an error for a list or dictionary literal, which has no name.
+    - Convert anchors to their name, as written in the source.
+    - Convert a named list or dictionary to its name, like Anchor.propertyName, or just the variable name at the top of a file.
+    - Report an error for a list or dictionary that has no name.
     - Do not reinterpret the resulting string as source syntax or another expression.
   composition:
     description: The result is a string that can be embedded in surrounding text or participate in an enclosing expression.
@@ -1111,37 +1194,37 @@ An object is a value. An anchor is a named structural declaration that can parti
 In Piton, the anchor is the core construct, the building block of the entire system. It shares some loose heritage with classes in OOP (instantiation not being one of them), but does have its own unique characteristics as well.
 ```piton
 anchor MyFirstAnchor:
-  whatIsAnAnchor:
-    An anchor is a kind of object or document that is structured via
-    properties and values.
+    whatIsAnAnchor:
+        An anchor is a kind of object or document that is structured via
+        properties and values.
 
-  stringValue: String types are supported.
+    stringValue: String types are supported.
 
-  listTypes:
-    - List types
-    - are
-    - supported.
+    listTypes:
+        - List types
+        - are
+        - supported.
 
-  nestedLists:
-    - Nested list types are
-      - also supported.
-      - [And, With, Bracket, Syntax]
+    nestedLists:
+        - Nested list types are
+            - also supported.
+            - [And, With, Bracket, Syntax]
 
-  numberTypes: {3.14 - 3.14}
+    numberTypes: {3.14 - 3.14}
 
-  booleanTypes: true
+    booleanTypes: true
 
-  nullType: null
+    nullType: null
 
-  // This evaluates to false
-  booleanOperatorsAnd: {this.booleanTypes && false}
-  // This evaluates to true
-  booleanOperatorsOr: {this.booleanTypes || false}
+    // This evaluates to false
+    booleanOperatorsAnd: {this.booleanTypes && false}
+    // This evaluates to true
+    booleanOperatorsOr: {this.booleanTypes || false}
 
-  thisKeyword:
-      As you may have noticed, Piton supports the `this` keyword for
-      accessing properties on the current anchor. We'll talk about this
-      later.
+    thisKeyword:
+        As you may have noticed, Piton supports the `this` keyword for
+        accessing properties on the current anchor. We'll talk about
+        this later.
 ```
 If we look at how this would compile to JSON, it would look like this:
 ```json
@@ -1189,8 +1272,9 @@ And as JSON:
 }
 ```
 One particular thing to note here is that both FirstBaseAnchor and SecondBaseAnchor include a description property, and the way that got inherited by ChildAnchor is a simple left to right where the last in line wins.
-Type constraints inherited from concrete anchors participate in the same left-to-right collision resolution as property values; the right-most inherited definition wins and no error is reported. Conflicts between implemented abstracts follow the rules in the abstract anchors section.
-An inheritance cycle, where an anchor directly or indirectly extends itself, is a compiler error.
+Type constraints from the bases work the same way as values; the right-most one wins. Abstracts have their own rules, which we'll get to.
+You can't redeclare a constraint you inherit, you can only give it a value. So if subtitle is already constrained, `subtitle: Hi` is fine and `subtitle:: string: Hi` is a compiler error.
+An anchor can't extend itself, directly or through other anchors. That's a compiler error.
 
 ##### Super
 
@@ -1219,7 +1303,14 @@ anchor ChildAnchor extends BaseAnchor:
     description:
         ${super.description} and Description from ChildAnchor
 ```
-As with the previous example of multiple inheritance, the anchor could be inheriting from multiple bases, in which case what does super point to? super is the merged view of everything the anchor inherits, built with the same authority as property inheritance: left to right, last in line wins. So when the right-most base does not define a property, super still finds it on an earlier base.
+It’s worth noting the small detail here that we borrow the ${} syntax from other languages for string interpolation.
+So the resulting JSON would be:
+```json
+{
+  "description": "Description from BaseAnchor and Description from ChildAnchor"
+}
+```
+As with the previous example of multiple inheritance, the anchor could be inheriting from multiple bases, in which case what does super point to? super is everything the anchor inherits, merged together the same way as property inheritance: left to right, last in line wins. So if the last base doesn't have the property, super still finds it on an earlier one.
 ```piton
 anchor Left:
     d: from-left
@@ -1230,14 +1321,7 @@ anchor Right:
 anchor Child extends Left, Right:
     d: ${super.d} plus child
 ```
-Here Child.d is “from-left plus child”. Referring to a property that no base defines is a compiler error.
-It’s worth noting the small detail here that we borrow the ${} syntax from other languages for string interpolation.
-So the resulting JSON would be:
-```json
-{
-  "description": "Description from BaseAnchor and Description from ChildAnchor"
-}
-```
+Here Child.d is “from-left plus child”. If none of the bases have the property, that's a compiler error.
 
 ##### Super On Lists
 
@@ -1259,8 +1343,37 @@ anchor ChildAnchor extends BaseAnchor:
         - F
 ```
 This example will yield a final items of [A, B, C, D, E, F].
-A block is built from top to bottom. A line beginning with + or ++ applies that operator between the value accumulated so far and the line's value, using the operand types to choose the operation, and the following items continue from the result. Here the block starts empty, the + line merges in super.items, and D, E, and F are appended. Without the + we’d end up with a nested list: [[A, B, C], D, E, F].
-The same rule applies in string blocks, where + concatenates, and in dictionaries, where + and ++ merge. A block containing only a single `+ {x}` line is equivalent to `{x}`.
+Blocks are built from top to bottom. A line starting with + or ++ takes everything above it and combines it with that line's value. So here we start with nothing, the + brings in super.items, and then D, E, and F get added.
+Without the + we’d end up with
+```piton fragment
+anchor ChildAnchor extends BaseAnchor:
+    items:
+        - {super.items}
+        - D
+        - E
+        - F
+```
+turning into
+```
+[[A, B, C], D, E, F]
+```
+This works the same way in dictionaries, where + and ++ merge them. And a block with just `+ {x}` in it is the same as `{x}`.
+In strings, + joins them with nothing in between, and ++ puts a line break between them:
+```piton
+anchor Base:
+    d: Base text.
+
+anchor Plus extends Base:
+    d:
+        Child text.
+        + {super.d}
+
+anchor DoublePlus extends Base:
+    d:
+        Child text.
+        ++ {super.d}
+```
+Plus.d is “Child text.Base text.” DoublePlus.d is the same, but on two lines.
 But let’s modify that example slightly to see a specific feature of the + concatenation operator.
 ```piton
 anchor BaseAnchor:
@@ -1277,7 +1390,7 @@ anchor ChildAnchor extends BaseAnchor:
         - D
         + {super.items}
 ```
-The change is that ChildAnchor now also contains A, B, C, and D, and we’re also bringing super.items in at the end of the list. The + merge operator concatenates in the order of the operands and removes duplicates, keeping the last occurrence of each value. So the accumulated [A, B, C, D] merged with [A, B, C] gives ChildAnchor [D, A, B, C].
+The change is that ChildAnchor now also contains A, B, C, and D, and we’re also bringing super.items in at the end of the list. If you remember from when we discussed the + merge operator, it removes duplicates and keeps the last one. So ChildAnchor ends up with [D, A, B, C].
 One last example uses the ++ operator.
 ```piton
 anchor BaseAnchor:
@@ -1294,7 +1407,7 @@ anchor ChildAnchor extends BaseAnchor:
         - D
         ++ {super.items}
 ```
-The ++ operator keeps duplicates, so ChildAnchor ends up with [A, B, C, D, A, B, C].
+This time duplicates are kept, so ChildAnchor ends up with [A, B, C, D, A, B, C].
 
 ##### Self Reference
 
@@ -1359,7 +1472,7 @@ Will output
 }
 ```
 As you can see, this gets pinned to wherever it’s used, while self travels through the hierarchy.
-self only travels through inheritance. Reading another anchor's property, without extending it, gives that anchor's own value with self bound to that anchor:
+self only travels through inheritance though. If you just read a property from another anchor, you get that anchor's value, with self being that anchor:
 ```piton
 anchor Precedence:
     note: ${self} rules apply
@@ -1368,13 +1481,13 @@ anchor Addition:
     copied: ${Precedence.note}
 ```
 Addition.copied is “Precedence rules apply”.
-this and self always refer to anchors, never to a nested dictionary. Inside a nested dictionary they still refer to the enclosing anchor.
+this and self always mean an anchor, never a dictionary. Even inside a nested dictionary, they mean the anchor it's in.
 
 ##### Abstract
 
 ###### Description
 
-Abstracts allow us to define the shape of an anchor. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must give a value to every required property of the abstract.
+Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties.
 ```piton
 abstract anchor Skill:
     description:: string
@@ -1384,11 +1497,11 @@ anchor ConcreteSkill extends Skill:
     description: This must be a string as defined by the abstract
 ```
 We’ll introduce a new bit of terminology here in that a concrete anchor that extends an abstract anchor is said to be “implementing” the abstract anchor.
-An abstract may give a property a default value. A property with a default is optional for the implementer; one without a value is required. See the required and optional rules under type constraints.
+An abstract can give a property a default value. If it does, that property is optional. If it doesn't, it's required.
 
 ###### Abstract Chains
 
-An abstract anchor may extend another abstract anchor. The implementing anchor must satisfy every required property anywhere in the chain.
+An abstract can extend another abstract. Whatever implements it has to fill in the required properties from the whole chain.
 ```piton
 abstract anchor Construct:
     description:: string
@@ -1405,15 +1518,14 @@ skill Review:
 
 ###### Multiple Abstracts
 
-An anchor may implement more than one abstract, including abstracts that share an ancestor. It is good practice to export an abstract anchor as a keyword, and a keyword's anchor is always placed last in the inheritance chain, so the keyword's abstract wins.
-When two implemented abstracts constrain the same property:
-If the constraints have no type in common, such as string and number, it is a compiler error. If they share at least one type, the right-most abstract's constraint wins.
-You are still free to extend concrete anchors in addition to implementing abstracts. Constraints inherited from concrete anchors follow ordinary right-most-wins inheritance and never error.
+An anchor can implement more than one abstract, even ones that share a base. It is in fact good practice to export an abstract anchor as a keyword, and the keyword's anchor always goes last in the inheritance chain, so it wins.
+If two abstracts have type constraints on the same property and the types don't overlap at all (say string and number), that's a compiler error. If they do overlap, the right-most one wins.
+You are still free to extend other concrete anchors in addition to basing off an abstract. Type constraints from concrete anchors just follow normal inheritance: right-most wins, no error.
 
 ###### Special Type Constraints
 
 We are also able to use the specialized type constraints within abstracts like simple, complex, any, [], etc.
-The extends type constraint keyword represents the inheritance hierarchy. It can be used in any type constraint, not only within abstracts. Take the following example.
+There's also the extends type constraint keyword, which lets us represent inheritance hierarchy. You can use it anywhere, but it's most at home in abstracts. Take the following example.
 ```piton
 abstract anchor A:
     description:: string
@@ -1429,11 +1541,11 @@ abstract anchor C:
 ```
 Here, we have defined an anchor A with a description and an anchor B which extends A and adds a name property. So B has both description and name while A only has a description.
 We have then defined an anchor C. Let’s go one property at a time.
-A plain anchor type accepts an anchor whose nearest abstract is that anchor. The nearest abstract is the abstract that wins in the anchor's inheritance chain: its keyword's abstract if it uses one, otherwise the right-most abstract it extends.
-listOfA will be satisfied by anchors whose nearest abstract is A.
-listOfB will be satisfied by anchors whose nearest abstract is B. An implementer of B does not satisfy listOfA, even though B extends A.
+A plain anchor type only matches anchors that directly implement it. If an anchor has more than one abstract, the one that counts is the one that wins: the keyword's abstract, or else the right-most one.
+listOfA will be satisfied by anything that directly implements the abstract A.
+listOfB will be satisfied by anything that directly implements the abstract B. Something implementing B won't fit in listOfA, even though B extends A.
 Where it gets a little more interesting is in the third property, listOfExtendsA.
-extends on an anchor type reference means that the constraint may be satisfied by any concrete anchor whose inheritance chain includes that anchor.
+extends on an anchor type means that the constraint may be satisfied by any concrete anchor whose inheritance chain includes that anchor.
 So in this example, that constraint is satisfied by a list of anything that has A in its inheritance hierarchy. So in this case, you’d be able to pass concrete anchors that implement either A or B given that B has A in its inheritance chain.
 
 ##### User Defined Keywords
@@ -1461,7 +1573,7 @@ anchor ChildAnchor extends MyAnchor:
         ${super.description}
         My additional description
 ```
-An anchor can be declared with only one keyword, but it can still use extends to inherit from other anchors as well.
+You can only use one keyword on an anchor, however you can still use extends to inherit from other anchors as well.
 ```piton
 anchor MyAnchor as my-anchor:
     description: This is a description of my anchor
@@ -1487,36 +1599,14 @@ anchor ChildAnchor extends OtherBase, MyAnchor:
         ${super.description}
         My additional description
 ```
-Note that the keyword's anchor is always placed last in the inheritance chain, so it wins collisions against anything listed in extends. Here ChildAnchor's description begins with “This is a description of my anchor”.
-A user-defined keyword may not be one of the reserved words.
+Note that the user-defined keyword will be the last anchor in the inheritance chain, and so it wins any collisions with what's in extends. So here ChildAnchor's description starts with “This is a description of my anchor”.
+You can't use a reserved word as a keyword.
 
 ### Reuse
 
 #### Description
 
 Fundamental to Piton is the ability to compose a larger codebase from smaller focused pieces, so we need a way to reuse code across files.
-
-#### Circular Imports
-
-##### Description
-
-Circular imports are always supported and never throw a compiler error. Circular references between values are fine as well, as long as they do not create something impossible to resolve.
-For example
-```piton
-anchor A:
-    description: This anchor talks about ${B}
-
-anchor B:
-    description: This anchor talks about ${A}
-```
-Is perfectly fine because ${A} and ${B} both settle to a string, the anchor's name.
-However
-```piton fragment
-A: {B}
-B: {A}
-```
-Is a compile error because it simply cannot resolve.
-The only cycles that are errors are value cycles like this one, which cannot resolve, and inheritance cycles, where an anchor directly or indirectly extends itself.
 
 #### Import Export
 
@@ -1534,7 +1624,7 @@ To bring those into another file you use the from...import syntax:
 from ./FirstFile import pi, MyAnchor
 ```
 Note that we can’t import myVariable because it wasn’t exported.
-Paths for from...import are relative to the current file. If the project is configured with a piton.config.pi file, you can also use absolute path imports relative to the root value defined in the project config.
+Paths for from...import are relative to the current file. The .pi extension is optional, and piton format removes it. Just . or .. points at the index.pi in that directory. If the project is configured with a piton.config.pi file, you can also use absolute path imports relative to the root value defined in the project config.
 ```piton fragment
 from /subdir/subdir/file import AnAnchor
 ```
@@ -1607,6 +1697,28 @@ my-custom-keyword Wow:
 ```
 `use` only brings in keywords. It does not import anything else that was exported, just as from...import does not import keywords.
 
+#### Circular Imports
+
+##### Description
+
+Circular imports are supported and will not throw a compiler error. Circular references are fine as well as long as it does not create something impossible to resolve.
+For example
+```piton
+anchor A:
+    description: This anchor talks about ${B}
+
+anchor B:
+    description: This anchor talks about ${A}
+```
+Is perfectly fine because ${A} and ${B} both settle to a string (the anchor's name).
+However
+```piton fragment
+A: {B}
+B: {A}
+```
+Is a compile error because it simply cannot resolve.
+The only cycles that are errors are ones like this, that can't resolve, and an anchor that ends up extending itself.
+
 ## Tooling
 
 ### Cli
@@ -1617,7 +1729,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 
 #### Commands
 
-- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](agent/skills/GenerateFluencyPrompt.md) skill, the FLUENCY_PROMPT.md file at the project root. The CLI resolves that file from the project root, not relative to a generated artifact.
+- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](agent/skills/GenerateFluencyPrompt.md) skill, which is FLUENCY_PROMPT.md in the project root.
   commandName: agent
   positionalArguments:
     agent: Which agent to run [ claude ]
@@ -1628,8 +1740,9 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   positionalArguments:
     config: optional path to piton.config.pi file
   namedArguments: null
-  entry: The entry file is the entry property of the project config. When it is omitted, it is index.pi inside the configured root, and a missing entry file is an error.
-  emitted: Everything exported from the entry file is compiled, whether or not anything uses it. Anchors that those exports reach through a reference are also emitted, as reference targets. Non-exported declarations that nothing references are not emitted, and abstract anchors never are.
+  entry: The entry file is set by entry in the project config. If it's left out, it's index.pi inside root. If that doesn't exist, it's an error.
+  emitted: Anything that is exported from the entry file will be compiled; it doesn't have to be explicitly *used* to be compiled. Anything those exports reference also gets compiled, so the links have somewhere to go. Everything else is left out, and abstract anchors never compile.
+  output: Without a framework, build writes to the output directory set in the project config. That's the entry file, plus any file with something the entry's exports reference. Files keep their place under root and get the renderer's extension, so with the defaults spec/components/Button.pi becomes dist/components/Button.json. Frameworks add their own output on top of that.
   manifest: In a .piton directory that lives alongside the piton.config.pi file, a manifest.json file will be written with the build output.
     ```
     {
@@ -1638,10 +1751,19 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     ```
 - description: Checks specific files or the project and reports errors
   commandName: check
-  positionalArguments: null
+  positionalArguments:
+    path: Optional file or glob. Defaults to the project.
   namedArguments: null
   emit: false
-  validate: syntax imports references types inheritance composition exports circular-dependencies
+  validate:
+    - syntax
+    - imports
+    - references
+    - types
+    - inheritance
+    - composition
+    - exports
+    - circular-dependencies
   diagnostics:
     errors: true
     warnings: true
@@ -1649,18 +1771,18 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     success: 0
     errors: 1
 - description: Compiles Piton
-    Pointing at a single file, compile will output the compiled result to stdout. Glob-based paths won't work unless we also use Write each result next to its input file.
-    If Write each result next to its input file. is set, the compiled result will be written to a file with the appropriate extension for the selected renderer that lives next to the input file.
+    Pointing at a single file, compile will output the compiled result to stdout. Glob-based paths won't work unless we also use Write the result next to the input file.
+    If Write the result next to the input file. is set, the compiled result will be written to a file with the appropriate extension for the selected renderer that lives next to the input file.
   commandName: compile
   positionalArguments:
     path: file or glob
   namedArguments:
-    renderer: Output format. Valid options are [ json, yaml, markdown ]; defaults to json.
-    write: Write each result next to its input file.
-    dependencies: Wrap the result with the source files it was compiled from.
-  output: A compiled file is an object keyed by export name, holding every exported variable and anchor. Non-exported declarations and abstract anchors are omitted. The JSON examples elsewhere in this specification show a single anchor's content for brevity.
-  dependencies: If Wrap the result with the source files it was compiled from. is set, the result is wrapped with the source files it was compiled from. A build tool that imports a Piton file has to know which other files to watch, and only the compiler knows: imports resolve through the module graph, and a package may keep a file somewhere the importing text never names.
-    The wrapper is a JSON object with two keys: value, holding the rendered output as a string, and dependencies, holding the absolute paths of the source files.
+    renderer: Valid options are [ json, yaml, markdown ]. Defaults to json.
+    write: Write the result next to the input file.
+    dependencies: Include the source files it was compiled from.
+  output: A compiled file is an object with one key per export. Anything that isn't exported is left out, and so are abstract anchors. The JSON examples elsewhere in this spec skip the exports and just show what's being discussed, to keep things short.
+  dependencies: If Include the source files it was compiled from. is set, the result is wrapped with the source files it was compiled from. A build tool that imports a Piton file has to know which other files to watch, and only the compiler knows: imports resolve through the module graph, and a package may keep a file somewhere the importing text never names.
+    It comes out as a JSON object with two keys: value, which is the compiled output as a string, and dependencies, which is a list of the source files' absolute paths.
     Bundled package files are left out, since they live inside the compiler rather than on disk.
 - description: Applies canonical formatting.
   commandName: format
@@ -1670,10 +1792,15 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     check: Only check the files, and report problems.  Don't write.
 - description: Counts lines of Piton source for specific files or the project
   commandName: loc
-  positionalArguments: null
+  positionalArguments:
+    path: Optional file or glob. Defaults to the project.
   namedArguments: null
   emit: false
-  count: total code comments blank
+  count:
+    - total
+    - code
+    - comments
+    - blank
   groupBy: file
   summary: true
   diagnostics:
@@ -1681,14 +1808,15 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     warnings: false
   exitCode:
     success: 0
-- description: Runs the Piton language server. Enter and indentation behavior follows the shared editor behavior rules in the editors section.
+- description: Runs the Piton language server. For what enter and indenting should do, see the editor behavior rules in the editors section.
   commandName: lsp
   positionalArguments: null
   namedArguments: null
   features:
-    diagnostics: Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Optional properties, those with a default value, are never reported as missing.
+    diagnostics: Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
     completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
-      Don't autocomplete things that don't exist, and don't propose anything on an empty value: after `property: ` the likely intent is to type unstructured text.
+      However, don't autocomplete things that don't exist.
+      Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
       Typing a [PropertyAccessOperator](scope/language/operators/access/PropertyAccessOperator.md) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
     autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
     hoverInformation: Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
@@ -1699,7 +1827,6 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     workspaceSymbols: Allow fast searching across all named constructs in the entire specbase regardless of which file defines them.
     semanticHighlighting: Highlight Piton constructs according to their semantic meaning rather than syntax alone, distinguishing anchors, references, properties, inherited values, exports, imports, expressions, types, and keywords.
     inlayHints: Show useful inferred information inline, such as resolved types, inherited origins, composition sources, or the anchor from which a value ultimately derives.
-    signatureHelp: When using constructs with parameters or structured inputs, show the expected fields, types, defaults, and documentation for the active argument.
     codeActions: Offer context-sensitive fixes and transformations such as importing a missing symbol, creating an unresolved anchor, adding an export, qualifying an ambiguous reference, or resolving a simple inheritance conflict.
     importOrganization: Detect unused, duplicate, invalid, or unnecessarily broad imports and provide an action to clean and normalize them.
     formatting: Format Piton source according to the canonical language style, particularly indentation, spacing, declaration layout, expressions, imports, and multiline structures.
@@ -1711,8 +1838,8 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     expressionValidation: Parse and validate Piton expressions inside `{...}`, `${...}`, `#{...}`, and `@{...}` expression forms according to their expected output type.
     expressionTypeInformation: Show the inferred output type of an expression and warn when the expression cannot produce the type required by its interpolation form or destination.
     exportValidation: Track explicit exports and report attempts to import or reference symbols that are not visible outside their defining module.
-    moduleResolution: Resolve relative and root-based Piton imports according to the project configuration and report missing modules and invalid paths. Circular imports are allowed and are not reported.
-    circularDependencyDetection: Detect cycles between modules, anchors, inheritance chains, or references where Piton semantics prohibit them, which are unresolvable value cycles and inheritance cycles,, and show the cycle that caused the error.
+    moduleResolution: Resolve relative and root-based Piton imports according to the project configuration and report missing modules and invalid paths. Circular imports are fine, so don't report them.
+    circularDependencyDetection: Find cycles that can't resolve, and anchors that end up extending themselves, and show the cycle that caused the error. Circular imports are fine and aren't reported.
     relatedSymbolNavigation: Provide navigation between closely related constructs such as an abstract and its implementations, a base anchor and its extensions, or a symbol and the constructs that compose it.
     hierarchyView: Expose inheritance and composition relationships as a hierarchy so the editor can show parents, children, extensions, and implementations of a selected construct.
     resolvedValueInspection: Allow the editor to show the final resolved value of a property after inheritance, overrides, composition, and expressions have been applied.
@@ -1728,13 +1855,24 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     folding: Provide folding ranges for anchors, skills, agents, multiline values, documentation blocks, and other structural Piton constructs.
 - description: Analyzes which parts of the specbase are reachable from specific files, anchors, or the project
   commandName: reach
-  positionalArguments: null
+  positionalArguments:
+    target: Optional file, glob, or anchor. Defaults to the project.
   namedArguments: null
   emit: false
-  traverse: imports references inheritance composition
+  traverse:
+    - imports
+    - references
+    - inheritance
+    - composition
   direction: outgoing
-  include: direct transitive
-  report: reachable unreachable depth paths
+  include:
+    - direct
+    - transitive
+  report:
+    - reachable
+    - unreachable
+    - depth
+    - paths
   groupBy: source
   summary: true
   diagnostics:
@@ -1747,12 +1885,12 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   positionalArguments:
     package: name of the package to remove
   namedArguments: null
-- description: Clones and un-gits packages into the tethers directory. With no argument it installs every dependency listed in piton.config.pi. With a source it adds that dependency to piton.config.pi and installs it.
+- description: Clones and "un-gits" a repository into the tethers directory. Run it on its own and it installs everything in piton.config.pi's dependencies. Give it a source and it adds that to piton.config.pi and installs it.
   commandName: tether
   positionalArguments:
-    source: Optional URL of the git repository to add and install
+    source: Optional. URL of the git repository
   namedArguments: null
-- description: Moves an installed package from tethers/ to the untethered/ directory inside the configured root, while also rewriting any imports.
+- description: Moves an installed package from tethers/ to untethered/ inside root, and rewrites any imports.
   commandName: untether
   positionalArguments:
     packageName: the name of the package to untether
@@ -1769,7 +1907,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 
 #### Description
 
-If the compiler finds a piton.config.pi file in the current working directory, it will read that configuration file to configure a project. Realistically, this is how any Piton project will usually be used. Through a project you can configure the root, the entry point, frameworks, packages, and dependencies. Where output is written is decided by the renderer or framework adapter, not by the project.
+If the compiler finds a piton.config.pi file in the current working directory, it will read that configuration file to configure a project. Realistically, this is how any Piton project will usually be used. Through a project you can configure the root, the entry point, where the output goes and which renderer it uses, frameworks, packages, and dependencies. By default output goes to ./dist as JSON. Frameworks decide where their own output goes.
 Configuration anchors are provided by the @piton/config use/import which is bundled into the compiler:
 ```piton
 use @piton/config
@@ -1779,7 +1917,9 @@ from @piton/belay import ClaudeCodeAdapter
 
 export piton-config Config:
     root: ./spec
-    entry: ./spec/index.pi // Optional; defaults to index.pi inside root
+    entry: ./spec/index.pi // Optional; defaults to index.pi in root
+    output: ./dist // Optional; defaults to ./dist
+    renderer: json // Optional; json, yaml, or markdown
 
     frameworks:
         - {BelayFrameworkConfig}
@@ -1798,9 +1938,9 @@ The piton.config.pi file exports its main piton-config anchor, and the [Lsp](sco
 
 #### Description
 
-Frameworks are a construct within a Piton project that allow the inclusion of Piton modules globally as well as the extension of what the compiler outputs. Piton itself renders to data formats through renderers; a framework can add adapters that build on a renderer, the way Belay's agent adapters build on the Markdown renderer.
+Frameworks are a construct within a Piton project that extend what the compiler outputs. Piton itself outputs data through renderers, and a framework can add adapters on top of them. Belay's adapters, for example, build on the Markdown renderer.
 As of the current version of Piton there is one framework bundled with the language: the Belay framework. In future iterations of the language, we will build out much more functionality in the frameworks concept.
-Frameworks are included in a project through the frameworks property in the project config. You’ll see a concrete example of this when we talk about the Belay framework. Once you’ve included a framework, you’ll be able to use any keywords and import any modules it exports. You’ll still have to use and import in each file, but adding the framework to the project config makes those pieces available.
+Frameworks are included in a project through the frameworks property in the project config. You’ll see a concrete example of this when we talk about the Belay framework. You can use and import a bundled framework's keywords and modules whether you've included it or not, and you still have to do that in each file. Including the framework is what turns on its output.
 
 ### Editors
 
@@ -1809,7 +1949,7 @@ Frameworks are included in a project through the frameworks property in the proj
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter:
     - tree-sitter
     - lsp
@@ -1818,7 +1958,7 @@ Frameworks are included in a project through the frameworks property in the proj
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter:
     - tree-sitter
     - lsp
@@ -1827,42 +1967,42 @@ Frameworks are included in a project through the frameworks property in the proj
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter: jetbrains
 - description: Editing plugin for Kate. Has full support for the LSP.
   editorBehavior:
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter: KSyntaxHighlighting
 - description: Editing plugin for NeoVim. Has full support for the LSP.
   editorBehavior:
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter: vim
 - description: Editing plugin for Sublime. Has full support for the LSP.
   editorBehavior:
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter: sublime-syntax
 - description: Editing plugin for Vim. Has full support for the LSP.
   editorBehavior:
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter: vim
 - description: Editing plugin for VsCode. Has full support for the LSP.
   editorBehavior:
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter:
     - textmate
     - lsp
@@ -1871,7 +2011,7 @@ Frameworks are included in a project through the frameworks property in the proj
     - Whether it's via the LSP or the editor extension, the editors need to behave in a sane and predictable way according to the following rules
     - enterOnColon: Enter on colon (on a new dictionary or anchor property) should do a new line and indent the new line to the correct +1 level.
       enterOnBlankLine: On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
-      autoFormatOnSave: Autoformat on save is an option. Formatting normalizes the space after `//` but never reformats the text of a comment, so commented-out code keeps its layout.
+      autoFormatOnSave: Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
   syntaxHighlighter:
     - tree-sitter
     - lsp
@@ -1887,10 +2027,13 @@ Frameworks are included in a project through the frameworks property in the proj
   description: Should be a Vite plugin that allows loading a Piton file and reading properties from it.
     For example
     ```typescript
+    import { SaveButton, pi } from '../spec/app.pi';
     import spec from '../spec/app.pi';
     
-    const button = spec.anchors.SaveButton;
+    const button = SaveButton;
+    const cancel = spec.CancelButton;
     ```
+    Each export in the Piton file is a named export. The default export is the whole file, same as what piton compile gives you.
   renderers: You should be able to configure the plugin with a default renderer (markdown, JSON, etc.) but you should also be able to import those renderers as functions and use them inline.
 
 ## Belay
@@ -1902,12 +2045,12 @@ A Piton framework for structured agent instructions, skills, commands, and agent
 ### Special Imports
 
 ```
-description: The following special imports can be brought in from `@piton/belay`. Each resolves during compilation, separately for each adapter, to a path relative to the generated file that uses it.
-BELAY_AGENT_ROOT: The selected adapter's own directory, such as .claude or .opencode.
-BELAY_PROJECT_ROOT: The project root, the directory containing piton.config.pi.
-BELAY_SHAPE_ROOT: The source shape directory configured as shapeRoot, or the project root when shapeRoot is null.
-BELAY_CODE_ROOT: The source-code directory configured as codeRoot.
-BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected adapter, beneath its referenceRoot.
+description: The following special imports can be brought in from `@piton/belay` and used. They're filled in at compile time, for each adapter, as a path relative to the file they end up in.
+BELAY_AGENT_ROOT: The agent's directory, so that might be .claude or .opencode, etc.
+BELAY_PROJECT_ROOT: The project, where piton.config.pi lives.
+BELAY_SHAPE_ROOT: The shape as configured in the project config. If not specified, it's the project root.
+BELAY_CODE_ROOT: The code as configured in the project config.
+BELAY_COMPILED_SHAPE: The compiled copy of the shape for the agent, under its reference directory.
 ```
 
 ### Framework
@@ -1924,15 +2067,15 @@ BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected ad
     - Derive generated guidance from the resolved source and configuration.
     - Treat implementation as something to assess against the specification.
     - Distinguish predictable artifact generation from probabilistic agent behavior.
-    - Load the four construct definitions from the specification's own anchor files, so the compiler and the specification cannot disagree about a construct.
-- description: Piton supplies language semantics and renderers. Belay supplies agentic vocabulary and adapters that turn resolved constructs into platform artifacts.
+    - Load the four constructs from their own .pi files in this spec, so the compiler and the spec can't disagree.
+- description: Piton handles the language and the renderers. Belay adds the agentic pieces and the adapters that turn them into files for each platform.
   requirements:
     - Defer parsing and expression evaluation to Piton.
     - Defer imports, exports, inheritance, and reachability to Piton.
     - Use adapters to translate resolved Belay constructs into target artifacts.
     - Leave execution of generated instructions to the consuming agentic platform.
     - Do not treat successful compilation as proof of correct agent execution.
-- description: A project enables Belay through the frameworks property of its Piton configuration, using an anchor declared with the belay-config keyword.
+- description: A project turns on Belay by adding a belay-config anchor to the frameworks property of its Piton config.
   requirements:
     - Register the Belay configuration in the project frameworks list.
     - Use codeRoot to identify the application's source-code root.
@@ -1944,9 +2087,9 @@ BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected ad
   configuration:
     keyword: belay-config
     fields:
-      codeRoot: Required string. The application's source-code root, relative to the project config file.
-      shapeRoot: Optional string, default null. The architectural instruction root. When null, BELAY_SHAPE_ROOT resolves to the project root and no instructions are shape-scoped.
-      adapters: Required list of adapter anchors.
+      codeRoot: Required. Where the app's code lives, relative to the project config.
+      shapeRoot: Optional. Where the shape instructions live. Without it, BELAY_SHAPE_ROOT is the project root and nothing is placed by shape.
+      adapters: Required. The list of adapters to build for.
     example:
       codeRoot: ./src/
       shapeRoot: ./spec/shape/
@@ -1958,14 +2101,14 @@ BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected ad
     - Resolve inherited properties according to the Piton language specification.
     - Validate required properties on concrete constructs after inheritance resolves.
     - Preserve additional properties for serialization into the generated guidance.
-    - Compile only source files reachable from the configured entrypoints.
-  otherAnchors: The four constructs are not the only anchors Belay provides. The configuration anchor, the adapters, and the special imports are also part of the framework.
+    - Emit only what the build command emits: the entry file's exports and anything they reference.
+  otherAnchors: Belay has more than the four constructs. The config anchor, the adapters, and the special imports are part of it too.
 
 ### Anchors
 
 - description: An instruction supplies persistent guidance associated with an application scope. Its placement is part of its meaning.
   requirements:
-    - Accept optional description and prompt strings, omitting absent ones from output.
+    - Treat description and prompt as optional, and leave them out of the output when missing.
     - Map instructions under shapeRoot to the corresponding codeRoot scope.
     - Combine instructions assigned to the same scope into one guidance file per target.
     - Use the target's supported scoped guidance filename and representation.
@@ -1973,8 +2116,8 @@ BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected ad
     - Serialize additional properties according to the common serialization rules.
 - description: A skill is a selectively loaded set of instructions for a particular kind of work. Its discovery metadata explains when it is useful.
   requirements:
-    - Require a useWhen string; accept optional description and prompt strings.
-    - Report a diagnostic when the selected target requires a description and none is given.
+    - Require useWhen. description and prompt are optional.
+    - Report an error if the target needs a description and there isn't one.
     - Emit the skill into the configured target's skill directory and format.
     - Derive the skill name from the anchor using the adapter's naming rules.
     - Form the discovery description from description followed by Use when and useWhen.
@@ -1983,8 +2126,8 @@ BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected ad
     - Leave skill selection and loading to the consuming platform.
 - description: A command provides an explicit entrypoint for invoking a prompt or directing work through skills and other guidance.
   requirements:
-    - Accept optional description and prompt strings, omitting absent ones from output.
-    - Report a diagnostic when the selected target requires a description and none is given.
+    - Treat description and prompt as optional, and leave them out of the output when missing.
+    - Report an error if the target needs a description and there isn't one.
     - Emit a native command or the explicit-invocation equivalent defined by the adapter.
     - Prefix the generated command name with x- to distinguish it from a skill.
     - Map description and prompt to the command representation selected by the adapter.
@@ -1992,8 +2135,8 @@ BELAY_COMPILED_SHAPE: The compiled shape-reference directory for the selected ad
     - Serialize additional properties after the primary prompt.
 - description: An agent describes a role and the instructions for performing it, expressed in the format understood by the target platform.
   requirements:
-    - Require a role string; accept optional description and prompt strings.
-    - Report a diagnostic when the selected target requires a description and none is given.
+    - Require role. description and prompt are optional.
+    - Report an error if the target needs a description and there isn't one.
     - Emit the agent into the configured target's agent directory and format.
     - Use the kebab-case anchor name as agent identity unless the target requires another form.
     - Emit description as discovery metadata.
@@ -2010,7 +2153,7 @@ Resolve a Belay project and emit the artifacts selected by its adapters.
 
 #### Requirements
 
-- Obtain reachable and validated constructs from the Piton compiler.
+- Obtain the emitted and validated constructs from the Piton compiler.
 - Build a target-specific output plan for each configured adapter.
 - Resolve instruction placement and reference destinations before rendering.
 - Detect shared paths and cross-target discovery conflicts across the entire plan.
@@ -2063,7 +2206,7 @@ Piton evaluates expressions; the selected output mode determines how their resul
 
 ##### String Interpolation
 
-Interpolating an anchor with the string form renders the anchor's source name, the identifier it was declared with, without title expansion.
+${Anchor} gives you the anchor's name as written in the source. It isn't turned into a title.
 
 ### Scope
 
@@ -2092,7 +2235,7 @@ Interpolating an anchor with the string form renders the anchor's source name, t
       existingScope: src/components
       genericOutput: src/components/AGENTS.md
   qualification: AGENTS.md illustrates generic placement. Each adapter selects its supported filename. Fallback changes scoped placement, not the original location preserved in the shape-reference tree.
-- description: The special export BELAY_COMPILED_SHAPE identifies the compiled shape root for the current output target. It differs from BELAY_SHAPE_ROOT, which is the source shape directory.
+- description: The special export BELAY_COMPILED_SHAPE points at the compiled shape for the current adapter. Not to be confused with BELAY_SHAPE_ROOT, which is the shape source.
   requirements:
     - Make BELAY_COMPILED_SHAPE available as an explicit import from Belay.
     - Resolve it during compilation rather than at agent runtime.
@@ -2106,7 +2249,7 @@ Interpolating an anchor with the string form renders the anchor's source name, t
     - Render referential interpolation as a Markdown link to the compiled artifact.
     - Keep referential links distinct from inline value serialization.
     - Do not replace lazy Markdown links with Claude-specific eager import syntax.
-  representation: Belay adapters build on the Markdown renderer's reference form: a relative link from the generated file to the referenced anchor's compiled artifact.
+  representation: Belay uses the Markdown renderer's references: a relative link from the generated file to wherever the other anchor was compiled.
 
 ### Adapters
 
@@ -2127,11 +2270,11 @@ Interpolating an anchor with the string form renders the anchor's source name, t
     - Resolve BELAY_COMPILED_SHAPE to the selected adapter's compiled shape directory.
     - Record the target version used to validate the generated artifacts.
   paths:
-    description: Adapter paths are relative to the project root, the directory containing piton.config.pi, while scoped instruction destinations are resolved through codeRoot and shapeRoot.
+    description: Adapter paths are relative to the project root (where piton.config.pi lives). Scoped instructions go through codeRoot and shapeRoot instead.
     convention: Ordinary references live beneath referenceRoot. Shapes live in its shape subdirectory. These paths are Belay-owned conventions and are not platform discovery directories. Never assume automatic loading.
     collisionPolicy: Normalize names before output planning. Reject collisions unless the artifacts are deliberately shared and identical in content, reference resolution, and activation behavior.
   metadata:
-    description: Platform-specific options belong to the selected adapter's mapping. Their author-facing types are listed under open decisions.
+    description: Platform-specific options belong to the selected adapter. How you write them is still an open decision.
     requirements:
       - Validate native options against the selected platform version.
       - Serialize YAML or TOML with a format-aware encoder.
@@ -2214,11 +2357,11 @@ Interpolating an anchor with the string form renders the anchor's source name, t
     - Resolve BELAY_COMPILED_SHAPE to the selected adapter's compiled shape directory.
     - Record the target version used to validate the generated artifacts.
   paths:
-    description: Adapter paths are relative to the project root, the directory containing piton.config.pi, while scoped instruction destinations are resolved through codeRoot and shapeRoot.
+    description: Adapter paths are relative to the project root (where piton.config.pi lives). Scoped instructions go through codeRoot and shapeRoot instead.
     convention: Ordinary references live beneath referenceRoot. Shapes live in its shape subdirectory. These paths are Belay-owned conventions and are not platform discovery directories. Never assume automatic loading.
     collisionPolicy: Normalize names before output planning. Reject collisions unless the artifacts are deliberately shared and identical in content, reference resolution, and activation behavior.
   metadata:
-    description: Platform-specific options belong to the selected adapter's mapping. Their author-facing types are listed under open decisions.
+    description: Platform-specific options belong to the selected adapter. How you write them is still an open decision.
     requirements:
       - Validate native options against the selected platform version.
       - Serialize YAML or TOML with a format-aware encoder.
@@ -2308,11 +2451,11 @@ Interpolating an anchor with the string form renders the anchor's source name, t
     - Resolve BELAY_COMPILED_SHAPE to the selected adapter's compiled shape directory.
     - Record the target version used to validate the generated artifacts.
   paths:
-    description: Adapter paths are relative to the project root, the directory containing piton.config.pi, while scoped instruction destinations are resolved through codeRoot and shapeRoot.
+    description: Adapter paths are relative to the project root (where piton.config.pi lives). Scoped instructions go through codeRoot and shapeRoot instead.
     convention: Ordinary references live beneath referenceRoot. Shapes live in its shape subdirectory. These paths are Belay-owned conventions and are not platform discovery directories. Never assume automatic loading.
     collisionPolicy: Normalize names before output planning. Reject collisions unless the artifacts are deliberately shared and identical in content, reference resolution, and activation behavior.
   metadata:
-    description: Platform-specific options belong to the selected adapter's mapping. Their author-facing types are listed under open decisions.
+    description: Platform-specific options belong to the selected adapter. How you write them is still an open decision.
     requirements:
       - Validate native options against the selected platform version.
       - Serialize YAML or TOML with a format-aware encoder.
@@ -2341,7 +2484,7 @@ Interpolating an anchor with the string form renders the anchor's source name, t
       - Preserve scoped output placement without claiming identical activation across tools.
       - Use explicit instructions configuration when the selected deployment needs additional files.
       - Do not load all nested instructions globally merely to make them discoverable.
-    nestedActivation: Promise only documented startup discovery. Nested-file activation is not assumed, and required shape-scope behavior that cannot be established for the target version is diagnosed.
+    nestedActivation: Only count on what OpenCode documents for startup. Don't assume nested files get picked up, and report an error if shape scoping is needed but can't be guaranteed.
   skill:
     output: .opencode/skills/<name>/SKILL.md
     format: Markdown with YAML frontmatter
@@ -2393,7 +2536,7 @@ Interpolating an anchor with the string form renders the anchor's source name, t
 
 ### Guarantees
 
-- description: Rules that make Belay output safe and reproducible.
+- description: Rules that keep Belay's output safe and repeatable.
   requirements:
     - Produce identical bytes for identical source, configuration, directory state, and toolchain.
     - Define a stable order for instructions combined into a shared output file.
@@ -2415,15 +2558,15 @@ Interpolating an anchor with the string form renders the anchor's source name, t
 
 #### Description
 
-Questions that are not yet decided. Tooling should report behavior in these areas as unspecified rather than guess.
+Things that aren't decided yet. Tooling shouldn't guess here; it should say it's not specified.
 
 #### Instruction Scope
 
-Define placement for instructions outside shapeRoot and the exact anchor-level emission rule within reachable source files.
+Define placement for instructions outside shapeRoot.
 
 #### Reference Identity
 
-Define the behavior when an anchor has more than one generated representation, such as a skill that is also a reference target.
+Decide what happens when one anchor turns into more than one output, like a skill that's also referenced somewhere.
 
 #### Metadata Types
 
@@ -2457,37 +2600,38 @@ export abstract anchor PitonPackage as piton-package:
     root:: string
     dependencies:: list:: null: null
 ```
-The name is what the package installs under. It is separate from the anchor's name because package names are kebab-case, such as my-package, which is not a valid anchor name. Left out, the anchor's own name is used. A package name may not contain `/`; the scoped names such as `@piton/belay` are reserved for packages bundled with the compiler.
+The name is what the package installs under, and it is separate from the anchor's name because it can be kebab-case, like my-package. Left out, the anchor's own name is used. Package names can't have a `/` in them. Names like `@piton/belay` are only for the packages that come with the compiler.
 and in piton.config.pi
 ```piton fragment
 packages:
     - {MyPackage}
 ```
 Note here that a project can define multiple packages with different roots and their own different dependencies.
-When installed without additional filters, all packages will be installed into tethers/ according to how they're defined.
+packages is what your repository offers to other projects. A project never installs its own packages. When another project tethers your repository, it gets every package listed here, unless it filters them, each in its own directory under tethers/.
 
 #### Dependencies
 
-A package's dependencies use the same entry shape as project dependencies. Project dependencies apply only to the project, so a package must define its own.
-There are no nested dependencies. If two packages require the same dependency at different versions, each pin is resolved to a commit, the commit with the most recent commit date is chosen, and a warning is displayed.
+If dependencies are specified at a project level, they only apply to the project. A Package must define its own, the same way.
+There are no nested dependencies; if MyPackage is required by two different packages at different versions, the one with the newest commit will be chosen and a warning will be displayed.
 
 #### Installation
 
-A package is installed into tethers/ according to its name. So while a single project can define multiple packages, let's say ui-kit and my-package, they will be installed into tethers/ui-kit and tethers/my-package respectively.
+A package is installed into tethers/ according to its name. So if a repository defines ui-kit and my-package, a project that tethers it gets tethers/ui-kit and tethers/my-package, with the files from each package's root.
 
 ### Dependencies
 
 #### Description
 
-Dependencies are listed under the dependencies property of the piton.config.pi file for a project, and under the dependencies property of each package declaration. Both use the same shape.
-Each entry is a git URL with an optional pin: exactly one of commit, tag, or branch. Giving more than one is a compiler error. With no pin, the latest commit on the default branch is used.
+Dependencies are listed under the dependencies property of the piton.config.pi file for a project. Packages list theirs the same way.
+They're specified as a list of URLs, each with an optional commit, tag, or branch. Only one of those though; more than one is a compiler error. If there isn't one, you get the latest commit on the default branch.
 ```piton
 dependencies:
     - https://github.com/piton-lang/piton-rs
         tag: 1.0
     - https://github.com/piton-lang/other
 ```
-Project dependencies and package dependencies are separate. A project's dependencies and pins apply only to the project, and each package declares its own.
+@piton/config types commit, tag, and branch as strings, so `tag: 1.0` stays “1.0” instead of becoming the number 1.
+Project dependencies and package dependencies are separate. The project's only apply to the project, and each package has its own.
 
 ### Importing And Using
 
@@ -2515,12 +2659,12 @@ Note that regular path resolution behaves as it does anywhere else, it's just th
   positionalArguments:
     package: name of the package to remove
   namedArguments: null
-- description: Clones and un-gits packages into the tethers directory. With no argument it installs every dependency listed in piton.config.pi. With a source it adds that dependency to piton.config.pi and installs it.
+- description: Clones and "un-gits" a repository into the tethers directory. Run it on its own and it installs everything in piton.config.pi's dependencies. Give it a source and it adds that to piton.config.pi and installs it.
   commandName: tether
   positionalArguments:
-    source: Optional URL of the git repository to add and install
+    source: Optional. URL of the git repository
   namedArguments: null
-- description: Moves an installed package from tethers/ to the untethered/ directory inside the configured root, while also rewriting any imports.
+- description: Moves an installed package from tethers/ to untethered/ inside root, and rewrites any imports.
   commandName: untether
   positionalArguments:
     packageName: the name of the package to untether
@@ -2536,7 +2680,7 @@ Note that regular path resolution behaves as it does anywhere else, it's just th
 ### Locations
 
 Tethered packages are stored in the same directory as the piton.config.pi file inside a tethers/ directory.
-When a package is untethered, it is moved into untethered/ inside the root configured in piton.config.pi, and its imports are rewritten.
+When a package is untethered, it's moved into untethered/ inside root and its imports are rewritten.
 
 ### Clone
 
@@ -2544,10 +2688,10 @@ Cloning with git (tethering) should remove any traces of git; these are just pla
 
 ### Lock File
 
-The .piton/tether.lock file, beside piton.config.pi, records each tethered package's source URL, resolved commit, and a hash of its installed files. It is written by tether and update and committed with the project.
+.piton/tether.lock lives next to piton.config.pi. For each tethered package it keeps the URL, the commit, and a hash of the files. tether and update write it, and it gets committed with the project.
 
 ### Conflict Resolution
 
-When a package is updated (or tethered or anything else), it should check the current status of the files against the hash in the lock file, and only if there are no differences can it update. If it appears that the package has been modified, the user should be informed of the problem and asked to untether.
+When a package is updated (or tethered or anything else), it should check the current status of the files against the lock file, and only if there are no differences can it update. If it appears that the package has been modified, the user should be informed of the problem and asked to untether.
 
 Links in this document point at reference files. Read one when the work touches what it describes.
