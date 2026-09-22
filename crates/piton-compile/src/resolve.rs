@@ -95,6 +95,32 @@ impl Resolution {
         }
     }
 
+    /// Every name a module can write unqualified: its own declarations, then
+    /// the names it imported.
+    ///
+    /// `lookup` answers this one name at a time, which is what a reference
+    /// needs. Completion needs the other direction -- everything in scope --
+    /// and the imports it has to include are private to the scope, so the list
+    /// is built here rather than guessed from the syntax.
+    pub fn visible_names(&self, module: ModuleId) -> Vec<(String, Symbol)> {
+        let scope = self.scope(module);
+        let mut out: Vec<(String, Symbol)> = scope
+            .declarations
+            .iter()
+            .map(|(name, symbol)| (name.clone(), *symbol))
+            .collect();
+        for (local, (source, original, _)) in &scope.imports {
+            // A name that fails to resolve is a diagnostic elsewhere; here it
+            // is simply not something to offer.
+            if let Some(symbol) = self.lookup_export(*source, original, &mut HashSet::new()) {
+                out.push((local.clone(), symbol));
+            }
+        }
+        out.sort_by(|left, right| left.0.cmp(&right.0));
+        out.dedup_by(|left, right| left.0 == right.0);
+        out
+    }
+
     /// Every name a module exports, including names reached through globs.
     pub fn exported_names(&self, module: ModuleId) -> Vec<String> {
         let mut names = Vec::new();

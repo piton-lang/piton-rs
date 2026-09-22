@@ -248,9 +248,14 @@ fn label(
 /// language itself spells is a keyword.
 fn highlight_for_completion(kind: CompletionKind) -> Option<&'static str> {
     Some(match kind {
-        CompletionKind::Class => "type",
-        CompletionKind::Interface => "type",
+        // An anchor is a class; an abstract one is an interface, because it
+        // cannot stand on its own.
+        CompletionKind::Class | CompletionKind::Interface => "type",
+        // A built-in type name in a `::` constraint.
+        CompletionKind::Struct => "type",
         CompletionKind::Property => "property",
+        // A key inside a resolved value, offered after a `.`.
+        CompletionKind::Field => "property",
         CompletionKind::Keyword => "keyword",
         CompletionKind::Variable => "variable",
         CompletionKind::Module => "string.special.path",

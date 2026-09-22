@@ -41,7 +41,9 @@ pub struct Reached {
     pub depth: usize,
     /// The shortest path of anchor names from a root.
     pub path: Vec<String>,
-    pub via: EdgeKind,
+    /// The edge that arrived here, or `None` for a root, which was not
+    /// reached from anywhere.
+    pub via: Option<EdgeKind>,
 }
 
 /// The result of a reachability query.
@@ -49,11 +51,15 @@ pub struct Reached {
 pub struct Reachability {
     pub reached: Vec<Reached>,
     pub unreachable: Vec<AnchorId>,
+    /// Modules that carry something the roots reach, either by declaring it or
+    /// by exporting it onward.
     pub modules: HashSet<ModuleId>,
-    /// Modules that were loaded but hold nothing the roots reach.
+    /// Modules that were loaded but carry nothing the roots reach.
     pub unreachable_modules: Vec<PathBuf>,
     /// Source files nothing imports, so compilation never even opened them.
     pub unloaded_modules: Vec<PathBuf>,
+    /// How many modules of the specbase were loaded, packages aside.
+    pub loaded: usize,
 }
 
 impl Reachability {
@@ -73,7 +79,7 @@ impl Reachability {
 pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability {
     let mut result = Reachability::default();
     let mut seen: HashMap<AnchorId, usize> = HashMap::new();
-    let mut queue: std::collections::VecDeque<(AnchorId, usize, Vec<String>, EdgeKind)> =
+    let mut queue: std::collections::VecDeque<(AnchorId, usize, Vec<String>, Option<EdgeKind>)> =
         Default::default();
 
     for root in roots {
@@ -82,7 +88,7 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
         }
         seen.insert(*root, 0);
         let name = compilation.resolution.store.anchor(*root).name.clone();
-        queue.push_back((*root, 0, vec![name], EdgeKind::Import));
+        queue.push_back((*root, 0, vec![name], None));
     }
 
     while let Some((anchor, depth, path, via)) = queue.pop_front() {
@@ -110,9 +116,11 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
             seen.insert(next, depth + 1);
             let mut next_path = path.clone();
             next_path.push(compilation.resolution.store.anchor(next).name.clone());
-            queue.push_back((next, depth + 1, next_path, kind));
+            queue.push_back((next, depth + 1, next_path, Some(kind)));
         }
     }
+
+    let embedded = embedded_modules(compilation);
 
     for def in &compilation.resolution.store.anchors {
         // Anchors inside a bundled package are the compiler's own vocabulary,
@@ -120,19 +128,84 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
         if compilation.resolution.graph.get(def.module).is_package() {
             continue;
         }
+        if embedded.contains(&def.module) {
+            continue;
+        }
         if !seen.contains_key(&def.id) {
             result.unreachable.push(def.id);
         }
     }
 
+    // A module earns its place either by declaring something the roots reach or
+    // by handing it on. An index that does nothing but re-export is how most of
+    // a specbase is held together: it declares no anchor of its own, and
+    // calling it unreachable for that reason is calling the wiring dead.
+    let reached: HashSet<AnchorId> = seen.keys().copied().collect();
     for module in compilation.resolution.graph.iter() {
-        if !result.modules.contains(&module.id) && !module.is_package() {
+        if module.is_package() {
+            continue;
+        }
+        result.loaded += 1;
+        if embedded.contains(&module.id) || result.modules.contains(&module.id) {
+            continue;
+        }
+        if forwards_reached(compilation, module.id, &reached) {
+            result.modules.insert(module.id);
+        } else {
             result.unreachable_modules.push(module.path.clone());
         }
     }
     result.unreachable_modules.sort();
 
     result
+}
+
+/// Whether a module exports a name that resolves to something reached.
+fn forwards_reached(
+    compilation: &Compilation,
+    module: ModuleId,
+    reached: &HashSet<AnchorId>,
+) -> bool {
+    compilation
+        .resolution
+        .exported_names(module)
+        .into_iter()
+        .any(|name| {
+            matches!(
+                compilation
+                    .resolution
+                    .lookup_export(module, &name, &mut HashSet::new()),
+                Some(Symbol::Anchor(anchor)) if reached.contains(&anchor)
+            )
+        })
+}
+
+/// Modules the compiler embeds.
+///
+/// `prelude` compiles some of the specification's own files into the binary
+/// with `include_str!`, so a project that also has them on disk holds each of
+/// them twice: once as the file, once as the package module it became.
+/// Everything imports the package copy, which leaves the file looking dead --
+/// and it is the opposite of dead. It is the framework, and a report that
+/// invites someone to delete it is worse than no report.
+fn embedded_modules(compilation: &Compilation) -> HashSet<ModuleId> {
+    let packaged: HashSet<&str> = compilation
+        .resolution
+        .graph
+        .iter()
+        .filter(|module| module.is_package())
+        .map(|module| module.source.as_str())
+        .collect();
+    if packaged.is_empty() {
+        return HashSet::new();
+    }
+    compilation
+        .resolution
+        .graph
+        .iter()
+        .filter(|module| !module.is_package() && packaged.contains(module.source.as_str()))
+        .map(|module| module.id)
+        .collect()
 }
 
 /// Computes reachability from everything the entry module exports.

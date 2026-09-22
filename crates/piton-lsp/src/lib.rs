@@ -112,8 +112,15 @@ impl LanguageServer for Backend {
                         "@".into(),
                         "#".into(),
                         ".".into(),
+                        ":".into(),
+                        "/".into(),
                         " ".into(),
                     ]),
+                    // The list is built on every keystroke and the description
+                    // of an anchor renders its whole compiled value, so the
+                    // description is built later, for the one item the cursor
+                    // settles on.
+                    resolve_provider: Some(true),
                     ..Default::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -279,6 +286,11 @@ impl LanguageServer for Backend {
             &params.text_document_position.text_document.uri,
             params.text_document_position.position,
         ))
+    }
+
+    async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
+        let world = self.world.read().await;
+        Ok(features::resolve_completion(&world, item))
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {

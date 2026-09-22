@@ -1,10 +1,28 @@
 use ../cli
+from ../../language/operators/access/PropertyAccessOperator import
+    PropertyAccessOperator
 
 export cli-command Lsp:
     commandName: lsp
 
     description:
         Runs the Piton language server
+
+    features:
+        autocomplete:
+            Suggests anchors, specs, skills, agents, properties, keywords,
+            imports, inherited members, and valid values based on the current
+            scope and semantic context.
+
+            However, don't autocomplete things that don't exist.
+
+            Typing a @{PropertyAccessOperator} in the middle of a string
+            shouldn't autocomplete because there's nothing to complete on a
+            string.
+
+        autoimport:
+            Automatically adds missing imports for symbols referenced in the
+            current file.
 
     Diagnostics:
         Validate Piton syntax and Belay semantics continuously, reporting

@@ -3,9 +3,11 @@ from ./scope/language import Language
 from ./scope/tooling import Tooling
 from ./scope/founding-thesis import FoundingThesis
 from ./scope/belay import Belay
+from ./scope/package-management import PackageManagement
 
 export anchor Specification:
     FoundingThesis: @{FoundingThesis}
     Language: @{Language}
     Tooling: @{Tooling}
     Belay: @{Belay}
+    PackageManagement: @{PackageManagement}
