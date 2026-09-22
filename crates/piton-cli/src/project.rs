@@ -111,7 +111,7 @@ pub fn walk(root: &Path) -> Vec<PathBuf> {
 /// A project is loaded from absolute paths, so a module is keyed by one. A
 /// relative path typed on the command line has to be resolved against the
 /// working directory before it will match anything, which is what makes
-/// `piton analyze spec/Thing.pi` find the same module as the absolute form.
+/// `piton reach spec/Thing.pi` find the same module as the absolute form.
 pub fn canonical_target(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()

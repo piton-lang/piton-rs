@@ -10,7 +10,6 @@ path = "src/main.rs"
 
 [dependencies]
 piton-core.workspace = true
-piton-analyze.workspace = true
 piton-syntax.workspace = true
 piton-compile.workspace = true
 piton-emit.workspace = true

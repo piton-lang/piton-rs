@@ -6,7 +6,6 @@ from ./Format import Format
 from ./Lsp import Lsp
 from ./Reach import Reach
 from ./Loc import Loc
-from ./Analyze import Analyze
 
 export anchor Cli:
     description:
@@ -15,7 +14,6 @@ export anchor Cli:
 
     commands:
         - {Agent}
-        - {Analyze}
         - {Build}
         - {Check}
         - {Compile}

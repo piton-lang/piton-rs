@@ -11,22 +11,6 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   positionalArguments:
     agent: Which agent to run [ claude ]
   namedArguments: null
-- description: Runs [Analysis](../../analysis/Analysis.md) on the project
-    Just running `piton analyze` will run the analysis and report errors and warning.
-    null reports how much of the specbase the analysis was able to read, as a share of the sentences it examined, and breaks the remainder down by the reason each one was not read.
-    Analysis only understands the sentence shapes it has rules for, so a run that reports nothing is ambiguous on its own: it can mean the prose agrees, or it can mean very little of it was read. null is what separates those two, and it names the words used as verbs that the lexicon does not know, since those are what limit the share that can be read.
-    Setting Valid options are [ human, interpretation ] to interpretation restates what the analysis understood as a Markdown document, written for a coding agent rather than for a reader of the specification.
-    Each claim is rebuilt as a flat sentence and grouped under the anchor it constrains, with the line it came from. The sentences are generated from the extracted claims rather than copied from the source, so a restatement that reads oddly is a claim that was read oddly, and the verb is written as the relation it was understood as.
-    The document states what share of the prose produced a claim, because a restatement that silently covered part of a specification would be worse than none.
-  commandName: analyze
-  positionalArguments:
-    target: file or anchor to analyze, defaulting to the whole project
-  namedArguments:
-    explain: null
-    claims: null
-    coverage: null
-    format: Valid options are [ human, interpretation ]
-    min-severity: Valid options are [ error, warning, information ]
 - description: Builds the project as configured by piton.config.pi
   commandName: build
   positionalArguments:
@@ -140,5 +124,3 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     warnings: false
   exitCode:
     success: 0
-
-Links in this document point at reference files. Read one when the work touches what it describes.
