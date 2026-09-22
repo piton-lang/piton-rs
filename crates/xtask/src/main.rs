@@ -475,6 +475,8 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
     }
 
     git(&checkout, &["push", "origin", &options.branch])?;
+    let pushed = git_output(&checkout, &["rev-parse", "HEAD"])?.trim().to_string();
+    pin_zed_grammar(&workspace, &pushed)?;
     if let Some(tag) = &options.tag {
         git(&checkout, &["push", "--force", "origin", tag])?;
         println!("pushed {} and tag {tag}", options.branch);
@@ -817,4 +819,53 @@ mod publish_tests {
         assert!(source.join("grammar.js").is_file(), "{}", source.display());
         assert!(source.join("queries").is_dir(), "{}", source.display());
     }
+}
+
+/// Where the Zed extension pins the grammar it fetches.
+const ZED_EXTENSION: &str = "editors/zed/extension.toml";
+
+/// Points the Zed extension at the commit that was just published.
+///
+/// Zed fetches one revision of the grammar repository and builds it. A pin
+/// left behind keeps every Zed user on an older grammar than the one that was
+/// just pushed, and a pin that is not a real commit fetches nothing at all,
+/// which Zed reports as a grammar that will not compile. Since publishing is
+/// the moment a new commit exists, it is also the moment to record it.
+fn pin_zed_grammar(workspace: &Path, commit: &str) -> Result<(), Error> {
+    let path = workspace.join(ZED_EXTENSION);
+    let Ok(text) = fs::read_to_string(&path) else {
+        // The extension is optional; publishing the grammar does not depend on
+        // it being there.
+        return Ok(());
+    };
+
+    let mut out = String::with_capacity(text.len());
+    let mut in_grammar = false;
+    let mut pinned = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_grammar = trimmed == "[grammars.piton]";
+        }
+        if in_grammar && trimmed.starts_with("commit") && !pinned {
+            out.push_str(&format!("commit = \"{commit}\"\n"));
+            pinned = true;
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if !pinned {
+        println!("note: no grammar commit to pin in {ZED_EXTENSION}");
+        return Ok(());
+    }
+    if out == text {
+        return Ok(());
+    }
+    fs::write(&path, out)
+        .map_err(|error| Error::Message(format!("cannot write `{}`: {error}", path.display())))?;
+    println!("pinned {ZED_EXTENSION} to {}", &commit[..commit.len().min(12)]);
+    println!("note: that is a change to this repository; commit it so Zed users get it");
+    Ok(())
 }

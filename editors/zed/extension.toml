@@ -7,9 +7,15 @@ authors = ["Piton"]
 repository = "https://github.com/mctavishdynamics/piton"
 
 [grammars.piton]
-repository = "https://github.com/mctavishdynamics/piton"
-path = "editors/tree-sitter-piton"
-commit = "HEAD"
+# Zed fetches this exact revision and builds it, so the repository has to be
+# one that holds the grammar at its root and the commit has to be a real SHA:
+# `HEAD` is not an object that can be fetched, and a fetch that returns nothing
+# is reported as a grammar that will not compile.
+#
+# `cargo xtask publish-grammar` pushes `editors/tree-sitter-piton` to that
+# repository and rewrites the commit below to the one it pushed.
+repository = "https://github.com/piton-lang/tree-sitter-piton"
+commit = "4066bdf107993e4041c35da4eb493073646d30f7"
 
 [language_servers.piton]
 name = "Piton"

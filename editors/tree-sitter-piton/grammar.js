@@ -64,16 +64,27 @@ module.exports = grammar({
     fence_language: () => /[A-Za-z0-9_+-]+/,
     fence_content: () => token(prec(-1, /[^\n`][^\n]*/)),
 
-    // A line of backslashes delimits a block whose contents are literal.
+    // A line of backslashes delimits a block whose contents are literal. The
+    // compiler opens a block on a line that is nothing but backslashes and
+    // closes it on a run of the same length.
     escape_block: ($) =>
       seq(
         field("open", $.escape_marker),
-        $._newline,
         repeat(choice($.escape_content, $._newline)),
         optional(field("close", $.escape_marker))
       ),
-    escape_marker: () => token(prec(2, /\\+[ \t]*(?=\r?\n)/)),
-    escape_content: () => token(prec(-1, /[^\n\\][^\n]*/)),
+    // The newline is part of the token rather than matched after it, because
+    // tree-sitter's regexes have no lookahead and the marker has to be the
+    // whole line: without that, `\ \ {1 + 2 + 3}` in ordinary prose would
+    // lex as a marker, since lexical precedence outranks match length.
+    //
+    // The cost is a closing marker on the last line of a file with no trailing
+    // newline, which leaves the block unclosed. `close` is optional, so that
+    // parses as an unterminated block rather than an error.
+    escape_marker: () => token(prec(2, /\\+[ \t]*\r?\n/)),
+    // Contents are literal, so a line inside a block may start with anything.
+    // A marker line still wins, on precedence.
+    escape_content: () => token(prec(-1, /[^\n]+/)),
 
     use_declaration: ($) => seq("use", field("path", $.module_path)),
 

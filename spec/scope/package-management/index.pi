@@ -1,0 +1,6 @@
+export anchor PackageManagement:
+    description:
+        Piton supports package management and dependencies.
+
+        Package sources are git repos and can be pinned to a specific commit,
+        branch, or tag.  If no specifier is provided, the latest commit is used.

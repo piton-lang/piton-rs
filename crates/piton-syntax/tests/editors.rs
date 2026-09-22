@@ -201,3 +201,115 @@ fn the_server_is_always_invoked_the_same_way() {
         );
     }
 }
+
+#[test]
+fn the_grammar_uses_only_regex_features_tree_sitter_has() {
+    // Tree-sitter does not run the regexes in `grammar.js` through a
+    // general-purpose engine. It compiles them into its own lexer, and the
+    // subset it accepts has no lookaround and no backreferences. A pattern
+    // using one is not a subtle bug: `tree-sitter generate` refuses the
+    // grammar, and the editor reports that the grammar will not compile.
+    //
+    // That failure surfaces in an editor rather than here, because this
+    // repository has no tree-sitter CLI to generate with, so the check is a
+    // read of the source instead.
+    let grammar = read("tree-sitter-piton/grammar.js");
+    let unsupported = [
+        ("(?=", "lookahead"),
+        ("(?!", "negative lookahead"),
+        ("(?<=", "lookbehind"),
+        ("(?<!", "negative lookbehind"),
+        (r"\b", "word boundary"),
+        (r"\B", "non-word boundary"),
+    ];
+    for (needle, name) in unsupported {
+        assert!(
+            !grammar.contains(needle),
+            "`grammar.js` uses {name} (`{needle}`), which tree-sitter's lexer \
+             cannot compile. Express the constraint in the grammar's structure \
+             instead, or fold the surrounding character into the token."
+        );
+    }
+}
+
+#[test]
+fn every_query_matches_a_node_the_grammar_defines() {
+    // A query naming a node that does not exist fails to compile against the
+    // grammar, which an editor reports the same way it reports a broken
+    // grammar. The queries are shipped twice -- once in the grammar directory
+    // and once inside the Zed extension -- so both are checked.
+    let grammar = read("tree-sitter-piton/grammar.js");
+    let body = &grammar[grammar.find("rules: {").expect("rules block")..];
+    let mut defined: Vec<String> = Vec::new();
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        // Rule names sit at one level of indentation inside `rules: {`.
+        if indent != 4 {
+            continue;
+        }
+        if let Some(name) = trimmed.split(':').next() {
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            {
+                defined.push(name.to_string());
+            }
+        }
+    }
+    assert!(defined.contains(&"source_file".to_string()), "{defined:?}");
+
+    let query_files = [
+        "tree-sitter-piton/queries/highlights.scm",
+        "tree-sitter-piton/queries/injections.scm",
+        "tree-sitter-piton/queries/locals.scm",
+        "tree-sitter-piton/queries/folds.scm",
+        "tree-sitter-piton/queries/indents.scm",
+        "zed/languages/piton/highlights.scm",
+        "zed/languages/piton/injections.scm",
+        "zed/languages/piton/indents.scm",
+    ];
+    for relative in query_files {
+        let query = read(relative);
+        for name in node_names(&query) {
+            assert!(
+                defined.contains(&name),
+                "{relative} matches `({name})`, which `grammar.js` does not define"
+            );
+        }
+    }
+}
+
+/// Node names a query matches on, which is every bare word after a `(`.
+///
+/// A quoted word is an anonymous token rather than a rule, and a `@capture` is
+/// a name the query invents, so neither is a node the grammar has to define.
+fn node_names(query: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let bytes: Vec<char> = query.chars().collect();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != '(' {
+            index += 1;
+            continue;
+        }
+        let mut cursor = index + 1;
+        while cursor < bytes.len() && bytes[cursor] == ' ' {
+            cursor += 1;
+        }
+        let start = cursor;
+        while cursor < bytes.len()
+            && (bytes[cursor].is_ascii_lowercase() || bytes[cursor] == '_' || bytes[cursor].is_ascii_digit())
+        {
+            cursor += 1;
+        }
+        if cursor > start {
+            names.push(bytes[start..cursor].iter().collect());
+        }
+        index += 1;
+    }
+    names.sort();
+    names.dedup();
+    names
+}
