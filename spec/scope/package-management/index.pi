@@ -1,6 +1,20 @@
+from ../tooling/cli/package-management import Remove, Tether, Untether, Update
+
 export anchor PackageManagement:
     description:
         Piton supports package management and dependencies.
 
         Package sources are git repos and can be pinned to a specific commit,
-        branch, or tag.  If no specifier is provided, the latest commit is used.
+        branch, or tag.  If no specifier is provided, the latest commit on the
+        primary/default branch is used.
+
+        The strategy for packages is managed vendored dependencies.  What that
+        means is installed packages are stored as part of the project, committed
+        to version control, but can be added, updated, removed, and inspected by
+        the package management tooling.
+
+    commands:
+        - @{Remove}
+        - @{Tether}
+        - @{Untether}
+        - @{Update}

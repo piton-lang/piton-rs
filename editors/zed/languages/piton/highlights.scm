@@ -11,7 +11,7 @@
 "abstract" @keyword.modifier
 "as" @keyword
 "extends" @keyword
-"pass" @keyword
+(pass_statement) @keyword
 
 (anchor_declaration
   keyword: (declaration_keyword) @keyword.type
@@ -32,7 +32,7 @@
 
 ; Properties
 (property name: (key) @property)
-(type_constraint "::" @punctuation.delimiter)
+(type_constraint ":" @punctuation.delimiter)
 (type_constraint "extends" @keyword)
 (builtin_type) @type.builtin
 (type_constraint type: (identifier) @type)

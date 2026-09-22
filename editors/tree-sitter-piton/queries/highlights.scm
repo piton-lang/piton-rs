@@ -32,7 +32,7 @@
 
 ; Properties
 (property name: (key) @property)
-(type_constraint "::" @punctuation.delimiter)
+(type_constraint ":" @punctuation.delimiter)
 (type_constraint "extends" @keyword)
 (builtin_type) @type.builtin
 (type_constraint type: (identifier) @type)

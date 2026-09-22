@@ -6,6 +6,7 @@ from ./Format import Format
 from ./Lsp import Lsp
 from ./Reach import Reach
 from ./Loc import Loc
+from ./package-management import Remove, Tether, Untether, Update
 
 export anchor Cli:
     description:
@@ -21,6 +22,10 @@ export anchor Cli:
         - {Loc}
         - {Lsp}
         - {Reach}
+        - {Remove}
+        - {Tether}
+        - {Untether}
+        - {Update}
 
 export abstract anchor CliCommand as cli-command:
     description:: string: Command invokable by the cli by running piton <command>
