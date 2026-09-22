@@ -1,6 +1,6 @@
 ---
 name: x-check-spec-for-problems
-description: ""
+description: Checks the spec for problems.
 disable-model-invocation: true
 ---
 

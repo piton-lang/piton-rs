@@ -11,12 +11,12 @@ Unless specifically constrained to a type, a variable or property can hold any t
 | `42`                    | `number`                                                           |
 | `-42`                   | `number`                                                           |
 | `42 things`             | `string`                                                           |
-| `A + B`                 | `string` (no braces, so it is the text "A + B")                    |
-| `{A + B}`               | The result type of `+` for the operand types; see ConcatenationOperators |
+| `A + B`                 | `string` (no braces, so it's just text)                             |
+| `{A + B}`               | Depends on what A and B are; see ConcatenationOperators            |
 | `This costs $5 + tax`   | `string`                                                           |
-| `Total: {a + b}`        | `string` (braces with surrounding text interpolate)                |
+| `Total: {a + b}`        | `string` (there's other text around it)                             |
 | `null`                  | `null`                                                             |
-| `"false"`               | `string` (the quotes are part of the value)                        |
-| `\ // \ Just Text`      | `string` (the escaped `//` is not a comment)                       |
+| `"false"`               | `string` (the quotes are part of it)                               |
+| `\ // \ Just Text`      | `string` (the `//` is escaped, so it's not a comment)               |
 | `${}`                   | `string`                                                           |
 ```

@@ -7,10 +7,15 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ## Supported Operators
 
-- description: The concatenation operator (`+`) joins two strings into a single string, preserving their order. For example, `{"Hello" + "World"}` evaluates to `HelloWorld`.
-    When exactly one operand is a string, the other operand is first converted using the [StringExpression](../expressions/StringExpression.md) rules, so `{2 + "Hello"}` evaluates to the string `2Hello`. An operand with no string representation is a compiler error.
-    Adheres to rules of [TypeCoercion](../variables/TypeCoercion.md)
+- description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](../expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
+  symbol: ++
 - description: Equality operator.
   symbol: ==
 - description: Inequality operator.
@@ -40,12 +45,12 @@ The leading whitespace on a string block is discarded, as that’s part of the s
 
 ## Quotes
 
-Quote characters have no special meaning in a value. They are ordinary characters and are kept in the string, so `greeting: "Hello"` holds the seven-character string `"Hello"`, quotes included.
-Inside an expression, bare words are symbols, so string literals within braces are written in double quotes: `{"Hello" + name}`. There the quotes delimit the literal and are not part of its value.
+Quotes don't mean anything special. They're just characters, so `greeting: "Hello"` is the string `"Hello"`, quotes and all.
+The one exception is inside an expression. There, bare words are symbols, so you write strings in double quotes: `{"Hello" + name}`. In that case the quotes aren't part of the string.
 
 ## Line Breaks
 
-Within a string block, a single line break joins the two lines with a space. A blank line produces a paragraph break (two newline characters). Several consecutive blank lines collapse into one paragraph break.
+Within a string block, you can add line breaks without affecting the structure of the string. To start a new paragraph, you must include a blank line. More than one blank line in a row still counts as one.
 ```piton
 myString:
     This broken string is not considered
@@ -64,23 +69,22 @@ While this *is* a new paragraph because there was a blank line above.
 
 ### Description
 
-Piton has a single escape form: wrap the text in backslashes. The opening and closing delimiters are each a run of backslashes followed or preceded by one space, and exactly that one space on each side is removed. Everything between the delimiters is literal.
-So \ {1 + 2 + 3} \ would become {1 + 2 + 3}.
-There is no single-character escape. To escape one character, wrap it: \ : \ becomes :.
+Escaping works a little differently in Piton than other languages. To escape special characters, you simply wrap them in backslashes, with a space on each side. The spaces are part of the wrapper, so they get removed. So for example \ {1 + 2 + 3} \ would become {1 + 2 + 3}.
+That's the only way to escape. Even a single character gets wrapped: \ : \ becomes :.
 
 ### Stacking
 
-The closing delimiter is the same number of backslashes as the opening one, so the content may contain any shorter run of backslashes. To escape text that itself contains an escape, use a longer delimiter:
+You can stack backslashes to escape backslashes themselves. The closing wrapper has to match the opening one, so anything inside can use fewer backslashes:
 \\\ \\ \ {1 + 2 + 3} \ \\ \\\ would become \\ \ {1 + 2 + 3} \ \\.
 
 ### Multi Line
 
-A line containing only a run of backslashes opens a multi-line escape block, and the next line containing only the same run closes it. Every line in between is literal, keeping its line breaks and its indentation relative to the delimiter lines.
-By convention the specification uses three backslashes for these blocks inside code fences.
+Multi-line escape blocks are valid. Put the backslashes on a line by themselves to open the block, and again to close it. Everything in between is kept as is, line breaks and indentation included.
+This spec uses three backslashes for these.
 
 ## Code Blocks
 
-Markdown code fences are ordinary text to Piton. Their content is parsed like any other string content, so interpolation, comments, list markers, and property syntax inside a fence are still interpreted.
-To keep a fence's content literal, wrap it in a multi-line escape block inside the fence, as every example in this specification does.
+Code blocks are not escaped. To Piton they're just text, so anything inside them still gets parsed: expressions, comments, lists, all of it.
+So often, you'll want to put an escape block inside the code block. Every example in this spec does that.
 
 Links in this document point at reference files. Read one when the work touches what it describes.

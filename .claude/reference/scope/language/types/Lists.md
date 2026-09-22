@@ -8,12 +8,13 @@ The compiler uses types to check whether expressions and assignments make sense.
 ## Supported Operators
 
 - description: The merge operator (`+`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and removes duplicates. When a value appears more than once, the last occurrence is kept and earlier ones are dropped, so `[A, B, C, D] + [A, B, C]` evaluates to `[D, A, B, C]`.
-    On dictionaries it performs a shallow merge. Keys from both operands are kept, and when both operands define the same key the right operand's value replaces the left one wholesale.
+    On lists it joins them in order and removes duplicates. If a value shows up more than once, the last one is kept. So `[A, B, C, D] + [A, B, C]` gives you `[D, A, B, C]`.
+    On dictionaries it's a shallow merge. You get the keys from both, and if both have the same key, the right side wins.
   symbol: +
-- description: The duplicate-preserving merge operator (`++`) combines two lists or two dictionaries.
-    On lists it concatenates the operands in order and keeps every element, including duplicates, so `[A, B, C, D] ++ [A, B, C]` evaluates to `[A, B, C, D, A, B, C]`.
-    On dictionaries it performs a deep merge. When both operands define the same key and both values are dictionaries, those dictionaries are merged recursively by the same rule. Otherwise the right operand's value wins.
+- description: The `++` operator is like merge, but it keeps duplicates.
+    On lists it joins them in order and keeps everything, so `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+    On dictionaries it's a deep merge. If both sides have the same key and both values are dictionaries, those get merged too, all the way down. Otherwise the right side wins.
+    On strings it joins them with a line break.
   symbol: ++
 - description: Equality operator.
   symbol: ==
@@ -51,6 +52,27 @@ Which is equivalent to:
 ```piton
 inlineMultiList: [Level 1, [Level 2, [Level 3]]]
 ```
+
+## Dictionaries In Lists
+
+Anything indented under a list item isn't part of that item. It becomes the next item in the list. So a dictionary indented under an item is its own item, right after it:
+```piton
+repos:
+    - https://github.com/piton-lang/piton-rs
+        tag: v1
+    - https://github.com/piton-lang/other
+```
+```json
+{
+  "repos": [
+    "https://github.com/piton-lang/piton-rs",
+    { "tag": "v1" },
+    "https://github.com/piton-lang/other"
+  ]
+}
+```
+A list item is never a key, even with a colon at the end. `- Settings:` is just the string `Settings:`.
+For lists indented under a dictionary key, see the Dictionaries type.
 
 ## Access
 

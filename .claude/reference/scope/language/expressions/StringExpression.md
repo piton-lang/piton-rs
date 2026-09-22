@@ -20,9 +20,9 @@ ${}
 - Convert numbers to their textual representation.
 - Convert booleans to lowercase true or false.
 - Convert null to the string null.
-- Convert an anchor to its source name, the identifier it was declared with.
-- Convert a named list or dictionary to its qualified name, such as Anchor.propertyName, or the variable name at the top level of a file.
-- Report an error for a list or dictionary literal, which has no name.
+- Convert anchors to their name, as written in the source.
+- Convert a named list or dictionary to its name, like Anchor.propertyName, or just the variable name at the top of a file.
+- Report an error for a list or dictionary that has no name.
 - Do not reinterpret the resulting string as source syntax or another expression.
 
 ## Composition

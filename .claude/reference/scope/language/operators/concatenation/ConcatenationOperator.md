@@ -2,9 +2,9 @@
 
 ## Description
 
-The concatenation operator (`+`) joins two strings into a single string, preserving their order. For example, `{"Hello" + "World"}` evaluates to `HelloWorld`.
-When exactly one operand is a string, the other operand is first converted using the [StringExpression](../../expressions/StringExpression.md) rules, so `{2 + "Hello"}` evaluates to the string `2Hello`. An operand with no string representation is a compiler error.
-Adheres to rules of [TypeCoercion](../../variables/TypeCoercion.md)
+The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
+If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](../../expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
 
 ## Symbol
 
