@@ -90,6 +90,7 @@
     ".claude/reference/scope/tooling/vite/VitePlugin.md",
     ".claude/skills/build-tooling/SKILL.md",
     ".claude/skills/generate-fluency-prompt/SKILL.md",
-    ".claude/skills/inspect-spec/SKILL.md"
+    ".claude/skills/inspect-spec/SKILL.md",
+    ".claude/skills/x-check-spec-for-problems/SKILL.md"
   ]
 }
