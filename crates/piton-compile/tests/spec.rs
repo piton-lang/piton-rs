@@ -82,3 +82,51 @@ fn adapters_inherit_the_shared_contract() {
         Some(&Value::string("claude-code"))
     );
 }
+
+#[test]
+fn the_framework_source_is_not_reported_dead() {
+    // `prelude` compiles `spec/scope/belay/anchors/*.pi` into the binary with
+    // `include_str!`, so this project holds each of those files twice: once on
+    // disk and once as the `@piton/belay` module it became. Everything imports
+    // the package copy, which leaves the file on disk reached by nothing --
+    // and it is the opposite of dead. It is the framework. A report that names
+    // it unreachable is inviting someone to delete the compiler's vocabulary.
+    let compilation = compile_spec();
+    let reachability = piton_compile::reach::from_entry(&compilation);
+
+    let dead: Vec<String> = reachability
+        .unreachable
+        .iter()
+        .map(|anchor| compilation.anchor_module_path(*anchor))
+        .chain(reachability.unreachable_modules.iter().cloned())
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .filter(|path| path.contains("scope/belay/anchors/"))
+        .collect();
+
+    assert!(
+        dead.is_empty(),
+        "these are embedded in the compiler and reached through `@piton/belay`: {dead:?}"
+    );
+}
+
+#[test]
+fn a_module_that_only_re_exports_is_not_dead() {
+    // `spec/agent/index.pi` and `spec/scope/belay/index.pi` declare no anchor
+    // of their own; they exist to hand on what another file declares. A walk
+    // that counts only declarations finds nothing in them.
+    let compilation = compile_spec();
+    let reachability = piton_compile::reach::from_entry(&compilation);
+
+    let dead: Vec<String> = reachability
+        .unreachable_modules
+        .iter()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect();
+
+    for barrel in ["spec/agent/index.pi", "spec/scope/belay/index.pi"] {
+        assert!(
+            !dead.iter().any(|path| path.ends_with(barrel)),
+            "`{barrel}` carries the whole import chain: {dead:?}"
+        );
+    }
+}

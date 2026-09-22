@@ -10,9 +10,16 @@ export piton-config PitonLanguageTest:
     frameworks:
         - {BelayConfiguration}
 
+    // packages:
+    // - {Piton}
+
 belay-config BelayConfiguration:
     codeRoot: ./crates
     shapeRoot: ./spec/shape
 
     adapters:
         - {ClaudeAdapter}
+
+// package Piton:
+// name: piton
+// root: ./spec

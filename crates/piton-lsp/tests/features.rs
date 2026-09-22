@@ -329,3 +329,338 @@ fn a_clean_specbase_reports_nothing() {
         .collect();
     assert!(problems.is_empty(), "{problems:#?}");
 }
+
+// ---------------------------------------------------------------------------
+// Completion
+// ---------------------------------------------------------------------------
+
+/// A file the server sees the way an editor would: the project on disk, with
+/// one buffer replaced by text that has not been saved.
+///
+/// The cursor is written into the text as `<|>`. Replacing a file the project
+/// already reaches rather than inventing a new one keeps the whole module graph
+/// in play, which is what questions about imports and inheritance need.
+struct Buffer {
+    world: World,
+    uri: Url,
+    position: Position,
+}
+
+impl Buffer {
+    fn over(relative: &str, marked: &str) -> Buffer {
+        let root = repo_root();
+        let path = root.join(relative);
+        let offset = marked.find("<|>").expect("the text marks a cursor");
+        let text = marked.replace("<|>", "");
+
+        let mut world = World::new(&root);
+        world.set_document(path.clone(), text.clone());
+        world.recompile(Some(&path));
+
+        Buffer {
+            uri: path_to_url(&path).expect("url"),
+            position: offset_to_position(&text, offset),
+            world,
+        }
+    }
+
+    fn items(&self) -> Vec<CompletionItem> {
+        match features::completion(&self.world, &self.uri, self.position) {
+            Some(CompletionResponse::Array(items)) => items,
+            Some(_) => panic!("expected an array"),
+            None => Vec::new(),
+        }
+    }
+
+    fn labels(&self) -> Vec<String> {
+        self.items().into_iter().map(|item| item.label).collect()
+    }
+}
+
+/// The file every buffer below stands in for: small, imported from, and
+/// reachable from the project's entry point.
+const NULL: &str = "spec/scope/language/types/Null.pi";
+
+#[test]
+fn completion_at_the_top_of_a_file_offers_declarations_and_user_keywords() {
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\n<|>\n");
+    let labels = buffer.labels();
+    for expected in ["anchor", "export", "abstract", "use", "from"] {
+        assert!(labels.contains(&expected.to_string()), "{labels:?}");
+    }
+    // `use ./lib/Type` brings `type` into scope as a declaration keyword,
+    // because `Type` is declared `as type`.
+    assert!(labels.contains(&"type".to_string()), "{labels:?}");
+}
+
+#[test]
+fn completion_after_use_offers_module_paths() {
+    let buffer = Buffer::over(NULL, "use <|>\n");
+    let labels = buffer.labels();
+    // The packages are bundled with the compiler rather than on disk, so
+    // nothing but naming them outright would find them.
+    assert!(labels.contains(&"@piton/belay".to_string()), "{labels:?}");
+    assert!(labels.contains(&"@piton/config".to_string()), "{labels:?}");
+    // And the source root is read from disk, because the point of completing
+    // an import is to reach something the project does not reach yet.
+    assert!(labels.contains(&"./lib/Type".to_string()), "{labels:?}");
+    assert!(
+        !labels.contains(&"./Null".to_string()),
+        "a file cannot import itself: {labels:?}"
+    );
+}
+
+#[test]
+fn completion_after_from_offers_the_direction_then_the_names() {
+    let direction = Buffer::over(NULL, "from ./lib/Type <|>\n");
+    let labels = direction.labels();
+    assert_eq!(labels, vec!["import".to_string(), "export".to_string()]);
+
+    let names = Buffer::over(NULL, "from ./lib/Type import <|>\n");
+    let labels = names.labels();
+    assert!(labels.contains(&"Type".to_string()), "{labels:?}");
+    assert!(
+        labels.contains(&"*".to_string()),
+        "`*` takes every exported name: {labels:?}"
+    );
+}
+
+#[test]
+fn completion_after_extends_offers_anchors_rather_than_keywords() {
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport anchor A extends <|>\n");
+    let items = buffer.items();
+    let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+    assert!(labels.contains(&"Type"), "{labels:?}");
+    assert!(
+        !labels.contains(&"anchor"),
+        "a base is not a keyword: {labels:?}"
+    );
+    // An abstract anchor reads as an interface: it cannot stand on its own.
+    let kind = items
+        .iter()
+        .find(|item| item.label == "Type")
+        .and_then(|item| item.kind);
+    assert_eq!(kind, Some(CompletionItemKind::INTERFACE));
+}
+
+#[test]
+fn completion_in_a_type_constraint_offers_types() {
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    a:: <|>\n");
+    let labels = buffer.labels();
+    for expected in ["string", "number", "boolean", "dictionary", "extends"] {
+        assert!(labels.contains(&expected.to_string()), "{labels:?}");
+    }
+    // An anchor's name is a type too, and constraining to one is how a
+    // property says which anchors it takes.
+    assert!(labels.contains(&"Type".to_string()), "{labels:?}");
+}
+
+#[test]
+fn completion_of_a_value_offers_only_what_its_constraint_accepts() {
+    // `supportedOperators:: extends Operator[]:: null` -- so an operator or
+    // nothing, and nothing else.
+    let buffer = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators: <|>\n",
+    );
+    let items = buffer.items();
+    let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+
+    assert!(labels.contains(&"null"), "{labels:?}");
+    assert!(
+        labels.contains(&"PropertyAccessOperator"),
+        "an anchor that extends Operator belongs here: {labels:?}"
+    );
+    assert!(
+        !labels.contains(&"Type"),
+        "`Type` does not extend `Operator`, so it does not fit: {labels:?}"
+    );
+    assert!(
+        !labels.contains(&"true"),
+        "the constraint does not accept a boolean: {labels:?}"
+    );
+
+    // A value that has to be an anchor is written as a reference to one, so
+    // completing it writes the braces as well.
+    let insert = items
+        .iter()
+        .find(|item| item.label == "PropertyAccessOperator")
+        .and_then(|item| item.insert_text.clone());
+    assert_eq!(insert.as_deref(), Some("{PropertyAccessOperator}"));
+}
+
+#[test]
+fn completion_after_a_dot_offers_the_members_of_what_it_follows() {
+    let buffer = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    a: ${self.<|>}\n",
+    );
+    let items = buffer.items();
+    let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+    // `self` is the anchor being written, so its slots are what follows the
+    // dot -- the inherited ones included.
+    assert!(labels.contains(&"whatIsAType"), "{labels:?}");
+    assert!(labels.contains(&"supportedOperators"), "{labels:?}");
+    let detail = items
+        .iter()
+        .find(|item| item.label == "whatIsAType")
+        .and_then(|item| item.detail.clone())
+        .unwrap_or_default();
+    assert!(detail.contains("inherited from Type"), "{detail}");
+}
+
+#[test]
+fn a_reference_expression_offers_only_things_a_reference_can_name() {
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    a: @{<|>}\n");
+    let labels = buffer.labels();
+    assert!(labels.contains(&"Type".to_string()), "{labels:?}");
+    // `@{...}` has to resolve to a referenceable anchor, so a literal in there
+    // is an error waiting to be written.
+    for wrong in ["true", "false", "null"] {
+        assert!(
+            !labels.contains(&wrong.to_string()),
+            "`@{{{wrong}}}` cannot resolve to an anchor: {labels:?}"
+        );
+    }
+}
+
+#[test]
+fn a_string_and_a_sentence_have_nothing_to_complete() {
+    // The specification is explicit: typing a property access in the middle of
+    // a string should complete nothing, because a string has no members.
+    let string = Buffer::over(
+        NULL,
+        "export type N:\n    a: ${\"the end.<|>\"}\n",
+    );
+    assert!(string.labels().is_empty(), "{:?}", string.labels());
+
+    // And prose is a value in Piton rather than a name being completed.
+    let prose = Buffer::over(NULL, "export type N:\n    a: the quick brown<|>\n");
+    assert!(prose.labels().is_empty(), "{:?}", prose.labels());
+
+    let comment = Buffer::over(NULL, "export type N:\n    // a note <|>\n");
+    assert!(comment.labels().is_empty(), "{:?}", comment.labels());
+}
+
+#[test]
+fn a_verbatim_block_has_nothing_to_complete() {
+    let fenced = Buffer::over(
+        NULL,
+        "export type N:\n    a:\n        ```json\n        { <|>\n        ```\n",
+    );
+    assert!(fenced.labels().is_empty(), "{:?}", fenced.labels());
+
+    let escaped = Buffer::over(
+        NULL,
+        "export type N:\n    a:\n\\\\\\\\\nliteral {<|>}\n\\\\\\\\\n",
+    );
+    assert!(escaped.labels().is_empty(), "{:?}", escaped.labels());
+}
+
+#[test]
+fn completing_a_name_from_another_module_writes_the_import() {
+    let buffer = Buffer::over(NULL, "export type N:\n    a: {<|>}\n");
+    let items = buffer.items();
+    let offered = items
+        .iter()
+        .find(|item| item.label == "Type")
+        .expect("`Type` is exported by a module this one does not import");
+
+    let edits = offered
+        .additional_text_edits
+        .as_ref()
+        .expect("completing it should write the import");
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].new_text, "from ./lib/Type import Type\n");
+    assert_eq!(
+        offered
+            .label_details
+            .as_ref()
+            .and_then(|details| details.description.clone())
+            .as_deref(),
+        Some("./lib/Type"),
+        "the list has to say where the name would come from"
+    );
+}
+
+#[test]
+fn a_body_puts_the_properties_it_has_to_define_first() {
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    <|>\n");
+    let items = buffer.items();
+    let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+    assert!(labels.contains(&"whatIsAType"), "{labels:?}");
+    assert!(
+        labels.contains(&"pass"),
+        "an anchor with nothing to say still has to say so: {labels:?}"
+    );
+
+    // `description:: simple:: complex` has no value on `Type`, so an anchor
+    // extending it has to write one. Those sort above the rest.
+    let required = items
+        .iter()
+        .find(|item| item.label == "description")
+        .expect("description");
+    assert!(
+        required.sort_text.as_deref().is_some_and(|key| key.starts_with('0')),
+        "{:?}",
+        required.sort_text
+    );
+    let optional = items
+        .iter()
+        .find(|item| item.label == "whatIsAType")
+        .expect("whatIsAType");
+    assert!(
+        optional.sort_text.as_deref().is_some_and(|key| key.starts_with('1')),
+        "{:?}",
+        optional.sort_text
+    );
+}
+
+#[test]
+fn resolving_an_item_fills_in_its_documentation() {
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport anchor A extends <|>\n");
+    let offered = buffer
+        .items()
+        .into_iter()
+        .find(|item| item.label == "Type")
+        .expect("Type");
+    // The list itself carries no description: building one renders the whole
+    // compiled value, and a list is hundreds of items long.
+    assert!(offered.documentation.is_none());
+
+    let resolved = features::resolve_completion(&buffer.world, offered);
+    let Some(Documentation::MarkupContent(markup)) = resolved.documentation else {
+        panic!("expected markdown");
+    };
+    assert!(markup.value.contains("abstract"), "{}", markup.value);
+    assert!(markup.value.contains("Type"), "{}", markup.value);
+}
+
+#[test]
+fn a_list_item_takes_the_constraints_of_the_key_above_it() {
+    // `supportedOperators:: extends Operator[]` -- the items of the list are
+    // what the constraint is about, so they are what it narrows.
+    let buffer = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - <|>\n",
+    );
+    let labels = buffer.labels();
+    assert!(
+        labels.contains(&"PropertyAccessOperator".to_string()),
+        "{labels:?}"
+    );
+    assert!(
+        !labels.contains(&"Type".to_string()),
+        "`Type` does not extend `Operator`: {labels:?}"
+    );
+}
+
+#[test]
+fn a_module_that_does_not_exist_exports_nothing() {
+    let buffer = Buffer::over(NULL, "from ./nowhere import <|>\n");
+    assert!(
+        buffer.labels().is_empty(),
+        "there is nothing to import from a module that is not there: {:?}",
+        buffer.labels()
+    );
+}

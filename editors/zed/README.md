@@ -81,9 +81,18 @@ ranges.
 
 `src/piton.rs` adds two things on top of the protocol. It labels completions and
 symbols so the name is highlighted for what it is — an anchor as a type, a key
-as a property — with the server's detail beside it in the colour of a comment,
-and it keeps the detail out of the range Zed filters on, so searching for
-`agent` does not match every property that says `inherited from Agent`.
+as a property, a built-in type as a type — with the server's detail beside it in
+the colour of a comment, and it keeps the detail out of the range Zed filters
+on, so searching for `agent` does not match every property that says `inherited
+from Agent`.
+
+Completion itself is contextual, and the server decides what that means: module
+paths after `use`, exported names after `import`, bases after `extends`, types
+inside a `::` constraint, an anchor's members after a `.`, and for a value, only
+what its constraint accepts. A name from a file this one does not import comes
+with the `from … import …` line attached. The description of an item arrives
+through `completionItem/resolve` when the cursor settles on it, because building
+one renders the anchor's whole compiled value.
 
 ## Indentation
 

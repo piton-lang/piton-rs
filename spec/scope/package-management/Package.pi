@@ -1,0 +1,47 @@
+export anchor Package:
+    description:
+        A package declaration is just a `Package as package` anchor that can be
+        located anywhere within a specbase, but it must be included in the main
+        piton.config.pi file.
+
+        The Package anchor is exposed by the `@piton/packaging` import/use.
+
+        ```piton
+        \\\
+        export anchor Package as package:
+            root:: string
+            dependencies:: string[]:: null
+        \\\
+        ```
+
+        and in piton.config.pi
+
+        ```piton
+        \\\
+        packages:
+            - {MyPackage}
+        \\\
+        ```
+
+        Note here that a project can define multiple packages with different
+        roots and their own different dependencies.
+
+        When installed without additional filters, all packages will be
+        installed into tethers/ according to how they're defined.
+
+    dependencies:
+        If dependencies are specified at a project level, they only apply to the
+        project.  A Package must define its own dependencies.
+
+        It is possible to pin versions at a project level, and if not specified
+        at a package level, those version pins will be inherited.
+
+        There are no nested dependencies; if MyPackage is required by two
+        different packages, the most recent version will be chosen and a warning
+        will be displayed.
+
+    installation:
+        A package is installed into tethers/ according to its name.  So while a
+        single project can defined multiple packages, let's say MyScope/package
+        and MyPackage, they will both be installed into tethers/MyScope/package
+        and tethers/MyPackage respectively.

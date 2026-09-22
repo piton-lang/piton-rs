@@ -363,6 +363,82 @@ fn reach_separates_reachable_from_unreachable() {
 }
 
 #[test]
+fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
+    // A module that only re-exports declares no anchor of its own, so a
+    // reachability walk that counts only declarations finds nothing in it and
+    // calls it unreachable -- while the whole import chain runs through it.
+    let fixture = full_project("reach-index", "        - {ClaudeAdapter}");
+    fixture.write(
+        "spec/index.pi",
+        "from ./barrel export *\nfrom ./shape/components/button/Button export *\n",
+    );
+    fixture.write("spec/barrel/index.pi", "from ./Constructs export *\n");
+    fixture.write(
+        "spec/barrel/Constructs.pi",
+        "use @piton/belay\n\nexport command Release:\n    description: Cut a release\n    prompt: Run the release checklist end to end.\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["reach"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Release"), "{stdout}");
+
+    let unreachable = stdout.split("\nunreachable").nth(1).unwrap_or_default();
+    assert!(
+        !unreachable.contains("barrel/index.pi"),
+        "an index that carries a reachable anchor is not dead: {stdout}"
+    );
+}
+
+#[test]
+fn reach_counts_every_line_it_prints() {
+    let fixture = full_project("reach-counts", "        - {ClaudeAdapter}");
+    // Imported, and nothing uses what it declares: a dead anchor in a file
+    // that is otherwise load-bearing for nothing.
+    fixture.write(
+        "spec/Dead.pi",
+        "export anchor NothingUsesThis:\n    value: 1\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./Constructs export *\nfrom ./shape/components/button/Button export *\nfrom ./Dead import NothingUsesThis\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["reach"]);
+    assert_eq!(code, 0, "{stderr}");
+
+    let unreachable = stdout.split("\nunreachable").nth(1).unwrap_or_default();
+    assert!(unreachable.contains("NothingUsesThis"), "{stdout}");
+
+    // The summary has to agree with the listing: an anchor count that leaves
+    // out the module lines printed under the same heading is what made the
+    // report hard to trust.
+    let anchors = unreachable.matches("NothingUsesThis").count();
+    assert_eq!(anchors, 1, "{stdout}");
+    assert!(
+        stdout.contains("1 unreachable"),
+        "one dead anchor, counted once: {stdout}"
+    );
+    assert!(
+        stdout.contains("1 carrying nothing reachable"),
+        "and the file it is in, counted separately: {stdout}"
+    );
+}
+
+#[test]
+fn reach_marks_a_root_as_a_root() {
+    let fixture = full_project("reach-root", "        - {ClaudeAdapter}");
+    let (stdout, stderr, code) = fixture.run(&["reach", "ReviewComponents"]);
+    assert_eq!(code, 0, "{stderr}");
+    // A root was not reached from anywhere, so naming an edge it arrived on
+    // is naming an edge that does not exist.
+    assert!(stdout.contains("ReviewComponents  depth 0  root"), "{stdout}");
+    assert!(
+        !stdout.contains("depth 0  via"),
+        "nothing arrives at depth 0: {stdout}"
+    );
+}
+
+#[test]
 fn build_cleans_up_only_what_it_generated() {
     let fixture = full_project("cleanup", "        - {ClaudeAdapter}");
     let (_, stderr, code) = fixture.run(&["build"]);

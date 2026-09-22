@@ -1,0 +1,34 @@
+export anchor ImportingAndUsing:
+    description:
+        Where most `from...import` and `use` typically refer to relative paths,
+        or the project root path via `/` a package can be imported simply by
+        naming it.  So presuming a package is called my-package it can be
+        imported as
+
+        ```piton
+        \\\
+        from my-package import MyAnchor
+        \\\
+        ```
+
+        If it doesn't exist, it's a compiler error; same as trying to import
+        something that doesn't exist.
+
+        Similarly, you can do
+
+        ```piton
+        \\\
+        use my-package
+        \\\
+        ```
+
+        or
+
+        ```piton
+        \\\
+        use my-package/MyAnchor
+        \\\
+        ```
+
+        Note that regular path resolution behaves as it does anywhere else, it's
+        just that a named package can serve as a locational placeholder.

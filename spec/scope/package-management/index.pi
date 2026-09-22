@@ -1,4 +1,12 @@
-from ../tooling/cli/package-management import Remove, Tether, Untether, Update
+from ./Package import Package
+from ./Dependencies import Dependencies
+from ./ImportingAndUsing import ImportingAndUsing
+
+from ../tooling/cli/package-management import
+    Remove,
+    Tether,
+    Untether,
+    Update
 
 export anchor PackageManagement:
     description:
@@ -12,6 +20,10 @@ export anchor PackageManagement:
         means is installed packages are stored as part of the project, committed
         to version control, but can be added, updated, removed, and inspected by
         the package management tooling.
+
+    packages: {Package}
+    dependencies: {Dependencies}
+    importingAndUsing: {ImportingAndUsing}
 
     commands:
         - @{Remove}

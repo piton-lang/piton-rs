@@ -1,0 +1,16 @@
+export anchor Dependencies:
+    description:
+        Dependencies are listed under the dependencies property of the
+        piton.config.pi file for a project.
+
+        They're specified as a list of URLs with optional properties.
+
+        ```piton
+        \\\
+        dependencies:
+            - https://github.com/piton-lang/piton-rs
+                commit: abc
+                tag: 1.0
+                branch: main
+        \\\
+        ```
