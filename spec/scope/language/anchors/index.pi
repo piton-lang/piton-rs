@@ -22,37 +22,37 @@ export anchor Anchors:
         ```piton
         \\\
         anchor MyFirstAnchor:
-          whatIsAnAnchor:
-            An anchor is a kind of object or document that is structured via
-            properties and values.
+            whatIsAnAnchor:
+                An anchor is a kind of object or document that is structured via
+                properties and values.
 
-          stringValue: String types are supported.
+            stringValue: String types are supported.
 
-          listTypes:
-            - List types
-            - are
-            - supported.
+            listTypes:
+                - List types
+                - are
+                - supported.
 
-          nestedLists:
-            - Nested list types are
-              - also supported.
-              - [And, With, Bracket, Syntax]
+            nestedLists:
+                - Nested list types are
+                    - also supported.
+                    - [And, With, Bracket, Syntax]
 
-          numberTypes: {3.14 - 3.14}
+            numberTypes: {3.14 - 3.14}
 
-          booleanTypes: true
+            booleanTypes: true
 
-          nullType: null
+            nullType: null
 
-          // This evaluates to false
-          booleanOperatorsAnd: {this.booleanTypes && false}
-          // This evaluates to true
-          booleanOperatorsOr: {this.booleanTypes || false}
+            // This evaluates to false
+            booleanOperatorsAnd: {this.booleanTypes && false}
+            // This evaluates to true
+            booleanOperatorsOr: {this.booleanTypes || false}
 
-          thisKeyword:
-              As you may have noticed, Piton supports the `this` keyword for
-              accessing properties on the current anchor. We'll talk about this
-              later.
+            thisKeyword:
+                As you may have noticed, Piton supports the `this` keyword for
+                accessing properties on the current anchor. We'll talk about
+                this later.
         \\\
         ```
 

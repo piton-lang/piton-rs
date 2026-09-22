@@ -13,9 +13,8 @@ export anchor Expressions:
         Expressions combine values and operators to produce a result. Nothing
         gets evaluated unless it's in braces, like \ {a + b} \ or
         \ {1 + 2} \. Without braces, 1 + 2 is just text. Evaluation follows
-        Piton’s type and operator rules, resolves forward references, and
-        preserves anchor identity. Unresolved or cyclic references are compiler
-        errors.
+        Piton’s type and operator rules and resolves forward references.
+        Unresolved or cyclic references are compiler errors.
 
     story:
         A question you might currently have is how can a variable references
@@ -88,8 +87,10 @@ export anchor Expressions:
         myDictionary.list, combines that value with [4, 5, 6], and evaluates to
         [1, 2, 3, 4, 5, 6].
 
-        We haven’t discussed anchors yet, but they resolve by reference, and the
-        original identity is preserved.
+        Anchors get copied in too, but the copy still knows it's Foo. So if x
+        is \ {Foo} \, then \ {x == Foo} \ is true, \ ${x} \ is “Foo”, and x
+        passes a Foo type constraint. If you want a link instead of a copy,
+        use \ @{Foo} \.
 
     expressionsInText:
         If the whole value is just an expression, like \ total: {a + b} \, it

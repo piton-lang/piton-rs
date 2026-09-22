@@ -3,6 +3,9 @@ use ../cli
 export cli-command Reach:
     commandName: reach
 
+    positionalArguments:
+        target: Optional file, glob, or anchor. Defaults to the project.
+
     description:
         Analyzes which parts of the specbase are reachable from specific files,
         anchors, or the project
@@ -10,23 +13,23 @@ export cli-command Reach:
     emit: false
 
     traverse:
-        imports
-        references
-        inheritance
-        composition
+        - imports
+        - references
+        - inheritance
+        - composition
 
     direction:
         outgoing
 
     include:
-        direct
-        transitive
+        - direct
+        - transitive
 
     report:
-        reachable
-        unreachable
-        depth
-        paths
+        - reachable
+        - unreachable
+        - depth
+        - paths
 
     groupBy:
         source

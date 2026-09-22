@@ -5,7 +5,6 @@ from ../operators/concatenation/DupMergeOperator import DupMergeOperator
 from ../operators/comparison/EqOperator import EqOperator
 from ../operators/comparison/NeqOperator import NeqOperator
 from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
-from ../operators/lib/Operator import Operator
 
 export type Dictionaries:
     description:
@@ -23,7 +22,36 @@ export type Dictionaries:
         You can use dot syntax to access keys in a dictionary.
         firstLevel.secondLevel.thirdLevel would yield “This is a string”.
 
-    supportedOperators:: Operator[]:
+    listsInDictionaries:
+        A list indented under a key is that key's value. If the key also has
+        something above the list, like text or another dictionary, the value
+        becomes an implicit list (see Collections) and the list goes in as a
+        single item:
+
+        ```piton
+        \\\
+        plain:
+            - x
+            - y
+        mixed:
+            text
+            - x
+            - y
+        \\\
+        ```
+
+        ```json
+        \\\
+        {
+          "plain": ["x", "y"],
+          "mixed": ["text", ["x", "y"]]
+        }
+        \\\
+        ```
+
+        For dictionaries indented under a list item, see the Lists type.
+
+    supportedOperators:
         - {PropertyAccessOperator}
         - {MergeOperator}
         - {DupMergeOperator}

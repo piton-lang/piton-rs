@@ -11,4 +11,6 @@ export operator DupMergeOperator:
         both values are dictionaries, those get merged too, all the way down.
         Otherwise the right side wins.
 
+        On strings it joins them with a line break.
+
     symbol: ++

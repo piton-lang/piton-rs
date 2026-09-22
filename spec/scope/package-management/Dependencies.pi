@@ -17,5 +17,8 @@ export anchor Dependencies:
         \\\
         ```
 
+        @piton/config types commit, tag, and branch as strings, so
+        `\ tag: 1.0 \` stays “1.0” instead of becoming the number 1.
+
         Project dependencies and package dependencies are separate. The
         project's only apply to the project, and each package has its own.

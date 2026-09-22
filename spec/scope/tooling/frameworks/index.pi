@@ -1,7 +1,6 @@
 export anchor Frameworks:
     description:
-        Frameworks are a construct within a Piton project that allow the
-        inclusion of Piton modules globally as well as the extension of what the
+        Frameworks are a construct within a Piton project that extend what the
         compiler outputs. Piton itself outputs data through renderers, and a
         framework can add adapters on top of them. Belay's adapters, for
         example, build on the Markdown renderer.
@@ -12,7 +11,7 @@ export anchor Frameworks:
 
         Frameworks are included in a project through the frameworks property in
         the project config. You’ll see a concrete example of this when we talk
-        about the Belay framework. Once you’ve included a framework, you’ll be
-        able to use any keywords and import any modules it exports. You’ll still
-        have to use and import in each file, but adding the framework to the
-        project config makes those pieces available.
+        about the Belay framework. You can use and import a bundled
+        framework's keywords and modules whether you've included it or not,
+        and you still have to do that in each file. Including the framework is
+        what turns on its output.

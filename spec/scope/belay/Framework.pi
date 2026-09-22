@@ -81,7 +81,7 @@ export anchor ConstructComposition extends FrameworkSpecification:
         - Resolve inherited properties according to the Piton language specification.
         - Validate required properties on concrete constructs after inheritance resolves.
         - Preserve additional properties for serialization into the generated guidance.
-        - Compile only source files reachable from the configured entrypoints.
+        - Emit only what the build command emits: the entry file's exports and anything they reference.
 
     otherAnchors:
         Belay has more than the four constructs. The config anchor, the

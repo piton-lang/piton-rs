@@ -19,6 +19,30 @@ export anchor Operators:
     ConcatenationOperators: {ConcatenationOperators}
     ConditionalOperators: {ConditionalOperators}
     LogicalOperators: {LogicalOperators}
+    precedence:
+        Higher rows go first. Operators on the same row go left to right,
+        except the ternary, which goes right to left. Parentheses change the
+        order.
+
+        ```markdown
+        \\\
+        | Precedence | Operators          |
+        | ---------- | ------------------ |
+        | 1 highest  | `.`                |
+        | 2          | `!`                |
+        | 3          | `*` `/` `%`        |
+        | 4          | `+` `-` `++`       |
+        | 5          | `<` `<=` `>` `>=`  |
+        | 6          | `==` `!=`          |
+        | 7          | `&&`               |
+        | 8          | `||`               |
+        | 9 lowest   | `? :`              |
+        \\\
+        ```
+
+        So `\ {1 + 2 == 3 && !false} \` is `\ {((1 + 2) == 3) && (!false)} \`,
+        and `\ {a ? b : c ? d : e} \` is `\ {a ? b : (c ? d : e)} \`.
+
     allOperators:
         + {ACCESS_OPERATORS}
         + {ARITHMETIC_OPERATORS}

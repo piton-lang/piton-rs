@@ -1,6 +1,8 @@
 use ./lib/Type
 
 from ../expressions/ReferenceExpression import ReferenceExpression
+from ../operators/comparison/EqOperator import EqOperator
+from ../operators/comparison/NeqOperator import NeqOperator
 
 export type Reference:
     description:
@@ -26,6 +28,12 @@ export type Reference:
         markdown:
             A relative Markdown link to wherever the anchor was rendered, with
             the anchor's name as the link text. So a reference to Button from
-            a file next to it links Button to ./Button.md#button.
+            a file next to it links Button to ./Button.md#button. A reference
+            to a property links Button.color to ./Button.md#color.
 
-    supportedOperators: null
+    equality:
+        Two references are equal if they point at the same thing.
+
+    supportedOperators:
+        - {EqOperator}
+        - {NeqOperator}

@@ -19,6 +19,14 @@ export cli-command Build:
         exports reference also gets compiled, so the links have somewhere to
         go. Everything else is left out, and abstract anchors never compile.
 
+    output:
+        Without a framework, build writes to the output directory set in the
+        project config. That's the entry file, plus any file with something
+        the entry's exports reference. Files keep their place under root and
+        get the renderer's extension, so with the defaults
+        spec/components/Button.pi becomes dist/components/Button.json.
+        Frameworks add their own output on top of that.
+
     manifest:
         In a .piton directory that lives alongside the piton.config.pi file,
         a manifest.json file will be written with the build output.

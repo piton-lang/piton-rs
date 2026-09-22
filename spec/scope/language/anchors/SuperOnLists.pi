@@ -24,12 +24,54 @@ export anchor SuperOnLists:
         Blocks are built from top to bottom. A line starting with + or ++
         takes everything above it and combines it with that line's value. So
         here we start with nothing, the + brings in super.items, and then D,
-        E, and F get added. Without the + we’d end up with
-        [[A, B, C], D, E, F].
+        E, and F get added.
 
-        This works the same way in strings, where + joins them, and in
-        dictionaries, where + and ++ merge them. And a block with just
-        `+ \ {x} \` in it is the same as `\ {x} \`.
+        Without the + we’d end up with
+
+        ```piton fragment
+        \\\
+        anchor ChildAnchor extends BaseAnchor:
+            items:
+                - {super.items}
+                - D
+                - E
+                - F
+        \\\
+        ```
+
+        turning into
+
+        ```
+        \\\
+        [[A, B, C], D, E, F]
+        \\\
+        ```
+
+        This works the same way in dictionaries, where + and ++ merge them.
+        And a block with just `+ \ {x} \` in it is the same as `\ {x} \`.
+
+        In strings, + joins them with nothing in between, and ++ puts a line
+        break between them:
+
+        ```piton
+        \\\
+        anchor Base:
+            d: Base text.
+
+        anchor Plus extends Base:
+            d:
+                Child text.
+                + {super.d}
+
+        anchor DoublePlus extends Base:
+            d:
+                Child text.
+                ++ {super.d}
+        \\\
+        ```
+
+        Plus.d is “Child text.Base text.” DoublePlus.d is the same, but on
+        two lines.
 
         But let’s modify that example slightly to see a specific feature of
         the + concatenation operator.

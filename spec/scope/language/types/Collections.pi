@@ -70,12 +70,12 @@ export anchor Collections:
         ```piton
         \\\
         combined:
-          - dictionaryInsideAList:
-              nested: value
+            - First item
+                nested: value
         \\\
         ```
 
-        Since the dictionaryInsideAList is inside an explicit list, you cannot
+        Since the dictionary is an item in an explicit list, you cannot
         access that dictionary anymore. I’m just pointing this out because it is
         syntactically possible, though arguably not a very wise choice in
         structuring your data.

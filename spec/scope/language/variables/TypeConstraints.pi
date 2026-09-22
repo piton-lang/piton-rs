@@ -48,10 +48,10 @@ export anchor TypeConstraints:
         myVariable is the string `"false"`, quotes and all.
 
     requiredAndOptional:
-        If a property has a type constraint but no value, it's required.
-        Anything that extends the anchor has to give it a value. Adding null
-        to the constraint means that value can be null, but you still have to
-        write it.
+        In an abstract anchor, if a property has a type constraint but no
+        value, it's required. Anything that extends the anchor has to give it
+        a value. Adding null to the constraint means that value can be null,
+        but you still have to write it.
 
         If it has a default value, it's optional. The usual way to write an
         optional property is to allow null and default to null:
@@ -77,3 +77,7 @@ export anchor TypeConstraints:
         A property has to have a value. A name with nothing after it and
         nothing indented under it is a compiler error. If you mean nothing,
         write null.
+
+        The only exception is a required property in an abstract anchor, like
+        title above. Anywhere else, a type constraint with no value is still a
+        compiler error.

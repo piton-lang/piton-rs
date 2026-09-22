@@ -34,8 +34,10 @@ export anchor Package:
         Note here that a project can define multiple packages with different
         roots and their own different dependencies.
 
-        When installed without additional filters, all packages will be
-        installed into tethers/ according to how they're defined.
+        packages is what your repository offers to other projects. A project
+        never installs its own packages. When another project tethers your
+        repository, it gets every package listed here, unless it filters them,
+        each in its own directory under tethers/.
 
     dependencies:
         If dependencies are specified at a project level, they only apply to the
@@ -46,7 +48,7 @@ export anchor Package:
         commit will be chosen and a warning will be displayed.
 
     installation:
-        A package is installed into tethers/ according to its name. So while a
-        single project can define multiple packages, let's say ui-kit and
-        my-package, they will both be installed into tethers/ui-kit and
-        tethers/my-package respectively.
+        A package is installed into tethers/ according to its name. So if a
+        repository defines ui-kit and my-package, a project that tethers it
+        gets tethers/ui-kit and tethers/my-package, with the files from each
+        package's root.

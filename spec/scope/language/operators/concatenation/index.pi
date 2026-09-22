@@ -19,8 +19,10 @@ export anchor ConcatenationOperators:
         | Left       | Right      | Operation                              |
         | ---------- | ---------- | -------------------------------------- |
         | number     | number     | AdditionOperator                       |
-        | string     | any        | ConcatenationOperator                  |
-        | any        | string     | ConcatenationOperator                  |
+        | string     | simple     | ConcatenationOperator                  |
+        | simple     | string     | ConcatenationOperator                  |
+        | string     | complex    | implicit list                          |
+        | complex    | string     | implicit list                          |
         | list       | list       | MergeOperator                          |
         | dictionary | dictionary | MergeOperator                          |
         | other      | other      | compiler error                         |

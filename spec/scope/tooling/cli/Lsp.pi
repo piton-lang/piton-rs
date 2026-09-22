@@ -75,11 +75,6 @@ export cli-command Lsp:
             inherited origins, composition sources, or the anchor from which a
             value ultimately derives.
 
-        signatureHelp:
-            When using constructs with parameters or structured inputs, show the
-            expected fields, types, defaults, and documentation for the active
-            argument.
-
         codeActions:
             Offer context-sensitive fixes and transformations such as importing
             a missing symbol, creating an unresolved anchor, adding an export,
