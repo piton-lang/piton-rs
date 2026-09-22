@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use piton_compile::Framework;
+use piton_compile::{BelayConfig, Framework};
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
@@ -28,7 +28,21 @@ fn primer(root: &Path, reference_root: &str, instruction_file: &str) -> String {
     )
 }
 
-pub fn run(agent: &str, args: &[String]) -> u8 {
+/// The complete fluency prompt for a project, as its first configured adapter
+/// lays artifacts out.
+fn fluency(source_root: &Path, belay: Option<&BelayConfig>) -> String {
+    let adapter = belay
+        .and_then(|config| config.adapters.first())
+        .and_then(|target| piton_belay::adapter::Adapter::by_target(target));
+
+    let (reference_root, instruction_file) = match adapter {
+        Some(adapter) => (adapter.reference_root, adapter.instruction_file),
+        None => (".claude/reference", "CLAUDE.md"),
+    };
+    primer(source_root, reference_root, instruction_file)
+}
+
+pub fn run(agent: &str, print_fluency: bool, args: &[String]) -> u8 {
     let (project, _) = project::current();
     if project.config_path.is_none() {
         report::fail("no piton.config.pi found; run from a Piton project");
@@ -39,9 +53,19 @@ pub fn run(agent: &str, args: &[String]) -> u8 {
     // first and refuse to launch on a broken specbase.
     let root = project.root.clone();
     let source_root = project.source_root.clone();
-    let belay = project.frameworks.iter().find_map(|framework| match framework {
-        Framework::Belay(config) => Some(config.clone()),
-    });
+    let belay = project
+        .frameworks
+        .iter()
+        .find_map(|framework| match framework {
+            Framework::Belay(config) => Some(config.clone()),
+        });
+
+    // Printing the prompt is read-only: nothing is built and nothing launched.
+    if print_fluency {
+        println!("{}", fluency(&source_root, belay.as_ref()));
+        return EXIT_SUCCESS;
+    }
+
     let compilation = project::compile_project(project);
 
     let mut diagnostics = compilation.diagnostics.clone();
@@ -64,21 +88,11 @@ pub fn run(agent: &str, args: &[String]) -> u8 {
         return EXIT_ERRORS;
     }
 
-    let adapter = belay
-        .as_ref()
-        .and_then(|config| config.adapters.first())
-        .and_then(|target| piton_belay::adapter::Adapter::by_target(target));
-
-    let (reference_root, instruction_file) = match adapter {
-        Some(adapter) => (adapter.reference_root, adapter.instruction_file),
-        None => (".claude/reference", "CLAUDE.md"),
-    };
-
     let (program, launch_args) = match agent {
         "claude" => {
             let mut launch = vec![
                 "--append-system-prompt".to_string(),
-                primer(&source_root, reference_root, instruction_file),
+                fluency(&source_root, belay.as_ref()),
             ];
             launch.extend(args.iter().cloned());
             ("claude", launch)
@@ -89,7 +103,11 @@ pub fn run(agent: &str, args: &[String]) -> u8 {
         }
     };
 
-    match Command::new(program).args(&launch_args).current_dir(&root).status() {
+    match Command::new(program)
+        .args(&launch_args)
+        .current_dir(&root)
+        .status()
+    {
         Ok(status) => {
             if status.success() {
                 EXIT_SUCCESS

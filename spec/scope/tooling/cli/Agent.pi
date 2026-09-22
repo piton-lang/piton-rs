@@ -6,5 +6,8 @@ export cli-command Agent:
     positionalArguments:
         agent: Which agent to run [ claude ]
 
+    namedArguments:
+        print-fluency: Print the entire fluency prompt
+
     description:
         Launches the specified agent with Piton fluency.

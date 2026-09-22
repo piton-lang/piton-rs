@@ -16,6 +16,10 @@ Enter on colon (on a new dictionary or anchor property) should do a new line and
 
 On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
 
+### Auto Format On Save
+
+Autoformat on save is an option.  Autoformat should not format anything that is commented.
+
 ## Syntax Highlighter
 
 KSyntaxHighlighting

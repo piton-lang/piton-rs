@@ -34,11 +34,13 @@ enum Command {
         /// Which agent to run
         #[arg(value_parser = ["claude"], default_value = "claude")]
         agent: String,
+        /// Print the entire fluency prompt instead of launching the agent
+        #[arg(long)]
+        print_fluency: bool,
         /// Arguments passed through to the agent
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-
 
     /// Build the project as configured by piton.config.pi
     Build {
@@ -142,7 +144,11 @@ enum Command {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let code = match cli.command {
-        Command::Agent { agent, args } => commands::agent::run(&agent, &args),
+        Command::Agent {
+            agent,
+            print_fluency,
+            args,
+        } => commands::agent::run(&agent, print_fluency, &args),
         Command::Build { config, dry_run } => commands::build::run(config.as_deref(), dry_run),
         Command::Check { paths } => commands::check::run(&paths),
         Command::Compile {

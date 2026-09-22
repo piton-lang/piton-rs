@@ -456,7 +456,11 @@ fn a_list_constraint_checks_every_element() {
         .filter(|d| d.is_error())
         .map(|d| d.code.as_str())
         .collect();
-    assert_eq!(codes, vec!["type-mismatch"], "only the bad list should fail");
+    assert_eq!(
+        codes,
+        vec!["type-mismatch"],
+        "only the bad list should fail"
+    );
 }
 
 #[test]
@@ -495,7 +499,10 @@ fn a_concrete_anchor_must_implement_every_abstract_slot() {
         .find(|d| d.code == "unimplemented-property")
         .expect("diagnostic");
     assert!(found.message.contains("does not define `description`"));
-    assert!(!found.labels.is_empty(), "the declaring anchor is pointed at");
+    assert!(
+        !found.labels.is_empty(),
+        "the declaring anchor is pointed at"
+    );
 }
 
 #[test]
@@ -716,7 +723,10 @@ fn a_directory_resolves_to_its_index() {
     sandbox
         .file("lib/MyAnchor.pi", "export anchor MyAnchor:\n    v: 1\n")
         .file("lib/index.pi", "from ./MyAnchor export *\n")
-        .file("main.pi", "from ./lib import MyAnchor\n\nexport anchor Uses:\n    got: {MyAnchor.v}\n");
+        .file(
+            "main.pi",
+            "from ./lib import MyAnchor\n\nexport anchor Uses:\n    got: {MyAnchor.v}\n",
+        );
     let compilation = sandbox.compile("main.pi");
     let errors: Vec<&str> = compilation
         .diagnostics
@@ -735,9 +745,10 @@ fn a_directory_resolves_to_its_index() {
 #[test]
 fn an_alias_replaces_the_original_binding() {
     let sandbox = Sandbox::new("alias");
-    sandbox
-        .file("first.pi", "export pi: 3.14\n")
-        .file("main.pi", "from ./first import pi SliceOf\n\nexport anchor A:\n    v: {SliceOf}\n");
+    sandbox.file("first.pi", "export pi: 3.14\n").file(
+        "main.pi",
+        "from ./first import pi SliceOf\n\nexport anchor A:\n    v: {SliceOf}\n",
+    );
     let compilation = sandbox.compile("main.pi");
     let a = compilation.find_anchor("A").expect("A");
     assert_eq!(
@@ -747,9 +758,10 @@ fn an_alias_replaces_the_original_binding() {
 
     // `pi` itself is not in scope under its original name.
     let sandbox = Sandbox::new("alias-original");
-    sandbox
-        .file("first.pi", "export pi: 3.14\n")
-        .file("main.pi", "from ./first import pi SliceOf\n\nexport anchor A:\n    v: {pi}\n");
+    sandbox.file("first.pi", "export pi: 3.14\n").file(
+        "main.pi",
+        "from ./first import pi SliceOf\n\nexport anchor A:\n    v: {pi}\n",
+    );
     let compilation = sandbox.compile("main.pi");
     assert!(compilation
         .diagnostics
@@ -761,7 +773,10 @@ fn an_alias_replaces_the_original_binding() {
 fn importing_something_unexported_is_reported_with_a_suggestion() {
     let sandbox = Sandbox::new("unexported");
     sandbox
-        .file("first.pi", "export anchor MyAnchor:\n    v: 1\nmyVariable: 42\n")
+        .file(
+            "first.pi",
+            "export anchor MyAnchor:\n    v: 1\nmyVariable: 42\n",
+        )
         .file("main.pi", "from ./first import myVariable\n");
     let compilation = sandbox.compile("main.pi");
     assert!(compilation
@@ -810,7 +825,10 @@ fn use_brings_in_keywords_but_not_symbols() {
             "keywords.pi",
             "export anchor Custom as my-custom-keyword:\n    description: base\n",
         )
-        .file("main.pi", "use ./keywords\n\nexport anchor A:\n    v: {Custom}\n");
+        .file(
+            "main.pi",
+            "use ./keywords\n\nexport anchor A:\n    v: {Custom}\n",
+        );
     let compilation = sandbox.compile("main.pi");
     assert!(compilation
         .diagnostics
@@ -968,4 +986,91 @@ fn an_escape_block_suppresses_interpolation_without_a_fence() {
         "a literal block resolves no symbols: {:#?}",
         compilation.diagnostics.as_slice()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Compiling: anything exported from the entry
+// ---------------------------------------------------------------------------
+
+/// What the entry compiles to, rendered as JSON.
+fn entry_surface(sandbox: &Sandbox, entry: &str) -> String {
+    let compilation = sandbox.compile(entry);
+    let errors: Vec<String> = compilation
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| format!("{}: {}", d.code, d.message))
+        .collect();
+    assert!(errors.is_empty(), "{errors:#?}");
+    let surface = compilation.compiled_surface(compilation.resolution.entry);
+    json::declarations(&surface, &compilation)
+}
+
+#[test]
+fn an_anchor_re_exported_by_the_entry_is_compiled() {
+    let sandbox = Sandbox::new("re-export");
+    sandbox
+        .file("Lonely.pi", "export anchor Lonely:\n    value: 1\n")
+        .file(
+            "main.pi",
+            "from ./Lonely export Lonely\n\nexport anchor Root:\n    value: 2\n",
+        );
+    let rendered = entry_surface(&sandbox, "main.pi");
+    assert!(
+        rendered.contains("\"Lonely\""),
+        "an export is enough on its own, used or not: {rendered}"
+    );
+    assert!(rendered.contains("\"Root\""), "{rendered}");
+}
+
+#[test]
+fn an_index_that_only_forwards_still_compiles_to_something() {
+    let sandbox = Sandbox::new("forwarding-index");
+    sandbox
+        .file("One.pi", "export anchor One:\n    value: 1\n")
+        .file("Two.pi", "export anchor Two:\n    value: 2\n")
+        .file("main.pi", "from ./One export *\nfrom ./Two export *\n");
+    let rendered = entry_surface(&sandbox, "main.pi");
+    assert!(rendered.contains("\"One\""), "{rendered}");
+    assert!(rendered.contains("\"Two\""), "{rendered}");
+}
+
+#[test]
+fn a_renamed_export_is_compiled_under_the_name_it_leaves_by() {
+    let sandbox = Sandbox::new("renamed-export");
+    sandbox
+        .file("Thing.pi", "export anchor Thing:\n    value: 1\n")
+        .file("main.pi", "from ./Thing export Thing Renamed\n");
+    let rendered = entry_surface(&sandbox, "main.pi");
+    assert!(rendered.contains("\"Renamed\""), "{rendered}");
+    assert!(!rendered.contains("\"Thing\""), "{rendered}");
+}
+
+#[test]
+fn a_name_the_entry_imports_without_exporting_is_not_a_result_of_its_own() {
+    let sandbox = Sandbox::new("import-only");
+    sandbox
+        .file("Thing.pi", "export anchor Thing:\n    value: 1\n")
+        .file(
+            "main.pi",
+            "from ./Thing import Thing\n\nexport anchor Root:\n    thing: @{Thing}\n",
+        );
+    let rendered = entry_surface(&sandbox, "main.pi");
+    assert!(rendered.contains("\"Root\""), "{rendered}");
+    assert!(
+        !rendered.contains("\n  \"Thing\""),
+        "importing a name borrows it; it does not republish it: {rendered}"
+    );
+}
+
+#[test]
+fn an_abstract_anchor_the_entry_exports_has_no_value_to_compile() {
+    let sandbox = Sandbox::new("abstract-export");
+    sandbox.file(
+        "main.pi",
+        "export abstract anchor Shape:\n    value:: number\n\nexport anchor Thing extends Shape:\n    value: 1\n",
+    );
+    let rendered = entry_surface(&sandbox, "main.pi");
+    assert!(rendered.contains("\"Thing\""), "{rendered}");
+    assert!(!rendered.contains("\"Shape\""), "{rendered}");
 }

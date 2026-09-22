@@ -132,15 +132,49 @@ pub fn plan(compilation: &Compilation, config: &BelayConfig) -> Plan {
     reachable.sort();
 
     let constructs = construct::collect(compilation, &reachable);
-    let references = referenced_anchors(compilation, &reachable);
+    let mut references = referenced_anchors(compilation, &reachable);
+    for anchor in entry_documents(compilation, &constructs) {
+        references.insert(anchor);
+    }
 
     for adapter in &adapters {
-        build_target(compilation, config, adapter, &constructs, &references, &mut plan);
+        build_target(
+            compilation,
+            config,
+            adapter,
+            &constructs,
+            &references,
+            &mut plan,
+        );
     }
 
     validate(compilation, &adapters, &mut plan);
-    plan.files.sort_by(|a, b| a.path.cmp(&b.path).then(a.target.cmp(b.target)));
+    plan.files
+        .sort_by(|a, b| a.path.cmp(&b.path).then(a.target.cmp(b.target)));
     plan
+}
+
+/// Anchors the entry exports that no construct already accounts for.
+///
+/// Being exported from the entry is enough on its own to be compiled: it does
+/// not have to be used, and nothing has to link to it. A construct exported
+/// this way already produces its own artifact -- a skill file, a command file
+/// -- and needs nothing more. Anything else is an ordinary anchor, and the
+/// place an ordinary anchor is written is the reference tree, so that is where
+/// it goes. Without this a library whose entry does nothing but export its
+/// components builds to nothing at all, which is the one thing it plainly
+/// should not do.
+///
+/// An abstract anchor is left out. It declares a shape and has no value of its
+/// own to write.
+fn entry_documents(compilation: &Compilation, constructs: &[Construct]) -> Vec<AnchorId> {
+    let already: BTreeSet<AnchorId> = constructs.iter().map(|item| item.anchor).collect();
+    compilation
+        .entry_exports()
+        .into_iter()
+        .filter(|anchor| !already.contains(anchor))
+        .filter(|anchor| !compilation.store().anchor(*anchor).is_abstract)
+        .collect()
 }
 
 /// Every anchor reached through a reference, transitively, so the reference
@@ -248,10 +282,7 @@ fn build_target(
         })
         .collect();
 
-    let documented: BTreeSet<AnchorId> = references
-        .union(&shape_instructions)
-        .copied()
-        .collect();
+    let documented: BTreeSet<AnchorId> = references.union(&shape_instructions).copied().collect();
 
     for anchor in &documented {
         let def = compilation.store().anchor(*anchor);
@@ -299,11 +330,9 @@ fn build_target(
             links: &links,
         };
         let contents = markdown::document(*anchor, &context);
-        let kind = if config
-            .shape_root
-            .as_ref()
-            .is_some_and(|root| shape::is_shape_source(compilation.anchor_module_path(*anchor).as_path(), root))
-        {
+        let kind = if config.shape_root.as_ref().is_some_and(|root| {
+            shape::is_shape_source(compilation.anchor_module_path(*anchor).as_path(), root)
+        }) {
             OutputKind::ShapeReference
         } else {
             OutputKind::Reference
@@ -322,16 +351,18 @@ fn build_target(
     let mut instructions: BTreeMap<PathBuf, Vec<(String, String, PathBuf)>> = BTreeMap::new();
     for item in constructs {
         match item.kind {
-            ConstructKind::Skill => {
-                render_skill(compilation, adapter, item, &locations, plan)
-            }
-            ConstructKind::Command => {
-                render_command(compilation, adapter, item, &locations, plan)
-            }
+            ConstructKind::Skill => render_skill(compilation, adapter, item, &locations, plan),
+            ConstructKind::Command => render_command(compilation, adapter, item, &locations, plan),
             ConstructKind::Agent => render_agent(compilation, adapter, item, &locations, plan),
-            ConstructKind::Instruction => {
-                collect_instruction(compilation, config, adapter, item, &locations, plan, &mut instructions)
-            }
+            ConstructKind::Instruction => collect_instruction(
+                compilation,
+                config,
+                adapter,
+                item,
+                &locations,
+                plan,
+                &mut instructions,
+            ),
         }
     }
 
@@ -350,7 +381,10 @@ fn build_target(
             .map(|(title, _, _)| title.clone())
             .collect::<Vec<_>>()
             .join(", ");
-        let sources = sections.iter().map(|(_, _, source)| source.clone()).collect();
+        let sources = sections
+            .iter()
+            .map(|(_, _, source)| source.clone())
+            .collect();
         plan.files.push(OutputFile {
             contents,
             path,
@@ -460,8 +494,12 @@ fn render_skill(
     let mut holder = None;
     let context = context_for(compilation, locations, &path, &mut holder);
 
-    let description = item.metadata_text("description", compilation).unwrap_or_default();
-    let use_when = item.metadata_text("useWhen", compilation).unwrap_or_default();
+    let description = item
+        .metadata_text("description", compilation)
+        .unwrap_or_default();
+    let use_when = item
+        .metadata_text("useWhen", compilation)
+        .unwrap_or_default();
     let prompt = item.text("prompt", &context).unwrap_or_default();
 
     let mut fields = Fields::new();
@@ -504,9 +542,7 @@ fn render_command(
         .unwrap_or_default();
 
     let path = match adapter.command_support {
-        CommandSupport::Native => {
-            PathBuf::from(format!("{}/{name}.md", adapter.command_root))
-        }
+        CommandSupport::Native => PathBuf::from(format!("{}/{name}.md", adapter.command_root)),
         _ => PathBuf::from(format!("{}/{name}/SKILL.md", adapter.command_root)),
     };
     let mut holder = None;
@@ -531,7 +567,13 @@ fn render_command(
             fields.insert("description".into(), FieldValue::Text(description.clone()));
         }
     }
-    let consumed = native_options(compilation, item, adapter.command_options, &mut fields, plan);
+    let consumed = native_options(
+        compilation,
+        item,
+        adapter.command_options,
+        &mut fields,
+        plan,
+    );
 
     let remainder = render::remainder(&item.remainder(&consumed), &context);
     let contents = format!(
@@ -550,8 +592,10 @@ fn render_command(
     });
 
     if adapter.command_support == CommandSupport::TranslatedSkillWithPolicy {
-        let policy_path =
-            PathBuf::from(format!("{}/{name}/agents/openai.yaml", adapter.command_root));
+        let policy_path = PathBuf::from(format!(
+            "{}/{name}/agents/openai.yaml",
+            adapter.command_root
+        ));
         let mut policy = Fields::new();
         let mut inner = indexmap::IndexMap::new();
         inner.insert(
@@ -574,9 +618,7 @@ fn render_command(
 
 fn render_yaml_document(fields: &Fields, out: &mut String) {
     let block = render::frontmatter(fields);
-    let body = block
-        .trim_start_matches("---\n")
-        .trim_end_matches("---\n");
+    let body = block.trim_start_matches("---\n").trim_end_matches("---\n");
     out.push_str(body);
 }
 
@@ -851,7 +893,8 @@ fn validate(compilation: &Compilation, adapters: &[&'static Adapter], plan: &mut
     }
     // Identical shared guidance is written once.
     let mut seen_paths = HashSet::new();
-    plan.files.retain(|file| seen_paths.insert(file.path.clone()));
+    plan.files
+        .retain(|file| seen_paths.insert(file.path.clone()));
 
     // Generated names must satisfy the identity rules every target shares.
     for file in &plan.files {
@@ -986,7 +1029,10 @@ fn validate(compilation: &Compilation, adapters: &[&'static Adapter], plan: &mut
         if file.path.is_absolute() || file.path.components().any(|c| c.as_os_str() == "..") {
             plan.diagnostics.push(Diagnostic::error(
                 "output-outside-project",
-                format!("`{}` resolves outside the project root", file.path.display()),
+                format!(
+                    "`{}` resolves outside the project root",
+                    file.path.display()
+                ),
                 config_path.clone(),
                 Span::default(),
             ));

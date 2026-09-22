@@ -10,7 +10,8 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   commandName: agent
   positionalArguments:
     agent: Which agent to run [ claude ]
-  namedArguments: null
+  namedArguments:
+    print-fluency: Print the entire fluency prompt
 - description: Builds the project as configured by piton.config.pi
   commandName: build
   positionalArguments:
