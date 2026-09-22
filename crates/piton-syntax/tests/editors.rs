@@ -10,6 +10,18 @@ use std::path::{Path, PathBuf};
 
 use piton_syntax::language;
 
+/// Every query shipped with the language, in both copies.
+const QUERY_FILES: &[&str] = &[
+    "tree-sitter-piton/queries/highlights.scm",
+    "tree-sitter-piton/queries/injections.scm",
+    "tree-sitter-piton/queries/locals.scm",
+    "tree-sitter-piton/queries/folds.scm",
+    "tree-sitter-piton/queries/indents.scm",
+    "zed/languages/piton/highlights.scm",
+    "zed/languages/piton/injections.scm",
+    "zed/languages/piton/indents.scm",
+];
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -260,17 +272,7 @@ fn every_query_matches_a_node_the_grammar_defines() {
     }
     assert!(defined.contains(&"source_file".to_string()), "{defined:?}");
 
-    let query_files = [
-        "tree-sitter-piton/queries/highlights.scm",
-        "tree-sitter-piton/queries/injections.scm",
-        "tree-sitter-piton/queries/locals.scm",
-        "tree-sitter-piton/queries/folds.scm",
-        "tree-sitter-piton/queries/indents.scm",
-        "zed/languages/piton/highlights.scm",
-        "zed/languages/piton/injections.scm",
-        "zed/languages/piton/indents.scm",
-    ];
-    for relative in query_files {
+    for relative in QUERY_FILES {
         let query = read(relative);
         for name in node_names(&query) {
             assert!(
@@ -312,4 +314,118 @@ fn node_names(query: &str) -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+#[test]
+fn every_query_token_is_one_the_grammar_writes() {
+    // The node-name check above reads bare `(node)` patterns. A query can also
+    // match an anonymous token by quoting it -- `"::"`, `"pass"` -- and those
+    // break a query just as completely when the grammar stops writing them.
+    // Changing `::` to `:` in the grammar left two queries matching a token
+    // that no longer existed, and nothing here noticed.
+    let grammar = read("tree-sitter-piton/grammar.js");
+    let literals = string_literals(&grammar);
+
+    for relative in QUERY_FILES {
+        let query = read(relative);
+        for token in quoted_tokens(&query) {
+            assert!(
+                literals.contains(&token),
+                "{relative} matches the token `\"{token}\"`, which `grammar.js` \
+                 does not write. A query that names a token the grammar dropped \
+                 fails to compile, and the editor reports it the same way it \
+                 reports a broken grammar."
+            );
+        }
+    }
+}
+
+#[test]
+fn the_editor_queries_match_the_grammars_own() {
+    // Zed keeps its own copy of the queries, because a Zed extension reads
+    // them from `languages/<name>/`. Two copies drift: one of them was still
+    // matching `"pass"` after the other had moved to `(pass_statement)`.
+    for name in ["highlights", "indents", "injections"] {
+        let canonical = read(&format!("tree-sitter-piton/queries/{name}.scm"));
+        let copy = read(&format!("zed/languages/piton/{name}.scm"));
+        assert_eq!(
+            canonical, copy,
+            "`zed/languages/piton/{name}.scm` has drifted from the grammar's \
+             own `queries/{name}.scm`. They are the same query and have to stay \
+             byte for byte the same."
+        );
+    }
+}
+
+/// Every string literal the grammar writes, which is every anonymous token.
+fn string_literals(grammar: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let chars: Vec<char> = grammar.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] != '"' {
+            index += 1;
+            continue;
+        }
+        let start = index + 1;
+        let mut cursor = start;
+        while cursor < chars.len() && chars[cursor] != '"' {
+            // A literal never spans a line; an unterminated quote is something
+            // else, such as a regex.
+            if chars[cursor] == '\n' {
+                break;
+            }
+            cursor += 1;
+        }
+        if cursor < chars.len() && chars[cursor] == '"' {
+            out.push(chars[start..cursor].iter().collect());
+            index = cursor + 1;
+        } else {
+            index = start;
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Tokens a query matches by quoting them.
+///
+/// A capture name is introduced by `@` and a predicate argument is a string
+/// too, so only quotes that sit where a pattern goes are collected: directly
+/// after `(` or after whitespace inside one.
+fn quoted_tokens(query: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in query.lines() {
+        let line = line.trim();
+        if line.starts_with(';') || line.starts_with("(#") {
+            continue;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let mut index = 0;
+        while index < chars.len() {
+            if chars[index] != '"' {
+                index += 1;
+                continue;
+            }
+            let start = index + 1;
+            let mut cursor = start;
+            while cursor < chars.len() && chars[cursor] != '"' {
+                cursor += 1;
+            }
+            if cursor >= chars.len() {
+                break;
+            }
+            let token: String = chars[start..cursor].iter().collect();
+            // A predicate's argument is a string as well; those sit inside a
+            // `(#...)` form, which is skipped above.
+            if !token.is_empty() {
+                out.push(token);
+            }
+            index = cursor + 1;
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }

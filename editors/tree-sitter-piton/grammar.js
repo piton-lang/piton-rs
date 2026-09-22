@@ -24,6 +24,7 @@ module.exports = grammar({
 
   extras: () => [/[ \t]/],
 
+
   // Keyword extraction. Lexical precedence outranks match length in
   // tree-sitter, so `use` would otherwise win against the longer `useWhen:`
   // and every property whose name begins with a keyword would break. Naming

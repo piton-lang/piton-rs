@@ -18,3 +18,9 @@ export anchor PackageManagement:
         - @{Tether}
         - @{Untether}
         - @{Update}
+
+    locations:
+        Tethered packages are stored in the same directory as the
+        piton.config.pi file inside a tethers/ directory.
+
+        When a package is untethered, they've moved into specRoot/untethered
