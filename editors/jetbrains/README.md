@@ -25,6 +25,20 @@ With LSP4IJ: **Settings → Languages & Frameworks → Language Servers → +**
 
 `piton` must be on `PATH`; install it with `cargo xtask install`.
 
+## Editor behavior
+
+The IDE has no Piton indent rules of its own; the language server answers
+both through LSP4IJ's on-type formatting: enter after a line that opens a
+block lands one level in, and enter on a blank line inside a dictionary or
+anchor lands one level back.
+
+## Formatting on save
+
+There is no save hook to attach `autoFormatOnSave` to: LSP4IJ runs
+`textDocument/formatting` on request (the IDE's format action) but does not
+format on save. Use that action when formatting is wanted; the formatter
+leaves commented content alone.
+
 ## Why there is no plugin here
 
 A JetBrains plugin is a Gradle project with its own lexer, parser and PSI

@@ -6,7 +6,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 
 ## Commands
 
-- description: Launches the specified agent with Piton fluency.
+- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](../../../agent/skills/GenerateFluencyPrompt.md) skill as located in the <PROJECT_ROOT>/FLUENCY_PROMPT.md
   commandName: agent
   positionalArguments:
     agent: Which agent to run [ claude ]

@@ -22,6 +22,14 @@ hard_tabs = false
 # nothing there spans a body for Zed's `@indent` to measure.
 increase_indent_pattern = "^[^/\\s][^:]*:\\s*$|^\\s*[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$|^\\s*[-+]{1,2}\\s+[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$"
 
+# Enter on a blank line inside a dictionary or anchor leaves the block: the
+# new line comes back one shiftwidth, bottoming at the margin. Only a
+# whitespace-only line matches this pattern, so it never touches the colon
+# rule above -- neither pattern matches the other's lines. The language
+# server answers the same move in `on_type_formatting`; this is what the
+# editor has when it indents on its own.
+decrease_indent_pattern = "^\\s*$"
+
 # Keys and user keywords are kebab-case, so a hyphen is part of a word:
 # double-clicking `no-rewrite` should take all of it, and typing the hyphen
 # should carry on querying the language server rather than starting a new

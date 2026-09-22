@@ -37,6 +37,11 @@
           "type": "boolean",
           "default": true,
           "description": "Run the Piton language server."
+        },
+        "piton.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Format the document on save (the autoFormatOnSave option). Off unless turned on; the formatter leaves commented content alone."
         }
       }
     }

@@ -1,6 +1,7 @@
 {
   "generated": [
     ".claude/reference/Specification.md",
+    ".claude/reference/agent/skills/GenerateFluencyPrompt.md",
     ".claude/reference/scope/belay/Belay.md",
     ".claude/reference/scope/compiling/Compiling.md",
     ".claude/reference/scope/founding-thesis/AgentAsCompiler.md",
@@ -88,6 +89,7 @@
     ".claude/reference/scope/tooling/project-config/ProjectConfig.md",
     ".claude/reference/scope/tooling/vite/VitePlugin.md",
     ".claude/skills/build-tooling/SKILL.md",
+    ".claude/skills/generate-fluency-prompt/SKILL.md",
     ".claude/skills/inspect-spec/SKILL.md"
   ]
 }

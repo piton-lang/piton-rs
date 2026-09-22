@@ -28,6 +28,11 @@ fn primer(root: &Path, reference_root: &str, instruction_file: &str) -> String {
     )
 }
 
+/// How the language, Belay, packaging, and tooling behave, generated from the
+/// specification by the GenerateFluencyPrompt skill. It is the same for every
+/// project; only the primer ahead of it is project-specific.
+const REFERENCE: &str = include_str!("../fluency.md");
+
 /// The complete fluency prompt for a project, as its first configured adapter
 /// lays artifacts out.
 fn fluency(source_root: &Path, belay: Option<&BelayConfig>) -> String {
@@ -39,7 +44,10 @@ fn fluency(source_root: &Path, belay: Option<&BelayConfig>) -> String {
         Some(adapter) => (adapter.reference_root, adapter.instruction_file),
         None => (".claude/reference", "CLAUDE.md"),
     };
-    primer(source_root, reference_root, instruction_file)
+    format!(
+        "{}\n\n{REFERENCE}",
+        primer(source_root, reference_root, instruction_file)
+    )
 }
 
 pub fn run(agent: &str, print_fluency: bool, args: &[String]) -> u8 {

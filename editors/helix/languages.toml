@@ -16,6 +16,8 @@ comment-token = "//"
 indent = { tab-width = 4, unit = "    " }
 language-servers = ["piton"]
 roots = ["piton.config.pi"]
+# Autoformat on save is an option (the spec's autoFormatOnSave): it stays off
+# here, and turning it on formats on save with commented content left alone.
 auto-format = false
 
 [[grammar]]

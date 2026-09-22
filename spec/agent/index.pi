@@ -1,2 +1,3 @@
 from ./skills/InspectSpec.pi export *
 from ./skills/BuildTooling.pi export *
+from ./skills/GenerateFluencyPrompt.pi export *
