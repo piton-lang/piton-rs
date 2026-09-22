@@ -14,23 +14,23 @@ path/
       index.pi
 ```
 And in myCurrentFile.pi you could have:
-```piton
+```piton fragment
 from ./path/to/directory import MyAnchor
 ```
 There are several ways to build an index.pi file.
-```piton
+```piton fragment
 from ./MyAnchor import MyAnchor
 export MyAnchor
 ```
 That functions, but it’s a bit verbose. There is a modification of the from...import syntax that allows you to be a bit more concise:
-```piton
+```piton fragment
 from ./MyAnchor export MyAnchor
 ```
 And a slight modification of that that’s even more concise:
-```piton
+```piton fragment
 from ./MyAnchor export *
 ```
 from...export also supports renaming exports:
-```piton
+```piton fragment
 from ./MyAnchor export MyAnchor MyAliasedAnchor, MyOtherAnchor MyOtherAliasedAnchor
 ```

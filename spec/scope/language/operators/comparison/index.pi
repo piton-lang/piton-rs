@@ -7,7 +7,17 @@ from ./GtOperator import GtOperator
 from ./GtEqOperator import GtEqOperator
 
 export anchor ComparisonOperators:
-    description: Introduces FOMO and jealousy.
+    description: Compares two values and gives you a boolean.
+
+    equality:
+        `==` and `!=` work on every type. Lists and dictionaries are equal if
+        everything inside them is equal. Anchors are only equal if they're the
+        same anchor.
+
+    ordering:
+        `<`, `<=`, `>`, and `>=` work on numbers and strings. Strings are
+        compared by Unicode code point. Anything else, or a number against a
+        string, is a compiler error.
 
     operators: {COMPARISON_OPERATORS}
 

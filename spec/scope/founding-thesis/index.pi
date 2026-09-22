@@ -4,7 +4,7 @@ from ./AgentAsCompiler import AgentAsCompiler
 from ./TheProblem import TheProblem
 
 export anchor FoundingThesis:
-    Introduction: @{Introduction}
-    CncComparison: @{CncComparison}
-    AgentAsCompiler: @{AgentAsCompiler}
-    TheProblem: @{TheProblem}
+    Introduction: {Introduction}
+    CncComparison: {CncComparison}
+    AgentAsCompiler: {AgentAsCompiler}
+    TheProblem: {TheProblem}

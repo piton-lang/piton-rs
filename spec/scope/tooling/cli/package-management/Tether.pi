@@ -2,7 +2,11 @@ use ../../cli
 
 export cli-command Tether:
     commandName: tether
-    description: Clones and "un-gits" a repository into the tethers directory
+    description:
+        Clones and "un-gits" a repository into the tethers directory. Run it
+        on its own and it installs everything in piton.config.pi's
+        dependencies. Give it a source and it adds that to piton.config.pi and
+        installs it.
 
-    positionalArgs:
-        source: Path to the git repository
+    positionalArguments:
+        source: Optional. URL of the git repository

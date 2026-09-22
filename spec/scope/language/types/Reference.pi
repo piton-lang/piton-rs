@@ -1,11 +1,31 @@
 use ./lib/Type
 
-from @piton/belay import Adapter
-from ./Anchors import Anchors
+from ../expressions/ReferenceExpression import ReferenceExpression
 
 export type Reference:
     description:
-        References are a type concept that primarily interact with @{Anchors}
-        and even then have very specific results based on the ${Adapter}
+        A reference comes from a @{ReferenceExpression}. It points at an
+        anchor, or a property on one, instead of copying it. How it ends up
+        looking in the output is up to the renderer, and frameworks like Belay
+        build on top of that.
+
+    renderers:
+        json:
+            By default a reference becomes a string: the path to the other
+            file (relative to this one), a colon, and the dot path to the
+            value. So `../file.json:Anchor.property`.
+
+            If there's no dot path to it, you get whatever the property turned
+            into instead, like `../file.txt:Something`. And if that doesn't
+            work either, you get the line number, like `../file.json:42`.
+
+            You can change this with a renderer option.
+
+        yaml: Same as json, with the yaml output file.
+
+        markdown:
+            A relative Markdown link to wherever the anchor was rendered, with
+            the anchor's name as the link text. So a reference to Button from
+            a file next to it links Button to ./Button.md#button.
 
     supportedOperators: null

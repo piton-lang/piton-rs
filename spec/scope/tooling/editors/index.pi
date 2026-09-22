@@ -1,14 +1,22 @@
+from ./Emacs export *
+from ./Helix export *
+from ./JetBrains export *
+from ./Kate export *
+from ./NeoVim export *
+from ./Sublime export *
+from ./Vim export *
+from ./VsCode export *
 from ./Zed export *
 
 export abstract anchor Editor as editor:
     description:: string:
-        Editing plugin for ${self} Has full support for the LSP
+        Editing plugin for ${self}. Has full support for the LSP.
 
     editorBehavior:
         Whether it's via the LSP or the editor extension, the editors need to
         behave in a sane and predictable way according to the following rules
 
-        enterOnColor:
+        enterOnColon:
             Enter on colon (on a new dictionary or anchor property) should do a
             new line and indent the new line to the correct +1 level.
 
@@ -17,7 +25,7 @@ export abstract anchor Editor as editor:
             new line and dedent it by 1 level.
 
         autoFormatOnSave:
-            Autoformat on save is an option.  Autoformat should not format
-            anything that is commented.
+            Autoformat on save is an option. Autoformat should add the space
+            after `//`, but not touch anything else that's commented.
 
     syntaxHighlighter:: string:: string[]

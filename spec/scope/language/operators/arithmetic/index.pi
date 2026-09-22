@@ -6,10 +6,9 @@ from ./ModuloOperator import ModuloOperator
 from ./lib/ArithmeticOperator import ArithmeticOperator
 
 export anchor ArithmeticOperators:
-    description:
-        They do math things when operating on numbers.
+    description: They do math things when operating on numbers.
 
-        operators: {ARITHMETIC_OPERATORS}
+    operators: {ARITHMETIC_OPERATORS}
 
     orderOfPrecedence:
         ${self} precedence follows standard mathematical precedence:

@@ -3,8 +3,8 @@ from ./Super import Super
 from ./SuperOnLists import SuperOnLists
 from ./SelfReference import SelfReference
 from ./Abstract import Abstract
-from ./Keywords import Keywords
-from ../types/Anchors import Anchors AnchorType
+from ./Keywords import UserDefinedKeywords
+from ../types/Anchors import AnchorType
 
 export anchor Anchors:
     typeReference: @{AnchorType}
@@ -45,9 +45,9 @@ export anchor Anchors:
           nullType: null
 
           // This evaluates to false
-          booleanOperatorsAnd: {this.booleanTypes} && false
+          booleanOperatorsAnd: {this.booleanTypes && false}
           // This evaluates to true
-          booleanOperatorsOr: {this.booleanTypes} || false
+          booleanOperatorsOr: {this.booleanTypes || false}
 
           thisKeyword:
               As you may have noticed, Piton supports the `this` keyword for
@@ -78,9 +78,9 @@ export anchor Anchors:
         \\\
         ```
 
-        StructuralInheritance: @{StructuralInheritance}
-        Super: @{Super}
-        SuperOnLists: @{SuperOnLists}
-        SelfReference: @{SelfReference}
-        Abstract: @{Abstract}
-        UserDefinedKeywords: @{Keywords}
+        StructuralInheritance: {StructuralInheritance}
+        Super: {Super}
+        SuperOnLists: {SuperOnLists}
+        SelfReference: {SelfReference}
+        Abstract: {Abstract}
+        UserDefinedKeywords: {UserDefinedKeywords}

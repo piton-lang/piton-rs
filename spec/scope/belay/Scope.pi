@@ -37,11 +37,12 @@ export anchor ShapeMapping extends FrameworkSpecification:
 
 export anchor ShapeRootReference extends FrameworkSpecification:
     description:
-        The special export __BELAY_SHAPE__ identifies the compiled shape root
-        for the current output target.
+        The special export BELAY_COMPILED_SHAPE points at the compiled shape
+        for the current adapter. Not to be confused with BELAY_SHAPE_ROOT,
+        which is the shape source.
 
     requirements:
-        - Make __BELAY_SHAPE__ available as an explicit import from Belay.
+        - Make BELAY_COMPILED_SHAPE available as an explicit import from Belay.
         - Resolve it during compilation rather than at agent runtime.
         - Resolve its path relative to the generated file containing its use.
         - Resolve it separately for each adapter and output location.
@@ -60,7 +61,6 @@ export anchor AnchorReferences extends FrameworkSpecification:
         - Keep referential links distinct from inline value serialization.
         - Do not replace lazy Markdown links with Claude-specific eager import syntax.
 
-    qualification:
-        The documented referential interpolation uses the at-sign sigil. Later
-        discussions leave its underlying reference type and non-Markdown
-        representation unresolved; this specifies only the Belay Markdown intent.
+    representation:
+        Belay uses the Markdown renderer's references: a relative link from
+        the generated file to wherever the other anchor was compiled.

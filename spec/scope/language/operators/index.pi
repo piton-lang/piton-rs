@@ -13,13 +13,12 @@ export anchor Operators:
         Piton supports a pretty standard if not small set of operators, plus a
         few slightly more unique ones. Let’s start with the standard ones.
 
-    AccessOperators: @{AccessOperators}
-    ArithmeticOperators: @{ArithmeticOperators}
-    ComparisonOperators: @{ComparisonOperators}
-    ConcatenationOperators: @{ConcatenationOperators}
-    ConditionalOperators: @{ConditionalOperators}
-    LogicalOperators: @{LogicalOperators}
-
+    AccessOperators: {AccessOperators}
+    ArithmeticOperators: {ArithmeticOperators}
+    ComparisonOperators: {ComparisonOperators}
+    ConcatenationOperators: {ConcatenationOperators}
+    ConditionalOperators: {ConditionalOperators}
+    LogicalOperators: {LogicalOperators}
     allOperators:
         + {ACCESS_OPERATORS}
         + {ARITHMETIC_OPERATORS}

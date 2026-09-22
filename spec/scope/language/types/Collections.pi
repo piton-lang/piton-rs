@@ -6,9 +6,8 @@ export anchor Collections:
         Piton has two core collection types: lists and dictionaries – or arrays
         and objects depending on what language you’re coming from.
 
-    lists: @{Lists}
-    dictionaries: @{Dictionaries}
-
+    lists: {Lists}
+    dictionaries: {Dictionaries}
     combiningCollectionTypes:
         You **can** combine lists and dictionaries (and other types for that
         matter):
@@ -54,6 +53,11 @@ export anchor Collections:
         this is an inherently intuitive form for a human. We’ll let the compiler
         do a bit of heavy lifting to make the human’s job nicer.
 
+        You'll get the same implicit list if you put a list, dictionary, or
+        anchor in the middle of some text with \ {} \. So
+        \ See {Foo} for details \ becomes a list with “See”, a copy of Foo,
+        and “for details”.
+
         One additional gotcha with Piton is that, with an implicit list,
         dictionary properties declared directly within the mixed block remain
         addressable; we’re still able to directly reference
@@ -61,7 +65,7 @@ export anchor Collections:
         string”. As I said previously, Piton does not allow for list accessors,
         so trying to access either the string or the list is not possible.
 
-        Similarly\:
+        The same is true here:
 
         ```piton
         \\\

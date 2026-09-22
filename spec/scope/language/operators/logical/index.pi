@@ -4,7 +4,9 @@ from ./OrOperator import OrOperator
 from ./NegOperator import NegOperator
 
 export anchor LogicalOperators:
-    description: Nerds
+    description:
+        Combine or negate booleans. Anything that isn't a boolean is a
+        compiler error.
 
     operators:
         + {LOGICAL_OPERATORS}

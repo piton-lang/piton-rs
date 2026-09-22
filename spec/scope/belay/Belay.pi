@@ -17,9 +17,9 @@ from ./adapters/ClaudeCode import ClaudeCodeAdapter
 from ./adapters/Codex import CodexAdapter
 from ./adapters/OpenCode import OpenCodeAdapter
 from ./Decisions import
+    BuildGuarantees,
     OpenDecisions,
-    ProposedBuildGuarantees,
-    ProposedPermissionBoundary
+    PermissionBoundary
 
 export anchor Belay:
     description:
@@ -27,23 +27,16 @@ export anchor Belay:
         and agents, compiled into the formats used by agentic coding tools.
 
     specialImports:
-        The following special imports can be brought in from `@piton/belay` and
-        used.
+        description:
+            The following special imports can be brought in from `@piton/belay`
+            and used. They're filled in at compile time, for each adapter, as
+            a path relative to the file they end up in.
 
-        - BELAY_AGENT_ROOT
-            resolves to the path of the agent being compiled -- so that might be
-            .claude or .opencode, etc.
-
-        - BELAY_PROJECT_ROOT
-            resolves to the path of the project
-
-        - BELAY_SHAPE_ROOT
-            resolves to the path of the shape as configured in the project
-            config. if not specified, it will resolve to the project root
-
-        - BELAY_CODE_ROOT
-            resolves to the path of the code as configured in the project
-            config. if not specified, it will resolve to the project root
+        BELAY_AGENT_ROOT: The agent's directory, so that might be .claude or .opencode, etc.
+        BELAY_PROJECT_ROOT: The project, where piton.config.pi lives.
+        BELAY_SHAPE_ROOT: The shape as configured in the project config. If not specified, it's the project root.
+        BELAY_CODE_ROOT: The code as configured in the project config.
+        BELAY_COMPILED_SHAPE: The compiled copy of the shape for the agent, under its reference directory.
 
     framework:
         - {FrameworkPurpose}
@@ -69,8 +62,8 @@ export anchor Belay:
         - {CodexAdapter}
         - {OpenCodeAdapter}
 
-    proposedRefinements:
-        - {ProposedBuildGuarantees}
-        - {ProposedPermissionBoundary}
+    guarantees:
+        - {BuildGuarantees}
+        - {PermissionBoundary}
 
     unresolved: {OpenDecisions}

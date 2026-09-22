@@ -25,3 +25,8 @@ export anchor StandardExpression:
             - Preserve native value types in structured output.
             - Serialize an anchor as its resolved content rather than a link to it.
             - Apply the output format's serialization rules when textual output is required.
+
+    inText:
+        If there's other text around it, a simple value gets dropped into the
+        text, and a list, dictionary, or anchor turns the whole thing into an
+        implicit list.

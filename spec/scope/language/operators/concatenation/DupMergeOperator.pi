@@ -2,7 +2,13 @@ use ../lib/Operator
 
 export operator DupMergeOperator:
     description:
-        The merge operator combines two values into a single value,
-        preserving all elements, not removing duplicates.
+        The `++` operator is like merge, but it keeps duplicates.
+
+        On lists it joins them in order and keeps everything, so
+        `[A, B, C, D] ++ [A, B, C]` gives you `[A, B, C, D, A, B, C]`.
+
+        On dictionaries it's a deep merge. If both sides have the same key and
+        both values are dictionaries, those get merged too, all the way down.
+        Otherwise the right side wins.
 
     symbol: ++

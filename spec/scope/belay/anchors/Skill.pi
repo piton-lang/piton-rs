@@ -10,7 +10,8 @@ export anchor SkillBehavior extends FrameworkSpecification:
         kind of work. Its discovery metadata explains when it is useful.
 
     requirements:
-        - Require description, prompt, and useWhen strings.
+        - Require useWhen. description and prompt are optional.
+        - Report an error if the target needs a description and there isn't one.
         - Emit the skill into the configured target's skill directory and format.
         - Derive the skill name from the anchor using the adapter's naming rules.
         - Form the discovery description from description followed by Use when and useWhen.

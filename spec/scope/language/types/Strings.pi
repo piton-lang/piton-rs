@@ -3,6 +3,7 @@ use ./lib/Type
 from ./Escaping import Escaping
 from ../operators/concatenation/ConcatenationOperator import
     ConcatenationOperator
+from ../operators/comparison import COMPARISON_OPERATORS
 
 export type Strings:
     description:
@@ -21,36 +22,48 @@ export type Strings:
         the syntax of the language, not the string. In other words, the string
         in both examples is “Hello, World!”.
 
-        Within a string block, you can add line breaks without affecting the
-        structure of the string. To create an explicit line break, you must
-        include a blank line.
+    quotes:
+        Quotes don't mean anything special. They're just characters, so
+        `\ greeting: "Hello" \` is the string `"Hello"`, quotes and all.
 
-        ```
+        The one exception is inside an expression. There, bare words are
+        symbols, so you write strings in double quotes:
+        `\ {"Hello" + name} \`. In that case the quotes aren't part of the
+        string.
+
+    lineBreaks:
+        Within a string block, you can add line breaks without affecting the
+        structure of the string. To start a new paragraph, you must include a
+        blank line. More than one blank line in a row still counts as one.
+
+        ```piton
         \\\
         myString:
             This broken string is not considered
             a line break.
 
-            While this *is* on a new line because there was a blank line above.
+            While this *is* a new paragraph because there was a blank line above.
         \\\
         ```
 
-        When compiled, we’ll get two lines:
+        When compiled, we’ll get two paragraphs:
 
         ```markdown
+        \\\
         This broken string is not considered a line break.
-        While this *is* on a new line because there was a blank line above.
+
+        While this *is* a new paragraph because there was a blank line above.
+        \\\
         ```
 
-        escaping: @{Escaping}
+    escaping: {Escaping}
+    codeBlocks:
+        Code blocks are not escaped. To Piton they're just text, so anything
+        inside them still gets parsed: expressions, comments, lists, all of it.
 
-        codeBlocks:
-            ```
-            TODO: Write stuff about this
-            ```
-
-            Code blocks are not escaped.  So often, you'll want to but an escape
-            block inside the codeBlock.
+        So often, you'll want to put an escape block inside the code block.
+        Every example in this spec does that.
 
     supportedOperators:
         - {ConcatenationOperator}
+        + {COMPARISON_OPERATORS}

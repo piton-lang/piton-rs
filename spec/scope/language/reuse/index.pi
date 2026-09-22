@@ -9,8 +9,8 @@ export anchor Reuse:
         Fundamental to Piton is the ability to compose a larger codebase from
         smaller focused pieces, so we need a way to reuse code across files.
 
-    circularImports: @{CircularImports}
-    importExport: @{ImportExport}
-    importLineBreaks: @{ImportLineBreaks}
-    modules: @{Modules}
-    use: @{Use}
+    circularImports: {CircularImports}
+    importExport: {ImportExport}
+    importLineBreaks: {ImportLineBreaks}
+    modules: {Modules}
+    use: {Use}

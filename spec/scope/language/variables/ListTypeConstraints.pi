@@ -4,7 +4,7 @@ export anchor ListTypeConstraints:
 
         ```piton
         \\\
-        myVariable:: string[]: ["foo", "bar", "baz"]
+        myVariable:: string[]: [foo, bar, baz]
         \\\
         ```
 

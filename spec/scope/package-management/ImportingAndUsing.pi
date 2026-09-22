@@ -5,7 +5,7 @@ export anchor ImportingAndUsing:
         naming it.  So presuming a package is called my-package it can be
         imported as
 
-        ```piton
+        ```piton fragment
         \\\
         from my-package import MyAnchor
         \\\
@@ -16,7 +16,7 @@ export anchor ImportingAndUsing:
 
         Similarly, you can do
 
-        ```piton
+        ```piton fragment
         \\\
         use my-package
         \\\
@@ -24,7 +24,7 @@ export anchor ImportingAndUsing:
 
         or
 
-        ```piton
+        ```piton fragment
         \\\
         use my-package/MyAnchor
         \\\

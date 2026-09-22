@@ -1,4 +1,4 @@
 use .
 
 export editor Emacs:
-    syntaxHighlighter: ["tree-sitter", "lsp"]
+    syntaxHighlighter: [tree-sitter, lsp]

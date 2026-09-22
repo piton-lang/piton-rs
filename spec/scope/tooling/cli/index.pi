@@ -1,6 +1,6 @@
 from ./Compile import Compile
 from ./Check import Check
-from ./Agent import Agent
+from ./Agent import AgentCli
 from ./Build import Build
 from ./Format import Format
 from ./Lsp import Lsp
@@ -18,7 +18,7 @@ export anchor Cli:
         files into output. It also includes helper commands like format.
 
     commands:
-        - {Agent}
+        - {AgentCli}
         - {Build}
         - {Check}
         - {Compile}

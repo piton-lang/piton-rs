@@ -1,6 +1,8 @@
 use ./lib/Type
 from ../operators/concatenation/MergeOperator import MergeOperator
 from ../operators/concatenation/DupMergeOperator import DupMergeOperator
+from ../operators/comparison/EqOperator import EqOperator
+from ../operators/comparison/NeqOperator import NeqOperator
 
 export type Lists:
     description:
@@ -49,3 +51,5 @@ export type Lists:
     supportedOperators:
         - {MergeOperator}
         - {DupMergeOperator}
+        - {EqOperator}
+        - {NeqOperator}

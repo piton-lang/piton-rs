@@ -4,8 +4,7 @@ export anchor TypeCoercion:
         constrained to multiple types, Piton evaluates the constraints from left
         to right and uses the first type the source value can validly represent.
 
-        Unquoted literals may be coerced when their syntax is compatible with
-        the target type. For example:
+        Numbers can be coerced into strings. For example:
 
         ```piton
         \\\
@@ -16,19 +15,22 @@ export anchor TypeCoercion:
         This evaluates to the string “42” because string is the first compatible
         constraint.
 
-        Quoted values are explicitly strings and are never coerced to
-        another type:
+        Booleans and null are never coerced. So this is a compiler error, not
+        the string “false”:
 
-        ```piton
+        ```piton fragment
         \\\
-        value:: boolean:: string: "false"
+        flag:: string: false
         \\\
         ```
 
-        This evaluates to the string “false”, not the boolean false.
+        If you want the string, use `\ ${false} \`.
 
-        Likewise, values that are already structurally typed, such as lists,
-        dictionaries, anchors, booleans, and null, are not coerced into
+        Quotes don't do anything special, so a quoted value is just a string
+        with quotes in it. `\ value:: boolean:: string: "false" \` is the
+        string `"false"`, quotes and all, because `"false"` isn't a boolean.
+
+        Likewise, lists, dictionaries, and anchors are never coerced into
         unrelated types.
 
         If none of the declared constraints can accept the value it is a

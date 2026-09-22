@@ -8,11 +8,11 @@ export anchor Abstract:
         ```piton
         \\\
         abstract anchor Skill:
-          description:: string
+            description:: string
 
 
         anchor ConcreteSkill extends Skill:
-          description: This must be a string as defined by the abstract
+            description: This must be a string as defined by the abstract
         \\\
         ```
 
@@ -20,59 +20,91 @@ export anchor Abstract:
         that extends an abstract anchor is said to be “implementing” the
         abstract anchor.
 
-        A concrete anchor can only implement a single abstract anchor. It is in
-        fact good practice to export an abstract anchor as a keyword to enforce
-        this ergonomically. The constraint here is that Piton does not do unions
-        on abstract anchors. You are still free to extend other concrete anchors
-        in addition to basing off an abstract.
+        An abstract can give a property a default value. If it does, that
+        property is optional. If it doesn't, it's required.
 
-        In the case of multiple inheritance on abstracts, type constraint
-        conflicts will throw a compiler error.
+    abstractChains:
+        An abstract can extend another abstract. Whatever implements it has to
+        fill in the required properties from the whole chain.
 
-        specialTypeConstraints:
-            We are also able to use the specialized type constraints within
-            abstracts like simple, complex, any, [], etc.
+        ```piton
+        \\\
+        abstract anchor Construct:
+            description:: string
+            prompt:: string
 
-            However, only within abstract anchor definitions, we introduce an
-            additional type constraint keyword extends that allows us to
-            represent inheritance hierarchy. Take the following example.
+        abstract anchor Skill extends Construct as skill:
+            useWhen:: string
 
-            ```piton
-            \\\
-            abstract anchor A:
-              description:: string
+        skill Review:
+            description: Reviews code
+            prompt: Review the diff
+            useWhen: Asked for a review
+        \\\
+        ```
 
-            abstract anchor B extends A:
-              name:: string
+    multipleAbstracts:
+        An anchor can implement more than one abstract, even ones that share a
+        base. It is in fact good practice to export an abstract anchor as a
+        keyword, and the keyword's anchor always goes last in the inheritance
+        chain, so it wins.
 
-            abstract anchor C:
-                listOfA:: A[]
-                listOfB:: B[]
+        If two abstracts have type constraints on the same property and the
+        types don't overlap at all (say string and number), that's a compiler
+        error. If they do overlap, the right-most one wins.
 
-                listOfExtendsA:: extends A[]
-            \\\
-            ```
+        You are still free to extend other concrete anchors in addition to
+        basing off an abstract. Type constraints from concrete anchors just
+        follow normal inheritance: right-most wins, no error.
 
-            Here, we have defined an anchor A with a description and an anchor B
-            which extends A and adds a name property. So B has both description
-            and name while A only has a description.
+    specialTypeConstraints:
+        We are also able to use the specialized type constraints within
+        abstracts like simple, complex, any, [], etc.
 
-            We have then defined an anchor C. Let’s go one property at a time.
+        There's also the extends type constraint keyword, which lets us
+        represent inheritance hierarchy. You can use it anywhere, but it's
+        most at home in abstracts. Take the following example.
 
-            listOfA will be satisfied by anything that directly implements the
-            abstract A.
+        ```piton
+        \\\
+        abstract anchor A:
+            description:: string
 
-            listOfB will be satisfied by anything that directly implements the
-            abstract B.
+        abstract anchor B extends A:
+            name:: string
 
-            Where it gets a little more interesting is in the third property,
-            listOfExtendsA.
+        abstract anchor C:
+            listOfA:: A[]
+            listOfB:: B[]
 
-            Within abstract anchor definitions, extends on an anchor type
-            reference means that the constraint may be satisfied by any concrete
-            anchor whose inheritance chain includes that anchor.
+            listOfExtendsA:: extends A[]
+        \\\
+        ```
 
-            So in this example, that constraint is satisfied by a list of
-            anything that has A in its inheritance hierarchy. So in this case,
-            you’d be able to pass concrete anchors that extend either A or B
-            given that B has A in its inheritance chain.
+        Here, we have defined an anchor A with a description and an anchor B
+        which extends A and adds a name property. So B has both description
+        and name while A only has a description.
+
+        We have then defined an anchor C. Let’s go one property at a time.
+
+        A plain anchor type only matches anchors that directly implement it.
+        If an anchor has more than one abstract, the one that counts is the
+        one that wins: the keyword's abstract, or else the right-most one.
+
+        listOfA will be satisfied by anything that directly implements the
+        abstract A.
+
+        listOfB will be satisfied by anything that directly implements the
+        abstract B. Something implementing B won't fit in listOfA, even though
+        B extends A.
+
+        Where it gets a little more interesting is in the third property,
+        listOfExtendsA.
+
+        extends on an anchor type means that the constraint may be satisfied
+        by any concrete anchor whose inheritance chain includes that anchor.
+
+        So in this example, that constraint is satisfied by a list of
+        anything that has A in its inheritance hierarchy. So in this case,
+        you’d be able to pass concrete anchors that implement either A or B
+        given that B has A in its inheritance chain.

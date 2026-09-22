@@ -1,8 +1,8 @@
-from ./Overview import Overview
+from ./Overview import TypesOverview
 from ./Numbers import Numbers
 from ./Strings import Strings
 from ./Collections import Collections
-from ./Anchors import Anchors
+from ./Anchors import AnchorType
 from ./Inference import Inference
 from ./Booleans import Booleans
 from ./Null import Null
@@ -11,15 +11,14 @@ from ./SimpleTypes import SimpleTypes
 from ./ComplexTypes import ComplexTypes
 
 export anchor Types:
-    overview: @{Overview}
-    numbers: @{Numbers}
-    strings: @{Strings}
-    booleans: @{Booleans}
-    null: @{Null}
-    collections: @{Collections}
-    userDefined: @{Anchors}
-    inferrence: @{Inference}
-    reference: @{Reference}
-
-    simpleTypes: @{SimpleTypes}
-    complexTypes: @{ComplexTypes}
+    overview: {TypesOverview}
+    numbers: {Numbers}
+    strings: {Strings}
+    booleans: {Booleans}
+    null: {Null}
+    collections: {Collections}
+    userDefined: {AnchorType}
+    inference: {Inference}
+    reference: {Reference}
+    simpleTypes: {SimpleTypes}
+    complexTypes: {ComplexTypes}

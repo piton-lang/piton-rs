@@ -11,4 +11,6 @@ export anchor Comments:
         ```
 
         `piton format` will always put a space between the "//" and the comment
-        text, so you might as well get used to doing it yourself.
+        text, so you might as well get used to doing it yourself. It won't
+        touch anything else in the comment though, so commented-out code stays
+        as it is.

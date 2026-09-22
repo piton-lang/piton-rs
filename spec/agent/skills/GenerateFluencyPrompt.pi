@@ -1,5 +1,7 @@
 use @piton/belay
 
+from @piton/belay import BELAY_PROJECT_ROOT
+
 export skill GenerateFluencyPrompt:
     useWhen: Explicitly called
     description: Generates a Piton fluency prompt for the agent
@@ -13,4 +15,4 @@ export skill GenerateFluencyPrompt:
 
         Output the results into ${FLUENCY_PROMPT_FILE}
 
-export FLUENCY_PROMPT_FILE: <PROJECT_ROOT>/FLUENCY_PROMPT.md
+export FLUENCY_PROMPT_FILE: ${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md

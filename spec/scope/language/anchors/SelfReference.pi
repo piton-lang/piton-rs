@@ -91,3 +91,22 @@ export anchor SelfReference:
 
         As you can see, this gets pinned to wherever it’s used, while self
         travels through the hierarchy.
+
+        self only travels through inheritance though. If you just read a
+        property from another anchor, you get that anchor's value, with self
+        being that anchor:
+
+        ```piton
+        \\\
+        anchor Precedence:
+            note: ${self} rules apply
+
+        anchor Addition:
+            copied: ${Precedence.note}
+        \\\
+        ```
+
+        Addition.copied is “Precedence rules apply”.
+
+        this and self always mean an anchor, never a dictionary. Even inside a
+        nested dictionary, they mean the anchor it's in.

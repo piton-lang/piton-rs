@@ -7,9 +7,16 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ## Supported Operators
 
-- description: The concatenation operator (`+`) joins two strings into a single string, preserving their order. For example, `"Hello" + " world"` evaluates to `"Hello world"`.
-    Adheres to rules of [TypeCoercion](../variables/TypeCoercion.md)
-  symbol: +
+- description: Logical AND operator
+  symbol: &&
+- description: Logical OR operator
+  symbol: ||
+- description: Logical negation operator
+  symbol: !
+- description: Equality operator.
+  symbol: ==
+- description: Inequality operator.
+  symbol: !=
 
 ## Unsupported Operators
 

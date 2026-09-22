@@ -19,14 +19,26 @@ The compiler uses types to check whether expressions and assignments make sense.
   symbol: *
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
-- description: : Divides two numbers
+- description: Divides two numbers. Dividing by zero is a compiler error.
   symbol: /
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
-- description: Returns the remainder of two numbers
+- description: Returns the remainder of dividing two numbers. The result takes the sign of the dividend, so `-7 % 3` evaluates to `-1`. A zero divisor is a compiler error.
   symbol: %
   orderOfOperations: ArithmeticOperators precedence follows standard mathematical precedence: MultiplicationOperator, DivisionOperator, and ModuloOperator are evaluated before AdditionOperator and SubtractionOperator.
     Operators with the same precedence are evaluated from left to right. Parentheses may be used to alter the order of operations.
+- description: Equality operator.
+  symbol: ==
+- description: Inequality operator.
+  symbol: !=
+- description: Less than operator.
+  symbol: <
+- description: Less than or equal to operator.
+  symbol: <=
+- description: Greater than operator.
+  symbol: >
+- description: Greater than or equal to operator.
+  symbol: >=
 
 ## Unsupported Operators
 
@@ -42,5 +54,12 @@ mySmallFloat: 0.14
 myBigNumber: 1_200_000.00
 ```
 There is a single number type in all of Piton; type-wise there’s no difference between an int, a float, double, etc.
+
+## Representation
+
+Numbers are IEEE 754 64-bit floating point values.
+Negative literals are written with a leading minus, such as `-5`. A list item marker is always followed by a space (`- 5`), so `-5` is a number and `- 5` is a list item containing 5.
+Exponent notation such as `1e3` is not supported.
+When serialized, a number uses its shortest round-trip form, so `1_200_000.00` is written as `1200000` and `0.50` as `0.5`.
 
 Links in this document point at reference files. Read one when the work touches what it describes.

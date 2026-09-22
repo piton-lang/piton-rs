@@ -1,4 +1,4 @@
-use ./
+use .
 
 export editor VsCode:
-    syntaxHighlighter: ["textmate", "lsp"]
+    syntaxHighlighter: [textmate, lsp]

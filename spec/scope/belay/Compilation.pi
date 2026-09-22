@@ -37,11 +37,9 @@ export anchor InterpolationBoundary extends FrameworkSpecification:
         - Render Belay references as links to the applicable compiled target.
         - Do not infer reference identity from a display heading alone.
 
-    historicalBehavior:
-        The September 11 text describes string interpolation of a complex
-        anchor as its compiled name without title expansion. Subsequent
-        discussion revisits name, value, and reference semantics. Final behavior
-        must be reconciled with the current language specification.
+    stringInterpolation:
+        \ ${Anchor} \ gives you the anchor's name as written in the source.
+        It isn't turned into a title.
 
 export anchor Compilation extends FrameworkSpecification:
     description: Resolve a Belay project and emit the artifacts selected by its adapters.

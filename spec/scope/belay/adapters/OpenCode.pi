@@ -22,9 +22,10 @@ export anchor OpenCodeAdapter extends Adapter:
             - Preserve scoped output placement without claiming identical activation across tools.
             - Use explicit instructions configuration when the selected deployment needs additional files.
             - Do not load all nested instructions globally merely to make them discoverable.
-        openQuestion:
-            Confirm nested-file activation for the pinned OpenCode release
-            before promising shape-scope behavior beyond documented startup discovery.
+        nestedActivation:
+            Only count on what OpenCode documents for startup. Don't assume
+            nested files get picked up, and report an error if shape scoping
+            is needed but can't be guaranteed.
 
     skill:
         output: .opencode/skills/<name>/SKILL.md
@@ -67,7 +68,7 @@ export anchor OpenCodeAdapter extends Adapter:
             model: Explicit provider-qualified model when configured
             permission: Explicit native permission map when configured
         body: Role introduction followed by prompt and serialized additional content
-        proposedDefaultMode: subagent
+        defaultMode: subagent
         rules:
             - Derive agent identity from the filename.
             - Prefer native permission entries over the deprecated tools option.

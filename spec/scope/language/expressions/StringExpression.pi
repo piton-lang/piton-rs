@@ -14,9 +14,9 @@ export anchor StringExpression:
         - Convert numbers to their textual representation.
         - Convert booleans to lowercase true or false.
         - Convert null to the string null.
-        - Convert lists a string representation.
-        - Convert dictionaries to the name of the variable/property.
-        - Convert anchors to their name.
+        - Convert anchors to their name, as written in the source.
+        - Convert a named list or dictionary to its name, like Anchor.propertyName, or just the variable name at the top of a file.
+        - Report an error for a list or dictionary that has no name.
         - Do not reinterpret the resulting string as source syntax or another expression.
 
     composition:

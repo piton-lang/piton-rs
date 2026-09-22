@@ -1,13 +1,25 @@
 export anchor Escaping:
     description:
-        Escaping works a little differently in Piton than other languages.  To
-        escape special characters, you simply wrap them in backslashes.  So for
-        example \\ \ {1 + 2 + 3} \ \\ would become \ { 1 + 2 + 3 } \.
+        Escaping works a little differently in Piton than other languages. To
+        escape special characters, you simply wrap them in backslashes, with a
+        space on each side. The spaces are part of the wrapper, so they get
+        removed. So for example \\ \ {1 + 2 + 3} \ \\ would become
+        \ {1 + 2 + 3} \.
 
-        You can stack backslashes to escape backslashes themselves:
+        That's the only way to escape. Even a single character gets wrapped:
+        \\ \ : \ \\ becomes \ : \.
+
+    stacking:
+        You can stack backslashes to escape backslashes themselves. The
+        closing wrapper has to match the opening one, so anything inside can
+        use fewer backslashes:
 
         \\\\ \\\ \\ \ {1 + 2 + 3} \ \\ \\\ \\\\ would become
         \\\ \\ \ {1 + 2 + 3} \ \\ \\\.
 
     multiLine:
-        Multi-line escape blocks are valid.
+        Multi-line escape blocks are valid. Put the backslashes on a line by
+        themselves to open the block, and again to close it. Everything in
+        between is kept as is, line breaks and indentation included.
+
+        This spec uses three backslashes for these.

@@ -9,18 +9,19 @@ export anchor CircularImports:
         ```piton
         \\\
         anchor A:
-            This anchor talks about ${B}
+            description: This anchor talks about ${B}
 
         anchor B:
-            This anchor talks about ${A}
+            description: This anchor talks about ${A}
         \\\
         ```
 
-        Is perfectly fine because \ ${A} \ and \ ${B} \ both settle to a string.
+        Is perfectly fine because \ ${A} \ and \ ${B} \ both settle to a
+        string (the anchor's name).
 
         However
 
-        ```piton
+        ```piton fragment
         \\\
         A: {B}
         B: {A}
@@ -28,3 +29,6 @@ export anchor CircularImports:
         ```
 
         Is a compile error because it simply cannot resolve.
+
+        The only cycles that are errors are ones like this, that can't
+        resolve, and an anchor that ends up extending itself.

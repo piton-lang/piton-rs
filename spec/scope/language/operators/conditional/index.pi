@@ -2,7 +2,7 @@ from ../lib/Operator import Operator
 from ./TernaryOperator import TernaryOperator
 
 export anchor ConditionalOperators:
-    description:
+    description: Picks between two values based on a boolean.
     operators: {CONDITIONAL_OPERATORS}
 
 export CONDITIONAL_OPERATORS:: extends Operator[]:
