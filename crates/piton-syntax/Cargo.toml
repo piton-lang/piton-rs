@@ -8,3 +8,8 @@ license.workspace = true
 piton-core.workspace = true
 chumsky.workspace = true
 rowan.workspace = true
+
+[dev-dependencies]
+# Validates the block-opening regex the editor configurations carry: Zed
+# compiles it with this same crate.
+regex = "1"

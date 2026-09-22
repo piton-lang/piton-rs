@@ -5,6 +5,7 @@
 //! going to the definition of an inherited property lands on the base that
 //! declares it, and renaming a symbol reaches the imports that carry it.
 
+pub mod analysis;
 pub mod convert;
 pub mod features;
 pub mod index;
@@ -23,12 +24,12 @@ use world::World;
 
 /// Semantic token types, in the order the client is told about them.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::CLASS,     // anchors
-    SemanticTokenType::PROPERTY,  // properties
-    SemanticTokenType::VARIABLE,  // variables
-    SemanticTokenType::KEYWORD,   // language and user keywords
+    SemanticTokenType::CLASS,    // anchors
+    SemanticTokenType::PROPERTY, // properties
+    SemanticTokenType::VARIABLE, // variables
+    SemanticTokenType::KEYWORD,  // language and user keywords
     SemanticTokenType::COMMENT,
-    SemanticTokenType::STRING,    // prose
+    SemanticTokenType::STRING, // prose
     SemanticTokenType::NUMBER,
     SemanticTokenType::OPERATOR,
     SemanticTokenType::NAMESPACE, // module paths
@@ -122,6 +123,16 @@ impl Backend {
         }
     }
 
+    async fn source_to_output(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        let world = self.world.read().await;
+        Ok(features::source_to_output(&world, &params))
+    }
+
+    async fn output_to_source(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        let world = self.world.read().await;
+        Ok(features::output_to_source(&world, &params))
+    }
+
     /// Recompiles and republishes diagnostics for every affected file.
     async fn refresh(&self, focus: Option<PathBuf>) {
         let published = {
@@ -145,7 +156,9 @@ impl Backend {
         };
 
         for (url, diagnostics) in published {
-            self.client.publish_diagnostics(url, diagnostics, None).await;
+            self.client
+                .publish_diagnostics(url, diagnostics, None)
+                .await;
         }
     }
 }
@@ -219,7 +232,25 @@ impl LanguageServer for Backend {
                 }),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![
+                            CodeActionKind::QUICKFIX,
+                            CodeActionKind::REFACTOR,
+                            CodeActionKind::SOURCE,
+                            CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                        ]),
+                        work_done_progress_options: Default::default(),
+                        resolve_provider: Some(false),
+                    },
+                )),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                document_link_provider: Some(DocumentLinkOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: Default::default(),
+                }),
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 signature_help_provider: Some(SignatureHelpOptions {
                     trigger_characters: Some(vec![":".into()]),
@@ -293,7 +324,10 @@ impl LanguageServer for Backend {
                 let Some(path) = convert::url_to_path(&change.uri) else {
                     continue;
                 };
-                if path.file_name().is_some_and(|name| name == language::CONFIG_FILE) {
+                if path
+                    .file_name()
+                    .is_some_and(|name| name == language::CONFIG_FILE)
+                {
                     // The configuration names the source root and the entry
                     // point, so a change to it changes which files are the
                     // project at all, not just what one of them says.
@@ -430,7 +464,10 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let world = self.world.read().await;
-        Ok(features::document_symbols(&world, &params.text_document.uri))
+        Ok(features::document_symbols(
+            &world,
+            &params.text_document.uri,
+        ))
     }
 
     async fn symbol(
@@ -490,6 +527,16 @@ impl LanguageServer for Backend {
         ))
     }
 
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let world = self.world.read().await;
+        Ok(features::code_lenses(&world, &params.text_document.uri))
+    }
+
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
+        let world = self.world.read().await;
+        Ok(features::document_links(&world, &params.text_document.uri))
+    }
+
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let world = self.world.read().await;
         Ok(features::code_actions(
@@ -528,7 +575,10 @@ impl LanguageServer for Backend {
 
 /// Runs the language server over stdio.
 pub fn serve() {
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(error) => {
             eprintln!("error: cannot start the language server runtime: {error}");
@@ -538,7 +588,10 @@ pub fn serve() {
     runtime.block_on(async {
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
-        let (service, socket) = LspService::new(Backend::new);
+        let (service, socket) = LspService::build(Backend::new)
+            .custom_method("piton/sourceToOutput", Backend::source_to_output)
+            .custom_method("piton/outputToSource", Backend::output_to_source)
+            .finish();
         Server::new(stdin, stdout, socket).serve(service).await;
     });
 }

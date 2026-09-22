@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use piton_compile::{config, Compilation, Project};
 use piton_core::Diagnostic;
 
+use crate::analysis::Analysis;
 use crate::index::Index;
 
 pub struct World {
@@ -21,6 +22,8 @@ pub struct World {
     pub documents: HashMap<PathBuf, String>,
     pub compilation: Option<Compilation>,
     pub index: Index,
+    /// Import, composition, conflict, and source-map analysis of `compilation`.
+    pub analysis: Analysis,
     /// Paths that had diagnostics last time, so cleared files get an empty
     /// publish rather than stale squiggles.
     pub last_reported: Vec<PathBuf>,
@@ -35,6 +38,7 @@ impl World {
             documents: HashMap::new(),
             compilation: None,
             index: Index::default(),
+            analysis: Analysis::default(),
             last_reported: Vec::new(),
         }
     }
@@ -93,10 +97,10 @@ impl World {
         let mut outside: Vec<PathBuf> = self.documents.keys().cloned().collect();
         outside.extend(focus.map(Path::to_path_buf));
 
-        let compilation =
-            Compilation::build_workspace(project, self.documents.clone(), &outside);
+        let compilation = Compilation::build_workspace(project, self.documents.clone(), &outside);
 
         self.index = Index::build(&compilation);
+        self.analysis = crate::analysis::analyze(&compilation, &self.index);
         self.compilation = Some(compilation);
     }
 
@@ -122,6 +126,14 @@ impl World {
                     .or_default()
                     .push(diagnostic.clone());
             }
+        }
+        for diagnostic in &self.analysis.diagnostics {
+            if diagnostic.file.to_string_lossy().starts_with('@') {
+                continue;
+            }
+            out.entry(diagnostic.file.clone())
+                .or_default()
+                .push(diagnostic.clone());
         }
         out
     }

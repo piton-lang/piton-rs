@@ -82,9 +82,18 @@ fn zed_styles_nothing_the_server_does_not_send() {
 #[test]
 fn every_rule_carries_a_style() {
     for rule in semantic_token_rules() {
-        let styled = ["style", "foreground_color", "background_color", "font_style", "font_weight"]
-            .iter()
-            .any(|key| rule.get(key).is_some());
-        assert!(styled, "a rule in `semantic_token_rules.json` styles nothing: {rule}");
+        let styled = [
+            "style",
+            "foreground_color",
+            "background_color",
+            "font_style",
+            "font_weight",
+        ]
+        .iter()
+        .any(|key| rule.get(key).is_some());
+        assert!(
+            styled,
+            "a rule in `semantic_token_rules.json` styles nothing: {rule}"
+        );
     }
 }

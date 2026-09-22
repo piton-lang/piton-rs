@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use piton_lsp::convert::{offset_to_position, path_to_url};
+use piton_lsp::convert::{offset_to_position, path_to_url, position_to_offset};
 use piton_lsp::features;
 use piton_lsp::world::World;
 use tower_lsp::lsp_types::*;
@@ -36,7 +36,9 @@ impl Fixture {
     fn position_of(&self, relative: &str, needle: &str) -> Position {
         let path = self.root.join(relative);
         let text = std::fs::read_to_string(&path).expect("readable");
-        let offset = text.find(needle).unwrap_or_else(|| panic!("`{needle}` not in {relative}"));
+        let offset = text
+            .find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` not in {relative}"));
         offset_to_position(&text, offset + 1)
     }
 }
@@ -45,11 +47,20 @@ impl Fixture {
 fn hover_on_a_user_keyword_explains_the_anchor_it_aliases() {
     let fixture = Fixture::new();
     let uri = fixture.uri("spec/scope/language/types/Strings.pi");
-    let position = fixture.position_of("spec/scope/language/types/Strings.pi", "export type Strings");
-    let hover = features::hover(&fixture.world, &uri, fixture.position_of("spec/scope/language/types/Strings.pi", "type Strings"))
-        .or_else(|| features::hover(&fixture.world, &uri, position))
-        .expect("hover");
-    let HoverContents::Markup(markup) = hover.contents else { panic!("expected markup") };
+    let position = fixture.position_of(
+        "spec/scope/language/types/Strings.pi",
+        "export type Strings",
+    );
+    let hover = features::hover(
+        &fixture.world,
+        &uri,
+        fixture.position_of("spec/scope/language/types/Strings.pi", "type Strings"),
+    )
+    .or_else(|| features::hover(&fixture.world, &uri, position))
+    .expect("hover");
+    let HoverContents::Markup(markup) = hover.contents else {
+        panic!("expected markup")
+    };
     assert!(
         markup.value.contains("Keyword `type`") || markup.value.contains("Strings"),
         "{}",
@@ -64,7 +75,9 @@ fn hover_on_an_anchor_shows_its_inheritance_chain() {
     let uri = fixture.uri(file);
     let hover = features::hover(&fixture.world, &uri, fixture.position_of(file, "Strings:"))
         .expect("hover");
-    let HoverContents::Markup(markup) = hover.contents else { panic!("expected markup") };
+    let HoverContents::Markup(markup) = hover.contents else {
+        panic!("expected markup")
+    };
     assert!(markup.value.contains("Inherits: Type"), "{}", markup.value);
     assert!(markup.value.contains("Resolves to:"), "{}", markup.value);
 }
@@ -74,9 +87,15 @@ fn go_to_definition_follows_an_import() {
     let fixture = Fixture::new();
     let file = "spec/scope/language/types/Collections.pi";
     let uri = fixture.uri(file);
-    let response = features::definition(&fixture.world, &uri, fixture.position_of(file, "Lists import Lists"))
-        .expect("definition");
-    let GotoDefinitionResponse::Scalar(location) = response else { panic!("expected one location") };
+    let response = features::definition(
+        &fixture.world,
+        &uri,
+        fixture.position_of(file, "Lists import Lists"),
+    )
+    .expect("definition");
+    let GotoDefinitionResponse::Scalar(location) = response else {
+        panic!("expected one location")
+    };
     assert!(
         location.uri.path().ends_with("types/Lists.pi"),
         "{}",
@@ -100,7 +119,10 @@ fn find_references_spans_files() {
         .iter()
         .map(|location| location.uri.path().to_string())
         .collect();
-    assert!(files.len() > 1, "expected references in several files, got {files:?}");
+    assert!(
+        files.len() > 1,
+        "expected references in several files, got {files:?}"
+    );
 }
 
 #[test]
@@ -116,7 +138,10 @@ fn rename_rewrites_every_occurrence() {
     )
     .expect("rename");
     let changes = edit.changes.expect("changes");
-    assert!(changes.len() >= 2, "rename should reach the importing files");
+    assert!(
+        changes.len() >= 2,
+        "rename should reach the importing files"
+    );
     for edits in changes.values() {
         assert!(edits.iter().all(|edit| edit.new_text == "EscapeRules"));
     }
@@ -131,7 +156,10 @@ fn document_symbols_expose_anchors_and_properties() {
     else {
         panic!("expected nested symbols");
     };
-    let strings = symbols.iter().find(|s| s.name == "Strings").expect("Strings");
+    let strings = symbols
+        .iter()
+        .find(|s| s.name == "Strings")
+        .expect("Strings");
     let children = strings.children.as_ref().expect("properties");
     let names: Vec<&str> = children.iter().map(|c| c.name.as_str()).collect();
     assert!(names.contains(&"description"), "{names:?}");
@@ -185,7 +213,10 @@ fn inlay_hints_name_the_contributing_base() {
         end: offset_to_position(&text, text.len()),
     };
     let hints = features::inlay_hints(&fixture.world, &uri, whole).expect("hints");
-    assert!(!hints.is_empty(), "expected hints for resolved property types");
+    assert!(
+        !hints.is_empty(),
+        "expected hints for resolved property types"
+    );
     let labels: Vec<String> = hints
         .iter()
         .map(|hint| match &hint.label {
@@ -195,9 +226,14 @@ fn inlay_hints_name_the_contributing_base() {
         .collect();
     // The inferred type is shown, and a property that replaces an inherited
     // declaration says which one it replaces.
-    assert!(labels.iter().any(|label| label.contains("string")), "{labels:?}");
     assert!(
-        labels.iter().any(|label| label.contains("overrides ArithmeticOperator")),
+        labels.iter().any(|label| label.contains("string")),
+        "{labels:?}"
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.contains("overrides ArithmeticOperator")),
         "{labels:?}"
     );
 }
@@ -222,8 +258,14 @@ fn inlay_hints_mark_inherited_values() {
         })
         .collect();
     // `description` in Strings is an implicit mixed list, not a plain string.
-    assert!(labels.iter().any(|label| label.contains("list")), "{labels:?}");
-    assert!(labels.iter().any(|label| label.contains("overrides Type")), "{labels:?}");
+    assert!(
+        labels.iter().any(|label| label.contains("list")),
+        "{labels:?}"
+    );
+    assert!(
+        labels.iter().any(|label| label.contains("overrides Type")),
+        "{labels:?}"
+    );
 }
 
 #[test]
@@ -309,7 +351,9 @@ fn diagnostics_reach_the_editor() {
         "{reported:#?}"
     );
     assert!(
-        grouped.keys().all(|path| !path.to_string_lossy().starts_with('@')),
+        grouped
+            .keys()
+            .all(|path| !path.to_string_lossy().starts_with('@')),
         "bundled packages should not be reported to the editor"
     );
 }
@@ -317,17 +361,25 @@ fn diagnostics_reach_the_editor() {
 #[test]
 fn a_clean_specbase_reports_nothing() {
     let fixture = Fixture::new();
-    let problems: Vec<String> = fixture
-        .world
-        .diagnostics_by_file()
+    let compilation = fixture.world.compilation.as_ref().expect("compiled");
+    // Editor analysis (unused imports, Belay plan checks) is allowed to notice
+    // things the compiler accepts. This test holds the compiler's own
+    // diagnostics: a clean specbase still compiles.
+    let problems: Vec<String> = compilation
+        .diagnostics
         .iter()
-        .flat_map(|(path, items)| {
-            items
-                .iter()
-                .map(move |d| format!("{}: {}", path.display(), d.message))
-        })
+        .filter(|diagnostic| !diagnostic.file.to_string_lossy().starts_with('@'))
+        .map(|diagnostic| format!("{}: {}", diagnostic.file.display(), diagnostic.message))
         .collect();
     assert!(problems.is_empty(), "{problems:#?}");
+    assert!(
+        fixture
+            .world
+            .diagnostics_by_file()
+            .keys()
+            .all(|path| !path.to_string_lossy().starts_with('@')),
+        "bundled packages should not be reported to the editor"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +396,7 @@ struct Buffer {
     world: World,
     uri: Url,
     position: Position,
+    text: String,
 }
 
 impl Buffer {
@@ -361,6 +414,7 @@ impl Buffer {
             uri: path_to_url(&path).expect("url"),
             position: offset_to_position(&text, offset),
             world,
+            text,
         }
     }
 
@@ -374,6 +428,28 @@ impl Buffer {
 
     fn labels(&self) -> Vec<String> {
         self.items().into_iter().map(|item| item.label).collect()
+    }
+
+    /// The document as it would read after accepting the item with this label.
+    ///
+    /// The edit takes the place of the range it covers, which is the whole
+    /// question here: a completion replaces the text being typed rather than
+    /// being appended to it.
+    fn accept(&self, label: &str) -> String {
+        let item = self
+            .items()
+            .into_iter()
+            .find(|item| item.label == label)
+            .unwrap_or_else(|| panic!("no item labeled `{label}`"));
+        let edit = match item.text_edit {
+            Some(CompletionTextEdit::Edit(edit)) => edit,
+            other => panic!("a completion should carry a plain replacement, got {other:?}"),
+        };
+        let start = position_to_offset(&self.text, edit.range.start);
+        let end = position_to_offset(&self.text, edit.range.end);
+        let mut applied = self.text.clone();
+        applied.replace_range(start..end, &edit.new_text);
+        applied
     }
 }
 
@@ -441,6 +517,93 @@ fn completion_after_extends_offers_anchors_rather_than_keywords() {
         .find(|item| item.label == "Type")
         .and_then(|item| item.kind);
     assert_eq!(kind, Some(CompletionItemKind::INTERFACE));
+}
+
+#[test]
+fn accepting_a_candidate_replaces_the_text_being_written() {
+    // The word under the cursor is what gets replaced: `anc` becomes
+    // `anchor`, not `ancanchor`.
+    let declaration = Buffer::over(NULL, "use ./lib/Type\n\nanc<|>\n");
+    assert_eq!(declaration.accept("anchor"), "use ./lib/Type\n\nanchor\n");
+
+    // A module path is written whole: the at-sign and the slashes are part of
+    // what is being replaced.
+    let bundled = Buffer::over(NULL, "use @piton/be<|>\n");
+    assert_eq!(bundled.accept("@piton/belay"), "use @piton/belay\n");
+
+    let relative = Buffer::over(NULL, "from ./lib/Ty<|>\n");
+    assert_eq!(relative.accept("./lib/Type"), "from ./lib/Type\n");
+
+    // Only the name being imported moves; the import around it stands.
+    let imported = Buffer::over(NULL, "from ./lib/Type import Ty<|>\n");
+    assert_eq!(imported.accept("Type"), "from ./lib/Type import Type\n");
+
+    // A base takes the place of the half-written name it stands in for.
+    let base = Buffer::over(NULL, "use ./lib/Type\n\nexport anchor A extends Ty<|>\n");
+    assert_eq!(
+        base.accept("Type"),
+        "use ./lib/Type\n\nexport anchor A extends Type\n"
+    );
+
+    // A member is only ever the segment after the dot; the expression it hangs
+    // off stays as it was.
+    let member = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    a: ${self.sup<|>}\n",
+    );
+    assert_eq!(
+        member.accept("supportedOperators"),
+        "use ./lib/Type\n\nexport type Null:\n    a: ${self.supportedOperators}\n"
+    );
+
+    // A key in a body takes its colon with it, under the indent it was
+    // written at.
+    let key = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    wh<|>\n");
+    assert_eq!(
+        key.accept("whatIsAType"),
+        "use ./lib/Type\n\nexport type N:\n    whatIsAType: \n"
+    );
+
+    // The `::` before a constraint is not part of the type being named.
+    let constraint = Buffer::over(NULL, "export type N:\n    a:: str<|>\n");
+    assert_eq!(
+        constraint.accept("string"),
+        "export type N:\n    a:: string\n"
+    );
+
+    // The `-` that opens a list item is the item's, not the value's -- even
+    // written against it with no space.
+    let item = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - nu<|>\n",
+    );
+    assert_eq!(
+        item.accept("null"),
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - null\n"
+    );
+    let glued = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        -nu<|>\n",
+    );
+    assert_eq!(
+        glued.accept("null"),
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        -null\n"
+    );
+
+    // With nothing written yet there is nothing to replace, so the edit
+    // inserts where the cursor is.
+    let empty = Buffer::over(NULL, "use <|>\n");
+    let offered = empty
+        .items()
+        .into_iter()
+        .find(|item| item.label == "@piton/belay")
+        .expect("@piton/belay");
+    let edit = match offered.text_edit {
+        Some(CompletionTextEdit::Edit(edit)) => edit,
+        other => panic!("a completion should carry a plain replacement, got {other:?}"),
+    };
+    assert_eq!(edit.range.start, edit.range.end, "{edit:?}");
+    assert_eq!(edit.new_text, "@piton/belay");
 }
 
 #[test]
@@ -528,10 +691,7 @@ fn a_reference_expression_offers_only_things_a_reference_can_name() {
 fn a_string_and_a_sentence_have_nothing_to_complete() {
     // The specification is explicit: typing a property access in the middle of
     // a string should complete nothing, because a string has no members.
-    let string = Buffer::over(
-        NULL,
-        "export type N:\n    a: ${\"the end.<|>\"}\n",
-    );
+    let string = Buffer::over(NULL, "export type N:\n    a: ${\"the end.<|>\"}\n");
     assert!(string.labels().is_empty(), "{:?}", string.labels());
 
     // And prose is a value in Piton rather than a name being completed.
@@ -601,7 +761,10 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
         .find(|item| item.label == "description")
         .expect("description");
     assert!(
-        required.sort_text.as_deref().is_some_and(|key| key.starts_with('0')),
+        required
+            .sort_text
+            .as_deref()
+            .is_some_and(|key| key.starts_with('0')),
         "{:?}",
         required.sort_text
     );
@@ -610,7 +773,10 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
         .find(|item| item.label == "whatIsAType")
         .expect("whatIsAType");
     assert!(
-        optional.sort_text.as_deref().is_some_and(|key| key.starts_with('1')),
+        optional
+            .sort_text
+            .as_deref()
+            .is_some_and(|key| key.starts_with('1')),
         "{:?}",
         optional.sort_text
     );
@@ -728,6 +894,49 @@ fn enter_after_a_comment_that_ends_in_a_colon_does_not_indent() {
 }
 
 #[test]
+fn enter_after_a_value_that_ends_in_a_colon_does_not_indent() {
+    // `prompt: Careful: ` ends a sentence, not a property: the colon is part
+    // of the value, and the line after it is a sibling.
+    let text = after_enter("export type N:\n    prompt: Careful:\n<|>");
+    assert!(
+        text.ends_with("    prompt: Careful:\n    "),
+        "a colon inside a value opens nothing: {text:?}"
+    );
+}
+
+#[test]
+fn enter_after_a_constraint_that_leaves_the_value_unwritten_does_indent() {
+    // `config:: dictionary:` is a key with no value: the colon that closes
+    // the constraint is the one that opens the block beneath it.
+    let text = after_enter("export type N:\n    config:: dictionary:\n<|>");
+    assert!(
+        text.ends_with("    config:: dictionary:\n        "),
+        "a key with no value opens a block: {text:?}"
+    );
+}
+
+#[test]
+fn enter_replaces_indentation_the_cursor_has_not_reached() {
+    // The line the newline landed on may already be indented, with the cursor
+    // still at the margin. Replacing only what sits before the cursor would
+    // stack the two together and put the line at twelve spaces instead of
+    // eight -- a double indent.
+    let text = after_enter("export type N:\n    frameworks:\n<|>    title: x");
+    assert!(
+        text.ends_with("    frameworks:\n        title: x"),
+        "expected one level deeper, not stacked: {text:?}"
+    );
+}
+
+#[test]
+fn enter_when_the_client_already_indented_changes_nothing() {
+    // Same indent as the one wanted: there is nothing to correct.
+    let buffer = Buffer::over(NULL, "export type N:\n    frameworks:\n        <|>");
+    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
+    assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
+}
+
+#[test]
 fn enter_inside_a_fenced_block_changes_nothing() {
     // The contents of a fence are verbatim, so reindenting them would change
     // what the block says.
@@ -754,7 +963,10 @@ fn an_unconstrained_value_proposes_nothing() {
     // because the likely intent is to write prose. Only a constraint saying
     // what belongs there makes a proposal something other than a guess.
     // `whatIsAType` carries no constraint at all.
-    let free = Buffer::over(NULL, "use ./lib/Type\n\nexport type Null:\n    whatIsAType: <|>\n");
+    let free = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    whatIsAType: <|>\n",
+    );
     assert!(
         free.labels().is_empty(),
         "nothing says what goes here: {:?}",
@@ -765,7 +977,10 @@ fn an_unconstrained_value_proposes_nothing() {
     // shape of a value rather than naming which values there are -- so there
     // is still nothing to propose, and proposing every anchor in the project
     // would be the same guess.
-    let shaped = Buffer::over(NULL, "use ./lib/Type\n\nexport type Null:\n    description: <|>\n");
+    let shaped = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    description: <|>\n",
+    );
     assert!(
         shaped.labels().is_empty(),
         "`simple` and `complex` name a shape, not a set of values: {:?}",
@@ -777,8 +992,7 @@ fn an_unconstrained_value_proposes_nothing() {
 fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
     let fixture = Fixture::new();
     let uri = fixture.uri("spec/scope/language/types/lib/Type.pi");
-    let position =
-        fixture.position_of("spec/scope/language/types/lib/Type.pi", "Type as type");
+    let position = fixture.position_of("spec/scope/language/types/lib/Type.pi", "Type as type");
 
     let response = features::implementations(&fixture.world, &uri, position);
     let Some(request::GotoImplementationResponse::Array(locations)) = response else {
@@ -787,7 +1001,11 @@ fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
     // Every `type X` in the specification is one of them.
     assert!(locations.len() > 5, "only {} found", locations.len());
     for location in &locations {
-        assert!(location.uri.to_string().ends_with(".pi"), "{}", location.uri);
+        assert!(
+            location.uri.to_string().ends_with(".pi"),
+            "{}",
+            location.uri
+        );
     }
 }
 
@@ -807,8 +1025,7 @@ fn a_leaf_anchor_has_no_implementations() {
 fn the_type_hierarchy_walks_both_ways() {
     let fixture = Fixture::new();
     let uri = fixture.uri("spec/scope/language/types/lib/Type.pi");
-    let position =
-        fixture.position_of("spec/scope/language/types/lib/Type.pi", "Type as type");
+    let position = fixture.position_of("spec/scope/language/types/lib/Type.pi", "Type as type");
 
     let prepared =
         features::prepare_type_hierarchy(&fixture.world, &uri, position).expect("a hierarchy item");
@@ -854,7 +1071,8 @@ fn a_hierarchy_item_survives_a_lost_identity() {
     // An item prepared before a recompilation carries an id that may no longer
     // mean anything; the name still does.
     item.data = None;
-    let supertypes = features::type_hierarchy_supertypes(&fixture.world, &item).expect("supertypes");
+    let supertypes =
+        features::type_hierarchy_supertypes(&fixture.world, &item).expect("supertypes");
     assert!(
         supertypes.iter().any(|parent| parent.name == "Type"),
         "{:?}",

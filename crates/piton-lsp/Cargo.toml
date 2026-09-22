@@ -9,6 +9,7 @@ piton-core.workspace = true
 piton-syntax.workspace = true
 piton-compile.workspace = true
 piton-emit.workspace = true
+piton-belay.workspace = true
 tower-lsp.workspace = true
 tokio.workspace = true
 serde_json.workspace = true

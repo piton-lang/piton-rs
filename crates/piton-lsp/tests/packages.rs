@@ -39,7 +39,10 @@ impl Fixture {
             "tethers/dep-lib/Anchors.pi",
             "export anchor Button as button:\n    label: Save\n",
         );
-        fixture.write("tethers/MyScope/inner/index.pi", "export anchor Inner:\n    a: 1\n");
+        fixture.write(
+            "tethers/MyScope/inner/index.pi",
+            "export anchor Inner:\n    a: 1\n",
+        );
         fixture.write(
             "spec/index.pi",
             "from dep-lib import Button\n\nexport anchor Screen:\n    primary: {Button}\n",
@@ -122,10 +125,16 @@ fn completing_a_module_path_offers_installed_packages() {
     assert!(labels.contains(&"MyScope/inner".to_string()), "{labels:?}");
     // The bundled packages are still offered alongside them.
     assert!(labels.contains(&"@piton/belay".to_string()), "{labels:?}");
-    assert!(labels.contains(&"@piton/packaging".to_string()), "{labels:?}");
+    assert!(
+        labels.contains(&"@piton/packaging".to_string()),
+        "{labels:?}"
+    );
     // And a file inside a package is offered by its package path, not by a
     // relative path that climbs out of the source root.
-    assert!(labels.contains(&"dep-lib/Anchors".to_string()), "{labels:?}");
+    assert!(
+        labels.contains(&"dep-lib/Anchors".to_string()),
+        "{labels:?}"
+    );
     assert!(
         !labels.iter().any(|label| label.contains("../tethers")),
         "{labels:?}"
@@ -148,7 +157,10 @@ fn going_to_a_package_import_opens_the_package() {
         panic!("expected one location");
     };
     assert!(
-        location.uri.to_string().ends_with("tethers/dep-lib/index.pi"),
+        location
+            .uri
+            .to_string()
+            .ends_with("tethers/dep-lib/index.pi"),
         "{}",
         location.uri
     );

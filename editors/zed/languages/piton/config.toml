@@ -9,13 +9,18 @@ autoclose_before = "}]),"
 tab_size = 4
 hard_tabs = false
 
-# A declaration or a key that ends in a colon opens a block, and the block is
-# the indented lines beneath it.
+# A declaration or a key that ends where a value would begin opens a block,
+# and the block is the indented lines beneath it: `anchor A:`, `frameworks:`,
+# `config:: dictionary:`. A colon inside a value opens nothing -- `prompt:
+# Careful: ` ends a sentence rather than a property -- and neither does a
+# comment, whatever it happens to end with. The language server draws the
+# same line in `on_type_formatting`; this pattern is what the editor has
+# when it indents on its own.
 #
 # This is a line pattern rather than an `indents.scm` because the grammar has
 # no node to hang one on: indentation is deliberately not in the grammar, so
 # nothing there spans a body for Zed's `@indent` to measure.
-increase_indent_pattern = ":\\s*$"
+increase_indent_pattern = "^[^/\\s][^:]*:\\s*$|^\\s*[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$|^\\s*[-+]{1,2}\\s+[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$"
 
 # Keys and user keywords are kebab-case, so a hyphen is part of a word:
 # double-clicking `no-rewrite` should take all of it, and typing the hyphen

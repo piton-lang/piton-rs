@@ -15,7 +15,9 @@ use piton_syntax::language::COMMENT_PREFIX;
 use piton_syntax::{format, SyntaxKind};
 use tower_lsp::lsp_types::*;
 
-use crate::convert::{offset_to_position, path_to_url, position_to_offset, span_to_range, url_to_path};
+use crate::convert::{
+    offset_to_position, path_to_url, position_to_offset, span_to_range, url_to_path,
+};
 use crate::index::{Role, Target};
 use crate::world::World;
 use crate::{TOKEN_MODIFIERS, TOKEN_TYPES};
@@ -41,6 +43,8 @@ pub fn to_lsp_diagnostic(diagnostic: &Diagnostic, text: &str) -> tower_lsp::lsp_
         code: Some(NumberOrString::String(diagnostic.code.clone())),
         source: Some("piton".into()),
         message,
+        tags: crate::analysis::is_unnecessary(&diagnostic.code)
+            .then(|| vec![DiagnosticTag::UNNECESSARY]),
         related_information: (!diagnostic.labels.is_empty()).then(|| {
             diagnostic
                 .labels
@@ -97,15 +101,60 @@ fn file_context<'a>(world: &'a World, uri: &Url) -> Option<Cursor<'a>> {
 pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
     let cursor = cursor(world, uri, position)?;
     let index = world.index.get(cursor.module)?;
-    let occurrence = index.at(cursor.offset)?;
-    let markdown = describe(cursor.compilation, &occurrence.target)?;
+    let occurrence = index.at(cursor.offset);
+    let mut parts = Vec::new();
+    if let Some(occurrence) = occurrence {
+        if let Some(markdown) = describe(cursor.compilation, &occurrence.target) {
+            parts.push(markdown);
+        }
+    }
+    // Composition and the compiled slice are answers about the position, not
+    // about a named occurrence, so they are appended even when the cursor is
+    // sitting on `+` rather than on a symbol.
+    let compositions = world.analysis.compositions_at(cursor.module, cursor.offset);
+    if !compositions.is_empty() {
+        let mut seen = HashSet::new();
+        for composition in &compositions {
+            if seen.insert(composition.span) {
+                parts.push(composition.summary.clone());
+            }
+        }
+    }
+    if let Some(note) = mapping_note(&world.analysis, &cursor.path, cursor.offset) {
+        parts.push(note);
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let range = occurrence
+        .map(|item| item.span)
+        .or_else(|| compositions.first().map(|composition| composition.span));
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: markdown,
+            value: parts.join("\n\n"),
         }),
-        range: Some(span_to_range(&cursor.text, occurrence.span)),
+        range: range.map(|span| span_to_range(&cursor.text, span)),
     })
+}
+
+fn mapping_note(
+    analysis: &crate::analysis::Analysis,
+    file: &Path,
+    offset: usize,
+) -> Option<String> {
+    let mappings = analysis.mappings_at(file, offset);
+    if mappings.is_empty() {
+        return None;
+    }
+    let mut lines = vec!["Compiled to:".to_string()];
+    let mut seen = HashSet::new();
+    for mapping in mappings {
+        if seen.insert(mapping.label.clone()) {
+            lines.push(format!("- {}", mapping.label));
+        }
+    }
+    Some(lines.join("\n"))
 }
 
 /// Builds the documentation shown for a target: what it is, where it came
@@ -163,7 +212,11 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
         }
         Target::Variable(variable) => {
             let def = compilation.store().variable(*variable);
-            let mut out = format!("```piton\n{}{}\n```\n\n", if def.exported { "export " } else { "" }, def.name);
+            let mut out = format!(
+                "```piton\n{}{}\n```\n\n",
+                if def.exported { "export " } else { "" },
+                def.name
+            );
             if !def.constraints.is_empty() {
                 let names: Vec<String> = def
                     .constraints
@@ -226,7 +279,9 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                         compilation.anchor_module_path(*anchor).display()
                     ));
                 }
-                None => out.push_str("Not in scope. Add a `use` declaration for the module that exports it."),
+                None => out.push_str(
+                    "Not in scope. Add a `use` declaration for the module that exports it.",
+                ),
             }
             Some(out)
         }
@@ -345,13 +400,10 @@ pub fn references(
         }
     }
     out.sort_by(|a, b| {
-        a.uri
-            .as_str()
-            .cmp(b.uri.as_str())
-            .then((a.range.start.line, a.range.start.character).cmp(&(
-                b.range.start.line,
-                b.range.start.character,
-            )))
+        a.uri.as_str().cmp(b.uri.as_str()).then(
+            (a.range.start.line, a.range.start.character)
+                .cmp(&(b.range.start.line, b.range.start.character)),
+        )
     });
     Some(out)
 }
@@ -478,15 +530,17 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
                 let children: Vec<DocumentSymbol> = decl
                     .body
                     .properties()
-                    .map(|property| symbol(
-                        &property.name,
-                        SymbolKind::PROPERTY,
-                        property.span,
-                        property.name_span,
-                        text,
-                        None,
-                        Vec::new(),
-                    ))
+                    .map(|property| {
+                        symbol(
+                            &property.name,
+                            SymbolKind::PROPERTY,
+                            property.span,
+                            property.name_span,
+                            text,
+                            None,
+                            Vec::new(),
+                        )
+                    })
                     .collect();
                 let detail = if decl.is_abstract {
                     Some(format!("abstract {}", decl.keyword))
@@ -670,6 +724,18 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         context(prefix)
     };
 
+    // Selecting a candidate takes the place of what the cursor is in the middle
+    // of writing rather than being appended to it: `anc` becomes `anchor`, not
+    // `ancanchor`. Every item the context offers replaces the same span, so it
+    // is computed once here.
+    let replace = Range {
+        start: offset_to_position(
+            &cursor.text,
+            replace_start(&context, &cursor.text, cursor.offset),
+        ),
+        end: offset_to_position(&cursor.text, cursor.offset),
+    };
+
     let items = match context {
         Context::Nothing => Vec::new(),
         Context::ModulePath => module_paths(&cursor),
@@ -695,7 +761,67 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         Context::Body => body(&cursor),
     };
 
+    let items: Vec<CompletionItem> = items
+        .into_iter()
+        .map(|mut item| {
+            // The edit is what says what gets written. `insert_text` says the
+            // same thing where the two differ -- a body's key takes its colon,
+            // a wrapped reference takes its braces -- and an edit is the only
+            // form that also says what it stands in for.
+            let written = item.insert_text.clone().unwrap_or_else(|| item.label.clone());
+            item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
+                range: replace,
+                new_text: written,
+            }));
+            item
+        })
+        .collect();
+
     Some(CompletionResponse::Array(items))
+}
+
+/// Where the text being completed begins.
+///
+/// The edit has to cover the word under the cursor -- that is what makes a
+/// candidate replace it -- and what counts as that word depends on where the
+/// cursor is. A module path is written whole (`@piton/belay`, `./lib/Type`),
+/// a member is only ever the segment after the last dot, everything inside
+/// `{...}` follows a brace and a sigil that are not part of the name, and a
+/// `-` written against a list value is the item's marker rather than the
+/// word's.
+fn replace_start(context: &Context<'_>, text: &str, cursor: usize) -> usize {
+    let in_word = |character: char| {
+        let name = character.is_alphanumeric() || character == '_' || character == '-';
+        match context {
+            // The brace and sigil were already written, and a dot opens the
+            // member that follows, so a name stops at both.
+            Context::Expression { .. } => name,
+            // A path carries characters no name would: `@`, `/`, and `.`.
+            Context::ModulePath => !character.is_whitespace(),
+            // `*` is a name of its own in an import list.
+            Context::ImportName { .. } => name || character == '*',
+            // `@` and `#` are half-written sigils: completing an anchor into a
+            // reference value turns the `@` into `@{...}` rather than stacking
+            // another one in front of it.
+            _ => name || character == '@' || character == '#',
+        }
+    };
+
+    let mut start = cursor;
+    for (index, character) in text[..cursor].char_indices().rev() {
+        if !in_word(character) {
+            break;
+        }
+        start = index;
+    }
+
+    // `-` never begins a name, so a run that starts with one is the marker of
+    // the list item it sits in front of (`- nu` stops at the space; `-nu` does
+    // not). The marker is left in place either way -- the value goes after it.
+    if text[start..cursor].starts_with('-') {
+        start += '-'.len_utf8();
+    }
+    start
 }
 
 /// Fills in the documentation for the item the editor asked about.
@@ -860,7 +986,10 @@ fn context(prefix: &str) -> Context<'_> {
     // `anchor Name extends B as k:` -- the bases come after `extends` and the
     // keyword the author is inventing comes after `as`, so whichever was
     // written last is the one the cursor is past.
-    match (word_position(trimmed, "extends"), word_position(trimmed, "as")) {
+    match (
+        word_position(trimmed, "extends"),
+        word_position(trimmed, "as"),
+    ) {
         // A keyword the author is inventing is not the editor's to guess, and
         // neither is the name after the declaration keyword.
         (Some(extends), Some(alias)) if alias > extends => return Context::Nothing,
@@ -1197,9 +1326,8 @@ fn import_names(cursor: &Cursor<'_>, written: &str) -> Vec<CompletionItem> {
 
     // A path that names no module exports nothing, and saying otherwise would
     // be offering names that do not exist.
-    let Some(module) =
-        module_path_from(&compilation.project, &cursor.path, written)
-            .and_then(|path| compilation.graph().id_for(&path))
+    let Some(module) = module_path_from(&compilation.project, &cursor.path, written)
+        .and_then(|path| compilation.graph().id_for(&path))
     else {
         return Vec::new();
     };
@@ -1342,11 +1470,7 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
         if module.id == cursor.module {
             continue;
         }
-        let written = import_path(
-            &cursor.path,
-            &module.path,
-            &compilation.project.source_root,
-        );
+        let written = import_path(&cursor.path, &module.path, &compilation.project.source_root);
         for name in compilation.resolution.exported_names(module.id) {
             if items.len() >= LIMIT {
                 return items;
@@ -1404,11 +1528,7 @@ fn type_names(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
 }
 
 /// What can be written inside an interpolation.
-fn expression(
-    cursor: &Cursor<'_>,
-    sigil: &str,
-    member_of: Option<&str>,
-) -> Vec<CompletionItem> {
+fn expression(cursor: &Cursor<'_>, sigil: &str, member_of: Option<&str>) -> Vec<CompletionItem> {
     if let Some(path) = member_of {
         return members(cursor, path);
     }
@@ -1524,8 +1644,7 @@ fn slots_of(compilation: &Compilation, anchor: AnchorId) -> Vec<CompletionItem> 
             CompletionItem {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::PROPERTY),
-                detail: (slot.owner != anchor)
-                    .then(|| format!("inherited from {}", owner.name)),
+                detail: (slot.owner != anchor).then(|| format!("inherited from {}", owner.name)),
                 data: data_for(&Target::Property(anchor, name.clone())),
                 ..Default::default()
             }
@@ -1690,11 +1809,7 @@ fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
 }
 
 /// One completion for a name that resolved to something.
-fn symbol_completion(
-    compilation: &Compilation,
-    name: &str,
-    symbol: Symbol,
-) -> CompletionItem {
+fn symbol_completion(compilation: &Compilation, name: &str, symbol: Symbol) -> CompletionItem {
     match symbol {
         Symbol::Anchor(anchor) => {
             let def = compilation.store().anchor(anchor);
@@ -1816,7 +1931,10 @@ pub fn on_type_formatting(
     let text = world.text(&path)?;
     let offset = position_to_offset(&text, position);
 
-    let line_start = text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+    let line_start = text[..offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
     if line_start == 0 {
         // Nothing above to take the indentation from.
         return None;
@@ -1831,10 +1949,13 @@ pub fn on_type_formatting(
 
     let indent = wanted_indent(previous);
 
-    // The client has already inserted the newline, and many insert some
-    // indentation with it. Replace whatever leading whitespace is there, so
-    // the edit is the same whether or not the client guessed.
-    let written = text[line_start..offset]
+    // The line may already carry indentation: some editors copy the one above
+    // across, some compute their own, and the cursor may sit anywhere inside
+    // it -- or still at the margin. Measure the whole leading run rather than
+    // just the part before the cursor and replace all of it. Replacing only
+    // what sits before the cursor would stack the two together, and the line
+    // would end up twice as deep as it should be.
+    let written = text[line_start..]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
@@ -1866,18 +1987,63 @@ fn wanted_indent(previous: &str) -> String {
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
 
-    // A comment is not structure, so it opens nothing even when it ends in a
-    // colon.
-    let code = match previous.trim_start().find(COMMENT_PREFIX) {
-        Some(_) if previous.trim_start().starts_with(COMMENT_PREFIX) => "",
-        _ => previous,
+    let width = if opens_a_block(previous) {
+        width + format::INDENT
+    } else {
+        width
     };
-    let opens_a_block = code.trim_end().ends_with(':');
-
-    let width = if opens_a_block { width + format::INDENT } else { width };
     // Four spaces, and not configurable: `piton format` writes them whatever
     // the file already uses, so typing anything else only makes work.
     " ".repeat(width)
+}
+
+/// Whether the line ends by opening a block for the lines beneath it.
+///
+/// A declaration or a key that ends in its colon opens one: `anchor A:`,
+/// `frameworks:`, `config:: dictionary:`. A colon inside a value opens
+/// nothing -- `prompt: Careful: ` ends a sentence, not a property, and
+/// indenting after it would push the next line a level deeper than it
+/// belongs. And a comment is not structure whatever it happens to end with.
+fn opens_a_block(line: &str) -> bool {
+    let code = strip_comment(line).trim_end();
+    if !code.ends_with(':') {
+        return false;
+    }
+
+    // A list item is judged by what it carries: `- key:` opens, and
+    // `- a note:` does not.
+    let trimmed = code.trim_start();
+    let body = trimmed
+        .strip_prefix("++")
+        .or_else(|| trimmed.strip_prefix('+'))
+        .or_else(|| trimmed.strip_prefix('-'))
+        .map(str::trim_start)
+        .unwrap_or(trimmed);
+
+    match split_key(body) {
+        // The line ends where the value would begin: nothing has been
+        // written after the colon that opens it.
+        Some((_, after)) => {
+            matches!(key_tail(after), KeyTail::Value(value) if value.trim().is_empty())
+        }
+        // No key on the line. A declaration sits at the margin and opens;
+        // indented text without a key is prose, and prose opens nothing.
+        None => !code.starts_with([' ', '\t']),
+    }
+}
+
+/// The line with its comment removed: everything from a `//` that begins one.
+///
+/// A comment only begins at the line's start or after whitespace, which is
+/// what keeps the `//` in a URL written in prose from swallowing the rest of
+/// the line.
+fn strip_comment(line: &str) -> &str {
+    for (index, _) in line.match_indices(COMMENT_PREFIX) {
+        if line[..index].chars().next_back().is_none_or(char::is_whitespace) {
+            return &line[..index];
+        }
+    }
+    line
 }
 
 /// How many bytes `chars` characters of leading whitespace occupy.
@@ -2091,6 +2257,18 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
         }));
     }
 
+    if let Some(edits) = organize_import_edits(world, &cursor) {
+        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+            title: "Organize imports".into(),
+            kind: Some(CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
+            edit: Some(WorkspaceEdit {
+                changes: Some(HashMap::from([(uri.clone(), edits)])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
+    }
+
     if formatting(world, uri).is_some_and(|edits| !edits.is_empty()) {
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: "Format this file".into(),
@@ -2107,6 +2285,21 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
     }
 
     Some(actions)
+}
+
+fn organize_import_edits(world: &World, cursor: &Cursor<'_>) -> Option<Vec<TextEdit>> {
+    let text = world.text(&cursor.path)?;
+    let edits =
+        crate::analysis::organize_imports(cursor.compilation, &world.index, cursor.module, &text)?;
+    Some(
+        edits
+            .into_iter()
+            .map(|(span, new_text)| TextEdit {
+                range: span_to_range(&text, span),
+                new_text,
+            })
+            .collect(),
+    )
 }
 
 fn modules_exporting(compilation: &Compilation, name: &str) -> Vec<piton_compile::ModuleId> {
@@ -2133,7 +2326,10 @@ fn import_path(from: &Path, target: &Path, _source_root: &Path) -> String {
     let relative = piton_compile::module::relative_path(directory, &stripped);
     let text = relative.to_string_lossy().replace('\\', "/");
     // `index` is written as the directory it lives in.
-    let text = text.strip_suffix("/index").map(str::to_string).unwrap_or(text);
+    let text = text
+        .strip_suffix("/index")
+        .map(str::to_string)
+        .unwrap_or(text);
     if text.starts_with("..") || text.starts_with('.') {
         text
     } else {
@@ -2206,12 +2402,13 @@ pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHi
                     compilation.store().anchor(slot.owner).name
                 ));
             } else if property.constraints.is_empty() {
-                if let Some(inherited) = def
-                    .bases
-                    .iter()
-                    .rev()
-                    .find(|base| compilation.store().anchor(**base).slots.contains_key(&property.name))
-                {
+                if let Some(inherited) = def.bases.iter().rev().find(|base| {
+                    compilation
+                        .store()
+                        .anchor(**base)
+                        .slots
+                        .contains_key(&property.name)
+                }) {
                     labels.push(format!(
                         "overrides {}",
                         compilation.store().anchor(*inherited).name
@@ -2232,6 +2429,25 @@ pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHi
                 data: None,
             });
         }
+    }
+
+    for composition in &world.analysis.compositions {
+        if composition.module != cursor.module {
+            continue;
+        }
+        if composition.span.end < start || composition.span.start > end {
+            continue;
+        }
+        out.push(InlayHint {
+            position: offset_to_position(&cursor.text, composition.span.end),
+            label: InlayHintLabel::String(format!(" {}", composition.hint)),
+            kind: Some(InlayHintKind::PARAMETER),
+            text_edits: None,
+            tooltip: Some(InlayHintTooltip::String(composition.summary.clone())),
+            padding_left: Some(true),
+            padding_right: Some(false),
+            data: None,
+        });
     }
     Some(out)
 }
@@ -2259,8 +2475,7 @@ pub fn signature_help(world: &World, uri: &Url, position: Position) -> Option<Si
             };
             ParameterInformation {
                 label: ParameterLabel::Simple(label),
-                documentation: (!slot.has_value)
-                    .then(|| Documentation::String("required".into())),
+                documentation: (!slot.has_value).then(|| Documentation::String("required".into())),
             }
         })
         .collect();
@@ -2396,6 +2611,152 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Source to output
+// ---------------------------------------------------------------------------
+
+pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
+    let cursor = file_context(world, uri)?;
+    let mut lenses = Vec::new();
+    let mut seen = HashSet::new();
+    for mapping in &world.analysis.mappings {
+        if !paths_equal(&mapping.source_file, &cursor.path) {
+            continue;
+        }
+        // One lens per construct, not one per adapter slice of the same span.
+        if !seen.insert(mapping.source_span.start) {
+            continue;
+        }
+        let labels: Vec<&str> = world
+            .analysis
+            .mappings
+            .iter()
+            .filter(|other| {
+                paths_equal(&other.source_file, &cursor.path)
+                    && other.source_span.start == mapping.source_span.start
+            })
+            .map(|other| other.label.as_str())
+            .collect();
+        let title = if labels.len() <= 2 {
+            labels.join(" · ")
+        } else {
+            format!("{} · {} · +{}", labels[0], labels[1], labels.len() - 2)
+        };
+        lenses.push(CodeLens {
+            range: span_to_range(
+                &cursor.text,
+                Span::new(mapping.source_span.start, mapping.source_span.start),
+            ),
+            command: Some(Command {
+                title,
+                command: "piton.sourceToOutput".into(),
+                arguments: Some(vec![serde_json::json!({
+                    "path": mapping.output_path,
+                    "offset": mapping.output_start,
+                })]),
+            }),
+            data: None,
+        });
+    }
+    Some(lenses)
+}
+
+pub fn document_links(world: &World, uri: &Url) -> Option<Vec<DocumentLink>> {
+    let cursor = file_context(world, uri)?;
+    let mut links = Vec::new();
+    let mut seen = HashSet::new();
+    for mapping in &world.analysis.mappings {
+        if !paths_equal(&mapping.source_file, &cursor.path) {
+            continue;
+        }
+        if !seen.insert((mapping.source_span.start, mapping.output_path.clone())) {
+            continue;
+        }
+        let Some(target) = path_to_url(&mapping.output_path) else {
+            continue;
+        };
+        links.push(DocumentLink {
+            range: span_to_range(&cursor.text, mapping.source_span),
+            target: Some(target),
+            tooltip: Some(mapping.label.clone()),
+            data: None,
+        });
+    }
+    Some(links)
+}
+
+/// `piton/sourceToOutput`: which compiled slices a source position produced.
+pub fn source_to_output(world: &World, params: &serde_json::Value) -> serde_json::Value {
+    let Some(uri) = params
+        .get("uri")
+        .and_then(|value| value.as_str())
+        .and_then(|text| Url::parse(text).ok())
+    else {
+        return serde_json::json!([]);
+    };
+    let line = params
+        .get("line")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u32;
+    let character = params
+        .get("character")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u32;
+    let Some(path) = url_to_path(&uri) else {
+        return serde_json::json!([]);
+    };
+    let Some(text) = world.text(&path) else {
+        return serde_json::json!([]);
+    };
+    let offset = position_to_offset(&text, Position { line, character });
+    let hits: Vec<serde_json::Value> = world
+        .analysis
+        .mappings_at(&path, offset)
+        .into_iter()
+        .map(|mapping| {
+            serde_json::json!({
+                "path": mapping.output_path,
+                "start": mapping.output_start,
+                "end": mapping.output_end,
+                "adapter": mapping.adapter,
+                "label": mapping.label,
+            })
+        })
+        .collect();
+    serde_json::Value::Array(hits)
+}
+
+/// `piton/outputToSource`: which source construct produced a compiled offset.
+pub fn output_to_source(world: &World, params: &serde_json::Value) -> serde_json::Value {
+    let Some(path) = params.get("path").and_then(|value| value.as_str()) else {
+        return serde_json::Value::Null;
+    };
+    let offset = params
+        .get("offset")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let path = PathBuf::from(path);
+    let Some(mapping) = world.analysis.at_output(&path, offset) else {
+        return serde_json::Value::Null;
+    };
+    let text = world.text(&mapping.source_file).unwrap_or_default();
+    let range = span_to_range(&text, mapping.source_span);
+    serde_json::json!({
+        "uri": path_to_url(&mapping.source_file).map(|uri| uri.to_string()),
+        "path": mapping.source_file,
+        "start": mapping.source_span.start,
+        "end": mapping.source_span.end,
+        "line": range.start.line,
+        "character": range.start.character,
+        "adapter": mapping.adapter,
+    })
+}
+
+fn paths_equal(left: &Path, right: &Path) -> bool {
+    left == right
+        || left.to_string_lossy().replace('\\', "/") == right.to_string_lossy().replace('\\', "/")
+}
+
 /// Exposed for tests: the anchors nothing reaches from the entry point.
 pub fn unreachable_anchors(compilation: &Compilation) -> Vec<String> {
     reach::from_entry(compilation)
@@ -2480,7 +2841,10 @@ mod completion_tests {
     fn a_key_takes_the_first_colon_and_the_constraints_take_the_rest() {
         assert_eq!(context("    ti"), Context::Body);
         assert_eq!(context("    title:"), Context::Value { key: Some("title") });
-        assert_eq!(context("    title: "), Context::Value { key: Some("title") });
+        assert_eq!(
+            context("    title: "),
+            Context::Value { key: Some("title") }
+        );
         assert_eq!(context("    name:: "), Context::TypeConstraint);
         assert_eq!(context("    name:: str"), Context::TypeConstraint);
         assert_eq!(
@@ -2532,10 +2896,7 @@ mod completion_tests {
             }
         );
         // A closed interpolation is behind the cursor, not around it.
-        assert_eq!(
-            context("    a: {x} and "),
-            Context::Nothing
-        );
+        assert_eq!(context("    a: {x} and "), Context::Nothing);
     }
 
     #[test]
@@ -2544,10 +2905,13 @@ mod completion_tests {
         // middle of a string has nothing to complete on, because a string has
         // no members.
         assert_eq!(context(r#"    a: ${"a sentence."#), Context::Nothing);
-        assert_eq!(context(r#"    a: ${"in a string" + "#), Context::Expression {
-            sigil: "${",
-            member_of: None
-        });
+        assert_eq!(
+            context(r#"    a: ${"in a string" + "#),
+            Context::Expression {
+                sigil: "${",
+                member_of: None
+            }
+        );
         assert!(in_string(r#""open"#));
         assert!(!in_string(r#""closed""#));
         assert!(in_string(r#""an escaped \" quote"#));

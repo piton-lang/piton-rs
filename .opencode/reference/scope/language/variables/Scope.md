@@ -1,5 +1,0 @@
-# Scope
-
-## Scope
-
-Since variables are defined at the top level of the file in which they’re defined, that file is their scope; they are a “global” within that file. You can export a variable or anchor to make it available to other files and modules, and we’ll cover modules in just a few sections.
