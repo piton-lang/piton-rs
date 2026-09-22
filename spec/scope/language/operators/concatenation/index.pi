@@ -6,7 +6,7 @@ from ./DupMergeOperator import DupMergeOperator
 export anchor ConcatenationOperators:
     description: Concatenation operators
     operators:
-        + CONCATENATION_OPERATORS
+        + {CONCATENATION_OPERATORS}
 
 export CONCATENATION_OPERATORS:: extends Operator[]:
     - {ConcatenationOperator}

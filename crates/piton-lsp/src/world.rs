@@ -13,6 +13,9 @@ use piton_core::Diagnostic;
 use crate::index::Index;
 
 pub struct World {
+    /// The workspace folder the server was pointed at, so the configuration
+    /// can be read again when it changes.
+    pub root: PathBuf,
     pub project: Project,
     /// Unsaved editor buffers, keyed by path.
     pub documents: HashMap<PathBuf, String>,
@@ -27,12 +30,23 @@ impl World {
     pub fn new(root: &Path) -> World {
         let (project, _) = config::load(root, None);
         World {
+            root: root.to_path_buf(),
             project,
             documents: HashMap::new(),
             compilation: None,
             index: Index::default(),
             last_reported: Vec::new(),
         }
+    }
+
+    /// Reads `piton.config.pi` again.
+    ///
+    /// The configuration names the source root and the entry point, so a change
+    /// to it is a change to which files are the project at all -- not something
+    /// a recompile of the old project would notice.
+    pub fn reload_project(&mut self) {
+        let (project, _) = config::load(&self.root, None);
+        self.project = project;
     }
 
     pub fn set_document(&mut self, path: PathBuf, text: String) {
@@ -59,31 +73,28 @@ impl World {
 
     /// Recompiles the project with the current buffers in place.
     ///
-    /// A file that the project does not reach is still analyzed, as its own
-    /// entry point, so editing it is not a silent no-op.
+    /// Every source under the project root is loaded, not only what the entry
+    /// point reaches. Reachability is a question `piton reach` answers, not a
+    /// way to decide which files exist: a file nothing imports yet is a file
+    /// someone is in the middle of writing, and it needs diagnostics, symbols,
+    /// and somewhere to jump to like any other.
     pub fn recompile(&mut self, focus: Option<&Path>) {
         let mut project = self.project.clone();
         if project.config_path.is_none() {
             if let Some(path) = focus {
+                // With no configuration there is no project to speak of, so the
+                // file being edited is the whole of it.
                 project = Project::for_file(path);
             }
         }
 
-        let mut compilation =
-            Compilation::build_with_overrides(project.clone(), self.documents.clone());
+        // A buffer open from outside the project root is still being edited,
+        // and so is the file the edit just arrived for.
+        let mut outside: Vec<PathBuf> = self.documents.keys().cloned().collect();
+        outside.extend(focus.map(Path::to_path_buf));
 
-        if let Some(path) = focus {
-            if compilation.graph().id_for(path).is_none() {
-                // The project does not reach this file; compile it on its own so
-                // the editor still gets diagnostics for it.
-                let standalone = Project {
-                    entry: path.to_path_buf(),
-                    ..project
-                };
-                compilation =
-                    Compilation::build_with_overrides(standalone, self.documents.clone());
-            }
-        }
+        let compilation =
+            Compilation::build_workspace(project, self.documents.clone(), &outside);
 
         self.index = Index::build(&compilation);
         self.compilation = Some(compilation);

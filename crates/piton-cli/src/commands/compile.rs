@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use piton_compile::{Compilation, Project, Symbol};
+use piton_compile::{Compilation, Symbol};
 use piton_core::{Properties, Value};
 use piton_emit::{Adapter, MarkdownContext};
 
@@ -50,13 +50,7 @@ pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
             failed = true;
             continue;
         }
-        let project = Project {
-            entry: input.clone(),
-            source_root: configured.source_root.clone(),
-            root: configured.root.clone(),
-            config_path: configured.config_path.clone(),
-            frameworks: configured.frameworks.clone(),
-        };
+        let project = configured.with_entry(input);
         let compilation = Compilation::build(project);
         if compilation.has_errors() {
             let root = compilation.project.root.clone();

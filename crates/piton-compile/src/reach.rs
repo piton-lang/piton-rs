@@ -222,30 +222,10 @@ pub fn from_entry(compilation: &Compilation) -> Reachability {
 /// as "loaded but unreached". Finding it takes a look at the filesystem, and it
 /// is usually the answer someone is after when they ask what is unreachable.
 pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
-    let root = &compilation.project.source_root;
-    let mut found = Vec::new();
-    let mut stack = vec![root.clone()];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if path.is_dir() {
-                if !matches!(name.as_ref(), "target" | ".git" | "node_modules" | ".piton") {
-                    stack.push(path);
-                }
-            } else if path.extension().is_some_and(|extension| extension == "pi")
-                && compilation.graph().id_for(&path).is_none()
-            {
-                found.push(path);
-            }
-        }
-    }
-    found.sort();
-    found
+    crate::module::sources(&compilation.project.source_root)
+        .into_iter()
+        .filter(|path| compilation.graph().id_for(path).is_none())
+        .collect()
 }
 
 /// Computes reachability from every anchor a module declares.

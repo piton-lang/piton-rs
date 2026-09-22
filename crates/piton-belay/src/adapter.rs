@@ -33,6 +33,10 @@ pub enum AgentFormat {
 #[derive(Debug, Clone)]
 pub struct Adapter {
     pub target_id: &'static str,
+    /// The platform's own directory in the project, which `BELAY_AGENT_ROOT`
+    /// resolves to. Stated rather than derived: Codex keeps its skills outside
+    /// its own directory, so no common prefix of the roots below names it.
+    pub root: &'static str,
     /// Scoped guidance filename, placed by shape mapping.
     pub instruction_file: &'static str,
     /// Belay-owned directory for compiled references. This is a convention, not
@@ -78,6 +82,7 @@ impl Adapter {
 /// than being emitted twice.
 pub const CLAUDE_CODE: Adapter = Adapter {
     target_id: "claude-code",
+    root: ".claude",
     instruction_file: "CLAUDE.md",
     reference_root: ".claude/reference",
     skill_root: ".claude/skills",
@@ -97,6 +102,7 @@ pub const CLAUDE_CODE: Adapter = Adapter {
 /// disables implicit invocation lives in a separate file.
 pub const CODEX: Adapter = Adapter {
     target_id: "codex",
+    root: ".codex",
     instruction_file: "AGENTS.md",
     reference_root: ".codex/reference",
     skill_root: ".agents/skills",
@@ -116,6 +122,7 @@ pub const CODEX: Adapter = Adapter {
 /// directories belonging to the other two adapters.
 pub const OPENCODE: Adapter = Adapter {
     target_id: "opencode",
+    root: ".opencode",
     instruction_file: "AGENTS.md",
     reference_root: ".opencode/reference",
     skill_root: ".opencode/skills",
@@ -153,5 +160,17 @@ mod tests {
     #[test]
     fn shape_roots_sit_under_the_reference_root() {
         assert_eq!(CLAUDE_CODE.shape_root(), ".claude/reference/shape");
+    }
+
+    #[test]
+    fn every_adapter_names_its_own_root() {
+        for adapter in Adapter::all() {
+            assert!(!adapter.root.is_empty(), "{}", adapter.target_id);
+            assert!(
+                adapter.reference_root.starts_with(adapter.root),
+                "{} keeps its references outside its root",
+                adapter.target_id
+            );
+        }
     }
 }

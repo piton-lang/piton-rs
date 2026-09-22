@@ -4,6 +4,15 @@
 
 A Piton framework for structured agent instructions, skills, commands, and agents, compiled into the formats used by agentic coding tools.
 
+## Special Imports
+
+The following special imports can be brought in from `@piton/belay` and used.
+
+- BELAY_AGENT_ROOT resolves to the path of the agent being compiled -- so that might be .claude or .opencode, etc.
+- BELAY_PROJECT_ROOT resolves to the path of the project
+- BELAY_SHAPE_ROOT resolves to the path of the shape as configured in the project config. if not specified, it will resolve to the project root
+- BELAY_CODE_ROOT resolves to the path of the code as configured in the project config. if not specified, it will resolve to the project root
+
 ## Framework
 
 - description: Belay is the framework bundled with Piton for describing agentic instructions, skills, commands, and agents, and compiling them into artifacts understood by configured agentic platforms.

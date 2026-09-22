@@ -66,9 +66,16 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   exitCode:
     success: 0
 - description: Runs the Piton language server
+    When you've created a new property and end with a `:` pressing enter should move to the next line and indent.
+    Don't propose autocomplete on nothing.  If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
   commandName: lsp
   positionalArguments: null
   namedArguments: null
+  features:
+    autocomplete: Suggests anchors, specs, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
+      However, don't autocomplete things that don't exist.
+      Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
+    autoimport: Automatically adds missing imports for symbols referenced in the current file.
   Diagnostics:
     - Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor.
     - CodeCompletion: Suggest anchors, specs, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
@@ -124,3 +131,32 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     warnings: false
   exitCode:
     success: 0
+- description: Remove a package from the project
+  commandName: remove
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    package: name of the package to remove
+- description: Clones and "un-gits" a repository into the tethers directory
+  commandName: tether
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    source: Path to the git repository
+- description: Moved an installed package from to the specRoot/untetherd directory while also rewriting any imports
+  commandName: untether
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    packageName: the name of the package to untether
+  namedArgs:
+    as: the name to give the untethered package
+    no-rewrite: Don't rename any imports, simply move the package
+- description: Using the dependencies in the piton.config.pi, update all packages
+  commandName: update
+  positionalArguments: null
+  namedArguments: null
+  positionalArgs:
+    packages: optional list of package names to update; if not provided, all packages will be updated
+
+Links in this document point at reference files. Read one when the work touches what it describes.

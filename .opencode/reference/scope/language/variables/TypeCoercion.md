@@ -1,0 +1,17 @@
+# Type Coercion
+
+## Description
+
+Type coercion in Piton is intentionally limited. When a value is constrained to multiple types, Piton evaluates the constraints from left to right and uses the first type the source value can validly represent.
+Unquoted literals may be coerced when their syntax is compatible with the target type. For example:
+```piton
+value:: string:: number: 42
+```
+This evaluates to the string “42” because string is the first compatible constraint.
+Quoted values are explicitly strings and are never coerced to another type:
+```piton
+value:: boolean:: string: "false"
+```
+This evaluates to the string “false”, not the boolean false.
+Likewise, values that are already structurally typed, such as lists, dictionaries, anchors, booleans, and null, are not coerced into unrelated types.
+If none of the declared constraints can accept the value it is a compiler error.

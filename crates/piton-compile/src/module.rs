@@ -10,6 +10,7 @@ use piton_core::{Diagnostic, Span};
 use piton_syntax::ast::SourceFile;
 use piton_syntax::parser::{self, Parse};
 
+use crate::packages;
 use crate::prelude;
 
 /// Identifies one loaded module.
@@ -151,19 +152,113 @@ impl ModuleGraph {
     }
 }
 
+/// Every Piton source file beneath a directory.
+///
+/// The compiler does not need this -- it follows imports from the entry, and a
+/// file nothing imports is not part of the program. An editor does: the file is
+/// on screen before anything imports it. So does anything offering a path to
+/// import, since the point of that is to reach somewhere the project does not
+/// reach yet.
+///
+/// Bounded, because callers run it on a keystroke. A tree with more files than
+/// this is one where walking to the end helps nobody.
+pub fn sources(root: &Path) -> Vec<PathBuf> {
+    const LIMIT: usize = 5000;
+    // Build output and dependency directories hold no source anyone edits.
+    //
+    // `tethers` is the interesting one: an installed package *is* Piton source,
+    // and it is committed with the project, but it is not the project's source.
+    // Counting it, formatting it, or checking it would all report on someone
+    // else's work -- and formatting it would rewrite files the lock file has a
+    // digest of, which is how an update ends up refusing to run.
+    const SKIP: [&str; 5] = ["target", ".git", "node_modules", ".piton", packages::TETHERS];
+
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if found.len() >= LIMIT {
+                found.sort();
+                return found;
+            }
+            let path = entry.path();
+            let name = entry.file_name();
+            if path.is_dir() {
+                if !SKIP.contains(&name.to_string_lossy().as_ref()) {
+                    stack.push(path);
+                }
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == piton_syntax::language::EXTENSION)
+            {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The two roots module resolution needs.
+///
+/// They differ: absolute imports are written against the configured source
+/// root, while `tethers/` sits beside `piton.config.pi` at the project root.
+/// Carrying them together keeps every caller from having to remember which of
+/// the two a given lookup wants.
+#[derive(Debug, Clone, Copy)]
+pub struct Roots<'a> {
+    pub source_root: &'a Path,
+    pub project_root: &'a Path,
+}
+
+impl<'a> Roots<'a> {
+    /// Roots for a tree that is its own project, which is what a single file
+    /// compiled without configuration has.
+    pub fn flat(root: &'a Path) -> Roots<'a> {
+        Roots {
+            source_root: root,
+            project_root: root,
+        }
+    }
+}
+
 /// Where a module path is being resolved from.
 pub struct ResolutionContext<'a> {
     /// Directory of the file containing the import.
     pub from_directory: &'a Path,
     /// The project's source root, which absolute paths resolve against.
     pub source_root: &'a Path,
+    /// The project root, which `tethers/` sits beside. A path written as a bare
+    /// name is looked for there before it is read as a relative location.
+    pub project_root: &'a Path,
+}
+
+impl<'a> ResolutionContext<'a> {
+    pub fn new(from_directory: &'a Path, roots: Roots<'a>) -> Self {
+        ResolutionContext {
+            from_directory,
+            source_root: roots.source_root,
+            project_root: roots.project_root,
+        }
+    }
+
+    /// A context for a tree that is its own project, where a bare name can only
+    /// name a package installed beneath that same tree.
+    pub fn flat(from_directory: &'a Path, root: &'a Path) -> Self {
+        ResolutionContext::new(from_directory, Roots::flat(root))
+    }
 }
 
 /// Resolves a written module path to a file on disk, or to a bundled package.
 ///
 /// Relative paths resolve against the importing file's directory, absolute
 /// paths against the project's configured root, and `@`-prefixed paths name a
-/// bundled package. A path that names a directory resolves to its `index.pi`.
+/// bundled package. A bare name whose leading segments match an installed
+/// package resolves inside that package. A path that names a directory resolves
+/// to its `index.pi`.
 pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, ResolveError> {
     if text.starts_with('@') {
         if prelude::is_package(text) {
@@ -172,10 +267,16 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         return Err(ResolveError::UnknownPackage(text.to_string()));
     }
 
-    let base = if let Some(rest) = text.strip_prefix('/') {
-        context.source_root.join(rest)
-    } else {
-        context.from_directory.join(text)
+    // An installed package stands in for the directory it was installed into,
+    // and the rest of the path then resolves as any other path does.
+    let installed = packages::is_bare_path(text)
+        .then(|| packages::resolve_prefix(context.project_root, text))
+        .flatten();
+
+    let base = match &installed {
+        Some(path) => path.clone(),
+        None if text.starts_with('/') => context.source_root.join(&text[1..]),
+        None => context.from_directory.join(text),
     };
     let base = normalize(&base);
 
@@ -214,6 +315,20 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         written: text.to_string(),
         tried: vec![with_extension, index],
     })
+}
+
+/// Every module path a project can import by name: the bundled packages, and
+/// whatever is installed in `tethers/`.
+///
+/// Completion and diagnostics both need the same list, so neither can offer a
+/// package the other would reject.
+pub fn importable_packages(project_root: &Path) -> Vec<String> {
+    let mut names: Vec<String> = prelude::PACKAGE_ROOTS
+        .iter()
+        .map(|name| name.to_string())
+        .collect();
+    names.extend(packages::installed_names(project_root));
+    names
 }
 
 #[derive(Debug)]
@@ -329,10 +444,7 @@ mod tests {
 
     #[test]
     fn packages_resolve_to_themselves() {
-        let context = ResolutionContext {
-            from_directory: Path::new("."),
-            source_root: Path::new("."),
-        };
+        let context = ResolutionContext::flat(Path::new("."), Path::new("."));
         assert_eq!(
             resolve("@piton/belay", &context).unwrap(),
             PathBuf::from("@piton/belay")

@@ -82,28 +82,12 @@ pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>, String> {
 }
 
 /// Every `.pi` file beneath `root`, skipping build and VCS directories.
+///
+/// The same walk the compiler uses to find sources an editor has to know about,
+/// so a file the CLI counts and a file the language server opens are the same
+/// set.
 pub fn walk(root: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if path.is_dir() {
-                if !matches!(name.as_ref(), "target" | ".git" | "node_modules" | ".piton") {
-                    stack.push(path);
-                }
-            } else if path.extension().is_some_and(|extension| extension == "pi") {
-                found.push(path);
-            }
-        }
-    }
-    found.sort();
-    found
+    piton_compile::module::sources(root)
 }
 
 /// Resolves a path the user typed to the form the module graph stores.

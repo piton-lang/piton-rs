@@ -110,6 +110,7 @@ fn generated() -> (BTreeMap<String, String>, PathBuf) {
     let files = plan
         .files
         .iter()
+        .filter(|file| file.target == GOLDEN_TARGET)
         .map(|file| {
             (
                 file.path.to_string_lossy().to_string(),
@@ -119,6 +120,12 @@ fn generated() -> (BTreeMap<String, String>, PathBuf) {
         .collect();
     (files, root)
 }
+
+/// The golden tree is the `.claude` one, so only files planned for that target
+/// are comparable. A project may configure several adapters -- this one does --
+/// and the rest write their own trees, which are not what this snapshot
+/// records.
+const GOLDEN_TARGET: &str = "claude-code";
 
 fn golden(root: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
@@ -257,6 +264,7 @@ fn generated_with_sources() -> (BTreeMap<String, Generated>, PathBuf) {
     let files = plan
         .files
         .iter()
+        .filter(|file| file.target == GOLDEN_TARGET)
         .map(|file| {
             (
                 file.path.to_string_lossy().to_string(),

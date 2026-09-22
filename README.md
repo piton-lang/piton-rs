@@ -12,6 +12,7 @@ compiler's acceptance suite is the language describing itself.
 piton check      # validate the specbase
 piton build      # compile every configured artifact
 piton reach      # see what the entrypoints can and cannot see
+piton tether URL # vendor a dependency into tethers/
 ```
 
 ## Building
@@ -51,6 +52,57 @@ what would happen. `cargo xtask` on its own lists the tasks.
 | `piton loc [paths]` | Counts total, code, comment, and blank lines per file |
 | `piton lsp` | Runs the language server over stdio |
 | `piton reach [targets]` | Reports reachable and unreachable anchors, with depth and path |
+| `piton remove <package>` | Deletes an installed package, refusing while anything still imports it |
+| `piton tether <source>` | Clones a git repository, strips it of git, and installs what it publishes under `tethers/` |
+| `piton untether <package>` | Moves an installed package into the source root and rewrites the imports that named it |
+| `piton update [packages]` | Reinstalls the dependencies declared in `piton.config.pi` at their pinned versions |
+
+## Packages
+
+Dependencies are vendored and managed. `piton tether <git-url>` clones a
+repository, removes every trace of git from it, and copies what it publishes
+into `tethers/`, where it is committed with the project and read from disk like
+any other source. Nothing is fetched at compile time.
+
+A repository says what it publishes with `package` anchors from
+`@piton/packaging`, listed in its `piton.config.pi`:
+
+```piton
+use @piton/config
+use @piton/packaging
+
+export piton-config MyProject:
+    root: ./spec
+
+    packages:
+        - {MyPackage}
+
+    dependencies:
+        - https://github.com/piton-lang/piton-rs
+            tag: "1.0"
+
+package MyPackage:
+    name: my-package
+    root: ./spec
+```
+
+A repository with no configuration is installed whole, under the name its URL
+implies. An installed package is imported by name rather than by path, and the
+rest of the path resolves as usual:
+
+```piton
+from my-package import MyAnchor
+from my-package/nested/Thing import Other
+use my-package
+```
+
+Dependencies are flat: one version of a repository is installed for the whole
+project, and a disagreement about which version is reported rather than
+resolved quietly. `.piton/packages.lock.json` records the commit each package
+came from and a digest of every file it installed, which is what lets `update`
+and `remove` tell an untouched package from an edited one. An edited package is
+never overwritten — `piton untether` is the way to keep the edits, and it moves
+the package to `<root>/untethered/` and rewrites every import that named it.
 
 ## Layout
 
@@ -149,16 +201,24 @@ fails in this suite rather than in someone else's project.
 ## The language server
 
 `piton lsp` implements diagnostics, completion, hover, go-to-definition,
-find-references, rename, document and workspace symbols, semantic highlighting,
-inlay hints, signature help, code actions, formatting, folding, and selection
-ranges.
+go-to-implementation, type hierarchy, find-references, rename, document and
+workspace symbols, semantic highlighting, inlay hints, signature help, code
+actions, formatting, folding, and selection ranges.
 
 Every one of them answers from the *resolved* program rather than from raw
 syntax. Hovering a user keyword finds the anchor it aliases and says so.
 Go-to-definition on an inherited property lands on the base that actually
-supplies the value. Find-references on an anchor includes the places that reach
-it through keyword sugar. Inlay hints show the inferred type and name the base a
-value was inherited from or the declaration it overrides.
+supplies the value. Go-to-implementation runs the other way, from an abstract
+anchor to everything that extends it, and the type hierarchy keeps going in both
+directions. Find-references on an anchor includes the places that reach it
+through keyword sugar. Inlay hints show the inferred type and name the base a
+value was inherited from or the declaration it overrides. Completing a module
+path offers installed packages by name, not by the relative path to
+`tethers/`.
+
+Type hierarchy is registered dynamically rather than declared in the initialize
+response, because the `lsp-types` version in use has no field for it. A client
+that does not support dynamic registration simply never asks.
 
 ## Decisions
 
@@ -239,6 +299,34 @@ while the compiler needs machine-readable fields the contract does not carry, an
 names them differently. Those are two artifacts about one subject rather than one
 artifact written twice, so they are written separately.
 
+### Location exports
+
+`@piton/belay` also exports five paths a generated artifact may need to point
+at:
+
+| Export | Resolves to |
+| --- | --- |
+| `BELAY_AGENT_ROOT` | The directory of the target being compiled — `.claude`, `.codex`, `.opencode` |
+| `BELAY_PROJECT_ROOT` | The project root |
+| `BELAY_SHAPE_ROOT` | The configured `shapeRoot`, or the project root |
+| `BELAY_CODE_ROOT` | The configured `codeRoot`, or the project root |
+| `__BELAY_SHAPE__` | The target's *compiled* shape directory, under its reference root |
+
+None of them can be decided while evaluating: the agent root depends on which
+adapter is being compiled, and all five are written relative to the file that
+carries the use. So evaluation leaves a marker and Belay substitutes a path per
+file, per target — which is why the same source produces `../..` in a skill and
+something else in a reference document.
+
+```piton
+from @piton/belay import BELAY_CODE_ROOT
+
+export skill Example:
+    description: Explains where the code lives.
+    useWhen: Explicitly invoked
+    prompt: The implementation is under ${BELAY_CODE_ROOT}.
+```
+
 ## Determinism and safety
 
 A build plans every file for every adapter, validates the whole plan, and only
@@ -265,3 +353,8 @@ it byte for byte, compiles it, compares generated artifacts against the
 checked-in `.claude` tree, drives the language server's features over the real
 sources, and runs the CLI end to end against a fixture project that exercises all
 four constructs and all three adapters.
+
+The package tests build real git repositories in a temporary directory and
+tether them into real projects, because cloning, un-gitting, the lock file and
+the refusal to overwrite an edited package are exactly the parts that cannot be
+faked. They are skipped when git is not installed.

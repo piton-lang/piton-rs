@@ -1,6 +1,7 @@
 //! The Piton command-line compiler.
 
 mod commands;
+mod packages;
 mod project;
 mod report;
 
@@ -103,6 +104,39 @@ enum Command {
         #[arg(long)]
         paths: bool,
     },
+
+    /// Remove a package from the project
+    Remove {
+        /// Name of the package to remove
+        package: String,
+    },
+
+    /// Clone and "un-git" a repository into the tethers directory
+    Tether {
+        /// Path to the git repository
+        source: String,
+        /// Install it under this name instead of the one it publishes
+        #[arg(long = "as")]
+        rename: Option<String>,
+    },
+
+    /// Move an installed package into the source root, rewriting its imports
+    Untether {
+        /// The name of the package to untether
+        package: String,
+        /// The name to give the untethered package
+        #[arg(long = "as")]
+        rename: Option<String>,
+        /// Don't rewrite any imports; simply move the package
+        #[arg(long = "no-rewrite")]
+        no_rewrite: bool,
+    },
+
+    /// Update packages from the dependencies in piton.config.pi
+    Update {
+        /// Packages to update; all of them when none are named
+        packages: Vec<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -125,6 +159,14 @@ fn main() -> ExitCode {
             unreachable,
             paths,
         } => commands::reach::run(&targets, unreachable, paths),
+        Command::Remove { package } => commands::remove::run(&package),
+        Command::Tether { source, rename } => commands::tether::run(&source, rename.as_deref()),
+        Command::Untether {
+            package,
+            rename,
+            no_rewrite,
+        } => commands::untether::run(&package, rename.as_deref(), no_rewrite),
+        Command::Update { packages } => commands::update::run(&packages),
     };
     ExitCode::from(code)
 }

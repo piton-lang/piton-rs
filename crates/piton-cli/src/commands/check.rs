@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use piton_compile::{Compilation, Project};
+use piton_compile::Compilation;
 use piton_core::DiagnosticSink;
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
@@ -63,13 +63,7 @@ fn check_files(paths: &[PathBuf]) -> u8 {
     let mut had_errors = false;
 
     for source in &sources {
-        let project = Project {
-            entry: source.clone(),
-            source_root: configured.source_root.clone(),
-            root: configured.root.clone(),
-            config_path: configured.config_path.clone(),
-            frameworks: configured.frameworks.clone(),
-        };
+        let project = configured.with_entry(source);
         let compilation = Compilation::build(project);
         // Only report problems in the requested files; a shared dependency
         // would otherwise be reported once per file that reaches it.
