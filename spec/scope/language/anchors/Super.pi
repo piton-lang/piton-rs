@@ -38,6 +38,19 @@ export anchor Super:
         \\\
         ```
 
+        It’s worth noting the small detail here that we borrow the \ ${} \
+        syntax from other languages for string interpolation.
+
+        So the resulting JSON would be:
+
+        ```json
+        \\\
+        {
+          "description": "Description from BaseAnchor and Description from ChildAnchor"
+        }
+        \\\
+        ```
+
         As with the previous example of multiple inheritance, the anchor could
         be inheriting from multiple bases, in which case what does super point
         to? super is everything the anchor inherits, merged together the same
@@ -60,16 +73,3 @@ export anchor Super:
 
         Here Child.d is “from-left plus child”. If none of the bases have the
         property, that's a compiler error.
-
-        It’s worth noting the small detail here that we borrow the \ ${} \
-        syntax from other languages for string interpolation.
-
-        So the resulting JSON would be:
-
-        ```json
-        \\\
-        {
-          "description": "Description from BaseAnchor and Description from ChildAnchor"
-        }
-        \\\
-        ```

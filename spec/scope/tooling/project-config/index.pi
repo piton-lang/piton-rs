@@ -4,9 +4,10 @@ export anchor ProjectConfig:
         If the compiler finds a piton.config.pi file in the current working
         directory, it will read that configuration file to configure a project.
         Realistically, this is how any Piton project will usually be used.
-        Through a project you can configure the root, the entry point,
-        frameworks, packages, and dependencies. Where the output goes is up to
-        the renderer or framework adapter.
+        Through a project you can configure the root, the entry point, where
+        the output goes and which renderer it uses, frameworks, packages, and
+        dependencies. By default output goes to ./dist as JSON. Frameworks
+        decide where their own output goes.
 
         Configuration anchors are provided by the @piton/config use/import which
         is bundled into the compiler:
@@ -21,6 +22,8 @@ export anchor ProjectConfig:
         export piton-config Config:
             root: ./spec
             entry: ./spec/index.pi // Optional; defaults to index.pi in root
+            output: ./dist // Optional; defaults to ./dist
+            renderer: json // Optional; json, yaml, or markdown
 
             frameworks:
                 - {BelayFrameworkConfig}

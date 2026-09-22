@@ -12,7 +12,8 @@ export anchor ComparisonOperators:
     equality:
         `==` and `!=` work on every type. Lists and dictionaries are equal if
         everything inside them is equal. Anchors are only equal if they're the
-        same anchor.
+        same anchor, and references are only equal if they point at the same
+        thing.
 
     ordering:
         `<`, `<=`, `>`, and `>=` work on numbers and strings. Strings are

@@ -3,20 +3,23 @@ use ../cli
 export cli-command Check:
     commandName: check
 
+    positionalArguments:
+        path: Optional file or glob. Defaults to the project.
+
     description:
         Checks specific files or the project and reports errors
 
     emit: false
 
     validate:
-        syntax
-        imports
-        references
-        types
-        inheritance
-        composition
-        exports
-        circular-dependencies
+        - syntax
+        - imports
+        - references
+        - types
+        - inheritance
+        - composition
+        - exports
+        - circular-dependencies
 
     diagnostics:
         errors: true

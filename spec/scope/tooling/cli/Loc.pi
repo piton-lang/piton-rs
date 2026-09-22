@@ -3,16 +3,19 @@ use .
 export cli-command Loc:
     commandName: loc
 
+    positionalArguments:
+        path: Optional file or glob. Defaults to the project.
+
     description:
         Counts lines of Piton source for specific files or the project
 
     emit: false
 
     count:
-        total
-        code
-        comments
-        blank
+        - total
+        - code
+        - comments
+        - blank
 
     groupBy:
         file

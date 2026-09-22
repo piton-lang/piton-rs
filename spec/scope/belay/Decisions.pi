@@ -32,8 +32,7 @@ export anchor OpenDecisions:
         should say it's not specified.
 
     instructionScope:
-        Define placement for instructions outside shapeRoot and the exact
-        anchor-level emission rule within reachable source files.
+        Define placement for instructions outside shapeRoot.
 
     referenceIdentity:
         Decide what happens when one anchor turns into more than one output,

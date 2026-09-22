@@ -3,7 +3,7 @@ use @piton/belay
 from @piton/belay import BELAY_PROJECT_ROOT
 
 export command CheckSpecForProblems:
-    description:
+    description: Checks the spec for problems.
 
     prompt:
         Your goal is to read the spec in ${BELAY_PROJECT_ROOT}/spec and look for

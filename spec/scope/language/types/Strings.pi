@@ -3,6 +3,7 @@ use ./lib/Type
 from ./Escaping import Escaping
 from ../operators/concatenation/ConcatenationOperator import
     ConcatenationOperator
+from ../operators/concatenation/DupMergeOperator import DupMergeOperator
 from ../operators/comparison import COMPARISON_OPERATORS
 
 export type Strings:
@@ -66,4 +67,5 @@ export type Strings:
 
     supportedOperators:
         - {ConcatenationOperator}
+        - {DupMergeOperator}
         + {COMPARISON_OPERATORS}

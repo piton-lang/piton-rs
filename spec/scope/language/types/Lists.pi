@@ -41,6 +41,38 @@ export type Lists:
         \\\
         ```
 
+    dictionariesInLists:
+        Anything indented under a list item isn't part of that item. It
+        becomes the next item in the list. So a dictionary indented under an
+        item is its own item, right after it:
+
+        ```piton
+        \\\
+        repos:
+            - https://github.com/piton-lang/piton-rs
+                tag: v1
+            - https://github.com/piton-lang/other
+        \\\
+        ```
+
+        ```json
+        \\\
+        {
+          "repos": [
+            "https://github.com/piton-lang/piton-rs",
+            { "tag": "v1" },
+            "https://github.com/piton-lang/other"
+          ]
+        }
+        \\\
+        ```
+
+        A list item is never a key, even with a colon at the end.
+        `\ - Settings: \` is just the string `Settings:`.
+
+        For lists indented under a dictionary key, see the Dictionaries
+        type.
+
     access:
         Piton intentionally does not provide a way to access items within a
         list. Because this is not a runtime-based general purpose language but

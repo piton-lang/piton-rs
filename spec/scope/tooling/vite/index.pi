@@ -13,11 +13,16 @@ export anchor VitePlugin:
 
         ```typescript
         \\\
+        import { SaveButton, pi } from '../spec/app.pi';
         import spec from '../spec/app.pi';
 
-        const button = spec.anchors.SaveButton;
+        const button = SaveButton;
+        const cancel = spec.CancelButton;
         \\\
         ```
+
+        Each export in the Piton file is a named export. The default export is
+        the whole file, same as what piton compile gives you.
 
     renderers:
         You should be able to configure the plugin with a default renderer

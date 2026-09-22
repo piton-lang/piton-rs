@@ -37,8 +37,13 @@ export anchor StructuralInheritance:
         inherited by ChildAnchor is a simple left to right where the last in
         line wins.
 
-        Type constraints work the same way as values; the right-most one wins.
-        Abstracts have their own rules, which we'll get to.
+        Type constraints from the bases work the same way as values; the
+        right-most one wins. Abstracts have their own rules, which we'll get
+        to.
+
+        You can't redeclare a constraint you inherit, you can only give it a
+        value. So if subtitle is already constrained, `\ subtitle: Hi \` is
+        fine and `\ subtitle:: string: Hi \` is a compiler error.
 
         An anchor can't extend itself, directly or through other anchors.
         That's a compiler error.

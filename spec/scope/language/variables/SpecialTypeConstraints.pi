@@ -32,8 +32,6 @@ export anchor SpecialTypeConstraints:
         g:: any: Hello, World
         h:: any:
             - String
-            - NestedObject:
-                a:: number: 1
-                b:: number: 2
+            - [1, 2, 3]
         \\\
         ```

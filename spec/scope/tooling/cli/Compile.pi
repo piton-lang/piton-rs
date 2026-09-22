@@ -25,8 +25,8 @@ export cli-command Compile:
     output:
         A compiled file is an object with one key per export. Anything that
         isn't exported is left out, and so are abstract anchors. The JSON
-        examples elsewhere in this spec just show the one anchor to keep things
-        short.
+        examples elsewhere in this spec skip the exports and just show what's
+        being discussed, to keep things short.
 
     dependencies:
         If ${self.namedArguments.dependencies} is set, the result is wrapped

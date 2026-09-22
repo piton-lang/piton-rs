@@ -22,9 +22,9 @@ export anchor MarkdownSerialization extends FrameworkSpecification:
             renderedTitle: My Property
         primitiveText:
             booleanValue: false
-            renderedBoolean: "false"
+            renderedBoolean: ${false}
             numericValue: 42
-            renderedNumber: "42"
+            renderedNumber: ${42}
 
 export anchor InterpolationBoundary extends FrameworkSpecification:
     description:
@@ -44,7 +44,7 @@ export anchor InterpolationBoundary extends FrameworkSpecification:
 export anchor Compilation extends FrameworkSpecification:
     description: Resolve a Belay project and emit the artifacts selected by its adapters.
     requirements:
-        - Obtain reachable and validated constructs from the Piton compiler.
+        - Obtain the emitted and validated constructs from the Piton compiler.
         - Build a target-specific output plan for each configured adapter.
         - Resolve instruction placement and reference destinations before rendering.
         - Detect shared paths and cross-target discovery conflicts across the entire plan.
