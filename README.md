@@ -218,6 +218,35 @@ a modal or auxiliary is a verb in any English sentence, and a word that cannot
 be placed that confidently is left out of the list rather than invented into
 it.
 
+## Publishing the grammar
+
+The tree-sitter grammar is developed here, in `editors/tree-sitter-piton`,
+because this is the only place it can be checked against the language: the
+compiler's keyword list is the source of truth, and a test reads the grammar
+back to make sure the two agree. Editors that consume tree-sitter grammars
+expect one repository per grammar, so it is published as a copy:
+
+```
+cargo xtask publish-grammar             # to piton-lang/tree-sitter-piton
+cargo xtask publish-grammar --dry-run   # prepare the commit, push nothing
+```
+
+The published history is kept rather than restarted. The remote is cloned, its
+contents are replaced with the grammar directory, and the result is one commit
+naming the revision it came from — so a reader of either repository can line
+them up. Replacing rather than adding means a query deleted here is deleted
+there.
+
+It refuses to publish when the grammar directory has uncommitted changes, since
+the commit it writes would name a revision that does not contain them;
+`--allow-dirty` overrides that. `--tag` also pushes a tag, and `--remote` aims
+somewhere else, which is how the task is tested against a local bare repository
+instead of the real one.
+
+If the tree-sitter CLI is installed the parser is generated into the publish,
+so consumers need no toolchain. If it is not, the task says so and publishes
+the grammar alone.
+
 ## Editor support
 
 `editors/` covers every editor the specification names — VS Code, Zed, Helix,
