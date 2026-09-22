@@ -49,6 +49,30 @@ local function setup_lsp(opts)
   lspconfig.piton.setup(opts.server or {})
 end
 
+--- Formats a Piton buffer before it is saved, when the option is on.
+---
+--- autoFormatOnSave is an option: the autocmd is only registered when setup()
+--- is given { format_on_save = true }. Formatting runs through the language
+--- server, which leaves commented content alone.
+local function setup_format_on_save(opts)
+  if not opts.format_on_save then
+    return
+  end
+
+  vim.api.nvim_create_autocmd("BufWritePre", {
+    pattern = "*.pi",
+    callback = function(args)
+      local clients = vim.lsp.get_clients({
+        bufnr = args.buf,
+        method = "textDocument/formatting",
+      })
+      if #clients > 0 then
+        vim.lsp.buf.format({ bufnr = args.buf, async = false })
+      end
+    end,
+  })
+end
+
 function M.setup(opts)
   opts = opts or {}
 
@@ -64,11 +88,15 @@ function M.setup(opts)
       vim.bo.tabstop = 4
       vim.bo.commentstring = "// %s"
       vim.bo.formatprg = "piton format /dev/stdin"
+      -- Enter on a blank line inside a dictionary or anchor dedents one
+      -- level; this file carries no indent rules, so the language server
+      -- supplies that move through on-type formatting.
     end,
   })
 
   setup_treesitter(opts)
   setup_lsp(opts)
+  setup_format_on_save(opts)
 end
 
 return M

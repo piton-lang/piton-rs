@@ -29,3 +29,12 @@ from `piton lsp`, because they need the resolved program rather than the text.
 
 Set `piton.server.path` if the binary is not on `PATH`, or
 `piton.server.enabled` to `false` to use highlighting alone.
+
+`piton.formatOnSave` formats the document before it is saved — the
+`autoFormatOnSave` option. It is `false` unless you turn it on, and the
+formatter leaves commented content alone.
+
+Enter after a line that opens a block lands one level in; enter on a blank
+line inside a dictionary or anchor lands one level back. Both come from
+`language-configuration.json`, with the language server answering the same
+moves through on-type formatting.

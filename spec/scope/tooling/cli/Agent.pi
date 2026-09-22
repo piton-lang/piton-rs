@@ -1,4 +1,6 @@
 use ../cli
+from ../../../agent/skills/GenerateFluencyPrompt import GenerateFluencyPrompt
+from ../../../agent/skills/GenerateFluencyPrompt import FLUENCY_PROMPT_FILE
 
 export cli-command Agent:
     commandName: agent
@@ -10,4 +12,5 @@ export cli-command Agent:
         print-fluency: Print the entire fluency prompt
 
     description:
-        Launches the specified agent with Piton fluency.
+        Launches the specified agent with Piton fluency using the output of the
+        @{GenerateFluencyPrompt} skill as located in the ${FLUENCY_PROMPT_FILE}

@@ -708,6 +708,10 @@ fn agent_prints_its_fluency_without_building_or_launching() {
             stdout.contains("AGENTS.md"),
             "follows the configured adapter:\n{stdout}"
         );
+        assert!(
+            stdout.contains("# Piton Fluency"),
+            "carries the language reference:\n{stdout}"
+        );
     }
     assert!(
         !fixture.exists("AGENTS.md"),

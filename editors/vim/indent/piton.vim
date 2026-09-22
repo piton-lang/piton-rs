@@ -26,7 +26,36 @@ if exists("*PitonIndent")
 endif
 
 function! PitonIndent() abort
-  let l:previous = prevnonblank(v:lnum - 1)
+  let l:above = v:lnum - 1
+
+  " Enter on a blank line inside a dictionary or anchor leaves the block: the
+  " new line is one shiftwidth back from the blank line it follows, bottoming
+  " out at the margin. The server answers the same move in `on_type_formatting`
+  " for the editors that ask it to format as you type; here the rule is
+  " written out beside the one above it.
+  "
+  " A blank line carries its depth as its indent, which is used directly when
+  " it has one. Reindenting a file (`gg=G`) strips blank lines before asking,
+  " so a blank left at nothing is measured by what precedes it instead: the
+  " last line before the run of blanks, one shiftwidth in if that line opens
+  " a block -- the level this function would have given the blank itself.
+  if l:above > 0 && getline(l:above) =~# '^\s*$'
+    let l:depth = indent(l:above)
+    if l:depth == 0
+      let l:before = prevnonblank(l:above)
+      if l:before > 0
+        let l:depth = indent(l:before)
+        if s:opens_block(getline(l:before))
+          let l:depth += shiftwidth()
+        endif
+      endif
+    endif
+    if l:depth > 0
+      return max([0, l:depth - shiftwidth()])
+    endif
+  endif
+
+  let l:previous = prevnonblank(l:above)
   if l:previous == 0
     return 0
   endif

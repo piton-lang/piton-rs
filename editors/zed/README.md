@@ -109,6 +109,29 @@ increase_indent_pattern = ":\\s*$"
 A declaration or a key that ends in a colon opens a block. A key with a value on
 the same line does not.
 
+Enter on a blank line inside a dictionary or anchor comes back one shiftwidth,
+bottoming at the margin. That is `decrease_indent_pattern = "^\\s*$"` in
+`config.toml`: only a whitespace-only line matches it, so it never fights the
+colon rule. The language server answers the same move through on-type
+formatting.
+
+Autoformat on save is Zed's `format_on_save` setting — the option
+`autoFormatOnSave` names. Zed's own default is `on`; keep Piton off until it
+is wanted:
+
+```json
+{
+  "languages": {
+    "Piton": {
+      "format_on_save": "off"
+    }
+  }
+}
+```
+
+Set it to `"on"` to opt in. However it runs — on save or from the format
+action — the formatter leaves commented content alone.
+
 ## Checking it
 
 ```

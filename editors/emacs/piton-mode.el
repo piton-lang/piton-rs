@@ -27,6 +27,14 @@
   :type 'string
   :group 'piton)
 
+(defcustom piton-format-on-save nil
+  "Whether to format the buffer through the language server before saving.
+
+This is the specification's autoFormatOnSave rule: an option, off unless
+turned on.  The formatter leaves commented content alone."
+  :type 'boolean
+  :group 'piton)
+
 (defconst piton--declaration-keywords
   '("use" "from" "import" "export" "anchor" "abstract" "as" "extends" "pass")
   "Words that introduce or modify a declaration.")
@@ -99,14 +107,34 @@
 
 (defun piton--indent-line ()
   "Indent to a multiple of four, which is the only width the language uses."
-  (let* ((previous (save-excursion
-                     (forward-line -1)
-                     (current-indentation)))
+  (let* ((above-indent (save-excursion
+                         (forward-line -1)
+                         (current-indentation)))
+         (blank-above (save-excursion
+                        (forward-line -1)
+                        (looking-at "[ \t]*$")))
          (opens-block (save-excursion
                         (forward-line -1)
                         (looking-at ".*:[ \t]*$")))
-         (target (if opens-block (+ previous 4) previous)))
+         (target (cond
+                  ;; Enter on a blank line inside a dictionary or anchor
+                  ;; leaves the block: one level back, bottoming at the
+                  ;; margin.  The language server answers the same move in
+                  ;; `on_type_formatting'.
+                  ((and blank-above (> above-indent 0))
+                   (- above-indent 4))
+                  (opens-block (+ above-indent 4))
+                  (t above-indent))))
     (indent-line-to (max 0 target))))
+
+(defun piton--format-on-save ()
+  "Format the buffer before saving, when `piton-format-on-save' is non-nil.
+Formatting goes through the attached server, which leaves commented
+content alone."
+  (when (and piton-format-on-save
+             (bound-and-true-p eglot--managed-mode)
+             (fboundp 'eglot-format-buffer))
+    (eglot-format-buffer)))
 
 ;;;###autoload
 (define-derived-mode piton-mode prog-mode "Piton"
@@ -142,7 +170,10 @@
   (add-to-list 'eglot-server-programs
                `(piton-mode . (,piton-executable "lsp")))
   (add-to-list 'eglot-server-programs
-               `(piton-ts-mode . (,piton-executable "lsp"))))
+               `(piton-ts-mode . (,piton-executable "lsp")))
+  ;; Saving formats only when the option is on; `piton-ts-mode' derives from
+  ;; `piton-mode', so this hook covers both.
+  (add-hook 'piton-mode-hook #'piton--format-on-save))
 
 (provide 'piton-mode)
 ;;; piton-mode.el ends here
