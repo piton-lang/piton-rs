@@ -2,6 +2,7 @@ use ./lib/ArithmeticOperator
 
 export arithmetic-operator ModuloOperator:
     description:
-        Returns the remainder of two numbers
+        Returns the remainder of two numbers. The result keeps the sign of the
+        left side, so `-7 % 3` is `-1`. Modulo by zero is a compiler error.
 
     symbol: %

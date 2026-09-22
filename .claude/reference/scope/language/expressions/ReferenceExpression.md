@@ -18,7 +18,7 @@ Evaluates an expression and produces a reference to its result, preserving the i
 ## Compilation
 
 - Include the referenced anchor in the compilation dependency graph.
-- Resolve its output location through the active adapter.
+- Resolve its output location through the active renderer, or the framework adapter built on it.
 - Resolve each reference independently for each configured output target.
 - Report an error if the target cannot represent or resolve the reference.
 
@@ -37,5 +37,5 @@ Render a Markdown link to the referenced anchor's compiled representation, relat
 ## Other Formats
 
 ```
-description: Each output adapter must define how anchor identity is represented. A reference must not silently become an embedded copy or a plain name string when the target has no defined reference representation.
+description: Each renderer must define how anchor identity is represented; see the Reference type for the defaults. A reference must not silently become an embedded copy or a plain name string when the target has no defined reference representation.
 ```

@@ -12,12 +12,9 @@ export anchor ImportExport:
         \\\
         ```
 
-        haha is red
-        haha is blue
-
         To bring those into another file you use the from...import syntax:
 
-        ```piton
+        ```piton fragment
         \\\
         from ./FirstFile import pi, MyAnchor
         \\\
@@ -29,7 +26,7 @@ export anchor ImportExport:
         is configured with a piton.config.pi file, you can also use absolute
         path imports relative to the root value defined in the project config.
 
-        ```piton
+        ```piton fragment
         \\\
         from /subdir/subdir/file import AnAnchor
         \\\
@@ -38,7 +35,7 @@ export anchor ImportExport:
         It’s also possible to import under an alias by placing the alias after
         the imported symbol:
 
-        ```piton
+        ```piton fragment
         \\\
         from ./FirstFile import pi SliceOf, MyAnchor MyAliasedAnchor
         \\\

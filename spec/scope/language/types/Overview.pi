@@ -1,4 +1,4 @@
-export anchor Overview:
+export anchor TypesOverview:
     overview:
         Piton is loosely typed with optional type constraints.
 

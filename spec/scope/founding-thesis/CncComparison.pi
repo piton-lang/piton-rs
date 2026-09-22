@@ -30,10 +30,12 @@ export anchor CncComparison:
         basic as it looks it up and down.
 
         ```
+        \\\
         G1 X40 Y0 F300
         G1 X40 Y30
         G1 X0 Y30
         G1 X0 Y0
+        \\\
         ```
 
         G1 means linear movement. Move in a straight line from where you are to

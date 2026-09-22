@@ -1,16 +1,21 @@
 export anchor Dependencies:
     description:
         Dependencies are listed under the dependencies property of the
-        piton.config.pi file for a project.
+        piton.config.pi file for a project. Packages list theirs the same way.
 
-        They're specified as a list of URLs with optional properties.
+        They're specified as a list of URLs, each with an optional commit, tag,
+        or branch. Only one of those though; more than one is a compiler
+        error. If there isn't one, you get the latest commit on the default
+        branch.
 
         ```piton
         \\\
         dependencies:
             - https://github.com/piton-lang/piton-rs
-                commit: abc
                 tag: 1.0
-                branch: main
+            - https://github.com/piton-lang/other
         \\\
         ```
+
+        Project dependencies and package dependencies are separate. The
+        project's only apply to the project, and each package has its own.

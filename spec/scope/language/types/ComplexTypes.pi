@@ -1,9 +1,9 @@
 from ./Lists import Lists
 from ./Dictionaries import Dictionaries
-from ./Anchors import Anchors
+from ./Anchors import AnchorType
 
 export anchor ComplexTypes:
     listOfComplexTypes:
         - @{Lists}
         - @{Dictionaries}
-        - @{Anchors}
+        - @{AnchorType}

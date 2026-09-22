@@ -36,16 +36,20 @@ export anchor TheProblem:
         At the same time, pure prose is an incredible way to say
 
         ```
+        \\\
         “the button should be blue with contrasting text.”
+        \\\
         ```
 
         Compare that to
 
         ```css
+        \\\
         .button {
           background-color: #00a;
           color: #fff;
         }
+        \\\
         ```
 
         Which one would you rather write?

@@ -1,4 +1,4 @@
-from ./overview import Overview
+from ./overview import LanguageOverview
 from ./types import Types
 from ./variables import Variables
 from ./operators import Operators
@@ -7,10 +7,10 @@ from ./anchors import Anchors
 from ./reuse import Reuse
 
 export anchor Language:
-    Overview: @{Overview}
-    Types: @{Types}
-    Variables: @{Variables}
-    Operators: @{Operators}
-    Expressions: @{Expressions}
-    Anchors: @{Anchors}
-    Resue: @{Reuse}
+    Overview: {LanguageOverview}
+    Types: {Types}
+    Variables: {Variables}
+    Operators: {Operators}
+    Expressions: {Expressions}
+    Anchors: {Anchors}
+    Reuse: {Reuse}

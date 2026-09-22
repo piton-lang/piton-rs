@@ -14,9 +14,13 @@ export anchor TypeConstraints:
 
     multipleTypeConstraints:
         It’s also possible to add multiple type constraints to a variable using
-        an additional :::
+        an additional ::
 
+        ```piton
+        \\\
         myVariable:: number:: string: 42
+        \\\
+        ```
 
         This will allow myVariable to be either a number or a string, and the
         order of preference is constraint fulfillment left to right. In the
@@ -40,5 +44,36 @@ export anchor TypeConstraints:
         \\\
         ```
 
-        Since "false" is explicitly quoted, it fails the boolean constraint, and
-        it also fails the number constraint, so myVariable is a string.
+        The quotes are part of the value, so it isn't a boolean or a number.
+        myVariable is the string `"false"`, quotes and all.
+
+    requiredAndOptional:
+        If a property has a type constraint but no value, it's required.
+        Anything that extends the anchor has to give it a value. Adding null
+        to the constraint means that value can be null, but you still have to
+        write it.
+
+        If it has a default value, it's optional. The usual way to write an
+        optional property is to allow null and default to null:
+
+        ```piton
+        \\\
+        abstract anchor Card:
+            title:: string
+            subtitle:: string:: null
+            footer:: string:: null: null
+
+        anchor MyCard extends Card:
+            title: Hello
+            subtitle: null
+        \\\
+        ```
+
+        Here title and subtitle are required (subtitle can be null), and
+        footer is optional. The language server won't complain about a
+        missing optional property.
+
+    emptyValues:
+        A property has to have a value. A name with nothing after it and
+        nothing indented under it is a compiler error. If you mean nothing,
+        write null.

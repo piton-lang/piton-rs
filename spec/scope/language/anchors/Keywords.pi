@@ -1,4 +1,4 @@
-export anchor Keywords:
+export anchor UserDefinedKeywords:
     description:
         Now with abstracts defined, we can discuss user-defined keywords. This
         is really just syntactic sugar equivalent to extends that exists to
@@ -14,7 +14,7 @@ export anchor Keywords:
 
         my-anchor ChildAnchor:
             description:
-                + {super.description}
+                ${super.description}
                 My additional description
         \\\
         ```
@@ -28,14 +28,13 @@ export anchor Keywords:
 
         anchor ChildAnchor extends MyAnchor:
             description:
-                + {super.description}
+                ${super.description}
                 My additional description
         \\\
         ```
 
-        By its nature, a user-defined keyword does not allow for multiple
-        inheritance chains, however you can still use extends to achieve the
-        same effect.
+        You can only use one keyword on an anchor, however you can still use
+        extends to inherit from other anchors as well.
 
         ```piton
         \\\
@@ -47,7 +46,7 @@ export anchor Keywords:
 
         my-anchor ChildAnchor extends OtherBase:
             description:
-                + {super.description}
+                ${super.description}
                 My additional description
         \\\
         ```
@@ -62,13 +61,16 @@ export anchor Keywords:
         anchor OtherBase:
             description: Other Base
 
-        anchor ChildAnchor extends MyAnchor, OtherBase:
+        anchor ChildAnchor extends OtherBase, MyAnchor:
             description:
-                + {super.description}
+                ${super.description}
                 My additional description
         \\\
         ```
 
-        Note that the user-defined keyword will be the first anchor in the
-        inheritance chain, and so be overruled during collisions by anything
-        further right in the chain.
+        Note that the user-defined keyword will be the last anchor in the
+        inheritance chain, and so it wins any collisions with what's in
+        extends. So here ChildAnchor's description starts with “This is a
+        description of my anchor”.
+
+        You can't use a reserved word as a keyword.

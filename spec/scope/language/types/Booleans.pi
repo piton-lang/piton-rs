@@ -1,10 +1,13 @@
 use ./lib/Type
-from ../operators/concatenation/ConcatenationOperator import
-    ConcatenationOperator
+from ../operators/logical import LOGICAL_OPERATORS
+from ../operators/comparison/EqOperator import EqOperator
+from ../operators/comparison/NeqOperator import NeqOperator
 
 export type Booleans:
     description:
         Booleans are represented with lowercase `true` and `false`.
 
     supportedOperators:
-        - {ConcatenationOperator}
+        + {LOGICAL_OPERATORS}
+        - {EqOperator}
+        - {NeqOperator}

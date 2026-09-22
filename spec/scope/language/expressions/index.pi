@@ -1,6 +1,6 @@
 from ../types/Lists import Lists
 from ../types/Dictionaries import Dictionaries
-from ../types/Anchors import Anchors
+from ../anchors import Anchors
 from ../types/ComplexTypes import ComplexTypes
 from ../types/Strings import Strings
 from ./ReferenceExpression import ReferenceExpression
@@ -10,9 +10,9 @@ from ./StandardExpression import StandardExpression
 
 export anchor Expressions:
     description:
-        Expressions combine values and operators to produce a result. Literal
-        expressions such as 1 + 2 evaluate directly, while expressions that
-        reference variables use braces, such as \ {a + b} \. Evaluation follows
+        Expressions combine values and operators to produce a result. Nothing
+        gets evaluated unless it's in braces, like \ {a + b} \ or
+        \ {1 + 2} \. Without braces, 1 + 2 is just text. Evaluation follows
         Piton’s type and operator rules, resolves forward references, and
         preserves anchor identity. Unresolved or cyclic references are compiler
         errors.
@@ -32,7 +32,8 @@ export anchor Expressions:
 
         `myVariable` will be evaluated to 3. Evaluation will of course follow
         all the rules we’ve previously defined about types as operators;
-        2 + Hello will evaluate to a string 2Hello.
+        \ {2 + "Hello"} \ will evaluate to a string 2Hello. Inside braces, bare
+        words are treated as symbols, so strings go in double quotes.
 
         An important thing to note is that an expression must be wrapped in
         curly braces, otherwise it'll be interpreted as a @{Strings}.
@@ -90,8 +91,25 @@ export anchor Expressions:
         We haven’t discussed anchors yet, but they resolve by reference, and the
         original identity is preserved.
 
+    expressionsInText:
+        If the whole value is just an expression, like \ total: {a + b} \, it
+        keeps its type. If there's other text around it, it depends.
+
+        \ ${x} \ turns the result into a string, so the whole thing is just a
+        string.
+
+        \ {x} \ with a simple value (string, number, boolean, or null) drops
+        the value into the text, so \ Total: {a + b} \ is “Total: 3”.
+
+        \ {x} \ with a list, dictionary, or anchor copies it in. That turns
+        the property into an implicit list, same as when you mix types in a
+        collection. So \ See {Foo} for details \ becomes a list with “See”,
+        a copy of Foo, and “for details”.
+
+        \ @{x} \ puts in a reference, which ends up as a link or a path.
+
     expressionTypes:
-        - @{StandardExpression}
-        - @{NumericExpression}
-        - @{ReferenceExpression}
-        - @{StringExpression}
+        - {StandardExpression}
+        - {NumericExpression}
+        - {ReferenceExpression}
+        - {StringExpression}

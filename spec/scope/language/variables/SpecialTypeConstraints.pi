@@ -14,6 +14,11 @@ export anchor SpecialTypeConstraints:
         The complex type allows for any complex type, in other words, list,
         dictionary, and anchor.
 
+        There are two more you can use with any type. Add [] to the end for a
+        list of that type, like `string[]`. And put extends in front of an
+        anchor type to accept anything that inherits from it, like
+        `extends Operator[]`. We'll cover that one with abstract anchors.
+
         ```piton
         \\\
         a:: complex: [1, 2, 3]
@@ -23,9 +28,9 @@ export anchor SpecialTypeConstraints:
         c:: simple: 1
         d:: simple: Hello, World
         e:: simple: false
-        g:: any: 1
-        h:: any: Hello, World
-        i:: any:
+        f:: any: 1
+        g:: any: Hello, World
+        h:: any:
             - String
             - NestedObject:
                 a:: number: 1

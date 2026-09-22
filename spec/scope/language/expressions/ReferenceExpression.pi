@@ -14,7 +14,7 @@ export anchor ReferenceExpression:
 
     compilation:
         - Include the referenced anchor in the compilation dependency graph.
-        - Resolve its output location through the active adapter.
+        - Resolve its output location through the renderer, or the framework adapter on top of it.
         - Resolve each reference independently for each configured output target.
         - Report an error if the target cannot represent or resolve the reference.
 
@@ -30,6 +30,7 @@ export anchor ReferenceExpression:
 
     otherFormats:
         description:
-            Each output adapter must define how anchor identity is represented.
+            Each renderer decides what a reference looks like. See the
+            Reference type for the defaults.
             A reference must not silently become an embedded copy or a plain
             name string when the target has no defined reference representation.

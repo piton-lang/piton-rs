@@ -2,8 +2,10 @@ use ./lib/Type
 
 from ../operators/concatenation/MergeOperator import MergeOperator
 from ../operators/concatenation/DupMergeOperator import DupMergeOperator
+from ../operators/comparison/EqOperator import EqOperator
+from ../operators/comparison/NeqOperator import NeqOperator
+from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
 from ../operators/lib/Operator import Operator
-from ../variables/TypeCoercion import TypeCoercion
 
 export type Dictionaries:
     description:
@@ -21,18 +23,25 @@ export type Dictionaries:
         You can use dot syntax to access keys in a dictionary.
         firstLevel.secondLevel.thirdLevel would yield “This is a string”.
 
-        Object keys can include hyphens and underscores as well as valid Unicode
-        letter characters and Unicode numeric characters. They cannot include
-        spaces.
-
-    supportedOperators:: Operator[]
+    supportedOperators:: Operator[]:
+        - {PropertyAccessOperator}
         - {MergeOperator}
         - {DupMergeOperator}
+        - {EqOperator}
+        - {NeqOperator}
 
     validKeys:
-        Anything that can support @{TypeCoercion} to a string is a valid key,
-        so long as it doesn't contain spaces.
+        Keys can have Unicode letters, Unicode numbers, underscores, and
+        hyphens. Nothing else, and no spaces.
+
+        Keys are always strings, even when they look like something else. So
+        `123`, `false`, and `null` are fine as keys, and they're still just
+        strings when you access them.
 
         So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and
-        `null` are all valid keys and will be treated as strings, while
-        `This is a key` and `1 2 3` are not.
+        `null` are all valid keys, while `This is a key` and `a.b` are not.
+
+    hyphenatedKeys:
+        A hyphen in the middle of a name is part of the name, so
+        `\ {config.foo-bar} \` reads the key `foo-bar`. If you want
+        subtraction, put spaces around it: `\ {a - b} \`.

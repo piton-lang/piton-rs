@@ -4,5 +4,5 @@ export cli-command Remove:
     commandName: remove
     description:
         Remove a package from the project
-    positionalArgs:
+    positionalArguments:
         package: name of the package to remove

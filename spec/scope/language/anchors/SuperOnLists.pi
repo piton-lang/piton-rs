@@ -19,10 +19,17 @@ export anchor SuperOnLists:
         \\\
         ```
 
-        This example will yield a final items of ["A", "B", "C", "D", "E", "F"].
-        We’re applying the + concatenation operator here to indicate spreading
-        the super.items list into the current list. Without that we’d end up
-        with [["A", "B", "C"], "D", "E", "F"].
+        This example will yield a final items of [A, B, C, D, E, F].
+
+        Blocks are built from top to bottom. A line starting with + or ++
+        takes everything above it and combines it with that line's value. So
+        here we start with nothing, the + brings in super.items, and then D,
+        E, and F get added. Without the + we’d end up with
+        [[A, B, C], D, E, F].
+
+        This works the same way in strings, where + joins them, and in
+        dictionaries, where + and ++ merge them. And a block with just
+        `+ \ {x} \` in it is the same as `\ {x} \`.
 
         But let’s modify that example slightly to see a specific feature of
         the + concatenation operator.
@@ -47,9 +54,9 @@ export anchor SuperOnLists:
 
         The change is that ChildAnchor now also contains A, B, C, and D, and
         we’re also bringing super.items in at the end of the list. If you
-        remember from when we discussed the + concatenation operator, it
-        performs deduplication and concatenates in the order of the operands. So
-        ChildAnchor ends up with ["D", "A", "B", "C"].
+        remember from when we discussed the + merge operator, it removes
+        duplicates and keeps the last one. So ChildAnchor ends up with
+        [D, A, B, C].
 
         One last example uses the ++ operator.
 
@@ -70,3 +77,6 @@ export anchor SuperOnLists:
                 ++ {super.items}
         \\\
         ```
+
+        This time duplicates are kept, so ChildAnchor ends up with
+        [A, B, C, D, A, B, C].

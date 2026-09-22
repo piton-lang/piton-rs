@@ -1,27 +1,30 @@
 export anchor Package:
     description:
-        A package declaration is just a `Package as package` anchor that can be
-        located anywhere within a specbase, but it must be included in the main
+        A package declaration is a `piton-package` anchor that can be located
+        anywhere within a specbase, but it must be included in the main
         piton.config.pi file.
 
-        The Package anchor is exposed by the `@piton/packaging` import/use.
+        The PitonPackage anchor is exposed by the `@piton/packaging`
+        import/use.
 
         ```piton
         \\\
         export abstract anchor PitonPackage as piton-package:
             name:: string:: null: null
             root:: string
-            dependencies:: string[]:: null: null
+            dependencies:: list:: null: null
         \\\
         ```
 
         The name is what the package installs under, and it is separate from
-        the anchor's name because it can contain a `/`. Left out, the anchor's
-        own name is used.
+        the anchor's name because it can be kebab-case, like my-package. Left
+        out, the anchor's own name is used. Package names can't have a `/` in
+        them. Names like `@piton/belay` are only for the packages that come
+        with the compiler.
 
         and in piton.config.pi
 
-        ```piton
+        ```piton fragment
         \\\
         packages:
             - {MyPackage}
@@ -36,17 +39,14 @@ export anchor Package:
 
     dependencies:
         If dependencies are specified at a project level, they only apply to the
-        project.  A Package must define its own dependencies.
-
-        It is possible to pin versions at a project level, and if not specified
-        at a package level, those version pins will be inherited.
+        project. A Package must define its own, the same way.
 
         There are no nested dependencies; if MyPackage is required by two
-        different packages, the most recent version will be chosen and a warning
-        will be displayed.
+        different packages at different versions, the one with the newest
+        commit will be chosen and a warning will be displayed.
 
     installation:
-        A package is installed into tethers/ according to its name.  So while a
-        single project can defined multiple packages, let's say MyScope/package
-        and MyPackage, they will both be installed into tethers/MyScope/package
-        and tethers/MyPackage respectively.
+        A package is installed into tethers/ according to its name. So while a
+        single project can define multiple packages, let's say ui-kit and
+        my-package, they will both be installed into tethers/ui-kit and
+        tethers/my-package respectively.

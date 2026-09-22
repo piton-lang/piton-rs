@@ -40,8 +40,26 @@ export anchor Super:
 
         As with the previous example of multiple inheritance, the anchor could
         be inheriting from multiple bases, in which case what does super point
-        to? It follows the same authority as property inheritance in that left
-        to right, last in line wins.
+        to? super is everything the anchor inherits, merged together the same
+        way as property inheritance: left to right, last in line wins. So if
+        the last base doesn't have the property, super still finds it on an
+        earlier one.
+
+        ```piton
+        \\\
+        anchor Left:
+            d: from-left
+
+        anchor Right:
+            other: x
+
+        anchor Child extends Left, Right:
+            d: ${super.d} plus child
+        \\\
+        ```
+
+        Here Child.d is “from-left plus child”. If none of the bases have the
+        property, that's a compiler error.
 
         It’s worth noting the small detail here that we borrow the \ ${} \
         syntax from other languages for string interpolation.

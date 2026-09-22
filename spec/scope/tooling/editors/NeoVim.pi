@@ -1,4 +1,4 @@
-use ../editors
+use .
 
 export editor NeoVim:
-    syntaxHighlighter: "vim"
+    syntaxHighlighter: vim

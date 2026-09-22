@@ -1,11 +1,16 @@
 use ../lib/Operator
 from ../../variables/TypeCoercion import TypeCoercion
+from ../../expressions/StringExpression import StringExpression
 
 export operator ConcatenationOperator:
     description:
-        The concatenation operator (`+`) joins two strings into a single string,
-        preserving their order. For example, `"Hello" + " world"` evaluates to
-        `"Hello world"`.
+        The concatenation operator (`+`) joins two strings together. For
+        example, `\ {"Hello" + "World"} \` gives you `HelloWorld`.
+
+        If only one side is a string, the other side gets turned into a string
+        first, following the @{StringExpression} rules. So
+        `\ {2 + "Hello"} \` gives you `2Hello`. If it can't be turned into a
+        string, that's a compiler error.
 
         Adheres to rules of @{TypeCoercion}
 

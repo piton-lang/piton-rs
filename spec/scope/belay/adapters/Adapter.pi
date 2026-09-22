@@ -1,12 +1,10 @@
-// Shared contract for output adapters. This is specification vocabulary,
-// not a finalized replacement for the runtime belay-agent-adapter schema.
-export abstract anchor Adapter:
+// Shared contract for Belay agent-platform adapters.
+export abstract anchor Adapter as belay-agent-adapter:
     description:: string
     targetId:: string
     instructionFile:: string
     referenceRoot:: string
 
-    status: proposed Belay adapter contract
     documentationChecked: 2026-09-21
 
     requirements:
@@ -18,15 +16,15 @@ export abstract anchor Adapter:
         - Apply only explicitly configured model and permission settings.
         - Keep target settings separate from extra prose properties in each construct.
         - Resolve generated Markdown links from the file containing the link.
-        - Resolve __BELAY_SHAPE__ to the selected adapter's compiled shape directory.
+        - Resolve BELAY_COMPILED_SHAPE to the selected adapter's compiled shape directory.
         - Record the target version used to validate the generated artifacts.
 
     paths:
         description:
-            Adapter paths are relative to the application project root, while
-            scoped instruction destinations are resolved through codeRoot and
-            shapeRoot. The project-root configuration mechanism remains open.
-        proposedConvention:
+            Adapter paths are relative to the project root (where
+            piton.config.pi lives). Scoped instructions go through codeRoot and
+            shapeRoot instead.
+        convention:
             Ordinary references live beneath referenceRoot. Shapes live in its
             shape subdirectory. These paths are Belay-owned conventions and are
             not platform discovery directories. Never assume automatic loading.
@@ -37,8 +35,8 @@ export abstract anchor Adapter:
 
     metadata:
         description:
-            Platform-specific options belong to the selected adapter's mapping.
-            Their placement in author-facing Piton configuration remains open.
+            Platform-specific options belong to the selected adapter. How you
+            write them is still an open decision.
         requirements:
             - Validate native options against the selected platform version.
             - Serialize YAML or TOML with a format-aware encoder.

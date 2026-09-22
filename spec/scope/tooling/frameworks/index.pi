@@ -2,10 +2,9 @@ export anchor Frameworks:
     description:
         Frameworks are a construct within a Piton project that allow the
         inclusion of Piton modules globally as well as the extension of what the
-        compiler outputs through adapters. We have already discussed, for
-        example, how string interpolation can be given nuance through extensible
-        sigils, and specifically how that can be relevant for JSON vs. agentic
-        output.
+        compiler outputs. Piton itself outputs data through renderers, and a
+        framework can add adapters on top of them. Belay's adapters, for
+        example, build on the Markdown renderer.
 
         As of the current version of Piton there is one framework bundled with
         the language: the Belay framework. In future iterations of the language,

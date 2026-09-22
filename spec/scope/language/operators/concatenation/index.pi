@@ -2,11 +2,30 @@ from ../lib/Operator import Operator
 from ./ConcatenationOperator import ConcatenationOperator
 from ./MergeOperator import MergeOperator
 from ./DupMergeOperator import DupMergeOperator
+from ../arithmetic/AdditionOperator import AdditionOperator
 
 export anchor ConcatenationOperators:
-    description: Concatenation operators
-    operators:
-        + {CONCATENATION_OPERATORS}
+    description: Operators that join strings, lists, and dictionaries.
+
+    operators: {CONCATENATION_OPERATORS}
+
+    plusDispatch:
+        The `+` symbol is shared by @{AdditionOperator},
+        @{ConcatenationOperator}, and @{MergeOperator}. Which one you get
+        depends on the types on each side.
+
+        ```markdown
+        \\\
+        | Left       | Right      | Operation                              |
+        | ---------- | ---------- | -------------------------------------- |
+        | number     | number     | AdditionOperator                       |
+        | string     | any        | ConcatenationOperator                  |
+        | any        | string     | ConcatenationOperator                  |
+        | list       | list       | MergeOperator                          |
+        | dictionary | dictionary | MergeOperator                          |
+        | other      | other      | compiler error                         |
+        \\\
+        ```
 
 export CONCATENATION_OPERATORS:: extends Operator[]:
     - {ConcatenationOperator}

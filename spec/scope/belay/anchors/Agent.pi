@@ -10,7 +10,8 @@ export anchor AgentBehavior extends FrameworkSpecification:
         expressed in the format understood by the target platform.
 
     requirements:
-        - Require description, role, and prompt strings.
+        - Require role. description and prompt are optional.
+        - Report an error if the target needs a description and there isn't one.
         - Emit the agent into the configured target's agent directory and format.
         - Use the kebab-case anchor name as agent identity unless the target requires another form.
         - Emit description as discovery metadata.

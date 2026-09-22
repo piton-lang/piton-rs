@@ -1,5 +1,0 @@
-export anchor Compiling:
-    anythingExported:
-        Anything that is exported from the entry file will be compiled; from the
-        entry file, it doesn't have to be explicitly *used* to be compiled.  It
-        just has to be exported from the entry file.

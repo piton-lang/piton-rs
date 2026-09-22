@@ -1,12 +1,12 @@
-from ./Introduction import Introduction
+from ./Introduction import LanguageIntroduction
 from ./FilesAndModules import FilesAndModules
 from ./Whitespace import Whitespace
 from ./Comments import Comments
-from ./Keywords import Keywords
+from ./Keywords import ReservedWords
 
-export anchor Overview:
-    introduction: @{Introduction}
-    filesAndModules: @{FilesAndModules}
-    whitespace: @{Whitespace}
-    comments: @{Comments}
-    keywords: @{Keywords}
+export anchor LanguageOverview:
+    introduction: {LanguageIntroduction}
+    filesAndModules: {FilesAndModules}
+    whitespace: {Whitespace}
+    comments: {Comments}
+    keywords: {ReservedWords}

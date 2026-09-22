@@ -1,5 +1,6 @@
 use ./lib/Type
 from ../operators/arithmetic import ARITHMETIC_OPERATORS
+from ../operators/comparison import COMPARISON_OPERATORS
 
 export type Numbers:
     description:
@@ -19,5 +20,18 @@ export type Numbers:
         There is a single number type in all of Piton; type-wise there’s no
         difference between an int, a float, double, etc.
 
+    representation:
+        Under the hood, numbers are 64-bit floats (IEEE 754).
+
+        Negative numbers are written with a minus, like `-5`. List items
+        always have a space after the dash, so `-5` is a number and `- 5` is a
+        list item.
+
+        There's no exponent notation, so no `1e3`.
+
+        When compiled, numbers are written in their shortest form, so
+        `1_200_000.00` becomes `1200000` and `0.50` becomes `0.5`.
+
     supportedOperators:
         + {ARITHMETIC_OPERATORS}
+        + {COMPARISON_OPERATORS}

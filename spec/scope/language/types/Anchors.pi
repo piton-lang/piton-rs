@@ -1,7 +1,10 @@
 use ./lib/Type
 from ./Dictionaries import Dictionaries
+from ../operators/comparison/EqOperator import EqOperator
+from ../operators/comparison/NeqOperator import NeqOperator
+from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
 
-export type Anchors:
+export type AnchorType:
     description:
         There is exactly one user-defined type, and it’s called an anchor. This
         is something that can be shaped by other types via properties and
@@ -11,4 +14,7 @@ export type Anchors:
 
     validKeys: {Dictionaries.validKeys}
 
-    supportedOperators: null
+    supportedOperators:
+        - {PropertyAccessOperator}
+        - {EqOperator}
+        - {NeqOperator}

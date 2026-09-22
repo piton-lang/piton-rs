@@ -1,4 +1,4 @@
-# Keywords
+# User Defined Keywords
 
 ## Description
 
@@ -10,7 +10,7 @@ anchor MyAnchor as my-anchor:
 
 my-anchor ChildAnchor:
     description:
-        + {super.description}
+        ${super.description}
         My additional description
 ```
 That is exactly equivalent to using extends:
@@ -20,10 +20,10 @@ anchor MyAnchor:
 
 anchor ChildAnchor extends MyAnchor:
     description:
-        + {super.description}
+        ${super.description}
         My additional description
 ```
-By its nature, a user-defined keyword does not allow for multiple inheritance chains, however you can still use extends to achieve the same effect.
+An anchor can be declared with only one keyword, but it can still use extends to inherit from other anchors as well.
 ```piton
 anchor MyAnchor as my-anchor:
     description: This is a description of my anchor
@@ -33,7 +33,7 @@ anchor OtherBase:
 
 my-anchor ChildAnchor extends OtherBase:
     description:
-        + {super.description}
+        ${super.description}
         My additional description
 ```
 This would be equivalent to:
@@ -44,9 +44,10 @@ anchor MyAnchor as my-anchor:
 anchor OtherBase:
     description: Other Base
 
-anchor ChildAnchor extends MyAnchor, OtherBase:
+anchor ChildAnchor extends OtherBase, MyAnchor:
     description:
-        + {super.description}
+        ${super.description}
         My additional description
 ```
-Note that the user-defined keyword will be the first anchor in the inheritance chain, and so be overruled during collisions by anything further right in the chain.
+Note that the keyword's anchor is always placed last in the inheritance chain, so it wins collisions against anything listed in extends. Here ChildAnchor's description begins with “This is a description of my anchor”.
+A user-defined keyword may not be one of the reserved words.
