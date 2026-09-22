@@ -436,9 +436,18 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
     clear(&checkout)?;
     copy_tree(&source, &checkout)?;
 
-    generate_parser(&checkout, options.dry_run);
+    let generated = generate_parser(&checkout, options.dry_run);
+    if !generated && !options.allow_dirty {
+        return Err(Error::Message(
+            "the grammar has no `src/parser.c`, so Zed would report it as a \
+             grammar that will not compile.\n\
+             Install the tree-sitter CLI (`cargo install tree-sitter-cli`) and \
+             publish again, or pass --allow-dirty to publish without it."
+                .to_string(),
+        ));
+    }
 
-    git(&checkout, &["add", "--all"])?;
+    stage(&checkout)?;
     let staged = git_output(&checkout, &["status", "--porcelain"])?;
     if staged.trim().is_empty() {
         println!("the published grammar already matches {short}; nothing to do");
@@ -681,10 +690,11 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
 
 /// Generates the parser, when the tree-sitter CLI is available.
 ///
-/// A published grammar is more useful with `src/parser.c` in it, since then a
-/// consumer needs no toolchain. It is not required, so a missing CLI is a note
-/// rather than a failure.
-fn generate_parser(checkout: &Path, dry_run: bool) {
+/// A published grammar has to carry `src/parser.c`: Zed compiles that file
+/// and nothing else, so a grammar published without it is reported as one
+/// that will not compile. Returns whether the parser is there to be
+/// published.
+fn generate_parser(checkout: &Path, dry_run: bool) -> bool {
     let available = Command::new("tree-sitter")
         .arg("--version")
         .output()
@@ -696,11 +706,11 @@ fn generate_parser(checkout: &Path, dry_run: bool) {
              carry no generated parser.\n      Consumers will need to run \
              `tree-sitter generate` themselves."
         );
-        return;
+        return false;
     }
     if dry_run {
         println!("would run `tree-sitter generate`");
-        return;
+        return checkout.join("src/parser.c").is_file();
     }
     let status = Command::new("tree-sitter")
         .arg("generate")
@@ -710,6 +720,26 @@ fn generate_parser(checkout: &Path, dry_run: bool) {
         Ok(status) if status.success() => println!("generated the parser"),
         _ => println!("note: `tree-sitter generate` failed; publishing the grammar alone"),
     }
+    checkout.join("src/parser.c").is_file()
+}
+
+/// Everything `tree-sitter generate` writes that a consumer needs.
+///
+/// The grammar's own `.gitignore` excludes these, because in this repository
+/// they are build output regenerated from `grammar.js`. The published copy is
+/// a distribution rather than a source tree, so they are staged explicitly --
+/// `git add --all` would skip every one of them.
+const GENERATED: [&str; 2] = ["src", "bindings"];
+
+/// Stages the published tree, generated parser included.
+fn stage(checkout: &Path) -> Result<(), Error> {
+    git(checkout, &["add", "--all"])?;
+    for path in GENERATED {
+        if checkout.join(path).exists() {
+            git(checkout, &["add", "--force", "--", path])?;
+        }
+    }
+    Ok(())
 }
 
 /// A temporary directory to work in.
@@ -788,6 +818,36 @@ mod publish_tests {
         assert_eq!(
             fs::read_to_string(destination.join("queries/highlights.scm")).unwrap(),
             "(anchor) @type"
+        );
+    }
+
+    #[test]
+    fn staging_includes_the_generated_parser() {
+        // The grammar's `.gitignore` excludes `src/`, so a plain `git add
+        // --all` publishes a repository with no `src/parser.c` in it. Zed
+        // compiles that file and nothing else, and reports its absence as a
+        // grammar that will not compile.
+        let checkout = scratch("stage");
+        git(&checkout, &["init", "--quiet", "--initial-branch", "main"]).expect("init");
+        fs::write(&checkout.join(".gitignore"), "src/\nnode_modules/\n").unwrap();
+        fs::write(&checkout.join("grammar.js"), "module.exports = {};").unwrap();
+        fs::create_dir_all(checkout.join("src/tree_sitter")).unwrap();
+        fs::write(checkout.join("src/parser.c"), "/* generated */").unwrap();
+        fs::write(checkout.join("src/tree_sitter/parser.h"), "/* generated */").unwrap();
+        fs::create_dir_all(checkout.join("node_modules/tree-sitter-cli")).unwrap();
+        fs::write(checkout.join("node_modules/tree-sitter-cli/index.js"), "").unwrap();
+
+        stage(&checkout).expect("stage");
+
+        let staged = git_output(&checkout, &["diff", "--cached", "--name-only"]).expect("staged");
+        let staged: Vec<&str> = staged.lines().collect();
+        assert!(staged.contains(&"src/parser.c"), "{staged:?}");
+        assert!(staged.contains(&"src/tree_sitter/parser.h"), "{staged:?}");
+        assert!(staged.contains(&"grammar.js"), "{staged:?}");
+        // Forcing the generated parser in must not drag the toolchain in too.
+        assert!(
+            !staged.iter().any(|path| path.starts_with("node_modules/")),
+            "{staged:?}"
         );
     }
 

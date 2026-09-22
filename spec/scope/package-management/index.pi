@@ -23,4 +23,16 @@ export anchor PackageManagement:
         Tethered packages are stored in the same directory as the
         piton.config.pi file inside a tethers/ directory.
 
-        When a package is untethered, they've moved into specRoot/untethered
+        When a package is untethered, they've moved into specRoot/untethered and
+        the LSP should be used to rework any imports.
+
+    clone:
+        Cloning with git (tethering) should remove any traces of git; these are
+        just plain files now once they're tethered.
+
+    conflictResolution:
+        When a package is updated (or tethered or anything else), it should
+        check the current status of the files against the locked version, and
+        only if there are no differences can it update.  If it appears that the
+        package has been modified, the user should be informed of the problem
+        and asked to untether.

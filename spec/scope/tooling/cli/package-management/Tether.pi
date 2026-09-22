@@ -2,3 +2,7 @@ use ../../cli
 
 export cli-command Tether:
     commandName: tether
+    description:
+
+    positionalArgs:
+        source: Path to the git repository
