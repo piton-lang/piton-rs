@@ -181,6 +181,7 @@ fn no_definition_invents_a_block_comment() {
 fn every_definition_uses_four_spaces() {
     for (definition, needle) in [
         ("zed/languages/piton/config.toml", "tab_size = 4"),
+        ("vim/indent/piton.vim", "shiftwidth()"),
         ("helix/languages.toml", "tab-width = 4"),
         ("vim/ftplugin/piton.vim", "shiftwidth=4"),
         ("neovim/piton.lua", "shiftwidth = 4"),
@@ -194,6 +195,28 @@ fn every_definition_uses_four_spaces() {
         zed.contains("hard_tabs = false"),
         "tabs are not the indent character"
     );
+}
+
+/// Pressing enter after a line that ends in a colon lands inside the block it
+/// opened.
+///
+/// The specification asks for it in `Lsp.pi`, and the server answers
+/// `textDocument/onTypeFormatting` for the clients that ask. Not every client
+/// does, so the editors that can express the rule themselves have to.
+#[test]
+fn every_definition_indents_after_a_colon() {
+    for (definition, needle) in [
+        ("zed/languages/piton/config.toml", r#"increase_indent_pattern = ":\\s*$""#),
+        ("vscode/language-configuration.json", r#""increaseIndentPattern": ":\\s*$""#),
+        ("vim/indent/piton.vim", r"':\s*$'"),
+        ("emacs/piton-mode.el", r#".*:[ \t]*$"#),
+    ] {
+        let text = read(definition);
+        assert!(
+            text.contains(needle),
+            "{definition} should indent after a line ending in a colon (`{needle}`)"
+        );
+    }
 }
 
 /// Each editor named by the specification has a directory.

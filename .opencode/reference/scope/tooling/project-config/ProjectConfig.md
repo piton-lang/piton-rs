@@ -1,0 +1,24 @@
+# Project Config
+
+## Description
+
+If the compiler finds a piton.config.pi file in the current working directory, it will read that configuration file to configure a project. Realistically, this is how any Piton project will usually be used. Through a project you can configure entry points, output directories, roots, and other build options.
+Configuration anchors are provided by the @piton/config use/import which is bundled into the compiler:
+```piton
+use @piton/config
+use @piton/belay
+
+from @piton/belay import ClaudeAdapter
+
+export piton-config Config:
+    root: ./spec
+    entry: ./spec/index.pi // This is optional and defaults to the root
+
+    frameworks:
+        - {BelayFrameworkConfig}
+
+belay-config BelayFrameworkConfig:
+    codeRoot: ./src/
+    adapters:
+        - {ClaudeAdapter}
+```

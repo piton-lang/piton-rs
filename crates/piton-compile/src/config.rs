@@ -11,6 +11,7 @@ use piton_core::{AnchorId, Diagnostic, DiagnosticSink, Span, Value};
 
 use crate::eval;
 use crate::module;
+use crate::packages::{self, Dependency, PackageDecl};
 use crate::resolve;
 use crate::store::Symbol;
 
@@ -46,6 +47,10 @@ pub struct Project {
     pub entry: PathBuf,
     pub config_path: Option<PathBuf>,
     pub frameworks: Vec<Framework>,
+    /// Packages this project publishes, in declaration order.
+    pub packages: Vec<PackageDecl>,
+    /// Dependencies the project itself requires, with any version pins.
+    pub dependencies: Vec<Dependency>,
 }
 
 impl Project {
@@ -61,6 +66,29 @@ impl Project {
             entry: path.to_path_buf(),
             config_path: None,
             frameworks: Vec::new(),
+            packages: Vec::new(),
+            dependencies: Vec::new(),
+        }
+    }
+
+    /// The same project, compiled from a different file.
+    ///
+    /// A command given one file still wants the project's roots, frameworks and
+    /// packages: the file is part of that project, and resolving its imports
+    /// without them would answer a different question than the build does.
+    pub fn with_entry(&self, entry: &Path) -> Project {
+        Project {
+            entry: entry.to_path_buf(),
+            ..self.clone()
+        }
+    }
+
+    /// The roots module resolution needs: where absolute imports point, and
+    /// where installed packages live.
+    pub fn roots(&self) -> module::Roots<'_> {
+        module::Roots {
+            source_root: &self.source_root,
+            project_root: &self.root,
         }
     }
 
@@ -112,6 +140,8 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
                 entry: root,
                 config_path: None,
                 frameworks: Vec::new(),
+                packages: Vec::new(),
+                dependencies: Vec::new(),
             },
             diagnostics,
         );
@@ -123,7 +153,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         .unwrap_or_else(|| PathBuf::from("."));
 
     // The configuration is compiled on its own, rooted at its own directory.
-    let resolution = resolve::resolve(&config_path, &root);
+    let resolution = resolve::resolve(&config_path, module::Roots::flat(&root));
     let outcome = eval::evaluate(&resolution);
     diagnostics.extend(resolution.diagnostics.iter().cloned());
     diagnostics.extend(outcome.diagnostics.iter().cloned());
@@ -172,11 +202,17 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         .map(|value| module::normalize(&root.join(value)))
         .unwrap_or_else(|| root.clone());
 
-    let entry = properties
-        .get("entry")
-        .and_then(text_of)
-        .map(|value| module::normalize(&root.join(value)))
-        .unwrap_or_else(|| source_root.clone());
+    // The entry is optional and defaults to the root. A root is a directory,
+    // and a directory is a module through its `index.pi` -- the same rule an
+    // import written against a directory follows, so a project and an import
+    // agree about what a directory means.
+    let entry = module_entry(
+        properties
+            .get("entry")
+            .and_then(text_of)
+            .map(|value| module::normalize(&root.join(value)))
+            .unwrap_or_else(|| source_root.clone()),
+    );
 
     let mut frameworks = Vec::new();
     if let Some(list) = properties.get("frameworks") {
@@ -191,6 +227,26 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         }
     }
 
+    let dependencies = properties
+        .get("dependencies")
+        .map(|value| {
+            packages::read_dependencies(value, &config_path, Span::default(), &mut diagnostics)
+        })
+        .unwrap_or_default();
+
+    let mut declared = Vec::new();
+    if let Some(list) = properties.get("packages") {
+        for item in list.as_list_items() {
+            if let Value::Anchor(anchor) = item {
+                if let Some(package) =
+                    read_package(&resolution, &outcome, anchor, &root, &mut diagnostics)
+                {
+                    declared.push(package);
+                }
+            }
+        }
+    }
+
     (
         Project {
             root,
@@ -198,9 +254,76 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
             entry,
             config_path: Some(config_path),
             frameworks,
+            packages: declared,
+            dependencies,
         },
         diagnostics,
     )
+}
+
+/// Reads one `package` anchor from the configuration's `packages` list.
+///
+/// A package names a directory of this project that is published on its own,
+/// and the dependencies that directory needs. The name it installs under is
+/// its `name` when it has one and its anchor name otherwise, which is what lets
+/// a scoped package reach `tethers/MyScope/package`.
+fn read_package(
+    resolution: &resolve::Resolution,
+    outcome: &eval::Outcome,
+    anchor: AnchorId,
+    root: &Path,
+    diagnostics: &mut DiagnosticSink,
+) -> Option<PackageDecl> {
+    let def = resolution.store.anchor(anchor);
+    let file = resolution.graph.get(def.module).path.clone();
+    let properties = outcome.anchors.get(&anchor)?;
+    if def.keyword != "package" {
+        diagnostics.push(Diagnostic::warning(
+            "unknown-package",
+            format!("`{}` is not a package declaration", def.name),
+            file,
+            def.name_span,
+        ));
+        return None;
+    }
+
+    let name = properties
+        .get("name")
+        .and_then(text_of)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| def.name.clone());
+
+    let Some(package_root) = properties.get("root").and_then(text_of) else {
+        diagnostics.push(
+            Diagnostic::error(
+                "package-without-root",
+                format!("package `{name}` does not say which directory it publishes"),
+                file,
+                def.name_span,
+            )
+            .with_help("give it a `root`, as in `root: ./spec`".to_string()),
+        );
+        return None;
+    };
+
+    let dependencies = properties
+        .get("dependencies")
+        .map(|value| packages::read_dependencies(value, &file, def.name_span, diagnostics))
+        .unwrap_or_default();
+
+    Some(PackageDecl {
+        name,
+        root: module::normalize(&root.join(package_root)),
+        dependencies,
+    })
+}
+
+/// Resolves a configured path to the file compilation starts from.
+fn module_entry(path: PathBuf) -> PathBuf {
+    if path.is_dir() {
+        return path.join("index.pi");
+    }
+    path
 }
 
 fn default_project(root: &Path, config_path: &Path) -> Project {
@@ -210,6 +333,8 @@ fn default_project(root: &Path, config_path: &Path) -> Project {
         entry: root.to_path_buf(),
         config_path: Some(config_path.to_path_buf()),
         frameworks: Vec::new(),
+        packages: Vec::new(),
+        dependencies: Vec::new(),
     }
 }
 
@@ -292,6 +417,27 @@ fn text_of(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_directory_entry_resolves_to_its_index() {
+        let directory = std::env::temp_dir().join(format!(
+            "piton-entry-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        assert_eq!(
+            module_entry(directory.clone()),
+            directory.join("index.pi"),
+            "a root with no entry compiles from its index"
+        );
+
+        let file = directory.join("Thing.pi");
+        std::fs::write(&file, "a: 1\n").expect("write");
+        assert_eq!(module_entry(file.clone()), file);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 
     #[test]
     fn a_file_without_configuration_is_its_own_project() {

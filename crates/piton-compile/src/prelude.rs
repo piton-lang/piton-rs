@@ -19,6 +19,8 @@
 pub const CONFIG_PACKAGE: &str = "@piton/config";
 /// Module path for the Belay framework package.
 pub const BELAY_PACKAGE: &str = "@piton/belay";
+/// Module path for the package-management package.
+pub const PACKAGING_PACKAGE: &str = "@piton/packaging";
 
 /// The special export that resolves to the compiled shape root of the current
 /// output target.
@@ -36,8 +38,42 @@ pub const BELAY_SHAPE: &str = "__BELAY_SHAPE__";
 /// rewritten.
 pub const BELAY_SHAPE_TOKEN: &str = "\u{e000}__BELAY_SHAPE__\u{e001}";
 
-/// Placeholder in the package template, swapped for the real marker at load.
-const BELAY_SHAPE_PLACEHOLDER: &str = "__BELAY_SHAPE_MARKER__";
+/// The four location exports Belay resolves while writing.
+///
+/// Each names a directory the generated artifact has to be able to point at,
+/// and none of them can be known during evaluation: the agent root depends on
+/// which adapter is being compiled, and all four are written relative to the
+/// file that carries the use. Evaluation therefore leaves a marker, exactly as
+/// it does for `__BELAY_SHAPE__`, and Belay substitutes a path per file.
+pub const BELAY_AGENT_ROOT: &str = "BELAY_AGENT_ROOT";
+pub const BELAY_PROJECT_ROOT: &str = "BELAY_PROJECT_ROOT";
+pub const BELAY_SHAPE_ROOT: &str = "BELAY_SHAPE_ROOT";
+pub const BELAY_CODE_ROOT: &str = "BELAY_CODE_ROOT";
+
+/// The marker each of the four location exports evaluates to.
+pub const BELAY_AGENT_ROOT_TOKEN: &str = "\u{e000}BELAY_AGENT_ROOT\u{e001}";
+pub const BELAY_PROJECT_ROOT_TOKEN: &str = "\u{e000}BELAY_PROJECT_ROOT\u{e001}";
+pub const BELAY_SHAPE_ROOT_TOKEN: &str = "\u{e000}BELAY_SHAPE_ROOT\u{e001}";
+pub const BELAY_CODE_ROOT_TOKEN: &str = "\u{e000}BELAY_CODE_ROOT\u{e001}";
+
+/// Each location export, paired with the marker it evaluates to, so a consumer
+/// can iterate the set rather than repeating the five names.
+pub const BELAY_LOCATION_MARKERS: [(&str, &str); 5] = [
+    (BELAY_SHAPE, BELAY_SHAPE_TOKEN),
+    (BELAY_AGENT_ROOT, BELAY_AGENT_ROOT_TOKEN),
+    (BELAY_PROJECT_ROOT, BELAY_PROJECT_ROOT_TOKEN),
+    (BELAY_SHAPE_ROOT, BELAY_SHAPE_ROOT_TOKEN),
+    (BELAY_CODE_ROOT, BELAY_CODE_ROOT_TOKEN),
+];
+
+/// Placeholders in the package template, swapped for the real markers at load.
+const MARKER_PLACEHOLDERS: [(&str, &str); 5] = [
+    ("__BELAY_SHAPE_MARKER__", BELAY_SHAPE_TOKEN),
+    ("__BELAY_AGENT_ROOT_MARKER__", BELAY_AGENT_ROOT_TOKEN),
+    ("__BELAY_PROJECT_ROOT_MARKER__", BELAY_PROJECT_ROOT_TOKEN),
+    ("__BELAY_SHAPE_ROOT_MARKER__", BELAY_SHAPE_ROOT_TOKEN),
+    ("__BELAY_CODE_ROOT_MARKER__", BELAY_CODE_ROOT_TOKEN),
+];
 
 /// `@piton/config`: the anchors a `piton.config.pi` file is built from.
 pub const CONFIG_SOURCE: &str = r#"// Bundled with the Piton compiler.
@@ -46,9 +82,31 @@ export abstract anchor PitonConfig as piton-config:
     root:: string
     entry:: string:: null: null
     frameworks:: list:: null: null
+    packages:: list:: null: null
+    dependencies:: list:: null: null
 
 export abstract anchor FrameworkConfig as framework-config:
     pass
+"#;
+
+/// `@piton/packaging`: the anchor a project declares a publishable package with.
+///
+/// A package declaration says what part of this project is published and what
+/// it needs. It is abstract for the same reason the configuration anchors are:
+/// `package MyThing:` is the form the specification writes, and a keyword only
+/// reads that way when the anchor behind it is a shape rather than a value.
+///
+/// `name` is how a package reaches a location an anchor name cannot spell. The
+/// specification installs `MyScope/package` at `tethers/MyScope/package`, and no
+/// anchor is called `MyScope/package`; without a name, a scoped package has no
+/// way to say where it goes. Left out, the anchor's own name is the package
+/// name.
+pub const PACKAGING_SOURCE: &str = r#"// Bundled with the Piton compiler.
+
+export abstract anchor Package as package:
+    name:: string:: null: null
+    root:: string
+    dependencies:: string[]:: null: null
 "#;
 
 // The framework's own definitions, taken from the specification that describes
@@ -119,6 +177,13 @@ export anchor OpenCodeAdapter extends Adapter:
 // location. Never resolved at agent runtime.
 export __BELAY_SHAPE__: __BELAY_SHAPE_MARKER__
 
+// The directories a generated artifact may need to point at. Each is written
+// relative to the file that carries it, for the adapter being compiled.
+export BELAY_AGENT_ROOT: __BELAY_AGENT_ROOT_MARKER__
+export BELAY_PROJECT_ROOT: __BELAY_PROJECT_ROOT_MARKER__
+export BELAY_SHAPE_ROOT: __BELAY_SHAPE_ROOT_MARKER__
+export BELAY_CODE_ROOT: __BELAY_CODE_ROOT_MARKER__
+
 export abstract anchor BelayConfig extends FrameworkConfig as belay-config:
     codeRoot:: string
     shapeRoot:: string:: null: null
@@ -135,13 +200,14 @@ fn modules() -> &'static [(&'static str, &'static str)] {
         std::sync::OnceLock::new();
     MODULES
         .get_or_init(|| {
-            let index: &'static str = Box::leak(
-                BELAY_INDEX
-                    .replace(BELAY_SHAPE_PLACEHOLDER, BELAY_SHAPE_TOKEN)
-                    .into_boxed_str(),
-            );
+            let mut text = BELAY_INDEX.to_string();
+            for (placeholder, marker) in MARKER_PLACEHOLDERS {
+                text = text.replace(placeholder, marker);
+            }
+            let index: &'static str = Box::leak(text.into_boxed_str());
             vec![
                 (CONFIG_PACKAGE, CONFIG_SOURCE),
+                (PACKAGING_PACKAGE, PACKAGING_SOURCE),
                 (BELAY_PACKAGE, index),
                 ("@piton/belay/Framework", BELAY_FRAMEWORK),
                 ("@piton/belay/anchors/Construct", BELAY_CONSTRUCT),
@@ -174,7 +240,7 @@ pub fn is_package_path(path: &str) -> bool {
 }
 
 /// The packages a project may import by name.
-pub const PACKAGE_ROOTS: [&str; 2] = [CONFIG_PACKAGE, BELAY_PACKAGE];
+pub const PACKAGE_ROOTS: [&str; 3] = [CONFIG_PACKAGE, BELAY_PACKAGE, PACKAGING_PACKAGE];
 
 #[cfg(test)]
 mod tests {
@@ -201,9 +267,25 @@ mod tests {
     }
 
     #[test]
-    fn the_shape_marker_is_substituted_once() {
+    fn every_location_marker_is_substituted_once() {
         let index = package_source(BELAY_PACKAGE).expect("index");
-        assert!(index.contains(BELAY_SHAPE_TOKEN));
-        assert!(!index.contains(BELAY_SHAPE_PLACEHOLDER));
+        for (name, marker) in BELAY_LOCATION_MARKERS {
+            assert!(index.contains(marker), "{name} has no marker in the package");
+        }
+        for (placeholder, _) in MARKER_PLACEHOLDERS {
+            assert!(
+                !index.contains(placeholder),
+                "{placeholder} survived substitution"
+            );
+        }
+    }
+
+    #[test]
+    fn location_markers_are_distinct() {
+        for (index, (name, marker)) in BELAY_LOCATION_MARKERS.iter().enumerate() {
+            for (other_name, other) in &BELAY_LOCATION_MARKERS[index + 1..] {
+                assert_ne!(marker, other, "{name} and {other_name} share a marker");
+            }
+        }
     }
 }

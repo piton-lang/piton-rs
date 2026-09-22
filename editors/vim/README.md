@@ -1,7 +1,7 @@
 # Piton for Vim
 
-Copy `syntax/`, `ftdetect/` and `ftplugin/` into `~/.vim/`, or point a plugin
-manager at this directory.
+Copy `syntax/`, `ftdetect/`, `ftplugin/` and `indent/` into `~/.vim/`, or point
+a plugin manager at this directory.
 
 Highlighting works on its own. For everything else, Vim needs an LSP client
 (vim-lsp, coc.nvim, ALE); point it at `piton lsp`. With vim-lsp:

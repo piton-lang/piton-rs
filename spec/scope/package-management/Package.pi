@@ -8,11 +8,16 @@ export anchor Package:
 
         ```piton
         \\\
-        export anchor Package as package:
+        export abstract anchor Package as package:
+            name:: string:: null: null
             root:: string
-            dependencies:: string[]:: null
+            dependencies:: string[]:: null: null
         \\\
         ```
+
+        The name is what the package installs under, and it is separate from
+        the anchor's name because it can contain a `/`. Left out, the anchor's
+        own name is used.
 
         and in piton.config.pi
 

@@ -226,6 +226,7 @@ fn build_target(
 ) {
     let project_root = &compilation.project.root;
     let source_root = &compilation.project.source_root;
+    let first_file = plan.files.len();
 
     // Reference destinations are needed before anything renders, because a
     // reference link has to point at a planned output.
@@ -308,7 +309,7 @@ fn build_target(
             OutputKind::Reference
         };
         plan.files.push(OutputFile {
-            contents: resolve_shape_token(&contents, adapter, &path),
+            contents,
             path,
             kind,
             target: adapter.target_id,
@@ -351,7 +352,7 @@ fn build_target(
             .join(", ");
         let sources = sections.iter().map(|(_, _, source)| source.clone()).collect();
         plan.files.push(OutputFile {
-            contents: resolve_shape_token(&contents, adapter, &path),
+            contents,
             path,
             kind: OutputKind::Instruction,
             target: adapter.target_id,
@@ -361,17 +362,74 @@ fn build_target(
     }
 
     let _ = project_root;
+
+    // Every file this target planned, whatever produced it, gets its location
+    // markers resolved. Doing it here rather than at each construction is what
+    // keeps a skill and a reference document agreeing about where `.claude` is.
+    let locations = target_locations(compilation, config, adapter);
+    for file in &mut plan.files[first_file..] {
+        file.contents = resolve_location_markers(&file.contents, &locations, &file.path);
+    }
 }
 
-/// Replaces the `__BELAY_SHAPE__` marker with a path to this target's compiled
-/// shape root, relative to the file that contains it.
-fn resolve_shape_token(contents: &str, adapter: &Adapter, path: &Path) -> String {
-    if !contents.contains(prelude::BELAY_SHAPE_TOKEN) {
+/// The directory each location export names, relative to the project root.
+///
+/// `shapeRoot` and `codeRoot` are configured paths, so they are stored absolute
+/// and made project-relative here. Both fall back to the project root, which is
+/// what the specification says an unconfigured root resolves to.
+fn target_locations(
+    compilation: &Compilation,
+    config: &BelayConfig,
+    adapter: &Adapter,
+) -> Vec<(&'static str, PathBuf)> {
+    let project_root = &compilation.project.root;
+    let under_project = |path: &Path| -> PathBuf {
+        path.strip_prefix(project_root)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+
+    vec![
+        (
+            prelude::BELAY_SHAPE_TOKEN,
+            PathBuf::from(adapter.shape_root()),
+        ),
+        (prelude::BELAY_AGENT_ROOT_TOKEN, PathBuf::from(adapter.root)),
+        (prelude::BELAY_PROJECT_ROOT_TOKEN, PathBuf::new()),
+        (
+            prelude::BELAY_SHAPE_ROOT_TOKEN,
+            config
+                .shape_root
+                .as_deref()
+                .map(under_project)
+                .unwrap_or_default(),
+        ),
+        (
+            prelude::BELAY_CODE_ROOT_TOKEN,
+            under_project(&config.code_root),
+        ),
+    ]
+}
+
+/// Rewrites each location marker as a path from the file that carries it to the
+/// directory it names.
+fn resolve_location_markers(
+    contents: &str,
+    locations: &[(&'static str, PathBuf)],
+    path: &Path,
+) -> String {
+    if !contents.contains('\u{e000}') {
         return contents.to_string();
     }
     let from = path.parent().unwrap_or(Path::new(""));
-    let relative = piton_emit::relative_link(from, Path::new(&adapter.shape_root()));
-    contents.replace(prelude::BELAY_SHAPE_TOKEN, &relative)
+    let mut out = contents.to_string();
+    for (marker, target) in locations {
+        if !out.contains(marker) {
+            continue;
+        }
+        out = out.replace(marker, &piton_emit::relative_link(from, target));
+    }
+    out
 }
 
 fn context_for<'a>(
@@ -422,7 +480,7 @@ fn render_skill(
     );
 
     plan.files.push(OutputFile {
-        contents: resolve_shape_token(&contents, adapter, &path),
+        contents,
         path,
         kind: OutputKind::Skill,
         target: adapter.target_id,
@@ -483,7 +541,7 @@ fn render_command(
     );
 
     plan.files.push(OutputFile {
-        contents: resolve_shape_token(&contents, adapter, &path),
+        contents,
         path: path.clone(),
         kind: OutputKind::Command,
         target: adapter.target_id,
@@ -584,7 +642,7 @@ fn render_agent(
     };
 
     plan.files.push(OutputFile {
-        contents: resolve_shape_token(&contents, adapter, &path),
+        contents,
         path,
         kind: OutputKind::Agent,
         target: adapter.target_id,

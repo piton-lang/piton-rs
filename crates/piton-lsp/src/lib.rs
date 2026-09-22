@@ -11,7 +11,9 @@ pub mod index;
 pub mod world;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use piton_syntax::language;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -44,6 +46,9 @@ pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
 pub struct Backend {
     client: Client,
     world: RwLock<World>,
+    /// Whether the client said it would accept a file watcher registered after
+    /// `initialize`.
+    watching: AtomicBool,
 }
 
 impl Backend {
@@ -52,6 +57,68 @@ impl Backend {
         Backend {
             client,
             world: RwLock::new(World::new(&root)),
+            watching: AtomicBool::new(false),
+        }
+    }
+
+    /// Asks the client to tell the server when a `.pi` file appears, changes or
+    /// goes away on disk.
+    ///
+    /// Nothing else will say so. `didChange` fires only for buffers the editor
+    /// has open, so a file written by `piton tether`, a scaffolding script, a
+    /// branch switch or a second editor is invisible until someone happens to
+    /// type in an open buffer -- and a file that has just been created is
+    /// exactly the file with nothing open in it.
+    async fn watch_sources(&self) {
+        if !self.watching.load(Ordering::Relaxed) {
+            return;
+        }
+        let pattern = format!("**/*.{}", language::EXTENSION);
+        let options = DidChangeWatchedFilesRegistrationOptions {
+            watchers: vec![FileSystemWatcher {
+                glob_pattern: GlobPattern::String(pattern),
+                // Created, changed and deleted: the default, said out loud.
+                kind: Some(WatchKind::all()),
+            }],
+        };
+        let Ok(register_options) = serde_json::to_value(options) else {
+            return;
+        };
+        let registration = Registration {
+            id: "piton-watch-sources".into(),
+            method: "workspace/didChangeWatchedFiles".into(),
+            register_options: Some(register_options),
+        };
+        if let Err(error) = self.client.register_capability(vec![registration]).await {
+            self.client
+                .log_message(
+                    MessageType::WARNING,
+                    format!("cannot watch sources for changes: {error}"),
+                )
+                .await;
+        }
+    }
+
+    /// Tells the client the server answers type hierarchy requests.
+    ///
+    /// Registered rather than declared: the `ServerCapabilities` struct in this
+    /// version of `lsp-types` has no `typeHierarchyProvider` field, and dynamic
+    /// registration is the protocol's own second way of saying the same thing.
+    /// A client that does not support it simply never asks, which is the same
+    /// outcome as not advertising the feature.
+    async fn offer_type_hierarchy(&self) {
+        let registration = Registration {
+            id: "piton-type-hierarchy".into(),
+            method: "textDocument/prepareTypeHierarchy".into(),
+            register_options: None,
+        };
+        if let Err(error) = self.client.register_capability(vec![registration]).await {
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!("type hierarchy is not available in this client: {error}"),
+                )
+                .await;
         }
     }
 
@@ -96,6 +163,15 @@ impl LanguageServer for Backend {
             *world = World::new(&folder);
         }
 
+        let dynamic = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+            .and_then(|watched| watched.dynamic_registration)
+            .unwrap_or(false);
+        self.watching.store(dynamic, Ordering::Relaxed);
+
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "piton-lsp".into(),
@@ -125,6 +201,7 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
@@ -133,6 +210,13 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                // Pressing enter after a line that ends in a colon should land
+                // inside the block it opened. The grammar cannot say that --
+                // indentation is not in it -- so the server does.
+                document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
+                    first_trigger_character: "\n".into(),
+                    more_trigger_character: None,
+                }),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
@@ -159,6 +243,8 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        self.watch_sources().await;
+        self.offer_type_hierarchy().await;
         self.refresh(None).await;
         self.client
             .log_message(MessageType::INFO, "piton language server ready")
@@ -199,6 +285,42 @@ impl LanguageServer for Backend {
         self.refresh(path).await;
     }
 
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let mut news = false;
+        {
+            let mut world = self.world.write().await;
+            for change in &params.changes {
+                let Some(path) = convert::url_to_path(&change.uri) else {
+                    continue;
+                };
+                if path.file_name().is_some_and(|name| name == language::CONFIG_FILE) {
+                    // The configuration names the source root and the entry
+                    // point, so a change to it changes which files are the
+                    // project at all, not just what one of them says.
+                    world.reload_project();
+                    news = true;
+                    continue;
+                }
+                match change.typ {
+                    FileChangeType::DELETED => {
+                        // A deleted file has no text left to fall back to, and
+                        // a buffer kept for it would hide the deletion.
+                        world.close_document(&path);
+                        news = true;
+                    }
+                    // A file the editor has open was already reported through
+                    // `didChange`, and its buffer is the truth in any case, so
+                    // this is a second telling of something already heard.
+                    FileChangeType::CHANGED if world.documents.contains_key(&path) => {}
+                    _ => news = true,
+                }
+            }
+        }
+        if news {
+            self.refresh(None).await;
+        }
+    }
+
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let Some(path) = convert::url_to_path(&params.text_document.uri) else {
             return;
@@ -229,6 +351,46 @@ impl LanguageServer for Backend {
             &params.text_document_position_params.text_document.uri,
             params.text_document_position_params.position,
         ))
+    }
+
+    async fn goto_implementation(
+        &self,
+        params: request::GotoImplementationParams,
+    ) -> Result<Option<request::GotoImplementationResponse>> {
+        let world = self.world.read().await;
+        Ok(features::implementations(
+            &world,
+            &params.text_document_position_params.text_document.uri,
+            params.text_document_position_params.position,
+        ))
+    }
+
+    async fn prepare_type_hierarchy(
+        &self,
+        params: TypeHierarchyPrepareParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        let world = self.world.read().await;
+        Ok(features::prepare_type_hierarchy(
+            &world,
+            &params.text_document_position_params.text_document.uri,
+            params.text_document_position_params.position,
+        ))
+    }
+
+    async fn supertypes(
+        &self,
+        params: TypeHierarchySupertypesParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        let world = self.world.read().await;
+        Ok(features::type_hierarchy_supertypes(&world, &params.item))
+    }
+
+    async fn subtypes(
+        &self,
+        params: TypeHierarchySubtypesParams,
+    ) -> Result<Option<Vec<TypeHierarchyItem>>> {
+        let world = self.world.read().await;
+        Ok(features::type_hierarchy_subtypes(&world, &params.item))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
@@ -296,6 +458,19 @@ impl LanguageServer for Backend {
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let world = self.world.read().await;
         Ok(features::formatting(&world, &params.text_document.uri))
+    }
+
+    async fn on_type_formatting(
+        &self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let world = self.world.read().await;
+        Ok(features::on_type_formatting(
+            &world,
+            &params.text_document_position.text_document.uri,
+            params.text_document_position.position,
+            &params.ch,
+        ))
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {

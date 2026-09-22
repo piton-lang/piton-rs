@@ -8,6 +8,13 @@ export cli-command Lsp:
     description:
         Runs the Piton language server
 
+        When you've created a new property and end with a `:` pressing enter
+        should move to the next line and indent.
+
+        Don't propose autocomplete on nothing.  If I type `property: ` it
+        shouldn't propose anything because the likely intent is to type
+        unstructured next.
+
     features:
         autocomplete:
             Suggests anchors, specs, skills, agents, properties, keywords,

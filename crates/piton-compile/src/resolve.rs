@@ -152,15 +152,15 @@ impl Resolution {
 }
 
 /// Loads every module reachable from `entry` and resolves names across them.
-pub fn resolve(entry: &std::path::Path, source_root: &std::path::Path) -> Resolution {
-    resolve_with(entry, source_root, ModuleGraph::default())
+pub fn resolve(entry: &std::path::Path, roots: module::Roots<'_>) -> Resolution {
+    resolve_with(entry, roots, ModuleGraph::default())
 }
 
 /// Resolves starting from `entry` using a graph that may already carry editor
 /// buffers.
 pub fn resolve_with(
     entry: &std::path::Path,
-    source_root: &std::path::Path,
+    roots: module::Roots<'_>,
     graph: ModuleGraph,
 ) -> Resolution {
     let mut graph = graph;
@@ -174,20 +174,70 @@ pub fn resolve_with(
             diagnostics,
         };
     };
-    resolve_from(graph, entry_id, source_root, diagnostics)
+    resolve_from(graph, entry_id, roots, diagnostics)
+}
+
+/// Resolves starting from `entry`, loading `also` as well.
+///
+/// A file nothing imports never enters the graph, which is right for a compiler
+/// -- it is not part of the program -- and wrong for an editor, where the file
+/// is open on screen and still has to have diagnostics, symbols, and a
+/// definition to jump to. The entry stays the entry: it is what reachability is
+/// measured from, and `piton reach` is where the question of what the project
+/// reaches gets answered.
+pub fn resolve_including(
+    entry: &std::path::Path,
+    also: &[std::path::PathBuf],
+    roots: module::Roots<'_>,
+    graph: ModuleGraph,
+) -> Resolution {
+    let mut graph = graph;
+    let mut diagnostics = Vec::new();
+    let Some(entry_id) = graph.load(entry, &mut diagnostics) else {
+        return Resolution {
+            graph,
+            store: Store::default(),
+            scopes: HashMap::new(),
+            entry: ModuleId(0),
+            diagnostics,
+        };
+    };
+
+    let mut seeds = Vec::new();
+    for path in also {
+        // A path that cannot be read is reported by `graph.load`, and there is
+        // nothing to seed the walk with.
+        if let Some(id) = graph.load(path, &mut diagnostics) {
+            seeds.push(id);
+        }
+    }
+
+    resolve_from_roots(graph, entry_id, &seeds, roots, diagnostics)
 }
 
 /// Resolves a graph that already has its entry module loaded. The language
 /// server uses this to reuse buffers it has already parsed.
 pub fn resolve_from(
+    graph: ModuleGraph,
+    entry: ModuleId,
+    roots: module::Roots<'_>,
+    diagnostics: Vec<Diagnostic>,
+) -> Resolution {
+    resolve_from_roots(graph, entry, &[], roots, diagnostics)
+}
+
+/// Resolves from `entry` and from every module in `also`.
+pub fn resolve_from_roots(
     mut graph: ModuleGraph,
     entry: ModuleId,
-    source_root: &std::path::Path,
+    also: &[ModuleId],
+    roots: module::Roots<'_>,
     mut diagnostics: Vec<Diagnostic>,
 ) -> Resolution {
     // Phase 1: transitively load every referenced module. Visiting a module a
     // second time is a no-op, so circular imports simply terminate.
     let mut queue = vec![entry];
+    queue.extend_from_slice(also);
     let mut loaded = HashSet::new();
     let mut edges: HashMap<ModuleId, Vec<(String, Option<ModuleId>, Span)>> = HashMap::new();
 
@@ -211,10 +261,7 @@ pub fn resolve_from(
 
         let mut resolved = Vec::new();
         for (text, span) in paths {
-            let context = ResolutionContext {
-                from_directory: &directory,
-                source_root,
-            };
+            let context = ResolutionContext::new(&directory, roots);
             match module::resolve(&text, &context) {
                 Ok(path) => match graph.load(&path, &mut diagnostics) {
                     Some(target) => {

@@ -7,10 +7,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use piton_compile::{reach, Compilation, Symbol};
+use piton_compile::{reach, Compilation, Project, Symbol};
 use piton_core::{AnchorId, Diagnostic, Severity, Span};
 use piton_emit::markdown;
 use piton_syntax::ast::{self, Item};
+use piton_syntax::language::COMMENT_PREFIX;
 use piton_syntax::{format, SyntaxKind};
 use tower_lsp::lsp_types::*;
 
@@ -302,15 +303,12 @@ pub fn definition(world: &World, uri: &Url, position: Position) -> Option<GotoDe
 }
 
 fn resolve_module_path(world: &World, from: &Path, written: &Path) -> Option<PathBuf> {
-    module_path_from(&world.project.source_root, from, &written.to_string_lossy())
+    module_path_from(&world.project, from, &written.to_string_lossy())
 }
 
 /// Resolves the text of a module path against the file that wrote it.
-fn module_path_from(source_root: &Path, from: &Path, written: &str) -> Option<PathBuf> {
-    let context = piton_compile::module::ResolutionContext {
-        from_directory: from.parent()?,
-        source_root,
-    };
+fn module_path_from(project: &Project, from: &Path, written: &str) -> Option<PathBuf> {
+    let context = piton_compile::module::ResolutionContext::new(from.parent()?, project.roots());
     piton_compile::module::resolve(written, &context).ok()
 }
 
@@ -1121,10 +1119,7 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         });
     };
 
-    for package in [
-        piton_compile::prelude::CONFIG_PACKAGE,
-        piton_compile::prelude::BELAY_PACKAGE,
-    ] {
+    for package in piton_compile::prelude::PACKAGE_ROOTS {
         offer(
             package.to_string(),
             Some("bundled package".into()),
@@ -1132,9 +1127,17 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         );
     }
 
-    let mut files = sources_under(source_root);
-    // A module already in the graph may sit outside the source root -- a
-    // tethered package does -- and is worth offering even so.
+    // An installed package is imported by its name, so that is what is offered
+    // -- not the relative path to the directory it happens to sit in.
+    let project_root = &compilation.project.root;
+    let installed = piton_compile::packages::installed_names(project_root);
+    for name in &installed {
+        offer(name.clone(), Some("installed package".into()), &mut items);
+    }
+
+    let mut files = piton_compile::module::sources(source_root);
+    // A module already in the graph may sit outside the source root -- an
+    // installed package does -- and is worth offering even so.
     files.extend(
         compilation
             .graph()
@@ -1147,51 +1150,45 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         if file == cursor.path {
             continue;
         }
-        let written = import_path(&cursor.path, &file, source_root);
-        let detail = file
-            .strip_prefix(source_root)
-            .unwrap_or(&file)
-            .to_string_lossy()
-            .to_string();
-        offer(written, Some(detail), &mut items);
+        match package_import_path(project_root, &installed, &file) {
+            Some((written, detail)) => offer(written, Some(detail), &mut items),
+            None => {
+                let written = import_path(&cursor.path, &file, source_root);
+                let detail = file
+                    .strip_prefix(source_root)
+                    .unwrap_or(&file)
+                    .to_string_lossy()
+                    .to_string();
+                offer(written, Some(detail), &mut items);
+            }
+        }
     }
     items
 }
 
-/// Every `.pi` file under a directory.
-///
-/// Bounded, because this runs on a keystroke: a source root with more files
-/// than anyone would scroll through is a root worth not walking to the end of.
-fn sources_under(root: &Path) -> Vec<PathBuf> {
-    const LIMIT: usize = 2000;
-    let skip = ["target", ".git", "node_modules", ".piton"];
-
-    let mut found = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
+/// How a file inside an installed package is imported: through the package
+/// name, not through a relative path that climbs out of the source root.
+fn package_import_path(
+    project_root: &Path,
+    installed: &[String],
+    file: &Path,
+) -> Option<(String, String)> {
+    for name in installed {
+        let directory = piton_compile::packages::package_directory(project_root, name);
+        let Ok(relative) = file.strip_prefix(&directory) else {
             continue;
         };
-        for entry in entries.flatten() {
-            if found.len() >= LIMIT {
-                return found;
-            }
-            let path = entry.path();
-            let name = entry.file_name();
-            if path.is_dir() {
-                if !skip.contains(&name.to_string_lossy().as_ref()) {
-                    stack.push(path);
-                }
-            } else if path
-                .extension()
-                .is_some_and(|extension| extension == piton_syntax::language::EXTENSION)
-            {
-                found.push(path);
-            }
-        }
+        let inside = relative
+            .with_extension("")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let written = match inside.trim_end_matches("/index") {
+            "" | "index" => name.clone(),
+            rest => format!("{name}/{rest}"),
+        };
+        return Some((written, format!("in package {name}")));
     }
-    found.sort();
-    found
+    None
 }
 
 /// The names a module exports, for `from <path> import ...`.
@@ -1201,7 +1198,7 @@ fn import_names(cursor: &Cursor<'_>, written: &str) -> Vec<CompletionItem> {
     // A path that names no module exports nothing, and saying otherwise would
     // be offering names that do not exist.
     let Some(module) =
-        module_path_from(&compilation.project.source_root, &cursor.path, written)
+        module_path_from(&compilation.project, &cursor.path, written)
             .and_then(|path| compilation.graph().id_for(&path))
     else {
         return Vec::new();
@@ -1546,11 +1543,11 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
     });
 
     let Some((anchor, slot)) = declared.filter(|(_, slot)| !slot.constraints.is_empty()) else {
-        // Nothing says what belongs here, so offer what is always legal: a
-        // literal, or a reference to something in scope.
-        let mut items = literals();
-        items.extend(anchors(cursor, None, "{"));
-        return items;
+        // Nothing says what belongs here, so there is nothing to propose. A
+        // value in Piton is prose by default, and `property: ` with a list of
+        // every anchor in the project under it is the editor guessing at a
+        // sentence it cannot possibly guess.
+        return Vec::new();
     };
 
     let mut items = Vec::new();
@@ -1558,9 +1555,10 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
         match &constraint.name {
             ast::TypeName::Boolean => items.extend(constants(&["true", "false"])),
             ast::TypeName::Null => items.extend(constants(&["null"])),
-            ast::TypeName::Anchor | ast::TypeName::Complex => {
-                items.extend(anchors(cursor, None, "{"))
-            }
+            // `anchor` admits nothing but an anchor, so every anchor is a
+            // candidate. `complex` is not the same thing: it admits a list or
+            // a dictionary too, which are written rather than chosen.
+            ast::TypeName::Anchor => items.extend(anchors(cursor, None, "{")),
             ast::TypeName::Reference => items.extend(anchors(cursor, None, "@{")),
             ast::TypeName::Named(name) => {
                 match constraint_type(cursor, anchor, &slot, name) {
@@ -1571,12 +1569,11 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
                     None => {}
                 }
             }
-            ast::TypeName::Any | ast::TypeName::Simple => {
-                items.extend(literals());
-                items.extend(anchors(cursor, None, "{"));
-            }
-            // A string, a number, a list or a dictionary is written rather
-            // than chosen, and guessing at its contents would be noise.
+            // Everything else describes the shape of a value rather than
+            // naming which values there are. `any`, `simple` and `complex` say
+            // "a value"; a string, a number, a list or a dictionary is written
+            // rather than chosen. A list of every anchor in the project under
+            // any of them is the editor guessing at prose.
             _ => {}
         }
     }
@@ -1790,6 +1787,105 @@ pub fn formatting(world: &World, uri: &Url) -> Option<Vec<TextEdit>> {
         },
         new_text: formatted,
     }])
+}
+
+/// The indentation a new line should carry, after the newline that opened it.
+///
+/// A declaration or a key that ends in a colon opens a block, and the block is
+/// the indented lines beneath it -- so pressing enter there should land one
+/// level in, not back at the margin. Every other line continues at the
+/// indentation it was already at.
+///
+/// This is the language server's job rather than the editor's because the
+/// grammar cannot say it. Indentation is deliberately outside the grammar, so
+/// no node spans a body for a tree-sitter indent query to measure, and the
+/// editors that have no tree-sitter at all have nothing else to go on.
+pub fn on_type_formatting(
+    world: &World,
+    uri: &Url,
+    position: Position,
+    typed: &str,
+) -> Option<Vec<TextEdit>> {
+    // Only the newline is interesting. A client may send others if it asks for
+    // them; nothing else changes the indentation of a line.
+    if typed != "\n" && typed != "\r\n" {
+        return None;
+    }
+
+    let path = url_to_path(uri)?;
+    let text = world.text(&path)?;
+    let offset = position_to_offset(&text, position);
+
+    let line_start = text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+    if line_start == 0 {
+        // Nothing above to take the indentation from.
+        return None;
+    }
+    let previous = previous_line(&text, line_start);
+
+    // Inside a fenced block or an escape block the text is verbatim, and
+    // reindenting it would change what it says.
+    if verbatim_at(&text, line_start) {
+        return None;
+    }
+
+    let indent = wanted_indent(previous);
+
+    // The client has already inserted the newline, and many insert some
+    // indentation with it. Replace whatever leading whitespace is there, so
+    // the edit is the same whether or not the client guessed.
+    let written = text[line_start..offset]
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .count();
+    let existing = &text[line_start..line_start + indent_bytes(&text[line_start..], written)];
+    if existing == indent {
+        return None;
+    }
+
+    Some(vec![TextEdit {
+        range: Range {
+            start: offset_to_position(&text, line_start),
+            end: offset_to_position(&text, line_start + existing.len()),
+        },
+        new_text: indent,
+    }])
+}
+
+/// The line above the one starting at `line_start`, without its newline.
+fn previous_line(text: &str, line_start: usize) -> &str {
+    let above = &text[..line_start - 1];
+    let start = above.rfind('\n').map(|index| index + 1).unwrap_or(0);
+    above[start..].trim_end_matches('\r')
+}
+
+/// The indentation the line after `previous` should carry.
+fn wanted_indent(previous: &str) -> String {
+    let width = previous
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .count();
+
+    // A comment is not structure, so it opens nothing even when it ends in a
+    // colon.
+    let code = match previous.trim_start().find(COMMENT_PREFIX) {
+        Some(_) if previous.trim_start().starts_with(COMMENT_PREFIX) => "",
+        _ => previous,
+    };
+    let opens_a_block = code.trim_end().ends_with(':');
+
+    let width = if opens_a_block { width + format::INDENT } else { width };
+    // Four spaces, and not configurable: `piton format` writes them whatever
+    // the file already uses, so typing anything else only makes work.
+    " ".repeat(width)
+}
+
+/// How many bytes `chars` characters of leading whitespace occupy.
+fn indent_bytes(line: &str, chars: usize) -> usize {
+    line.char_indices()
+        .nth(chars)
+        .map(|(index, _)| index)
+        .unwrap_or(line.len())
 }
 
 pub fn folding(world: &World, uri: &Url) -> Option<Vec<FoldingRange>> {
@@ -2488,4 +2584,155 @@ mod completion_tests {
         let unescaped = "a:\n\\\\\\\\\nliteral\n\\\\\\\\\n";
         assert!(!verbatim_at(unescaped, unescaped.len()));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Hierarchy
+//
+// Inheritance is the structure of a specbase: an abstract anchor declares a
+// shape, keywords are inheritance spelled as syntax, and what a concrete anchor
+// resolves to is the whole chain above it flattened. Two navigations follow
+// from that, and they answer opposite questions.
+//
+// `implementation` goes down one step: from a base to everything that extends
+// it. Go-to-definition already goes up, and without this the relationship is
+// only traversable in one direction -- which is the wrong one when the question
+// is "who uses this shape?".
+//
+// The type hierarchy goes both ways and keeps going, so an editor can show the
+// tree rather than one step of it.
+// ---------------------------------------------------------------------------
+
+/// The anchor a cursor is on, however it was named.
+///
+/// A keyword *is* the anchor it aliases, so landing on `skill` and landing on
+/// `Skill` have to give the same answer.
+fn anchor_at(world: &World, uri: &Url, position: Position) -> Option<AnchorId> {
+    let cursor = cursor(world, uri, position)?;
+    let index = world.index.get(cursor.module)?;
+    match index.at(cursor.offset)?.target {
+        Target::Anchor(anchor) => Some(anchor),
+        Target::Keyword(_, anchor) => anchor,
+        Target::Property(anchor, _) => Some(anchor),
+        _ => None,
+    }
+}
+
+/// Every anchor that names `base` among its bases, directly.
+fn derived(compilation: &Compilation, base: AnchorId) -> Vec<AnchorId> {
+    let mut found: Vec<AnchorId> = compilation
+        .store()
+        .anchors
+        .iter()
+        .filter(|def| def.bases.contains(&base))
+        .map(|def| def.id)
+        .collect();
+    found.sort_by_key(|id| compilation.store().anchor(*id).name.clone());
+    found
+}
+
+/// `textDocument/implementation`: from a base anchor to what extends it.
+pub fn implementations(
+    world: &World,
+    uri: &Url,
+    position: Position,
+) -> Option<request::GotoImplementationResponse> {
+    let compilation = world.compilation.as_ref()?;
+    let anchor = anchor_at(world, uri, position)?;
+    let locations: Vec<Location> = derived(compilation, anchor)
+        .into_iter()
+        .filter_map(|id| definition_location(world, &Target::Anchor(id)))
+        .collect();
+    (!locations.is_empty()).then_some(request::GotoImplementationResponse::Array(locations))
+}
+
+/// Builds the hierarchy entry for one anchor.
+fn hierarchy_item(world: &World, anchor: AnchorId) -> Option<TypeHierarchyItem> {
+    let compilation = world.compilation.as_ref()?;
+    let def = compilation.store().anchor(anchor);
+    let location = definition_location(world, &Target::Anchor(anchor))?;
+    let mut detail = def.keyword.clone();
+    if def.is_abstract {
+        detail = format!("abstract {detail}");
+    }
+    if let Some(alias) = &def.alias {
+        detail.push_str(&format!(" as {alias}"));
+    }
+    Some(TypeHierarchyItem {
+        name: def.name.clone(),
+        kind: if def.is_abstract {
+            SymbolKind::INTERFACE
+        } else {
+            SymbolKind::STRUCT
+        },
+        tags: None,
+        detail: Some(detail),
+        uri: location.uri,
+        range: location.range,
+        selection_range: location.range,
+        // The anchor's own identity, so a later supertypes/subtypes call does
+        // not have to find it again by position in a file that may since have
+        // been edited.
+        data: Some(serde_json::json!({ "anchor": anchor.0 })),
+    })
+}
+
+/// Reads the anchor identity back out of a hierarchy item.
+fn hierarchy_anchor(world: &World, item: &TypeHierarchyItem) -> Option<AnchorId> {
+    let compilation = world.compilation.as_ref()?;
+    let id = item
+        .data
+        .as_ref()
+        .and_then(|data| data.get("anchor"))
+        .and_then(serde_json::Value::as_u64)
+        .map(|id| AnchorId(id as u32))
+        .filter(|id| (id.0 as usize) < compilation.store().anchors.len());
+    // A stale id, from an item prepared before a recompilation, falls back to
+    // the name -- which is what the editor is really showing.
+    id.filter(|id| compilation.store().anchor(*id).name == item.name)
+        .or_else(|| compilation.find_anchor(&item.name))
+}
+
+/// `textDocument/prepareTypeHierarchy`.
+pub fn prepare_type_hierarchy(
+    world: &World,
+    uri: &Url,
+    position: Position,
+) -> Option<Vec<TypeHierarchyItem>> {
+    let anchor = anchor_at(world, uri, position)?;
+    hierarchy_item(world, anchor).map(|item| vec![item])
+}
+
+/// `typeHierarchy/supertypes`: the bases an anchor extends, in declaration
+/// order, which is the order collisions resolve in.
+pub fn type_hierarchy_supertypes(
+    world: &World,
+    item: &TypeHierarchyItem,
+) -> Option<Vec<TypeHierarchyItem>> {
+    let compilation = world.compilation.as_ref()?;
+    let anchor = hierarchy_anchor(world, item)?;
+    Some(
+        compilation
+            .store()
+            .anchor(anchor)
+            .bases
+            .iter()
+            .filter_map(|base| hierarchy_item(world, *base))
+            .collect(),
+    )
+}
+
+/// `typeHierarchy/subtypes`: everything that extends this anchor.
+pub fn type_hierarchy_subtypes(
+    world: &World,
+    item: &TypeHierarchyItem,
+) -> Option<Vec<TypeHierarchyItem>> {
+    let compilation = world.compilation.as_ref()?;
+    let anchor = hierarchy_anchor(world, item)?;
+    Some(
+        derived(compilation, anchor)
+            .into_iter()
+            .filter_map(|id| hierarchy_item(world, id))
+            .collect(),
+    )
 }

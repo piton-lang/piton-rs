@@ -1,0 +1,7 @@
+# Frameworks
+
+## Description
+
+Frameworks are a construct within a Piton project that allow the inclusion of Piton modules globally as well as the extension of what the compiler outputs through adapters. We have already discussed, for example, how string interpolation can be given nuance through extensible sigils, and specifically how that can be relevant for JSON vs. agentic output.
+As of the current version of Piton there is one framework bundled with the language: the Belay framework. In future iterations of the language, we will build out much more functionality in the frameworks concept.
+Frameworks are included in a project through the frameworks property in the project config. You’ll see a concrete example of this when we talk about the Belay framework. Once you’ve included a framework, you’ll be able to use any keywords and import any modules it exports. You’ll still have to use and import in each file, but adding the framework to the project config makes those pieces available.

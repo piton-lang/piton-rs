@@ -1,0 +1,41 @@
+# Abstract
+
+## Description
+
+Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties.
+```piton
+abstract anchor Skill:
+  description:: string
+
+
+anchor ConcreteSkill extends Skill:
+  description: This must be a string as defined by the abstract
+```
+We’ll introduce a new bit of terminology here in that a concrete anchor that extends an abstract anchor is said to be “implementing” the abstract anchor.
+A concrete anchor can only implement a single abstract anchor. It is in fact good practice to export an abstract anchor as a keyword to enforce this ergonomically. The constraint here is that Piton does not do unions on abstract anchors. You are still free to extend other concrete anchors in addition to basing off an abstract.
+In the case of multiple inheritance on abstracts, type constraint conflicts will throw a compiler error.
+
+### Special Type Constraints
+
+We are also able to use the specialized type constraints within abstracts like simple, complex, any, [], etc.
+However, only within abstract anchor definitions, we introduce an additional type constraint keyword extends that allows us to represent inheritance hierarchy. Take the following example.
+```piton
+abstract anchor A:
+  description:: string
+
+abstract anchor B extends A:
+  name:: string
+
+abstract anchor C:
+    listOfA:: A[]
+    listOfB:: B[]
+
+    listOfExtendsA:: extends A[]
+```
+Here, we have defined an anchor A with a description and an anchor B which extends A and adds a name property. So B has both description and name while A only has a description.
+We have then defined an anchor C. Let’s go one property at a time.
+listOfA will be satisfied by anything that directly implements the abstract A.
+listOfB will be satisfied by anything that directly implements the abstract B.
+Where it gets a little more interesting is in the third property, listOfExtendsA.
+Within abstract anchor definitions, extends on an anchor type reference means that the constraint may be satisfied by any concrete anchor whose inheritance chain includes that anchor.
+So in this example, that constraint is satisfied by a list of anything that has A in its inheritance hierarchy. So in this case, you’d be able to pass concrete anchors that extend either A or B given that B has A in its inheritance chain.

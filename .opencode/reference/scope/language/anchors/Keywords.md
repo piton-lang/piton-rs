@@ -1,0 +1,52 @@
+# Keywords
+
+## Description
+
+Now with abstracts defined, we can discuss user-defined keywords. This is really just syntactic sugar equivalent to extends that exists to promote clarity of code design in helping to emphasize certain base anchors as fundamental units.
+And it’s very simple to do:
+```piton
+anchor MyAnchor as my-anchor:
+    description: This is a description of my anchor
+
+my-anchor ChildAnchor:
+    description:
+        + {super.description}
+        My additional description
+```
+That is exactly equivalent to using extends:
+```piton
+anchor MyAnchor:
+    description: This is a description of my anchor
+
+anchor ChildAnchor extends MyAnchor:
+    description:
+        + {super.description}
+        My additional description
+```
+By its nature, a user-defined keyword does not allow for multiple inheritance chains, however you can still use extends to achieve the same effect.
+```piton
+anchor MyAnchor as my-anchor:
+    description: This is a description of my anchor
+
+anchor OtherBase:
+    description: Other Base
+
+my-anchor ChildAnchor extends OtherBase:
+    description:
+        + {super.description}
+        My additional description
+```
+This would be equivalent to:
+```piton
+anchor MyAnchor as my-anchor:
+    description: This is a description of my anchor
+
+anchor OtherBase:
+    description: Other Base
+
+anchor ChildAnchor extends MyAnchor, OtherBase:
+    description:
+        + {super.description}
+        My additional description
+```
+Note that the user-defined keyword will be the first anchor in the inheritance chain, and so be overruled during collisions by anything further right in the chain.

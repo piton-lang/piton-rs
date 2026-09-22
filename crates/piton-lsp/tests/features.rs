@@ -664,3 +664,200 @@ fn a_module_that_does_not_exist_exports_nothing() {
         buffer.labels()
     );
 }
+
+// ---------------------------------------------------------------------------
+// On-type formatting
+// ---------------------------------------------------------------------------
+
+/// The edits pressing enter produces, applied to the buffer.
+fn after_enter(marked: &str) -> String {
+    let buffer = Buffer::over(NULL, marked);
+    let path = repo_root().join(NULL);
+    let text = buffer.world.text(&path).expect("text");
+    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n")
+        .unwrap_or_default();
+
+    let mut out = text.clone();
+    // One edit, and applying it back to front would matter if there were more.
+    for edit in edits.iter().rev() {
+        let start = piton_lsp::convert::position_to_offset(&out, edit.range.start);
+        let end = piton_lsp::convert::position_to_offset(&out, edit.range.end);
+        out.replace_range(start..end, &edit.new_text);
+    }
+    out
+}
+
+#[test]
+fn enter_after_a_key_that_opens_a_block_indents() {
+    // `frameworks:` with nothing after it opens a block, and the block is the
+    // indented lines beneath it.
+    let text = after_enter("export type N:\n    frameworks:\n<|>");
+    assert!(
+        text.ends_with("    frameworks:\n        "),
+        "expected two levels of indent: {text:?}"
+    );
+}
+
+#[test]
+fn enter_after_a_declaration_indents_into_its_body() {
+    let text = after_enter("export type N:\n<|>");
+    assert!(
+        text.ends_with("export type N:\n    "),
+        "a declaration opens a body: {text:?}"
+    );
+}
+
+#[test]
+fn enter_after_a_value_keeps_the_indentation() {
+    // `title: a book` is a whole property; the line after it is a sibling.
+    let text = after_enter("export type N:\n    title: a book\n<|>");
+    assert!(
+        text.ends_with("    title: a book\n    "),
+        "expected the same indent, not a deeper one: {text:?}"
+    );
+}
+
+#[test]
+fn enter_after_a_comment_that_ends_in_a_colon_does_not_indent() {
+    // A comment is not structure, whatever it happens to end with.
+    let text = after_enter("export type N:\n    // a note about this:\n<|>");
+    assert!(
+        text.ends_with("// a note about this:\n    "),
+        "a comment opens nothing: {text:?}"
+    );
+}
+
+#[test]
+fn enter_inside_a_fenced_block_changes_nothing() {
+    // The contents of a fence are verbatim, so reindenting them would change
+    // what the block says.
+    let buffer = Buffer::over(
+        NULL,
+        "export type N:\n    a:\n        ```json\n        {\n<|>",
+    );
+    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
+    assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
+}
+
+#[test]
+fn only_the_newline_triggers_a_reindent() {
+    let buffer = Buffer::over(NULL, "export type N:\n<|>");
+    assert!(
+        features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, ":").is_none(),
+        "nothing but a newline changes which line the cursor is on"
+    );
+}
+
+#[test]
+fn an_unconstrained_value_proposes_nothing() {
+    // The specification is explicit: `property: ` should propose nothing,
+    // because the likely intent is to write prose. Only a constraint saying
+    // what belongs there makes a proposal something other than a guess.
+    // `whatIsAType` carries no constraint at all.
+    let free = Buffer::over(NULL, "use ./lib/Type\n\nexport type Null:\n    whatIsAType: <|>\n");
+    assert!(
+        free.labels().is_empty(),
+        "nothing says what goes here: {:?}",
+        free.labels()
+    );
+
+    // `description:: simple:: complex` does carry one, but it describes the
+    // shape of a value rather than naming which values there are -- so there
+    // is still nothing to propose, and proposing every anchor in the project
+    // would be the same guess.
+    let shaped = Buffer::over(NULL, "use ./lib/Type\n\nexport type Null:\n    description: <|>\n");
+    assert!(
+        shaped.labels().is_empty(),
+        "`simple` and `complex` name a shape, not a set of values: {:?}",
+        shaped.labels()
+    );
+}
+
+#[test]
+fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
+    let fixture = Fixture::new();
+    let uri = fixture.uri("spec/scope/language/types/lib/Type.pi");
+    let position =
+        fixture.position_of("spec/scope/language/types/lib/Type.pi", "Type as type");
+
+    let response = features::implementations(&fixture.world, &uri, position);
+    let Some(request::GotoImplementationResponse::Array(locations)) = response else {
+        panic!("expected implementations of Type");
+    };
+    // Every `type X` in the specification is one of them.
+    assert!(locations.len() > 5, "only {} found", locations.len());
+    for location in &locations {
+        assert!(location.uri.to_string().ends_with(".pi"), "{}", location.uri);
+    }
+}
+
+#[test]
+fn a_leaf_anchor_has_no_implementations() {
+    let fixture = Fixture::new();
+    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
+    // On the anchor's own name, not on the keyword in front of it: the keyword
+    // names the abstract it aliases, which does have implementations.
+    let position = fixture.position_of("spec/scope/language/types/Strings.pi", "Strings:");
+    // Nothing extends a concrete leaf, and that is reported as no answer rather
+    // than as an empty one.
+    assert!(features::implementations(&fixture.world, &uri, position).is_none());
+}
+
+#[test]
+fn the_type_hierarchy_walks_both_ways() {
+    let fixture = Fixture::new();
+    let uri = fixture.uri("spec/scope/language/types/lib/Type.pi");
+    let position =
+        fixture.position_of("spec/scope/language/types/lib/Type.pi", "Type as type");
+
+    let prepared =
+        features::prepare_type_hierarchy(&fixture.world, &uri, position).expect("a hierarchy item");
+    assert_eq!(prepared.len(), 1);
+    let item = &prepared[0];
+    assert_eq!(item.name, "Type");
+    assert!(
+        item.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("abstract") && detail.contains("as type")),
+        "{:?}",
+        item.detail
+    );
+
+    // An abstract at the top of its own chain has no supertypes.
+    let supertypes = features::type_hierarchy_supertypes(&fixture.world, item).expect("supertypes");
+    assert!(supertypes.is_empty(), "{supertypes:?}");
+
+    let subtypes = features::type_hierarchy_subtypes(&fixture.world, item).expect("subtypes");
+    let names: Vec<&str> = subtypes.iter().map(|item| item.name.as_str()).collect();
+    assert!(names.contains(&"Strings"), "{names:?}");
+
+    // Walking down and then back up returns to where it started.
+    let back = features::type_hierarchy_supertypes(&fixture.world, &subtypes[0])
+        .expect("supertypes of a subtype");
+    assert!(
+        back.iter().any(|parent| parent.name == "Type"),
+        "{:?}",
+        back.iter().map(|item| &item.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_hierarchy_item_survives_a_lost_identity() {
+    let fixture = Fixture::new();
+    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
+    let position = fixture.position_of("spec/scope/language/types/Strings.pi", "Strings:");
+    let mut item = features::prepare_type_hierarchy(&fixture.world, &uri, position)
+        .expect("a hierarchy item")
+        .remove(0);
+    assert_eq!(item.name, "Strings");
+
+    // An item prepared before a recompilation carries an id that may no longer
+    // mean anything; the name still does.
+    item.data = None;
+    let supertypes = features::type_hierarchy_supertypes(&fixture.world, &item).expect("supertypes");
+    assert!(
+        supertypes.iter().any(|parent| parent.name == "Type"),
+        "{:?}",
+        supertypes.iter().map(|item| &item.name).collect::<Vec<_>>()
+    );
+}
