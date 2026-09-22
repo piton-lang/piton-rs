@@ -329,6 +329,43 @@ fn formatting_reports_no_change_for_canonical_files() {
 }
 
 #[test]
+fn formatting_leaves_comments_alone() {
+    // The LSP `formatting` handler is what an editor calls on save, so it is
+    // the "autoformat" the spec governs: "Autoformat should not format
+    // anything that is commented." The code is still normalized, but comment
+    // lines keep their exact bytes -- unlike `piton format`, which rewrites
+    // them.
+    let mut fixture = Fixture::new();
+    let path = fixture.root.join("spec/scope/language/types/Strings.pi");
+    let original = std::fs::read_to_string(&path).expect("readable");
+
+    fixture.world.set_document(
+        path.clone(),
+        format!("{original}\n//no space here\nanchor Pad:\n  value: 1\n"),
+    );
+    fixture.world.recompile(Some(&path));
+
+    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
+    let edits = features::formatting(&fixture.world, &uri).expect("edits");
+    let text = fixture.world.text(&path).expect("text");
+    let mut formatted = text.clone();
+    for edit in edits.iter().rev() {
+        let start = piton_lsp::convert::position_to_offset(&formatted, edit.range.start);
+        let end = piton_lsp::convert::position_to_offset(&formatted, edit.range.end);
+        formatted.replace_range(start..end, &edit.new_text);
+    }
+
+    assert!(
+        formatted.contains("//no space here"),
+        "autoformat must not re-space a comment:\n{formatted}"
+    );
+    assert!(
+        formatted.contains("    value: 1"),
+        "autoformat still formats the code around it:\n{formatted}"
+    );
+}
+
+#[test]
 fn diagnostics_reach_the_editor() {
     let mut fixture = Fixture::new();
     let file = "spec/scope/language/types/Escaping.pi";
@@ -944,6 +981,40 @@ fn enter_inside_a_fenced_block_changes_nothing() {
         NULL,
         "export type N:\n    a:\n        ```json\n        {\n<|>",
     );
+    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
+    assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
+}
+
+#[test]
+fn enter_on_a_blank_line_dedents_one_level() {
+    // The spec: "On a blank line inside a dictionary or anchor, enter should
+    // insert a new line and dedent it by 1 level." The line being left behind
+    // (`    `) is blank and indented, so the new line backs out one level to
+    // the margin rather than holding the body's depth.
+    let text = after_enter("export type N:\n    key: value\n    \n<|>");
+    assert!(
+        text.ends_with("    key: value\n    \n"),
+        "expected the new line to dedent to the margin: {text:?}"
+    );
+}
+
+#[test]
+fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
+    // Deeper nesting: from level 2 (8 spaces) back to level 1 (4 spaces), not
+    // all the way to the margin.
+    let text = after_enter("export type N:\n    outer:\n        inner: 1\n        \n<|>");
+    assert!(
+        text.ends_with("        inner: 1\n        \n    "),
+        "expected one level out, not two: {text:?}"
+    );
+}
+
+#[test]
+fn enter_on_a_blank_line_at_the_margin_stays_there() {
+    // A blank line already at the margin has nothing to dedent out of, so it is
+    // a no-op rather than wrapping to a negative depth. Here the line above the
+    // cursor is itself blank and at column zero.
+    let buffer = Buffer::over(NULL, "anchor A:\n\n<|>");
     let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
 }

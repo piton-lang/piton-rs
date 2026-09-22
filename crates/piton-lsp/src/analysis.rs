@@ -1450,26 +1450,10 @@ fn map_outputs(compilation: &Compilation, mappings: &mut Vec<Mapping>) {
     }
 }
 
+/// What a file compiles to, which is what the mapping has to describe: the
+/// same surface `piton compile` renders, exports included.
 fn file_declarations(compilation: &Compilation, module: ModuleId) -> piton_core::Properties {
-    let mut out = piton_core::Properties::new();
-    for (name, symbol) in &compilation.resolution.scope(module).declarations {
-        let value = match symbol {
-            Symbol::Anchor(anchor) => {
-                if compilation.store().anchor(*anchor).is_abstract {
-                    continue;
-                }
-                Value::Anchor(*anchor)
-            }
-            Symbol::Variable(variable) => compilation
-                .store()
-                .variable(*variable)
-                .value
-                .clone()
-                .unwrap_or(Value::Null),
-        };
-        out.insert(name.clone(), value);
-    }
-    out
+    compilation.compiled_surface(module)
 }
 
 fn map_markdown(
@@ -1495,10 +1479,10 @@ fn map_markdown(
             .find("\n# ")
             .map(|index| after + index)
             .unwrap_or(end);
-        if let Some(span) = declaration_span(compilation, source, name) {
+        if let Some((origin, span)) = declaration_origin(compilation, source, name) {
             push_mapping(
                 mappings,
-                source,
+                &origin,
                 span,
                 output,
                 start,
@@ -1518,7 +1502,6 @@ fn map_markdown(
         if let Value::Anchor(anchor) = value {
             map_property_headings(
                 compilation,
-                source,
                 output,
                 "markdown",
                 rendered,
@@ -1535,7 +1518,6 @@ fn map_markdown(
 
 fn map_property_headings(
     compilation: &Compilation,
-    source: &Path,
     output: &Path,
     adapter: &str,
     rendered: &str,
@@ -1546,9 +1528,12 @@ fn map_property_headings(
     mappings: &mut Vec<Mapping>,
 ) {
     let def = compilation.store().anchor(anchor);
-    let Item::Anchor(decl) = &compilation.graph().get(def.module).ast().items[def.item] else {
+    let module = compilation.graph().get(def.module);
+    let Item::Anchor(decl) = &module.ast().items[def.item] else {
         return;
     };
+    let source = module.path.clone();
+    let source = source.as_path();
     let marks = "#".repeat(level);
     let mut cursor = from;
     for property in decl.body.properties() {
@@ -1619,10 +1604,10 @@ fn map_structured(
                 rendered[after..].find(&pattern).map(|index| after + index)
             })
             .unwrap_or(rendered.len());
-        if let Some(span) = declaration_span(compilation, source, name) {
+        if let Some((origin, span)) = declaration_origin(compilation, source, name) {
             push_mapping(
                 mappings,
-                source,
+                &origin,
                 span,
                 output,
                 start,
@@ -1638,7 +1623,6 @@ fn map_structured(
         if let Value::Anchor(anchor) = value {
             map_structured_properties(
                 compilation,
-                source,
                 output,
                 adapter,
                 rendered,
@@ -1654,7 +1638,6 @@ fn map_structured(
 
 fn map_structured_properties(
     compilation: &Compilation,
-    source: &Path,
     output: &Path,
     adapter: &str,
     rendered: &str,
@@ -1664,9 +1647,12 @@ fn map_structured_properties(
     mappings: &mut Vec<Mapping>,
 ) {
     let def = compilation.store().anchor(anchor);
-    let Item::Anchor(decl) = &compilation.graph().get(def.module).ast().items[def.item] else {
+    let module = compilation.graph().get(def.module);
+    let Item::Anchor(decl) = &module.ast().items[def.item] else {
         return;
     };
+    let source = module.path.clone();
+    let source = source.as_path();
     let slice = &rendered[from..to];
     for property in decl.body.properties() {
         let key = if adapter == "json" {
@@ -1695,12 +1681,39 @@ fn map_structured_properties(
     }
 }
 
-fn declaration_span(compilation: &Compilation, source: &Path, name: &str) -> Option<Span> {
+/// Where a name a file compiles was actually written.
+///
+/// A file compiles what it exports as well as what it declares, so a name in
+/// its output may have been declared somewhere else and only forwarded here.
+/// The mapping has to point at the declaration, wherever it lives, or it would
+/// send someone to a span in a file that never wrote it.
+fn declaration_origin(
+    compilation: &Compilation,
+    source: &Path,
+    name: &str,
+) -> Option<(PathBuf, Span)> {
     let module = compilation.graph().id_for(source)?;
-    match compilation.resolution.lookup(module, name)? {
-        Symbol::Anchor(anchor) => Some(compilation.store().anchor(anchor).name_span),
-        Symbol::Variable(variable) => Some(compilation.store().variable(variable).name_span),
-    }
+    let symbol = compilation.resolution.lookup(module, name).or_else(|| {
+        compilation
+            .resolution
+            .lookup_export(module, name, &mut Default::default())
+    })?;
+    Some(match symbol {
+        Symbol::Anchor(anchor) => {
+            let def = compilation.store().anchor(anchor);
+            (
+                compilation.graph().get(def.module).path.clone(),
+                def.name_span,
+            )
+        }
+        Symbol::Variable(variable) => {
+            let def = compilation.store().variable(variable);
+            (
+                compilation.graph().get(def.module).path.clone(),
+                def.name_span,
+            )
+        }
+    })
 }
 
 fn push_mapping(
@@ -1760,7 +1773,6 @@ fn belay(compilation: &Compilation, analysis: &mut Analysis) {
         );
         map_property_headings(
             compilation,
-            &source,
             &output,
             file.target,
             &file.contents,

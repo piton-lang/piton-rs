@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 use piton_core::{AnchorId, AnchorView, DiagnosticSink, Properties, Value};
 
 pub use config::{BelayConfig, Framework, Project};
-pub use packages::{Dependency, Lock, PackageDecl, Pin};
 pub use module::{ModuleGraph, ModuleId};
+pub use packages::{Dependency, Lock, PackageDecl, Pin};
 pub use resolve::Resolution;
 pub use store::{AnchorDef, Store, Symbol, VariableDef, VariableId};
 
@@ -142,6 +142,57 @@ impl Compilation {
                 }
             })
             .collect()
+    }
+
+    /// Everything a module compiles to, in the order it should be emitted.
+    ///
+    /// A module's own top-level declarations come first, in declaration order,
+    /// followed by every name it exports that it did not declare itself. An
+    /// export is a promise that a name is part of the module's compiled
+    /// surface, and being exported is enough on its own: a re-exported anchor
+    /// is compiled because the file exports it, not because anything in the
+    /// file used it. Without that, an `index.pi` that does nothing but forward
+    /// its directory's anchors -- which is how most of a specbase is held
+    /// together -- would compile to nothing at all.
+    ///
+    /// Abstract anchors are left out. An abstract anchor declares a shape and
+    /// has no value of its own to emit.
+    pub fn compiled_surface(&self, module: ModuleId) -> Properties {
+        let mut out = Properties::new();
+        for (name, symbol) in &self.resolution.scope(module).declarations {
+            self.emit_symbol(&mut out, name, *symbol);
+        }
+        for name in self.resolution.exported_names(module) {
+            if out.contains_key(&name) {
+                continue;
+            }
+            if let Some(symbol) =
+                self.resolution
+                    .lookup_export(module, &name, &mut Default::default())
+            {
+                self.emit_symbol(&mut out, &name, symbol);
+            }
+        }
+        out
+    }
+
+    /// Records one name's compiled value, skipping what has none.
+    fn emit_symbol(&self, out: &mut Properties, name: &str, symbol: Symbol) {
+        let value = match symbol {
+            Symbol::Anchor(anchor) => {
+                if self.store().anchor(anchor).is_abstract {
+                    return;
+                }
+                Value::Anchor(anchor)
+            }
+            Symbol::Variable(variable) => self
+                .store()
+                .variable(variable)
+                .value
+                .clone()
+                .unwrap_or(Value::Null),
+        };
+        out.insert(name.to_string(), value);
     }
 
     /// Finds an anchor by name anywhere in the compilation.

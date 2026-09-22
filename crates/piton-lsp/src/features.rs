@@ -768,7 +768,10 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
             // same thing where the two differ -- a body's key takes its colon,
             // a wrapped reference takes its braces -- and an edit is the only
             // form that also says what it stands in for.
-            let written = item.insert_text.clone().unwrap_or_else(|| item.label.clone());
+            let written = item
+                .insert_text
+                .clone()
+                .unwrap_or_else(|| item.label.clone());
             item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
                 range: replace,
                 new_text: written,
@@ -1891,7 +1894,11 @@ fn returns_to_column_zero(text: &str, from: usize, to: usize) -> bool {
 pub fn formatting(world: &World, uri: &Url) -> Option<Vec<TextEdit>> {
     let path = url_to_path(uri)?;
     let text = world.text(&path)?;
-    let formatted = format::format(&text, &path);
+    // The editor's formatting path is autoformat: it normalizes structure but
+    // never rewrites commented content, because that is what a save-time format
+    // must not do. The explicit `piton format` command is the one that
+    // normalizes comments.
+    let formatted = format::autoformat(&text, &path);
     if formatted == text {
         return Some(Vec::new());
     }
@@ -1981,11 +1988,25 @@ fn previous_line(text: &str, line_start: usize) -> &str {
 }
 
 /// The indentation the line after `previous` should carry.
+///
+/// Two rules apply, and which one fires depends on the line being left behind.
+/// A declaration or key that ends in a colon opens a block, so the line after
+/// it lands one level in. A blank line is the opposite case: pressing enter on
+/// a blank line inside an indented block backs the new line *out* one level, so
+/// working down through blank lines walks you up and out of the nesting instead
+/// of holding you at the depth you started at.
 fn wanted_indent(previous: &str) -> String {
     let width = previous
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
+
+    // The line being left is blank and indented: dedent the new line by one
+    // level. A blank line at the margin has nothing to dedent out of, so it
+    // falls through and stays put.
+    if previous.trim().is_empty() && width > 0 {
+        return " ".repeat(width.saturating_sub(format::INDENT));
+    }
 
     let width = if opens_a_block(previous) {
         width + format::INDENT
@@ -2039,7 +2060,11 @@ fn opens_a_block(line: &str) -> bool {
 /// the line.
 fn strip_comment(line: &str) -> &str {
     for (index, _) in line.match_indices(COMMENT_PREFIX) {
-        if line[..index].chars().next_back().is_none_or(char::is_whitespace) {
+        if line[..index]
+            .chars()
+            .next_back()
+            .is_none_or(char::is_whitespace)
+        {
             return &line[..index];
         }
     }

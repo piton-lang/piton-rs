@@ -1,5 +1,6 @@
 {
   "generated": [
+    ".claude/reference/Specification.md",
     ".claude/reference/scope/belay/Belay.md",
     ".claude/reference/scope/compiling/Compiling.md",
     ".claude/reference/scope/founding-thesis/AgentAsCompiler.md",

@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use piton_compile::{Compilation, Symbol};
-use piton_core::{Properties, Value};
+use piton_compile::Compilation;
+use piton_core::Properties;
 use piton_emit::{Adapter, MarkdownContext};
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
@@ -87,32 +87,14 @@ pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
     }
 }
 
-/// Collects a file's own top-level declarations, in declaration order.
+/// Collects what a file compiles to: its own top-level declarations, then
+/// everything it exports without declaring, such as the anchors an `index.pi`
+/// forwards from its directory.
 fn declarations(compilation: &Compilation, file: &Path) -> Properties {
-    let mut out = Properties::new();
     let Some(module) = compilation.graph().id_for(file) else {
-        return out;
+        return Properties::new();
     };
-    for (name, symbol) in &compilation.resolution.scope(module).declarations {
-        let value = match symbol {
-            Symbol::Anchor(anchor) => {
-                if compilation.store().anchor(*anchor).is_abstract {
-                    // An abstract anchor declares a shape and has no value to
-                    // emit on its own.
-                    continue;
-                }
-                Value::Anchor(*anchor)
-            }
-            Symbol::Variable(variable) => compilation
-                .store()
-                .variable(*variable)
-                .value
-                .clone()
-                .unwrap_or(Value::Null),
-        };
-        out.insert(name.clone(), value);
-    }
-    out
+    compilation.compiled_surface(module)
 }
 
 fn render(compilation: &Compilation, file: &Path, adapter: Adapter) -> String {

@@ -21,8 +21,28 @@ pub const INDENT: usize = 4;
 /// Column at which an import declaration wraps onto separate lines.
 pub const WRAP_COLUMN: usize = 80;
 
-/// Formats a source file.
+/// Formats a source file canonically, normalizing comments.
+///
+/// This is `piton format`'s behavior: it puts a space after every `//` and
+/// reindents comment lines along with the code around them.
 pub fn format(source: &str, path: &Path) -> String {
+    format_impl(source, path, false)
+}
+
+/// Autoformats a source file the way an editor's format-on-save does.
+///
+/// Structure is normalized, but commented content is never rewritten, because
+/// the specification says autoformat "should not format anything that is
+/// commented." A whole-line comment is left byte-for-byte as written -- the
+/// original indentation and the comment text both -- and a trailing comment
+/// keeps its exact text, with no space inserted after `//`. The code on a line
+/// that merely *carries* a comment is still formatted; only the commented part
+/// is left alone.
+pub fn autoformat(source: &str, path: &Path) -> String {
+    format_impl(source, path, true)
+}
+
+fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
     let parse = parser::parse(source, path);
     let imports = import_replacements(&parse, source);
 
@@ -80,7 +100,21 @@ pub fn format(source: &str, path: &Path) -> String {
             continue;
         }
 
+        // Autoformat leaves a whole-line comment exactly as written: the
+        // original indentation and the comment text both. Save-formatting must
+        // not move or re-space someone's comments, so the raw line is emitted
+        // untouched rather than reindented and normalized. The comment still
+        // feeds the indentation stack above so the surrounding code lands where
+        // `piton format` would put it; only the comment's own output differs.
+        // This runs outside any fence or escape block, where a leading `//` is
+        // literal text and is handled above.
         let depth = depth_for(&mut stack, indent);
+
+        if preserve_comments && trimmed.starts_with("//") {
+            out.push_str(text);
+            out.push('\n');
+            continue;
+        }
 
         if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\\') {
             escape = Some((trimmed.chars().count(), indent, depth));
@@ -95,7 +129,7 @@ pub fn format(source: &str, path: &Path) -> String {
             continue;
         }
 
-        push_line(&mut out, depth, 0, &normalize(trimmed));
+        push_line(&mut out, depth, 0, &normalize(trimmed, preserve_comments));
     }
 
     if !out.ends_with('\n') && !out.is_empty() {
@@ -161,10 +195,22 @@ fn push_line(out: &mut String, depth: usize, extra: usize, text: &str) {
 
 /// Applies the small spacing rules: a space after `//`, and after `:` and `::`
 /// where they carry structural meaning.
-fn normalize(text: &str) -> String {
+///
+/// When `preserve_comments` is set (autoformat), the comment text is left
+/// exactly as written -- no space is inserted after `//` -- because autoformat
+/// must not format commented content. The code before the comment is still
+/// normalized, so only a single space separates the two.
+fn normalize(text: &str, preserve_comments: bool) -> String {
     let (code, comment) = prose::split_comment(text);
     let mut out = code.trim_end().to_string();
     if let Some(comment) = comment {
+        if preserve_comments {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(comment);
+            return out;
+        }
         let body = comment.trim_start_matches('/').trim_start();
         if !out.is_empty() {
             out.push(' ');
@@ -277,6 +323,50 @@ mod tests {
         assert_eq!(fmt("value: 1 //tight\n"), "value: 1 // tight\n");
     }
 
+    fn auto(source: &str) -> String {
+        autoformat(source, Path::new("test.pi"))
+    }
+
+    #[test]
+    fn autoformat_leaves_comment_lines_exactly_as_written() {
+        // The spec: "Autoformat should not format anything that is commented."
+        // A whole-line comment keeps its original indentation and its text is
+        // never re-spaced -- the opposite of `piton format`, which normalizes
+        // both. A misindented comment stays misindented rather than being moved.
+        assert_eq!(auto("//no space\n"), "//no space\n");
+        assert_eq!(
+            auto("        // deeply indented\n"),
+            "        // deeply indented\n"
+        );
+        assert_eq!(auto("  //odd indent\n"), "  //odd indent\n");
+    }
+
+    #[test]
+    fn autoformat_still_formats_the_code_around_comments() {
+        // Only the commented content is exempt. Code is formatted as usual, so
+        // indentation is fixed and a trailing comment's code side is normalized
+        // -- but the comment text itself keeps its exact bytes (no space after
+        // `//`).
+        assert_eq!(
+            auto("anchor A:\n  value: 1 //tight\n"),
+            "anchor A:\n    value: 1 //tight\n"
+        );
+        // An ordinary indented comment line still gets its code neighbours
+        // formatted while it stays put.
+        assert_eq!(
+            auto("anchor A:\n  value: 1\n//note\n  other: 2\n"),
+            "anchor A:\n    value: 1\n//note\n    other: 2\n"
+        );
+    }
+
+    #[test]
+    fn autoformat_never_invents_a_space_after_the_marker() {
+        // The whole point: `//x` stays `//x` under autoformat but becomes
+        // `// x` under the explicit command.
+        assert_eq!(auto("value: 1 //x\n"), "value: 1 //x\n");
+        assert_eq!(fmt("value: 1 //x\n"), "value: 1 // x\n");
+    }
+
     #[test]
     fn short_import_lists_stay_on_one_line() {
         assert_eq!(
@@ -297,7 +387,10 @@ mod tests {
     fn long_import_lines_wrap_even_with_two_items() {
         let source = "from ../operators/concatenation/ConcatenationOperator import AVeryLongSymbolName, AnotherVeryLongSymbolName\n";
         let formatted = fmt(source);
-        assert!(formatted.contains("import\n    AVeryLongSymbolName,\n"), "{formatted}");
+        assert!(
+            formatted.contains("import\n    AVeryLongSymbolName,\n"),
+            "{formatted}"
+        );
     }
 
     #[test]
@@ -310,7 +403,10 @@ mod tests {
 
     #[test]
     fn star_exports_are_preserved() {
-        assert_eq!(fmt("from ./MyAnchor export *\n"), "from ./MyAnchor export *\n");
+        assert_eq!(
+            fmt("from ./MyAnchor export *\n"),
+            "from ./MyAnchor export *\n"
+        );
     }
 
     #[test]
@@ -330,7 +426,8 @@ mod tests {
 
     #[test]
     fn escape_blocks_keep_their_relative_indentation() {
-        let source = "anchor A:\n  body:\n    \\\\\\\n    key: value\n      nested: 2\n    \\\\\\\n";
+        let source =
+            "anchor A:\n  body:\n    \\\\\\\n    key: value\n      nested: 2\n    \\\\\\\n";
         assert_eq!(
             fmt(source),
             "anchor A:\n    body:\n        \\\\\\\n        key: value\n          nested: 2\n        \\\\\\\n"
@@ -340,7 +437,8 @@ mod tests {
     #[test]
     fn escape_block_contents_are_never_rewritten() {
         // Comment spacing is a formatting rule for code, not for literal text.
-        let source = "anchor A:\n    body:\n        \\\\\\\n        //no space added here\n        \\\\\\\n";
+        let source =
+            "anchor A:\n    body:\n        \\\\\\\n        //no space added here\n        \\\\\\\n";
         assert_eq!(fmt(source), source);
     }
 

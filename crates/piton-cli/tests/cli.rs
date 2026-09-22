@@ -72,7 +72,10 @@ impl Fixture {
 fn full_project(name: &str, adapters: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.mkdir("src/components/button");
-    fixture.write("src/components/button/Button.ts", "export const Button = 1;\n");
+    fixture.write(
+        "src/components/button/Button.ts",
+        "export const Button = 1;\n",
+    );
 
     fixture.write(
         "piton.config.pi",
@@ -135,6 +138,52 @@ export instruction ButtonShape:
 }
 
 #[test]
+fn a_library_whose_entry_only_exports_still_builds() {
+    let fixture = Fixture::new("entry-exports");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeAdapter}\n",
+    );
+    fixture.write(
+        "spec/lib/UiComponent.pi",
+        "export abstract anchor UiComponent as ui-component:\n    description:: string\n",
+    );
+    fixture.write(
+        "spec/components/Button/index.pi",
+        "use ../../lib/UiComponent\n\nexport ui-component Button:\n    description: A button triggers an action.\n",
+    );
+    fixture.write(
+        "spec/components/Checkbox/index.pi",
+        "use ../../lib/UiComponent\n\nexport ui-component Checkbox:\n    description: A checkbox toggles a value.\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./components/Button export Button\nfrom ./components/Checkbox export Checkbox\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        fixture.exists(".claude/reference/components/Button/Button.md"),
+        "an exported anchor nothing links to is still compiled: {stdout}{stderr}"
+    );
+    assert!(
+        fixture.exists(".claude/reference/components/Checkbox/Checkbox.md"),
+        "{stdout}{stderr}"
+    );
+    assert!(
+        fixture
+            .read(".claude/reference/components/Button/Button.md")
+            .contains("A button triggers an action."),
+        "the reference carries the anchor's own content"
+    );
+    assert!(
+        !fixture.exists(".claude/reference/lib/UiComponent.md"),
+        "an abstract anchor declares a shape and has no document of its own"
+    );
+}
+
+#[test]
 fn a_full_project_builds_every_artifact() {
     let fixture = full_project("full", "        - {ClaudeAdapter}");
     let (stdout, stderr, code) = fixture.run(&["build"]);
@@ -142,35 +191,56 @@ fn a_full_project_builds_every_artifact() {
 
     // Skill.
     let skill = fixture.read(".claude/skills/review-components/SKILL.md");
-    assert!(skill.starts_with("---\nname: review-components\n"), "{skill}");
+    assert!(
+        skill.starts_with("---\nname: review-components\n"),
+        "{skill}"
+    );
     assert!(
         skill.contains("description: Review a component against the house style. Use when reviewing or writing a component"),
         "{skill}"
     );
-    assert!(skill.contains("# Checklist"), "additional properties serialize after the prompt:\n{skill}");
+    assert!(
+        skill.contains("# Checklist"),
+        "additional properties serialize after the prompt:\n{skill}"
+    );
     assert!(skill.contains("- Props are flat."), "{skill}");
 
     // A reference in a prompt becomes a link to a generated file.
-    assert!(skill.contains("](../../reference/HouseStyle.md)"), "{skill}");
+    assert!(
+        skill.contains("](../../reference/HouseStyle.md)"),
+        "{skill}"
+    );
     assert!(fixture.exists(".claude/reference/HouseStyle.md"));
 
     // Command: an x-prefixed skill with automatic invocation disabled.
     let command = fixture.read(".claude/skills/x-release/SKILL.md");
     assert!(command.contains("name: x-release"), "{command}");
-    assert!(command.contains("disable-model-invocation: true"), "{command}");
-    assert!(!fixture.exists(".claude/commands/x-release.md"), "one representation only");
+    assert!(
+        command.contains("disable-model-invocation: true"),
+        "{command}"
+    );
+    assert!(
+        !fixture.exists(".claude/commands/x-release.md"),
+        "one representation only"
+    );
 
     // Agent: role introduction, then prompt, with explicit native options only.
     let agent = fixture.read(".claude/agents/reviewer.md");
     assert!(agent.contains("name: reviewer"), "{agent}");
     assert!(agent.contains("model: fast"), "{agent}");
     assert!(agent.contains("You are a careful reviewer"), "{agent}");
-    assert!(!agent.contains("tools:"), "absent options stay absent:\n{agent}");
+    assert!(
+        !agent.contains("tools:"),
+        "absent options stay absent:\n{agent}"
+    );
 
     // Instruction: placed at the matching code scope, not at the shape path.
     let instruction = fixture.read("src/components/button/CLAUDE.md");
     assert!(instruction.contains("# Button Shape"), "{instruction}");
-    assert!(instruction.contains("label and an onPress handler"), "{instruction}");
+    assert!(
+        instruction.contains("label and an onPress handler"),
+        "{instruction}"
+    );
     // And preserved in the compiled shape tree.
     assert!(fixture.exists(".claude/reference/shape/components/button/ButtonShape.md"));
 }
@@ -219,12 +289,18 @@ fn every_adapter_emits_its_own_native_form() {
     assert!(toml.contains("You are a careful reviewer"), "{toml}");
     // `model` is not a documented option for the standalone agent format here,
     // so it must not be invented.
-    assert!(toml.contains("model = \"fast\""), "model is supported: {toml}");
+    assert!(
+        toml.contains("model = \"fast\""),
+        "model is supported: {toml}"
+    );
 
     // OpenCode: commands are native and agent mode is explicit.
     let command = fixture.read(".opencode/commands/x-release.md");
     assert!(command.contains("description: Cut a release"), "{command}");
-    assert!(!command.contains("name:"), "identity comes from the filename:\n{command}");
+    assert!(
+        !command.contains("name:"),
+        "identity comes from the filename:\n{command}"
+    );
     let agent = fixture.read(".opencode/agents/reviewer.md");
     assert!(agent.contains("mode: subagent"), "{agent}");
 
@@ -288,6 +364,28 @@ fn compile_renders_each_adapter() {
 }
 
 #[test]
+fn compile_includes_what_the_file_exports_without_declaring() {
+    let fixture = Fixture::new("compile-reexport");
+    fixture.write("One.pi", "export anchor One:\n    value: 1\n");
+    fixture.write("Two.pi", "export anchor Two:\n    value: 2\n");
+    fixture.write(
+        "index.pi",
+        "from ./One export *\nfrom ./Two export Two Renamed\n",
+    );
+
+    let (json, stderr, code) = fixture.run(&["compile", "index.pi", "--adapter", "json"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        json.contains("\"One\""),
+        "an index that only forwards still compiles to what it forwards: {json}"
+    );
+    assert!(
+        json.contains("\"Renamed\""),
+        "an export is compiled under the name it leaves by: {json}"
+    );
+}
+
+#[test]
 fn compile_writes_next_to_the_input_when_asked() {
     let fixture = Fixture::new("compile-write");
     fixture.write("data.pi", "export anchor Thing:\n    name: Widget\n");
@@ -313,8 +411,14 @@ fn a_glob_without_write_is_refused() {
 #[test]
 fn format_normalizes_and_check_reports() {
     let fixture = Fixture::new("format");
-    fixture.write("messy.pi", "from ./x import C, A, B\nanchor A:\n\tvalue: 1 //tight\n");
-    fixture.write("x.pi", "export anchor A:\n    v: 1\nexport anchor B:\n    v: 2\nexport anchor C:\n    v: 3\n");
+    fixture.write(
+        "messy.pi",
+        "from ./x import C, A, B\nanchor A:\n\tvalue: 1 //tight\n",
+    );
+    fixture.write(
+        "x.pi",
+        "export anchor A:\n    v: 1\nexport anchor B:\n    v: 2\nexport anchor C:\n    v: 3\n",
+    );
 
     let (_, stderr, code) = fixture.run(&["format", "messy.pi", "--check"]);
     assert_eq!(code, 1, "{stderr}");
@@ -431,7 +535,10 @@ fn reach_marks_a_root_as_a_root() {
     assert_eq!(code, 0, "{stderr}");
     // A root was not reached from anywhere, so naming an edge it arrived on
     // is naming an edge that does not exist.
-    assert!(stdout.contains("ReviewComponents  depth 0  root"), "{stdout}");
+    assert!(
+        stdout.contains("ReviewComponents  depth 0  root"),
+        "{stdout}"
+    );
     assert!(
         !stdout.contains("depth 0  via"),
         "nothing arrives at depth 0: {stdout}"
@@ -446,7 +553,10 @@ fn build_cleans_up_only_what_it_generated() {
     assert!(fixture.exists(".claude/skills/x-release/SKILL.md"));
 
     // A file the user wrote inside an output directory must survive.
-    fixture.write(".claude/skills/mine/SKILL.md", "---\nname: mine\n---\n\nhand written\n");
+    fixture.write(
+        ".claude/skills/mine/SKILL.md",
+        "---\nname: mine\n---\n\nhand written\n",
+    );
 
     // Remove the command from the source and rebuild.
     let source = fixture.read("spec/Constructs.pi");
@@ -472,7 +582,10 @@ fn a_dry_run_writes_nothing() {
     let fixture = full_project("dry", "        - {ClaudeAdapter}");
     let (stdout, stderr, code) = fixture.run(&["build", "--dry-run"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(stdout.contains(".claude/skills/review-components/SKILL.md"), "{stdout}");
+    assert!(
+        stdout.contains(".claude/skills/review-components/SKILL.md"),
+        "{stdout}"
+    );
     assert!(!fixture.exists(".claude/skills/review-components/SKILL.md"));
 }
 
@@ -514,15 +627,23 @@ fn a_relative_file_argument_resolves() {
 fn help_lists_every_documented_command() {
     let output = Command::new(binary()).arg("--help").output().expect("help");
     let text = String::from_utf8_lossy(&output.stdout);
-    for command in ["agent", "build", "check", "compile", "format", "loc", "lsp", "reach"] {
-        assert!(text.contains(command), "`{command}` missing from help:\n{text}");
+    for command in [
+        "agent", "build", "check", "compile", "format", "loc", "lsp", "reach",
+    ] {
+        assert!(
+            text.contains(command),
+            "`{command}` missing from help:\n{text}"
+        );
     }
     let _ = Path::new(".");
 }
 
 #[test]
 fn rebuilding_produces_identical_bytes() {
-    let fixture = full_project("determinism", "        - {ClaudeAdapter}\n        - {CodexAdapter}");
+    let fixture = full_project(
+        "determinism",
+        "        - {ClaudeAdapter}\n        - {CodexAdapter}",
+    );
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
 
@@ -548,10 +669,7 @@ fn compile_can_report_what_it_read() {
         "piton.config.pi",
         "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
     );
-    fixture.write(
-        "spec/base.pi",
-        "export anchor Base:\n    kind: base\n",
-    );
+    fixture.write("spec/base.pi", "export anchor Base:\n    kind: base\n");
     fixture.write(
         "spec/index.pi",
         "from ./base import Base\n\nexport anchor Thing:\n    uses: {Base}\n",
@@ -571,4 +689,28 @@ fn compile_can_report_what_it_read() {
     assert!(stdout.contains("spec/index.pi"), "{stdout}");
     // A bundled package lives in the binary and cannot be watched.
     assert!(!stdout.contains("\"@piton"), "{stdout}");
+}
+
+#[test]
+fn agent_prints_its_fluency_without_building_or_launching() {
+    let fixture = full_project("print-fluency", "        - {CodexAdapter}\n");
+    for args in [
+        &["agent", "--print-fluency"][..],
+        &["agent", "claude", "--print-fluency"],
+    ] {
+        let (stdout, stderr, code) = fixture.run(args);
+        assert_eq!(code, 0, "{stderr}");
+        assert!(
+            stdout.contains("This project is written in Piton"),
+            "{stdout}"
+        );
+        assert!(
+            stdout.contains("AGENTS.md"),
+            "follows the configured adapter:\n{stdout}"
+        );
+    }
+    assert!(
+        !fixture.exists("AGENTS.md"),
+        "printing the prompt builds nothing"
+    );
 }
