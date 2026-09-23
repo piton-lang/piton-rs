@@ -21,25 +21,57 @@ pub const INDENT: usize = 4;
 /// Column at which an import declaration wraps onto separate lines.
 pub const WRAP_COLUMN: usize = 80;
 
-/// Formats a source file canonically, normalizing comments.
+/// Formats a source file canonically.
 ///
-/// This is `piton format`'s behavior: it puts a space after every `//` and
-/// reindents comment lines along with the code around them.
+/// This is `piton format`'s behavior: it puts a space after every `//` that
+/// lacks one and reindents comment lines along with the code around them. The
+/// rest of a comment is left exactly as written, so commented-out code keeps
+/// its own spacing.
 pub fn format(source: &str, path: &Path) -> String {
     format_impl(source, path, false)
 }
 
 /// Autoformats a source file the way an editor's format-on-save does.
 ///
-/// Structure is normalized, but commented content is never rewritten, because
-/// the specification says autoformat "should not format anything that is
-/// commented." A whole-line comment is left byte-for-byte as written -- the
-/// original indentation and the comment text both -- and a trailing comment
-/// keeps its exact text, with no space inserted after `//`. The code on a line
-/// that merely *carries* a comment is still formatted; only the commented part
-/// is left alone.
+/// Structure is normalized, and a space is added after `//` the same way
+/// `piton format` adds one, but nothing else that is commented is touched: a
+/// whole-line comment keeps its original indentation, and every comment keeps
+/// its text byte-for-byte after the marker. The code on a line that merely
+/// *carries* a comment is still formatted.
 pub fn autoformat(source: &str, path: &Path) -> String {
     format_impl(source, path, true)
+}
+
+/// Formats a source that arrived on its own, as `piton format -` reads it from
+/// stdin: the formatted text, or the parse errors that stopped it.
+///
+/// Formatting a file that does not parse would be formatting a guess, and an
+/// editor that pipes a buffer through the formatter replaces the buffer with
+/// whatever comes back -- so a broken file gets nothing back, not a rewrite.
+pub fn format_checked(source: &str, path: &Path) -> Result<String, Vec<Diagnostic>> {
+    let parse = parser::parse(source, path);
+    let errors: Vec<Diagnostic> = parse
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_error())
+        .cloned()
+        .collect();
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(format(source, path))
+}
+
+/// Puts one space after a comment's `//` when the next character is not
+/// already whitespace. Everything after that is left exactly as written.
+fn space_comment(comment: &str) -> String {
+    let Some(rest) = comment.strip_prefix("//") else {
+        return comment.to_string();
+    };
+    match rest.chars().next() {
+        Some(next) if !next.is_whitespace() => format!("// {rest}"),
+        _ => comment.to_string(),
+    }
 }
 
 fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
@@ -100,10 +132,9 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
             continue;
         }
 
-        // Autoformat leaves a whole-line comment exactly as written: the
-        // original indentation and the comment text both. Save-formatting must
-        // not move or re-space someone's comments, so the raw line is emitted
-        // untouched rather than reindented and normalized. The comment still
+        // Autoformat leaves a whole-line comment where it was: the original
+        // indentation stays, and the only change is the space after `//`.
+        // Save-formatting must not move someone's comments. The comment still
         // feeds the indentation stack above so the surrounding code lands where
         // `piton format` would put it; only the comment's own output differs.
         // This runs outside any fence or escape block, where a leading `//` is
@@ -111,7 +142,8 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
         let depth = depth_for(&mut stack, indent);
 
         if preserve_comments && trimmed.starts_with("//") {
-            out.push_str(text);
+            out.push_str(&text[..indent_bytes(text, indent)]);
+            out.push_str(&space_comment(trimmed));
             out.push('\n');
             continue;
         }
@@ -129,7 +161,7 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
             continue;
         }
 
-        push_line(&mut out, depth, 0, &normalize(trimmed, preserve_comments));
+        push_line(&mut out, depth, 0, &normalize(trimmed));
     }
 
     if !out.ends_with('\n') && !out.is_empty() {
@@ -193,34 +225,17 @@ fn push_line(out: &mut String, depth: usize, extra: usize, text: &str) {
     out.push('\n');
 }
 
-/// Applies the small spacing rules: a space after `//`, and after `:` and `::`
-/// where they carry structural meaning.
-///
-/// When `preserve_comments` is set (autoformat), the comment text is left
-/// exactly as written -- no space is inserted after `//` -- because autoformat
-/// must not format commented content. The code before the comment is still
-/// normalized, so only a single space separates the two.
-fn normalize(text: &str, preserve_comments: bool) -> String {
+/// Applies the small spacing rules: a single space between code and a trailing
+/// comment, and a space after `//` when the comment has none. The comment's
+/// own text is never rewritten.
+fn normalize(text: &str) -> String {
     let (code, comment) = prose::split_comment(text);
     let mut out = code.trim_end().to_string();
     if let Some(comment) = comment {
-        if preserve_comments {
-            if !out.is_empty() {
-                out.push(' ');
-            }
-            out.push_str(comment);
-            return out;
-        }
-        let body = comment.trim_start_matches('/').trim_start();
         if !out.is_empty() {
             out.push(' ');
         }
-        out.push_str("// ");
-        out.push_str(body);
-        // A comment with no text keeps just the marker.
-        if body.is_empty() {
-            out.truncate(out.trim_end().len());
-        }
+        out.push_str(&space_comment(comment.trim_end()));
     }
     out
 }
@@ -231,13 +246,57 @@ struct Replacement {
     text: String,
 }
 
-/// Rewrites every import and export declaration, sorted and wrapped.
+/// A module path in canonical form: the optional `.pi` extension removed.
+fn module_path(text: &str) -> &str {
+    match text.strip_suffix(".pi") {
+        // `./.pi` would be a file with no name; leave anything that odd alone.
+        Some(stem) if !stem.is_empty() && !stem.ends_with('/') => stem,
+        _ => text,
+    }
+}
+
+/// The offset of the end of the line holding `offset`.
+fn line_end(source: &str, offset: usize) -> usize {
+    let offset = offset.min(source.len());
+    source[offset..]
+        .find('\n')
+        .map(|found| offset + found)
+        .unwrap_or(source.len())
+}
+
+/// Rewrites every import and export declaration, sorted and wrapped, and every
+/// `use` whose path carries the `.pi` extension.
 fn import_replacements(
     parse: &parser::Parse,
     source: &str,
 ) -> std::collections::BTreeMap<usize, Replacement> {
     let mut out = std::collections::BTreeMap::new();
     for item in &parse.file.items {
+        // A `use` only changes when its path carries the optional extension.
+        if let Item::Use(decl) = item {
+            let path = module_path(&decl.path.text);
+            if path != decl.path.text {
+                let end = line_end(source, decl.path.span.end);
+                // Whatever follows the path on its line, a comment say, stays.
+                let rest = source
+                    .get(decl.path.span.end.min(end)..end)
+                    .unwrap_or_default()
+                    .trim_end();
+                let text = match prose::split_comment(rest) {
+                    (_, Some(comment)) => format!("use {path} {}", space_comment(comment)),
+                    _ => format!("use {path}{rest}"),
+                };
+                out.insert(
+                    decl.span.start,
+                    Replacement {
+                        start: decl.span.start,
+                        end,
+                        text,
+                    },
+                );
+            }
+            continue;
+        }
         let Item::From(decl) = item else { continue };
         let keyword = match decl.kind {
             FromKind::Import => "import",
@@ -255,7 +314,7 @@ fn import_replacements(
         // names look the same.
         entries.sort();
 
-        let head = format!("from {} {keyword}", decl.path.text);
+        let head = format!("from {} {keyword}", module_path(&decl.path.text));
         let text = if decl.star {
             format!("{head} *")
         } else if entries.is_empty() {
@@ -281,10 +340,7 @@ fn import_replacements(
         };
 
         // Extend the replaced region to the end of the declaration's last line.
-        let end = source[decl.span.end.min(source.len())..]
-            .find('\n')
-            .map(|offset| decl.span.end + offset)
-            .unwrap_or(source.len());
+        let end = line_end(source, decl.span.end);
         out.insert(
             decl.span.start,
             Replacement {
@@ -321,6 +377,17 @@ mod tests {
     fn comments_gain_a_space() {
         assert_eq!(fmt("//no space\n"), "// no space\n");
         assert_eq!(fmt("value: 1 //tight\n"), "value: 1 // tight\n");
+        assert_eq!(fmt("//\n"), "//\n");
+    }
+
+    #[test]
+    fn the_rest_of_a_comment_is_never_rewritten() {
+        // Commented-out code keeps its own spacing, and only a missing space
+        // right after the marker is added.
+        assert_eq!(fmt("//     nested: 2\n"), "//     nested: 2\n");
+        assert_eq!(fmt("///triple\n"), "// /triple\n");
+        assert_eq!(fmt("// already spaced\n"), "// already spaced\n");
+        assert_eq!(fmt("value: 1   //  two spaces\n"), "value: 1 //  two spaces\n");
     }
 
     fn auto(source: &str) -> String {
@@ -328,44 +395,56 @@ mod tests {
     }
 
     #[test]
-    fn autoformat_leaves_comment_lines_exactly_as_written() {
-        // The spec: "Autoformat should not format anything that is commented."
-        // A whole-line comment keeps its original indentation and its text is
-        // never re-spaced -- the opposite of `piton format`, which normalizes
-        // both. A misindented comment stays misindented rather than being moved.
-        assert_eq!(auto("//no space\n"), "//no space\n");
+    fn autoformat_adds_the_space_and_leaves_comment_lines_where_they_are() {
+        // The spec: "Autoformat should add the space after //, but not touch
+        // anything else that's commented." A whole-line comment keeps its
+        // original indentation, even a misindented one.
+        assert_eq!(auto("//no space\n"), "// no space\n");
         assert_eq!(
             auto("        // deeply indented\n"),
             "        // deeply indented\n"
         );
-        assert_eq!(auto("  //odd indent\n"), "  //odd indent\n");
+        assert_eq!(auto("  //odd indent\n"), "  // odd indent\n");
+        assert_eq!(auto("//     nested: 2\n"), "//     nested: 2\n");
     }
 
     #[test]
     fn autoformat_still_formats_the_code_around_comments() {
-        // Only the commented content is exempt. Code is formatted as usual, so
-        // indentation is fixed and a trailing comment's code side is normalized
-        // -- but the comment text itself keeps its exact bytes (no space after
-        // `//`).
         assert_eq!(
             auto("anchor A:\n  value: 1 //tight\n"),
-            "anchor A:\n    value: 1 //tight\n"
+            "anchor A:\n    value: 1 // tight\n"
         );
-        // An ordinary indented comment line still gets its code neighbours
-        // formatted while it stays put.
+        // An ordinary comment line still gets its code neighbours formatted
+        // while it stays put.
         assert_eq!(
             auto("anchor A:\n  value: 1\n//note\n  other: 2\n"),
-            "anchor A:\n    value: 1\n//note\n    other: 2\n"
+            "anchor A:\n    value: 1\n// note\n    other: 2\n"
         );
     }
 
     #[test]
-    fn autoformat_never_invents_a_space_after_the_marker() {
-        // The whole point: `//x` stays `//x` under autoformat but becomes
-        // `// x` under the explicit command.
-        assert_eq!(auto("value: 1 //x\n"), "value: 1 //x\n");
-        assert_eq!(fmt("value: 1 //x\n"), "value: 1 // x\n");
+    fn a_pi_extension_is_removed_from_module_paths() {
+        assert_eq!(
+            fmt("from ./file.pi import B, A\n"),
+            "from ./file import A, B\n"
+        );
+        assert_eq!(fmt("from ../x.pi export *\n"), "from ../x export *\n");
+        assert_eq!(fmt("use ./Keywords.pi\n"), "use ./Keywords\n");
+        assert_eq!(
+            fmt("use ./Keywords.pi //the words\n"),
+            "use ./Keywords // the words\n"
+        );
+        // Already canonical paths are left as they are.
+        assert_eq!(fmt("use ./Keywords\n"), "use ./Keywords\n");
+        assert_eq!(fmt("use my-package\n"), "use my-package\n");
     }
+
+    #[test]
+    fn a_broken_source_is_not_formatted() {
+        assert!(format_checked("anchor A:\n    value: 1\n", Path::new("t.pi")).is_ok());
+        assert!(format_checked("from import\n", Path::new("t.pi")).is_err());
+    }
+
 
     #[test]
     fn short_import_lists_stay_on_one_line() {

@@ -1,16 +1,15 @@
-//! `piton compile` — render one file, or a glob of files, through an adapter.
+//! `piton compile` — render one file, or a glob of files, through a renderer.
 
 use std::path::{Path, PathBuf};
 
 use piton_compile::Compilation;
-use piton_core::Properties;
-use piton_emit::{Adapter, MarkdownContext};
+use piton_emit::Adapter;
 
-use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
+use crate::{project, render, report, EXIT_ERRORS, EXIT_SUCCESS};
 
-pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
-    let adapter: Adapter = match adapter.parse() {
-        Ok(adapter) => adapter,
+pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
+    let renderer: Adapter = match render::parse_renderer(renderer) {
+        Ok(renderer) => renderer,
         Err(message) => {
             report::fail(message);
             return EXIT_ERRORS;
@@ -50,7 +49,10 @@ pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
             failed = true;
             continue;
         }
-        let project = configured.with_entry(input);
+        // Compiled from its absolute path, so every module the graph records
+        // -- and every path `--dependencies` reports -- is absolute too.
+        let absolute = project::canonical_target(input);
+        let project = configured.with_entry(&absolute);
         let compilation = Compilation::build(project);
         if compilation.has_errors() {
             let root = compilation.project.root.clone();
@@ -63,12 +65,12 @@ pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
             continue;
         }
 
-        let mut rendered = render(&compilation, input, adapter);
+        let mut rendered = render(&compilation, &absolute, renderer);
         if dependencies {
             rendered = envelope(&compilation, &rendered);
         }
         if write {
-            let destination = input.with_extension(adapter.extension());
+            let destination = input.with_extension(renderer.extension());
             if let Err(error) = std::fs::write(&destination, &rendered) {
                 report::fail(format!("cannot write `{}`: {error}", destination.display()));
                 failed = true;
@@ -87,28 +89,14 @@ pub fn run(path: &str, adapter: &str, write: bool, dependencies: bool) -> u8 {
     }
 }
 
-/// Collects what a file compiles to: its own top-level declarations, then
-/// everything it exports without declaring, such as the anchors an `index.pi`
-/// forwards from its directory.
-fn declarations(compilation: &Compilation, file: &Path) -> Properties {
+/// Renders what a file compiles to: an object with one key per export.
+fn render(compilation: &Compilation, file: &Path, renderer: Adapter) -> String {
     let Some(module) = compilation.graph().id_for(file) else {
-        return Properties::new();
+        return String::new();
     };
-    compilation.compiled_surface(module)
-}
-
-fn render(compilation: &Compilation, file: &Path, adapter: Adapter) -> String {
-    let declarations = declarations(compilation, file);
+    // The result is written next to the input, or read as if it were.
     let directory = file.parent().unwrap_or(Path::new("."));
-    piton_emit::render(
-        adapter,
-        &declarations,
-        compilation,
-        MarkdownContext {
-            from_directory: directory,
-            source_root: &compilation.project.source_root,
-        },
-    )
+    render::render_module(compilation, module, renderer, directory, None)
 }
 
 /// Wraps a rendered result with the source files it was compiled from.

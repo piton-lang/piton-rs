@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use piton_lsp::convert::{offset_to_position, path_to_url, position_to_offset};
 use piton_lsp::features;
 use piton_lsp::world::World;
+use piton_lsp::TOKEN_TYPES;
 use tower_lsp::lsp_types::*;
 
 fn repo_root() -> PathBuf {
@@ -79,7 +80,10 @@ fn hover_on_an_anchor_shows_its_inheritance_chain() {
         panic!("expected markup")
     };
     assert!(markup.value.contains("Inherits: Type"), "{}", markup.value);
-    assert!(markup.value.contains("Resolves to:"), "{}", markup.value);
+    // The compiled interpretation is shown in the project's renderer (JSON by
+    // default).
+    assert!(markup.value.contains("Resolves to (json):"), "{}", markup.value);
+    assert!(markup.value.contains("```json"), "{}", markup.value);
 }
 
 #[test]
@@ -331,17 +335,15 @@ fn formatting_reports_no_change_for_canonical_files() {
 #[test]
 fn formatting_leaves_comments_alone() {
     // The LSP `formatting` handler is what an editor calls on save, so it is
-    // the "autoformat" the spec governs: "Autoformat should not format
-    // anything that is commented." The code is still normalized, but comment
-    // lines keep their exact bytes -- unlike `piton format`, which rewrites
-    // them.
+    // the "autoformat" the spec governs: "Autoformat should add the space
+    // after `//`, but not touch anything else that's commented."
     let mut fixture = Fixture::new();
     let path = fixture.root.join("spec/scope/language/types/Strings.pi");
     let original = std::fs::read_to_string(&path).expect("readable");
 
     fixture.world.set_document(
         path.clone(),
-        format!("{original}\n//no space here\nanchor Pad:\n  value: 1\n"),
+        format!("{original}\n//no space here\n//   indented:  x\nanchor Pad:\n  value: 1\n"),
     );
     fixture.world.recompile(Some(&path));
 
@@ -356,8 +358,12 @@ fn formatting_leaves_comments_alone() {
     }
 
     assert!(
-        formatted.contains("//no space here"),
-        "autoformat must not re-space a comment:\n{formatted}"
+        formatted.contains("// no space here"),
+        "autoformat adds the space after `//`:\n{formatted}"
+    );
+    assert!(
+        formatted.contains("//   indented:  x"),
+        "and leaves the rest of the comment byte for byte:\n{formatted}"
     );
     assert!(
         formatted.contains("    value: 1"),
@@ -661,7 +667,7 @@ fn completion_of_a_value_offers_only_what_its_constraint_accepts() {
     // nothing, and nothing else.
     let buffer = Buffer::over(
         NULL,
-        "use ./lib/Type\n\nexport type Null:\n    supportedOperators: <|>\n",
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators: n<|>\n",
     );
     let items = buffer.items();
     let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
@@ -845,7 +851,7 @@ fn a_list_item_takes_the_constraints_of_the_key_above_it() {
     // what the constraint is about, so they are what it narrows.
     let buffer = Buffer::over(
         NULL,
-        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - <|>\n",
+        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - P<|>\n",
     );
     let labels = buffer.labels();
     assert!(
@@ -1081,15 +1087,25 @@ fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
 }
 
 #[test]
-fn a_leaf_anchor_has_no_implementations() {
+fn a_leaf_anchor_leads_only_to_what_composes_it() {
     let fixture = Fixture::new();
     let uri = fixture.uri("spec/scope/language/types/Strings.pi");
     // On the anchor's own name, not on the keyword in front of it: the keyword
     // names the abstract it aliases, which does have implementations.
     let position = fixture.position_of("spec/scope/language/types/Strings.pi", "Strings:");
-    // Nothing extends a concrete leaf, and that is reported as no answer rather
-    // than as an empty one.
-    assert!(features::implementations(&fixture.world, &uri, position).is_none());
+    // Nothing extends a concrete leaf. What it does have is the anchors that
+    // compose it: `Types` writes `strings: {Strings}`.
+    let Some(request::GotoImplementationResponse::Array(locations)) =
+        features::implementations(&fixture.world, &uri, position)
+    else {
+        panic!("the composer of Strings is related to it");
+    };
+    assert!(
+        locations
+            .iter()
+            .all(|location| location.uri.path().ends_with("types/index.pi")),
+        "{locations:?}"
+    );
 }
 
 #[test]
@@ -1148,5 +1164,150 @@ fn a_hierarchy_item_survives_a_lost_identity() {
         supertypes.iter().any(|parent| parent.name == "Type"),
         "{:?}",
         supertypes.iter().map(|item| &item.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn enter_after_a_list_item_ending_in_a_colon_does_not_indent() {
+    // A list item is never a key: `- Settings:` is just the string
+    // `Settings:`, so it opens nothing.
+    let text = after_enter("export type N:\n    items:\n        - Settings:\n<|>");
+    assert!(
+        text.ends_with("        - Settings:\n        "),
+        "a list item opens no block: {text:?}"
+    );
+}
+
+#[test]
+fn enter_after_a_merge_line_does_not_indent() {
+    let text = after_enter("export type N:\n    items:\n        + {x}:\n<|>");
+    assert!(
+        text.ends_with("        + {x}:\n        "),
+        "a merge line opens no block: {text:?}"
+    );
+}
+
+#[test]
+fn super_offers_what_every_base_has() {
+    let buffer = Buffer::over(
+        NULL,
+        "anchor Left:\n    fromLeft: a\n\nanchor Right:\n    fromRight: b\n\nexport anchor Child extends Left, Right:\n    x: ${super.<|>}\n",
+    );
+    let labels = buffer.labels();
+    assert!(labels.contains(&"fromLeft".to_string()), "{labels:?}");
+    assert!(labels.contains(&"fromRight".to_string()), "{labels:?}");
+}
+
+#[test]
+fn a_nested_dictionary_is_not_offered_the_anchors_properties() {
+    let buffer = Buffer::over(
+        NULL,
+        "use ./lib/Type\n\nexport type Null:\n    config:\n        <|>\n",
+    );
+    assert!(
+        buffer.labels().is_empty(),
+        "the anchor's own properties do not go inside `config`: {:?}",
+        buffer.labels()
+    );
+    // Directly in the body they still are.
+    let body = Buffer::over(NULL, "use ./lib/Type\n\nexport type Null:\n    <|>\n");
+    assert!(body.labels().contains(&"description".to_string()));
+}
+
+#[test]
+fn semantic_tokens_mark_types_and_expression_operators() {
+    let buffer = Buffer::over(
+        NULL,
+        "<|>use ./lib/Type\n\nexport type Null:\n    n:: number: {1 + 2}\n    s: ${\"a\" ++ \"b\"}\n",
+    );
+    let Some(SemanticTokensResult::Tokens(tokens)) =
+        features::semantic_tokens(&buffer.world, &buffer.uri)
+    else {
+        panic!("tokens");
+    };
+    // Decode to (line, column, length, type).
+    let mut decoded = Vec::new();
+    let (mut line, mut column) = (0u32, 0u32);
+    for token in &tokens.data {
+        if token.delta_line > 0 {
+            line += token.delta_line;
+            column = token.delta_start;
+        } else {
+            column += token.delta_start;
+        }
+        decoded.push((line, column, token.length, token.token_type));
+    }
+    let lines: Vec<&str> = buffer.text.lines().collect();
+    let text_of = |(line, column, length, _): &(u32, u32, u32, u32)| -> String {
+        lines[*line as usize]
+            .chars()
+            .skip(*column as usize)
+            .take(*length as usize)
+            .collect()
+    };
+    let kind = |wanted: &str| -> Vec<u32> {
+        decoded
+            .iter()
+            .filter(|token| text_of(token) == wanted)
+            .map(|token| token.3)
+            .collect()
+    };
+    let type_index = TOKEN_TYPES
+        .iter()
+        .position(|kind| *kind == SemanticTokenType::TYPE)
+        .unwrap() as u32;
+    let operator = TOKEN_TYPES
+        .iter()
+        .position(|kind| *kind == SemanticTokenType::OPERATOR)
+        .unwrap() as u32;
+    let string = TOKEN_TYPES
+        .iter()
+        .position(|kind| *kind == SemanticTokenType::STRING)
+        .unwrap() as u32;
+    assert!(kind("number").contains(&type_index), "{decoded:?}");
+    assert!(kind("+").contains(&operator), "{decoded:?}");
+    assert!(kind("++").contains(&operator), "{decoded:?}");
+    assert!(kind("\"a\"").contains(&string), "{decoded:?}");
+    assert!(kind("${").contains(&operator), "{decoded:?}");
+}
+
+#[test]
+fn workspace_symbols_carry_their_description() {
+    let fixture = Fixture::new();
+    let symbols = features::workspace_symbols(&fixture.world, "Strings").expect("symbols");
+    let strings = symbols
+        .iter()
+        .find(|symbol| symbol.name == "Strings")
+        .expect("Strings");
+    assert!(
+        strings
+            .container_name
+            .as_deref()
+            .is_some_and(|container| container.contains("Strings are not quoted")),
+        "{:?}",
+        strings.container_name
+    );
+}
+
+#[test]
+fn the_type_hierarchy_includes_composition() {
+    let fixture = Fixture::new();
+    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
+    let position = fixture.position_of("spec/scope/language/types/Strings.pi", "Strings:");
+    let item = features::prepare_type_hierarchy(&fixture.world, &uri, position)
+        .expect("item")
+        .remove(0);
+    let subtypes = features::type_hierarchy_subtypes(&fixture.world, &item).expect("subtypes");
+    let composer = subtypes
+        .iter()
+        .find(|item| item.name == "Types")
+        .unwrap_or_else(|| panic!("{:?}", subtypes.iter().map(|i| &i.name).collect::<Vec<_>>()));
+    assert!(
+        composer
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("composes it")),
+        "{:?}",
+        composer.detail
     );
 }

@@ -1,0 +1,20 @@
+[
+    // Enter on a blank line inside a dictionary or anchor leaves the block:
+    // the new line comes back one level. Sublime copies the blank line's
+    // indentation to the new line; the macro then unindents it once.
+    //
+    // The rule reads the whitespace on the blank line, which Sublime leaves
+    // there while you type. A blank line with no whitespace at all has no
+    // depth to measure, and Enter there behaves as usual.
+    {
+        "keys": ["enter"],
+        "command": "run_macro_file",
+        "args": { "file": "res://Packages/Piton/Enter on Blank Line.sublime-macro" },
+        "context": [
+            { "key": "selector", "operator": "equal", "operand": "source.piton", "match_all": true },
+            { "key": "preceding_text", "operator": "regex_match", "operand": "^[ \t]+$", "match_all": true },
+            { "key": "following_text", "operator": "regex_match", "operand": "^[ \t]*$", "match_all": true },
+            { "key": "auto_complete_visible", "operator": "equal", "operand": false }
+        ]
+    }
+]

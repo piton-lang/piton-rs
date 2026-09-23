@@ -85,7 +85,7 @@ There's one thing to make very clear upfront: There is no runtime for Piton. Pit
 
 ##### Source Files And Modules
 
-Piton files carry the .pi extension. Directories with an index.pi file become modules, which we cover in [Modules](scope/language/reuse/Modules.md).
+Piton files carry the .pi extension. Directories with an index.pi file become modules, which we cover in [Modules](./scope/language/reuse/Modules.md#modules).
 
 #### Whitespace
 
@@ -108,7 +108,7 @@ myVariable: 42 // This is also a comment
 
 ##### Keywords
 
-Keywords are reserved words that have special meaning in Piton. string, false, anchor, export, etc. are all examples. A unique aspect of Piton is that you can define your own keywords that act as a sort of syntactic sugar for inheritance. But that's a topic we'll discuss later in [UserDefinedKeywords](scope/language/anchors/UserDefinedKeywords.md). Keywords must be all lowercase and can be kebab-case.
+Keywords are reserved words that have special meaning in Piton. string, false, anchor, export, etc. are all examples. A unique aspect of Piton is that you can define your own keywords that act as a sort of syntactic sugar for inheritance. But that's a topic we'll discuss later in [UserDefinedKeywords](./scope/language/anchors/Keywords.md#user-defined-keywords). Keywords must be all lowercase and can be kebab-case.
 
 ##### Reserved
 
@@ -217,7 +217,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ##### Description
 
@@ -247,7 +247,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 ##### Supported Operators
 
 - description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
-    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](scope/language/expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](./scope/language/expressions/StringExpression.md#string-expression) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
     A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
 - description: The `++` operator is like merge, but it keeps duplicates.
@@ -270,7 +270,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ##### Description
 
@@ -348,7 +348,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ##### Description
 
@@ -370,7 +370,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ##### Description
 
@@ -407,7 +407,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ###### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ###### Description
 
@@ -489,7 +489,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ###### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ###### Description
 
@@ -589,7 +589,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ##### Description
 
@@ -640,11 +640,11 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ##### Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](scope/language/variables/TypeCoercion.md) and [Inference](scope/language/types/Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](./scope/language/variables/TypeCoercion.md#type-coercion) and [Inference](./scope/language/types/Inference.md#inference).
 
 ##### Description
 
-A reference comes from a [ReferenceExpression](scope/language/expressions/ReferenceExpression.md). It points at an anchor, or a property on one, instead of copying it. How it ends up looking in the output is up to the renderer, and frameworks like Belay build on top of that.
+A reference comes from a [ReferenceExpression](./scope/language/expressions/ReferenceExpression.md#reference-expression). It points at an anchor, or a property on one, instead of copying it. How it ends up looking in the output is up to the renderer, and frameworks like Belay build on top of that.
 
 ##### Renderers
 
@@ -664,18 +664,18 @@ Two references are equal if they point at the same thing.
 
 ##### List Of Simple Types
 
-- [Numbers](scope/language/types/Numbers.md)
-- [Strings](scope/language/types/Strings.md)
-- [Booleans](scope/language/types/Booleans.md)
-- [Null](scope/language/types/Null.md)
+- [Numbers](./scope/language/types/Numbers.md#numbers)
+- [Strings](./scope/language/types/Strings.md#strings)
+- [Booleans](./scope/language/types/Booleans.md#booleans)
+- [Null](./scope/language/types/Null.md#null)
 
 #### Complex Types
 
 ##### List Of Complex Types
 
-- [Lists](scope/language/types/Lists.md)
-- [Dictionaries](scope/language/types/Dictionaries.md)
-- [AnchorType](scope/language/types/AnchorType.md)
+- [Lists](./scope/language/types/Lists.md#lists)
+- [Dictionaries](./scope/language/types/Dictionaries.md#dictionaries)
+- [AnchorType](./scope/language/types/Anchors.md#anchor-type)
 
 ### Variables
 
@@ -835,7 +835,7 @@ Card.fromFile is “top-level” and Card.fromCard is “card”.
 
 ##### Control Flow
 
-There are no conditionals or loops in Piton with the exception of the [TernaryOperator](scope/language/operators/conditional/TernaryOperator.md)
+There are no conditionals or loops in Piton with the exception of the [TernaryOperator](./scope/language/operators/conditional/TernaryOperator.md#ternary-operator)
 There are also no functions.
 
 #### Standard Operators
@@ -921,7 +921,7 @@ Operators that join strings, lists, and dictionaries.
 ##### Operators
 
 - description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
-    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](scope/language/expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](./scope/language/expressions/StringExpression.md#string-expression) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
     A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
 - description: The merge operator (`+`) combines two lists or two dictionaries.
@@ -936,7 +936,7 @@ Operators that join strings, lists, and dictionaries.
 
 ##### Plus Dispatch
 
-The `+` symbol is shared by [AdditionOperator](scope/language/operators/arithmetic/AdditionOperator.md), [ConcatenationOperator](scope/language/operators/concatenation/ConcatenationOperator.md), and [MergeOperator](scope/language/operators/concatenation/MergeOperator.md). Which one you get depends on the types on each side.
+The `+` symbol is shared by [AdditionOperator](./scope/language/operators/arithmetic/AdditionOperator.md#addition-operator), [ConcatenationOperator](./scope/language/operators/concatenation/ConcatenationOperator.md#concatenation-operator), and [MergeOperator](./scope/language/operators/concatenation/MergeOperator.md#merge-operator). Which one you get depends on the types on each side.
 ```markdown
 | Left       | Right      | Operation                              |
 | ---------- | ---------- | -------------------------------------- |
@@ -1033,7 +1033,7 @@ So `{1 + 2 == 3 && !false}` is `{((1 + 2) == 3) && (!false)}`, and `{a ? b : c ?
 - description: Greater than or equal to operator.
   symbol: >=
 - description: The concatenation operator (`+`) joins two strings together. For example, `{"Hello" + "World"}` gives you `HelloWorld`.
-    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](scope/language/expressions/StringExpression.md) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
+    If only one side is a string, a number, boolean, or null on the other side gets turned into a string first, following the [StringExpression](./scope/language/expressions/StringExpression.md#string-expression) rules. So `{2 + "Hello"}` gives you `2Hello`, and `{"Enabled: " + true}` gives you `Enabled: true`.
     A list, dictionary, or anchor doesn't get turned into a string. You get an implicit list instead, same as putting `{x}` in the middle of some text. So if tags is `[a, b]`, `{"Tags: " + tags}` gives you `["Tags: ", ["a", "b"]]`. If you want the name, use `${tags}`.
   symbol: +
 - description: The merge operator (`+`) combines two lists or two dictionaries.
@@ -1070,7 +1070,7 @@ Easy expression using literals:
 myVariable: {1 + 2}
 ```
 `myVariable` will be evaluated to 3. Evaluation will of course follow all the rules we’ve previously defined about types as operators; {2 + "Hello"} will evaluate to a string 2Hello. Inside braces, bare words are treated as symbols, so strings go in double quotes.
-An important thing to note is that an expression must be wrapped in curly braces, otherwise it'll be interpreted as a [Strings](scope/language/types/Strings.md).
+An important thing to note is that an expression must be wrapped in curly braces, otherwise it'll be interpreted as a [Strings](./scope/language/types/Strings.md#strings).
 Let’s look at this example:
 ```piton
 a: 1
@@ -1086,7 +1086,7 @@ result: {a + b}
 ```
 This makes the job of the compiler much easier, and lets us avoid the problematic situation of string fallback in case a symbol isn’t recognized.
 Forward references are fully resolved. Unresolved references are a compiler error. Cyclic references are also a compiler error.
-We encounter a probably intuitive but perhaps less obvious scenario when we use [ComplexTypes](scope/language/types/ComplexTypes.md) like [Lists](scope/language/types/Lists.md), [Dictionaries](scope/language/types/Dictionaries.md), and [Anchors](scope/language/anchors/Anchors.md).
+We encounter a probably intuitive but perhaps less obvious scenario when we use [ComplexTypes](./scope/language/types/ComplexTypes.md#complex-types) like [Lists](./scope/language/types/Lists.md#lists), [Dictionaries](./scope/language/types/Dictionaries.md#dictionaries), and [Anchors](./scope/language/anchors/index.md#anchors).
 ```piton
 myList: [1, 2, 3]
 
@@ -1186,7 +1186,7 @@ ${x} turns the result into a string, so the whole thing is just a string.
 
 #### Type Reference
 
-[AnchorType](scope/language/types/AnchorType.md)
+[AnchorType](./scope/language/types/Anchors.md#anchor-type)
 
 #### Description
 
@@ -1729,7 +1729,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 
 #### Commands
 
-- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](agent/skills/GenerateFluencyPrompt.md) skill, which is FLUENCY_PROMPT.md in the project root.
+- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](./agent/skills/GenerateFluencyPrompt.md#generate-fluency-prompt) skill, which is FLUENCY_PROMPT.md in the project root.
   commandName: agent
   positionalArguments:
     agent: Which agent to run [ claude ]
@@ -1817,7 +1817,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
     completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
       However, don't autocomplete things that don't exist.
       Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
-      Typing a [PropertyAccessOperator](scope/language/operators/access/PropertyAccessOperator.md) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
+      Typing a [PropertyAccessOperator](./scope/language/operators/access/PropertyAccessOperator.md#property-access-operator) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
     autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
     hoverInformation: Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
     goToDefinition: Navigate from any reference to the anchor, property, skill, agent, import, or other symbol that defines it.
@@ -1932,7 +1932,7 @@ belay-config BelayFrameworkConfig:
 
 #### Exports
 
-The piton.config.pi file exports its main piton-config anchor, and the [Lsp](scope/tooling/cli/Lsp.md) needs to be aware that it's a project config, not just a regular Piton file.
+The piton.config.pi file exports its main piton-config anchor, and the [Lsp](./scope/tooling/cli/Lsp.md#lsp) needs to be aware that it's a project config, not just a regular Piton file.
 
 ### Frameworks
 
@@ -2018,7 +2018,7 @@ Frameworks are included in a project through the frameworks property in the proj
 
 ### Consumption
 
-- description: Astro plugin that brings in and adds supports for [VitePlugin](scope/tooling/vite/VitePlugin.md)
+- description: Astro plugin that brings in and adds supports for [VitePlugin](./scope/tooling/vite/index.md#vite-plugin)
 - features:
     - imports .pi files
     - HMR
@@ -2090,6 +2090,8 @@ BELAY_COMPILED_SHAPE: The compiled copy of the shape for the agent, under its re
       codeRoot: Required. Where the app's code lives, relative to the project config.
       shapeRoot: Optional. Where the shape instructions live. Without it, BELAY_SHAPE_ROOT is the project root and nothing is placed by shape.
       adapters: Required. The list of adapters to build for.
+      crossDiscovery: Optional. allow or separate. Required when one tool would pick up another tool's output and change how it activates.
+      instructionByteLimit: Optional. The instruction byte limit to check against, for targets that have one.
     example:
       codeRoot: ./src/
       shapeRoot: ./spec/shape/
@@ -2693,5 +2695,3 @@ Cloning with git (tethering) should remove any traces of git; these are just pla
 ### Conflict Resolution
 
 When a package is updated (or tethered or anything else), it should check the current status of the files against the lock file, and only if there are no differences can it update. If it appears that the package has been modified, the user should be informed of the problem and asked to untether.
-
-Links in this document point at reference files. Read one when the work touches what it describes.

@@ -23,7 +23,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ## Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md) and [Inference](Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md#type-coercion) and [Inference](./Inference.md#inference).
 
 ## Description
 
@@ -77,5 +77,3 @@ For lists indented under a dictionary key, see the Dictionaries type.
 ## Access
 
 Piton intentionally does not provide a way to access items within a list. Because this is not a runtime-based general purpose language but rather a language designed for description, a list is a construct intended for merging via inheritance; myList[0] is not very descriptive, is it?
-
-Links in this document point at reference files. Read one when the work touches what it describes.

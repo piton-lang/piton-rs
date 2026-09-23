@@ -1,6 +1,6 @@
 //! Checks the location exports Belay resolves while writing.
 //!
-//! `__BELAY_SHAPE__`, `BELAY_AGENT_ROOT`, `BELAY_PROJECT_ROOT`,
+//! `BELAY_COMPILED_SHAPE`, `BELAY_AGENT_ROOT`, `BELAY_PROJECT_ROOT`,
 //! `BELAY_SHAPE_ROOT` and `BELAY_CODE_ROOT` name directories a generated
 //! artifact has to point at. None can be decided while evaluating: the agent
 //! root depends on which adapter is being compiled, and every one of them is
@@ -52,7 +52,7 @@ from @piton/belay import
     BELAY_CODE_ROOT,
     BELAY_PROJECT_ROOT,
     BELAY_SHAPE_ROOT,
-    __BELAY_SHAPE__
+    BELAY_COMPILED_SHAPE
 
 export skill Locations:
     description: Reports where each Belay root resolved.
@@ -66,7 +66,7 @@ export skill Locations:
 
         code ${BELAY_CODE_ROOT}
 
-        compiled ${__BELAY_SHAPE__}
+        compiled ${BELAY_COMPILED_SHAPE}
 ";
 
 fn configuration(adapter: &str, shape_root: Option<&str>) -> String {
@@ -164,7 +164,7 @@ fn no_markers_remain(sandbox: &Sandbox) {
 #[test]
 fn every_root_resolves_relative_to_the_file_that_names_it() {
     let sandbox = Sandbox::new("claude");
-    sandbox.write("piton.config.pi", &configuration("ClaudeAdapter", Some("./spec/shape")));
+    sandbox.write("piton.config.pi", &configuration("ClaudeCodeAdapter", Some("./spec/shape")));
     sandbox.write("spec/index.pi", SKILL);
     std::fs::create_dir_all(sandbox.dir.join("src")).expect("code root");
 
@@ -213,7 +213,7 @@ fn the_agent_root_follows_the_adapter() {
 #[test]
 fn an_unconfigured_shape_root_falls_back_to_the_project_root() {
     let sandbox = Sandbox::new("noshape");
-    sandbox.write("piton.config.pi", &configuration("ClaudeAdapter", None));
+    sandbox.write("piton.config.pi", &configuration("ClaudeCodeAdapter", None));
     sandbox.write("spec/index.pi", SKILL);
     std::fs::create_dir_all(sandbox.dir.join("src")).expect("code root");
 

@@ -139,7 +139,7 @@ export piton-config Dep:
     packages:
         - {DepPackage}
 
-package DepPackage:
+piton-package DepPackage:
     name: dep-lib
     root: ./spec
 ",
@@ -201,7 +201,7 @@ fn tethering_installs_the_published_package_without_its_repository() {
     assert!(!sandbox.exists("app/tethers/dep-lib/.git"));
     assert!(!sandbox.exists("app/tethers/dep-lib/piton.config.pi"));
 
-    let lock = sandbox.read("app/.piton/packages.lock.json");
+    let lock = sandbox.read("app/.piton/tether.lock");
     assert!(lock.contains("\"name\": \"dep-lib\""), "{lock}");
     assert!(lock.contains("\"index.pi\""), "{lock}");
 
@@ -305,7 +305,7 @@ button Cancel:
     assert!(!rewritten.contains("dep-lib\n") || !rewritten.contains("use dep-lib"));
 
     assert!(sandbox
-        .read("app/.piton/packages.lock.json")
+        .read("app/.piton/tether.lock")
         .contains("\"packages\": []"));
 
     let (stdout, stderr, code) = sandbox.piton(&["compile", "spec/index.pi"]);
@@ -348,8 +348,8 @@ fn removing_refuses_while_something_still_imports_it() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("removed dep-lib"), "{stdout}");
     assert!(!sandbox.exists("app/tethers"));
-    // It is still declared, so the next update would bring it back.
-    assert!(stdout.contains("still declared"), "{stdout}");
+    // And it is gone from the configuration, so no update brings it back.
+    assert!(stdout.contains("dropped"), "{stdout}");
 }
 
 #[test]
@@ -389,21 +389,11 @@ export piton-config App:
     assert!(stdout.contains("\"kind\": \"bare\""), "{stdout}");
 }
 
-#[test]
-fn a_transitive_dependency_is_installed_flat() {
-    if !git_available() {
-        eprintln!("skipped: git is not installed");
-        return;
-    }
-    let sandbox = Sandbox::new("transitive");
-
-    // The deepest repository.
-    let base = sandbox.dir.join("base");
-    sandbox.write("base/index.pi", "export anchor Base:\n    depth: 1\n");
-    sandbox.git(&base, &["init", "-q", "."]);
-    sandbox.git(&base, &["add", "-A"]);
-    sandbox.git(
-        &base,
+/// Commits everything in `directory` with a fixed date, so which of two commits
+/// is newest does not depend on how fast the test runs.
+fn commit_at(directory: &Path, message: &str, date: &str) {
+    for args in [
+        &["add", "-A"][..],
         &[
             "-c",
             "user.email=t@example.test",
@@ -411,23 +401,67 @@ fn a_transitive_dependency_is_installed_flat() {
             "user.name=T",
             "commit",
             "-qm",
-            "one",
+            message,
         ],
-    );
+    ] {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(directory)
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
 
-    // A repository that depends on it.
+#[test]
+fn a_package_dependency_is_installed_flat_and_project_dependencies_are_not() {
+    if !git_available() {
+        eprintln!("skipped: git is not installed");
+        return;
+    }
+    let sandbox = Sandbox::new("transitive");
+
+    // What the published package needs.
+    let base = sandbox.dir.join("base");
+    sandbox.write("base/index.pi", "export anchor Base:\n    depth: 1\n");
+    sandbox.git(&base, &["init", "-q", "."]);
+    commit_at(&base, "one", "2026-01-01T00:00:00Z");
+
+    // What the repository needs for its own work, and nobody using it does.
+    let tooling = sandbox.dir.join("tooling");
+    sandbox.write("tooling/index.pi", "export anchor Tooling:\n    depth: 1\n");
+    sandbox.git(&tooling, &["init", "-q", "."]);
+    commit_at(&tooling, "one", "2026-01-01T00:00:00Z");
+
     sandbox.write(
         "repo/piton.config.pi",
         &format!(
             "use @piton/config
+use @piton/packaging
 
-export piton-config Middle:
+export piton-config Repo:
     root: ./spec
-    entry: ./spec/index.pi
+
+    packages:
+        - {{Middle}}
+
+    dependencies:
+        - {}
+
+piton-package Middle:
+    name: middle
+    root: ./spec
 
     dependencies:
         - {}
 ",
+            tooling.to_string_lossy(),
             base.to_string_lossy()
         ),
     );
@@ -441,23 +475,23 @@ export piton-config Middle:
 
 export piton-config App:
     root: ./spec
-    entry: ./spec/index.pi
 ",
     );
     sandbox.write("app/spec/index.pi", "export anchor App:\n    depth: 3\n");
 
     let (stdout, stderr, code) = sandbox.piton(&["tether", &sandbox.source()]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(stdout.contains("tethers/repo"), "{stdout}");
+    assert!(stdout.contains("tethers/middle"), "{stdout}");
     assert!(stdout.contains("tethers/base"), "{stdout}");
-    // Flat: the transitive dependency sits beside the one that asked for it,
-    // not inside it.
+    // Flat: the package's dependency sits beside the package, not inside it.
     assert!(sandbox.exists("app/tethers/base/index.pi"));
-    assert!(!sandbox.exists("app/tethers/repo/tethers"));
+    assert!(!sandbox.exists("app/tethers/middle/tethers"));
+    // And the repository's own project dependency stayed where it belongs.
+    assert!(!sandbox.exists("app/tethers/tooling"), "{stdout}");
 }
 
 #[test]
-fn two_packages_asking_for_different_versions_get_one_and_a_warning() {
+fn two_packages_asking_for_different_versions_get_the_newest_and_a_warning() {
     if !git_available() {
         eprintln!("skipped: git is not installed");
         return;
@@ -468,33 +502,32 @@ fn two_packages_asking_for_different_versions_get_one_and_a_warning() {
     let shared = sandbox.dir.join("shared");
     sandbox.write("shared/index.pi", "export anchor Shared:\n    version: one\n");
     sandbox.git(&shared, &["init", "-q", "."]);
-    let author = [
-        "-c",
-        "user.email=t@example.test",
-        "-c",
-        "user.name=T",
-    ];
-    sandbox.git(&shared, &["add", "-A"]);
-    sandbox.git(&shared, &[&author[..], &["commit", "-qm", "one"][..]].concat());
+    commit_at(&shared, "one", "2026-01-01T00:00:00Z");
     sandbox.git(&shared, &["tag", "v1"]);
     sandbox.write("shared/index.pi", "export anchor Shared:\n    version: two\n");
-    sandbox.git(&shared, &["add", "-A"]);
-    sandbox.git(&shared, &[&author[..], &["commit", "-qm", "two"][..]].concat());
+    commit_at(&shared, "two", "2026-02-01T00:00:00Z");
 
-    // The repository the project tethers pins the tag; the project itself does
+    // The package the project tethers pins the tag; the project itself does
     // not, so the two declarations disagree.
     sandbox.write(
         "repo/piton.config.pi",
         &format!(
             "use @piton/config
+use @piton/packaging
 
-export piton-config Middle:
+export piton-config Repo:
     root: ./spec
-    entry: ./spec/index.pi
+
+    packages:
+        - {{Middle}}
+
+piton-package Middle:
+    name: middle
+    root: ./spec
 
     dependencies:
         - {}
-            tag: \"v1\"
+            tag: v1
 ",
             shared.to_string_lossy()
         ),
@@ -510,7 +543,6 @@ export piton-config Middle:
 
 export piton-config App:
     root: ./spec
-    entry: ./spec/index.pi
 
     dependencies:
         - {}
@@ -522,20 +554,219 @@ export piton-config App:
     );
     sandbox.write("app/spec/index.pi", "export anchor App:\n    depth: 3\n");
 
-    let (stdout, stderr, code) = sandbox.piton(&["update"]);
+    let (_, stderr, code) = sandbox.piton(&["update"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(stdout.contains("tethers") || code == 0, "{stdout}");
     assert!(
-        stderr.contains("is required at") && stderr.contains("installing"),
+        stderr.contains("is required at") && stderr.contains("newest commit"),
         "the disagreement was not reported: {stderr}"
     );
 
-    // One copy, and the version the report named is the one on disk: the tag is
-    // the more specific pin, so `v1` wins over the default branch.
-    assert!(sandbox.exists("app/tethers/shared/index.pi"));
+    // One copy, and it is the newest commit: the default branch's `two`, not
+    // the older tagged `one`.
     assert!(
-        sandbox.read("app/tethers/shared/index.pi").contains("version: one"),
-        "the less specific pin won: {}",
+        sandbox.read("app/tethers/shared/index.pi").contains("version: two"),
+        "the older commit won: {}",
         sandbox.read("app/tethers/shared/index.pi")
     );
+}
+
+#[test]
+fn tethering_a_new_source_adds_it_to_the_configuration() {
+    let Some(sandbox) = fixture("tether-adds") else {
+        return;
+    };
+    // A configuration that does not list the repository yet.
+    sandbox.write(
+        "app/piton.config.pi",
+        "use @piton/config
+
+export piton-config App:
+    root: ./spec
+    entry: ./spec/index.pi // the entry
+",
+    );
+    let (stdout, stderr, code) = sandbox.piton(&["tether", &sandbox.source()]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("added"), "{stdout}");
+    assert_eq!(
+        sandbox.read("app/piton.config.pi"),
+        format!(
+            "use @piton/config
+
+export piton-config App:
+    root: ./spec
+    entry: ./spec/index.pi // the entry
+
+    dependencies:
+        - {}
+",
+            sandbox.source()
+        )
+    );
+    assert!(sandbox.exists("app/tethers/dep-lib/index.pi"));
+
+    // Tethering it again does not list it twice.
+    let before = sandbox.read("app/piton.config.pi");
+    assert_eq!(sandbox.piton(&["tether", &sandbox.source()]).2, 0);
+    assert_eq!(sandbox.read("app/piton.config.pi"), before);
+
+    // And removing it drops it again.
+    sandbox.write("app/spec/index.pi", "export anchor Screen:\n    primary: none\n");
+    let (stdout, stderr, code) = sandbox.piton(&["remove", "dep-lib"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("dropped"), "{stdout}");
+    assert!(
+        !sandbox.read("app/piton.config.pi").contains("dependencies"),
+        "{}",
+        sandbox.read("app/piton.config.pi")
+    );
+}
+
+#[test]
+fn tethering_with_no_source_installs_every_dependency() {
+    let Some(sandbox) = fixture("tether-all") else {
+        return;
+    };
+    let config = sandbox.read("app/piton.config.pi");
+    let (stdout, stderr, code) = sandbox.piton(&["tether"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("tethers/dep-lib"), "{stdout}");
+    assert!(sandbox.exists("app/tethers/dep-lib/index.pi"));
+    assert!(sandbox.exists("app/.piton/tether.lock"));
+    assert_eq!(sandbox.read("app/piton.config.pi"), config, "nothing to add");
+}
+
+#[test]
+fn a_pin_is_the_text_it_was_written_with() {
+    let Some(sandbox) = fixture("pin-text") else {
+        return;
+    };
+    sandbox.git(&sandbox.repo(), &["tag", "1.0"]);
+    sandbox.write(
+        "app/piton.config.pi",
+        &format!(
+            "use @piton/config
+
+export piton-config App:
+    root: ./spec
+
+    dependencies:
+        - {}
+            tag: 1.0
+",
+            sandbox.source()
+        ),
+    );
+    let (stdout, stderr, code) = sandbox.piton(&["tether"]);
+    assert_eq!(code, 0, "`tag: 1.0` is the tag `1.0`, not the number 1: {stderr}");
+    assert!(stdout.contains("tag 1.0"), "{stdout}");
+    assert!(!stderr.contains("unquoted-pin"), "{stderr}");
+}
+
+#[test]
+fn two_pins_on_one_dependency_stop_the_install() {
+    let Some(sandbox) = fixture("two-pins") else {
+        return;
+    };
+    sandbox.write(
+        "app/piton.config.pi",
+        &format!(
+            "use @piton/config
+
+export piton-config App:
+    root: ./spec
+
+    dependencies:
+        - {}
+            tag: v1
+            branch: main
+",
+            sandbox.source()
+        ),
+    );
+    let (_, stderr, code) = sandbox.piton(&["tether"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("multiple-pins"), "{stderr}");
+    assert!(!sandbox.exists("app/tethers"));
+}
+
+#[test]
+fn an_old_lock_file_is_migrated() {
+    let Some(sandbox) = fixture("migrate") else {
+        return;
+    };
+    assert_eq!(sandbox.piton(&["tether", &sandbox.source()]).2, 0);
+    // Put the lock file back where earlier versions kept it.
+    let lock = sandbox.read("app/.piton/tether.lock");
+    std::fs::remove_file(sandbox.dir.join("app/.piton/tether.lock")).expect("remove");
+    sandbox.write("app/.piton/packages.lock.json", &lock);
+
+    // It is still read -- an edited package is still caught -- ...
+    sandbox.write(
+        "app/tethers/dep-lib/Anchors.pi",
+        "export anchor Button as button:\n    label: Edited\n",
+    );
+    let (_, stderr, code) = sandbox.piton(&["update"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("has been modified"), "{stderr}");
+
+    // ... and the next write moves it to .piton/tether.lock.
+    sandbox.write(
+        "app/tethers/dep-lib/Anchors.pi",
+        "export anchor Button as button:\n    label: Save\n",
+    );
+    let (_, stderr, code) = sandbox.piton(&["update"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(sandbox.exists("app/.piton/tether.lock"));
+    assert!(!sandbox.exists("app/.piton/packages.lock.json"));
+}
+
+#[test]
+fn a_package_without_an_index_is_imported_through_its_files() {
+    let Some(sandbox) = fixture("no-index") else {
+        return;
+    };
+    // The package publishes a directory with no index.pi.
+    sandbox.write(
+        "repo/piton.config.pi",
+        "use @piton/config
+use @piton/packaging
+
+export piton-config Dep:
+    root: ./spec
+
+    packages:
+        - {DepPackage}
+
+piton-package DepPackage:
+    name: dep-lib
+    root: ./lib
+",
+    );
+    sandbox.write(
+        "repo/lib/Anchors.pi",
+        "export anchor Button as button:\n    label: Plain\n",
+    );
+    sandbox.commit("no index");
+
+    sandbox.write(
+        "app/spec/index.pi",
+        "use dep-lib/Anchors
+
+from dep-lib/Anchors import Button
+
+export anchor Screen:
+    primary: {Button}
+
+button Cancel:
+    label: Cancel
+",
+    );
+    let (_, stderr, code) = sandbox.piton(&["tether"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!sandbox.exists("app/tethers/dep-lib/index.pi"));
+
+    let (stdout, stderr, code) = sandbox.piton(&["compile", "spec/index.pi"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Plain"), "{stdout}");
 }

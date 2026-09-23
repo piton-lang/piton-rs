@@ -22,6 +22,42 @@ impl fmt::Display for AnchorId {
     }
 }
 
+/// What a reference points at: an anchor, or a property on one.
+///
+/// `path` is empty for a reference to the anchor itself, and holds the dot
+/// path for a reference to a property, so `@{Button.color}` is `Button` with
+/// the path `["color"]`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Ref {
+    pub anchor: AnchorId,
+    pub path: Vec<String>,
+}
+
+impl Ref {
+    pub fn anchor(anchor: AnchorId) -> Ref {
+        Ref {
+            anchor,
+            path: Vec::new(),
+        }
+    }
+
+    /// `Anchor` or `Anchor.property`, the way the reference is written.
+    pub fn display(&self, anchors: &dyn AnchorView) -> String {
+        let mut out = anchors.name(self.anchor).to_string();
+        for part in &self.path {
+            out.push('.');
+            out.push_str(part);
+        }
+        out
+    }
+}
+
+impl From<AnchorId> for Ref {
+    fn from(anchor: AnchorId) -> Self {
+        Ref::anchor(anchor)
+    }
+}
+
 /// An ordered map of properties. Declaration order is part of the compiled
 /// output, so insertion order is preserved everywhere.
 pub type Properties = IndexMap<String, Value>;
@@ -40,6 +76,9 @@ pub enum MixedItem {
     List(Vec<Value>),
     /// A `key: value` pair declared directly in the block.
     Entry(String, Value),
+    /// Any other value dropped into the block, such as the copy of an anchor
+    /// that `{Foo}` puts in the middle of some text.
+    Value(Value),
 }
 
 /// The contents of an implicit mixed block, in source order.
@@ -90,7 +129,7 @@ pub enum Value {
     Anchor(AnchorId),
     /// A reference produced by `@{...}`. Serializing it produces a link, not a
     /// copy of the referenced content.
-    Reference(AnchorId),
+    Reference(Ref),
 }
 
 impl Value {
@@ -130,20 +169,6 @@ impl Value {
         )
     }
 
-    /// Truthiness, used only by the ternary operator.
-    pub fn is_truthy(&self) -> bool {
-        match self {
-            Value::Null => false,
-            Value::Bool(b) => *b,
-            Value::Number(n) => *n != 0.0,
-            Value::Str(s) => !s.is_empty(),
-            Value::List(items) => !items.is_empty(),
-            Value::Mixed(m) => !m.is_empty(),
-            Value::Dict(d) => !d.is_empty(),
-            Value::Anchor(_) | Value::Reference(_) => true,
-        }
-    }
-
     /// Flattens a mixed block into plain list elements, grouping consecutive
     /// dictionary entries into a single dictionary the way JSON output does.
     pub fn as_list_items(&self) -> Vec<Value> {
@@ -166,6 +191,7 @@ impl Value {
                             match other {
                                 MixedItem::Text(text) => out.push(Value::Str(text.clone())),
                                 MixedItem::List(items) => out.push(Value::List(items.clone())),
+                                MixedItem::Value(value) => out.push(value.clone()),
                                 MixedItem::Entry(..) => unreachable!(),
                             }
                         }
@@ -186,7 +212,7 @@ impl Value {
         match self {
             Value::Dict(map) => map.get(key),
             Value::Mixed(mixed) => mixed.get(key),
-            Value::Anchor(id) | Value::Reference(id) => anchors.properties(*id).get(key),
+            Value::Anchor(id) => anchors.properties(*id).get(key),
             _ => None,
         }
     }
@@ -250,6 +276,16 @@ pub trait AnchorView {
     fn source_path(&self, id: AnchorId) -> &Path;
     /// Whether the anchor was declared `abstract`.
     fn is_abstract(&self, id: AnchorId) -> bool;
+    /// The directory of the file being written, when there is one, so a
+    /// reference can be written relative to it.
+    fn output_directory(&self) -> Option<&Path> {
+        None
+    }
+    /// Where the output for a source file is written. By default it sits next
+    /// to the source, which is where `piton compile --write` puts it.
+    fn output_path(&self, source: &Path) -> PathBuf {
+        source.to_path_buf()
+    }
 }
 
 /// An [`AnchorView`] with no anchors, useful for serializing plain data.

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>name</key>
+    <string>Piton</string>
+    <key>scope</key>
+    <string>source.piton</string>
+    <key>settings</key>
+    <dict>
+        <!--
+            Enter on a colon line lands one level in: a declaration at the
+            margin, or a key with nothing after its colon (`frameworks:`,
+            `config:: dictionary:`). A colon inside a value opens nothing, and
+            neither does a comment, a list item or a merge line: a list item is
+            never a key, so `- Settings:` is just a string. The same pattern
+            as the other editors' increaseIndentPattern.
+
+            There is no decreaseIndentPattern. Sublime tests it against the
+            line being typed, which is empty right after Enter, so a blank-line
+            pattern would outdent every new line. Enter on a blank line is a
+            key binding instead: see Default.sublime-keymap.
+        -->
+        <key>increaseIndentPattern</key>
+        <string>^[^-+/\s][^:]*:\s*$|^\s*[^-+:/\s][^:/\s]*(::\s*[^:/\s]+)*:\s*$</string>
+
+        <!-- Toggle Comment writes `// `. Comments are line-only. -->
+        <key>shellVariables</key>
+        <array>
+            <dict>
+                <key>name</key>
+                <string>TM_COMMENT_START</string>
+                <key>value</key>
+                <string>// </string>
+            </dict>
+        </array>
+    </dict>
+</dict>
+</plist>

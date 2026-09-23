@@ -154,8 +154,8 @@ pub struct AnchorDecl {
     pub name_span: Span,
     /// `as my-keyword` — declares a user keyword aliasing this anchor.
     pub alias: Option<Spanned<String>>,
-    /// Bases in source order. A user keyword contributes the aliased anchor as
-    /// the leftmost base.
+    /// Bases in source order. A user keyword's anchor comes after these, as the
+    /// last base, when inheritance is resolved.
     pub extends: Vec<Spanned<String>>,
     pub body: Block,
 }
@@ -471,6 +471,10 @@ pub enum ExprKind {
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     List(Vec<Expr>),
     Paren(Box<Expr>),
+    /// `${...}`, `#{...}`, or `@{...}` written inside an expression, so a
+    /// conversion or a reference can take part in a larger expression:
+    /// `{@{Button} == @{Card}}`.
+    Nested(Sigil, Box<Expr>),
     /// Produced by error recovery so later phases can keep going.
     Error,
 }

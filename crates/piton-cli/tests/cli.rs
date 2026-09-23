@@ -80,7 +80,7 @@ fn full_project(name: &str, adapters: &str) -> Fixture {
     fixture.write(
         "piton.config.pi",
         &format!(
-            "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import\n    ClaudeAdapter,\n    CodexAdapter,\n    OpenCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {{Belay}}\n\nbelay-config Belay:\n    codeRoot: ./src\n    shapeRoot: ./spec/shape\n\n    adapters:\n{adapters}\n"
+            "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import\n    ClaudeCodeAdapter,\n    CodexAdapter,\n    OpenCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {{Belay}}\n\nbelay-config Belay:\n    codeRoot: ./src\n    shapeRoot: ./spec/shape\n\n    adapters:\n{adapters}\n"
         ),
     );
 
@@ -142,7 +142,7 @@ fn a_library_whose_entry_only_exports_still_builds() {
     let fixture = Fixture::new("entry-exports");
     fixture.write(
         "piton.config.pi",
-        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeAdapter}\n",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeCodeAdapter}\n",
     );
     fixture.write(
         "spec/lib/UiComponent.pi",
@@ -164,16 +164,16 @@ fn a_library_whose_entry_only_exports_still_builds() {
     let (stdout, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(
-        fixture.exists(".claude/reference/components/Button/Button.md"),
+        fixture.exists(".claude/reference/components/Button/index.md"),
         "an exported anchor nothing links to is still compiled: {stdout}{stderr}"
     );
     assert!(
-        fixture.exists(".claude/reference/components/Checkbox/Checkbox.md"),
+        fixture.exists(".claude/reference/components/Checkbox/index.md"),
         "{stdout}{stderr}"
     );
     assert!(
         fixture
-            .read(".claude/reference/components/Button/Button.md")
+            .read(".claude/reference/components/Button/index.md")
             .contains("A button triggers an action."),
         "the reference carries the anchor's own content"
     );
@@ -185,7 +185,7 @@ fn a_library_whose_entry_only_exports_still_builds() {
 
 #[test]
 fn a_full_project_builds_every_artifact() {
-    let fixture = full_project("full", "        - {ClaudeAdapter}");
+    let fixture = full_project("full", "        - {ClaudeCodeAdapter}");
     let (stdout, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "stdout: {stdout}\nstderr: {stderr}");
 
@@ -196,7 +196,9 @@ fn a_full_project_builds_every_artifact() {
         "{skill}"
     );
     assert!(
-        skill.contains("description: Review a component against the house style. Use when reviewing or writing a component"),
+        // The discovery description is the description followed by `Use when`
+        // and useWhen, exactly as written.
+        skill.contains("description: Review a component against the house style Use when reviewing or writing a component"),
         "{skill}"
     );
     assert!(
@@ -205,12 +207,13 @@ fn a_full_project_builds_every_artifact() {
     );
     assert!(skill.contains("- Props are flat."), "{skill}");
 
-    // A reference in a prompt becomes a link to a generated file.
+    // A reference in a prompt becomes a link to the anchor's heading in the
+    // reference file for its module.
     assert!(
-        skill.contains("](../../reference/HouseStyle.md)"),
+        skill.contains("[HouseStyle](../../reference/Reference.md#house-style)"),
         "{skill}"
     );
-    assert!(fixture.exists(".claude/reference/HouseStyle.md"));
+    assert!(fixture.exists(".claude/reference/Reference.md"));
 
     // Command: an x-prefixed skill with automatic invocation disabled.
     let command = fixture.read(".claude/skills/x-release/SKILL.md");
@@ -242,12 +245,12 @@ fn a_full_project_builds_every_artifact() {
         "{instruction}"
     );
     // And preserved in the compiled shape tree.
-    assert!(fixture.exists(".claude/reference/shape/components/button/ButtonShape.md"));
+    assert!(fixture.exists(".claude/reference/shape/components/button/Button.md"));
 }
 
 #[test]
 fn an_instruction_falls_back_to_the_nearest_existing_scope() {
-    let fixture = full_project("fallback", "        - {ClaudeAdapter}");
+    let fixture = full_project("fallback", "        - {ClaudeCodeAdapter}");
     fixture.write(
         "spec/shape/components/missing/Ghost.pi",
         "use @piton/belay\n\nexport instruction GhostShape:\n    description: For a component that does not exist yet\n    prompt: Keep it simple.\n",
@@ -264,14 +267,22 @@ fn an_instruction_falls_back_to_the_nearest_existing_scope() {
     let combined = fixture.read("src/components/CLAUDE.md");
     assert!(combined.contains("# Ghost Shape"), "{combined}");
     // The original location survives in the shape tree.
-    assert!(fixture.exists(".claude/reference/shape/components/missing/GhostShape.md"));
+    assert!(fixture.exists(".claude/reference/shape/components/missing/Ghost.md"));
 }
 
 #[test]
 fn every_adapter_emits_its_own_native_form() {
     let fixture = full_project(
         "adapters",
-        "        - {ClaudeAdapter}\n        - {CodexAdapter}\n        - {OpenCodeAdapter}",
+        "        - {ClaudeCodeAdapter}\n        - {CodexAdapter}\n        - {OpenCodeAdapter}\n\n    crossDiscovery: allow",
+    );
+    // OpenCode wants a provider-qualified model, and only loads a nested
+    // AGENTS.md that its configuration lists.
+    let constructs = fixture.read("spec/Constructs.pi").replace("model: fast", "model: anthropic/fast");
+    fixture.write("spec/Constructs.pi", &constructs);
+    fixture.write(
+        "opencode.json",
+        "{\n  \"instructions\": [\"src/components/button/AGENTS.md\"]\n}\n",
     );
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
@@ -290,7 +301,7 @@ fn every_adapter_emits_its_own_native_form() {
     // `model` is not a documented option for the standalone agent format here,
     // so it must not be invented.
     assert!(
-        toml.contains("model = \"fast\""),
+        toml.contains("model = \"anthropic/fast\""),
         "model is supported: {toml}"
     );
 
@@ -344,19 +355,19 @@ fn compile_renders_each_adapter() {
         "export anchor Thing:\n    name: Widget\n    count: 3\n    ready: true\n    missing: null\n    tags: [a, b]\n",
     );
 
-    let (json, stderr, code) = fixture.run(&["compile", "data.pi", "--adapter", "json"]);
+    let (json, stderr, code) = fixture.run(&["compile", "data.pi", "--renderer", "json"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(json.contains("\"count\": 3"), "{json}");
     assert!(json.contains("\"ready\": true"), "{json}");
     assert!(json.contains("\"missing\": null"), "{json}");
     assert!(json.contains("\"tags\": [\n"), "{json}");
 
-    let (yaml, _, code) = fixture.run(&["compile", "data.pi", "--adapter", "yaml"]);
+    let (yaml, _, code) = fixture.run(&["compile", "data.pi", "--renderer", "yaml"]);
     assert_eq!(code, 0);
     assert!(yaml.contains("name: Widget"), "{yaml}");
     assert!(yaml.contains("count: 3"), "{yaml}");
 
-    let (markdown, _, code) = fixture.run(&["compile", "data.pi", "--adapter", "markdown"]);
+    let (markdown, _, code) = fixture.run(&["compile", "data.pi", "--renderer", "markdown"]);
     assert_eq!(code, 0);
     assert!(markdown.contains("# Thing"), "{markdown}");
     assert!(markdown.contains("## Name"), "{markdown}");
@@ -373,7 +384,7 @@ fn compile_includes_what_the_file_exports_without_declaring() {
         "from ./One export *\nfrom ./Two export Two Renamed\n",
     );
 
-    let (json, stderr, code) = fixture.run(&["compile", "index.pi", "--adapter", "json"]);
+    let (json, stderr, code) = fixture.run(&["compile", "index.pi", "--renderer", "json"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(
         json.contains("\"One\""),
@@ -389,7 +400,7 @@ fn compile_includes_what_the_file_exports_without_declaring() {
 fn compile_writes_next_to_the_input_when_asked() {
     let fixture = Fixture::new("compile-write");
     fixture.write("data.pi", "export anchor Thing:\n    name: Widget\n");
-    let (_, stderr, code) = fixture.run(&["compile", "data.pi", "--adapter", "yaml", "--write"]);
+    let (_, stderr, code) = fixture.run(&["compile", "data.pi", "--renderer", "yaml", "--write"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(fixture.read("data.yaml").contains("name: Widget"));
 }
@@ -399,11 +410,11 @@ fn a_glob_without_write_is_refused() {
     let fixture = Fixture::new("glob");
     fixture.write("a.pi", "export anchor A:\n    x: 1\n");
     fixture.write("b.pi", "export anchor B:\n    x: 2\n");
-    let (_, stderr, code) = fixture.run(&["compile", "*.pi", "--adapter", "json"]);
+    let (_, stderr, code) = fixture.run(&["compile", "*.pi", "--renderer", "json"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("needs --write"), "{stderr}");
 
-    let (_, stderr, code) = fixture.run(&["compile", "*.pi", "--adapter", "json", "--write"]);
+    let (_, stderr, code) = fixture.run(&["compile", "*.pi", "--renderer", "json", "--write"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(fixture.exists("a.json") && fixture.exists("b.json"));
 }
@@ -453,7 +464,7 @@ fn loc_counts_by_category() {
 
 #[test]
 fn reach_separates_reachable_from_unreachable() {
-    let fixture = full_project("reach", "        - {ClaudeAdapter}");
+    let fixture = full_project("reach", "        - {ClaudeCodeAdapter}");
     fixture.write(
         "spec/Orphan.pi",
         "export anchor NobodyImportsThis:\n    value: 1\n",
@@ -471,7 +482,7 @@ fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
     // A module that only re-exports declares no anchor of its own, so a
     // reachability walk that counts only declarations finds nothing in it and
     // calls it unreachable -- while the whole import chain runs through it.
-    let fixture = full_project("reach-index", "        - {ClaudeAdapter}");
+    let fixture = full_project("reach-index", "        - {ClaudeCodeAdapter}");
     fixture.write(
         "spec/index.pi",
         "from ./barrel export *\nfrom ./shape/components/button/Button export *\n",
@@ -495,16 +506,18 @@ fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
 
 #[test]
 fn reach_counts_every_line_it_prints() {
-    let fixture = full_project("reach-counts", "        - {ClaudeAdapter}");
-    // Imported, and nothing uses what it declares: a dead anchor in a file
-    // that is otherwise load-bearing for nothing.
+    let fixture = full_project("reach-counts", "        - {ClaudeCodeAdapter}");
+    // Loaded, because a file the entry does not reach imports it, and nothing
+    // reachable uses what it declares: a dead anchor in a file that is
+    // load-bearing for nothing.
     fixture.write(
         "spec/Dead.pi",
         "export anchor NothingUsesThis:\n    value: 1\n",
     );
+    fixture.write("spec/Keywords.pi", "from ./Dead import NothingUsesThis\n");
     fixture.write(
         "spec/index.pi",
-        "from ./Constructs export *\nfrom ./shape/components/button/Button export *\nfrom ./Dead import NothingUsesThis\n",
+        "use ./Keywords\n\nfrom ./Constructs export *\nfrom ./shape/components/button/Button export *\n",
     );
 
     let (stdout, stderr, code) = fixture.run(&["reach"]);
@@ -523,14 +536,198 @@ fn reach_counts_every_line_it_prints() {
         "one dead anchor, counted once: {stdout}"
     );
     assert!(
-        stdout.contains("1 carrying nothing reachable"),
-        "and the file it is in, counted separately: {stdout}"
+        stdout.contains("2 carrying nothing reachable"),
+        "and the file it is in and the file importing it, counted separately: {stdout}"
     );
 }
 
 #[test]
+fn reach_follows_imports_and_reports_paths_by_default() {
+    let fixture = full_project("reach-imports", "        - {ClaudeCodeAdapter}");
+    fixture.write(
+        "spec/Imported.pi",
+        "export anchor OnlyImported:\n    value: 1\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./Constructs export *\nfrom ./shape/components/button/Button export *\nfrom ./Imported import OnlyImported\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["reach"]);
+    assert_eq!(code, 0, "{stderr}");
+    // Imported by the entry and used by nothing: reached through the import.
+    assert!(
+        stdout.contains("OnlyImported  depth 1  via imports  [index.pi -> OnlyImported]"),
+        "{stdout}"
+    );
+    // Paths and the unreachable half are on without asking.
+    assert!(stdout.contains(" -> "), "{stdout}");
+    assert!(stdout.contains("\nunreachable"), "{stdout}");
+
+    let (stdout, _, code) = fixture.run(&["reach", "--no-paths", "--no-unreachable"]);
+    assert_eq!(code, 0);
+    assert!(!stdout.contains(" -> "), "{stdout}");
+    assert!(!stdout.contains("\nunreachable\n"), "{stdout}");
+    assert!(stdout.contains("OnlyImported  depth 1  via imports\n"), "{stdout}");
+}
+
+#[test]
+fn reach_accepts_a_glob() {
+    let fixture = full_project("reach-glob", "        - {ClaudeCodeAdapter}");
+    let (stdout, stderr, code) = fixture.run(&["reach", "spec/Ref*.pi"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("HouseStyle  depth 0  root"), "{stdout}");
+}
+
+#[test]
+fn build_without_a_framework_writes_the_renderer_output() {
+    let fixture = Fixture::new("build-plain");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./components/Button import Button\n\nexport anchor Screen:\n    primary: {Button}\n",
+    );
+    fixture.write(
+        "spec/components/Button.pi",
+        "export anchor Button:\n    label: Save\n",
+    );
+    fixture.write(
+        "spec/Unused.pi",
+        "export anchor Unused:\n    label: nobody\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(fixture.exists("dist/index.json"), "{stdout}");
+    assert!(
+        fixture.exists("dist/components/Button.json"),
+        "a file the entry's exports reference is written: {stdout}"
+    );
+    assert!(fixture.read("dist/components/Button.json").contains("Save"));
+    assert!(!fixture.exists("dist/Unused.json"), "nothing references it");
+
+    let manifest = fixture.read(".piton/manifest.json");
+    assert!(manifest.contains("\"dist/index.json\""), "{manifest}");
+    assert!(manifest.contains("\"dist/components/Button.json\""), "{manifest}");
+}
+
+#[test]
+fn build_uses_the_configured_output_and_renderer() {
+    let fixture = Fixture::new("build-yaml");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    output: ./out\n    renderer: yaml\n",
+    );
+    fixture.write("spec/index.pi", "export anchor Screen:\n    label: Hi\n");
+    let (stdout, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(fixture.read("out/index.yaml").contains("label: Hi"));
+    assert!(!fixture.exists("dist"));
+}
+
+#[test]
+fn a_framework_adds_its_output_on_top_of_the_renderer() {
+    let fixture = full_project("build-both", "        - {ClaudeCodeAdapter}");
+    let (_, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(fixture.exists("dist/index.json"));
+    assert!(fixture.exists(".claude/skills/review-components/SKILL.md"));
+    let manifest = fixture.read(".piton/manifest.json");
+    assert!(manifest.contains("\"dist/index.json\""), "{manifest}");
+    assert!(
+        manifest.contains("\".claude/skills/review-components/SKILL.md\""),
+        "{manifest}"
+    );
+}
+
+#[test]
+fn an_unknown_config_key_is_a_warning() {
+    let fixture = Fixture::new("config-typo");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    rendrer: yaml\n",
+    );
+    fixture.write("spec/index.pi", "export anchor A:\n    x: 1\n");
+    let (_, stderr, code) = fixture.run(&["check"]);
+    assert_eq!(code, 0, "a warning, not an error: {stderr}");
+    assert!(stderr.contains("unknown-config-key"), "{stderr}");
+    assert!(stderr.contains("rendrer"), "{stderr}");
+}
+
+#[test]
+fn check_without_a_config_checks_everything_under_the_working_directory() {
+    let fixture = Fixture::new("check-all");
+    fixture.write("ok.pi", "export anchor Fine:\n    value: 1\n");
+    fixture.write(
+        "nested/broken.pi",
+        "export anchor Thing:\n    value: {NotDefined}\n",
+    );
+    let (_, stderr, code) = fixture.run(&["check"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("`NotDefined` is not in scope"), "{stderr}");
+}
+
+#[test]
+fn format_reads_stdin_when_given_a_dash() {
+    let mut child = Command::new(binary())
+        .args(["format", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().expect("stdin");
+        stdin
+            .write_all(b"from ./x.pi import B, A\nanchor A:\n  value: 1 //tight\n")
+            .expect("write");
+    }
+    let output = child.wait_with_output().expect("wait");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "from ./x import A, B\nanchor A:\n    value: 1 // tight\n"
+    );
+
+    let mut child = Command::new(binary())
+        .args(["format", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().expect("stdin");
+        stdin.write_all(b"from import\n").expect("write");
+    }
+    let output = child.wait_with_output().expect("wait");
+    assert!(!output.status.success(), "a broken source fails");
+    assert!(output.stdout.is_empty(), "and writes nothing to stdout");
+}
+
+#[test]
+fn agent_prints_its_fluency_without_a_project() {
+    let fixture = Fixture::new("fluency-bare");
+    let (stdout, stderr, code) = fixture.run(&["agent", "--print-fluency"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("# Piton Fluency"), "{stdout}");
+
+    // A project's own FLUENCY_PROMPT.md is the one it gets.
+    fixture.write("FLUENCY_PROMPT.md", "# Project Fluency\n\nlocal words\n");
+    let (stdout, stderr, code) = fixture.run(&["agent", "--print-fluency"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("local words"), "{stdout}");
+    assert!(!stdout.contains("# Piton Fluency"), "{stdout}");
+}
+
+#[test]
 fn reach_marks_a_root_as_a_root() {
-    let fixture = full_project("reach-root", "        - {ClaudeAdapter}");
+    let fixture = full_project("reach-root", "        - {ClaudeCodeAdapter}");
     let (stdout, stderr, code) = fixture.run(&["reach", "ReviewComponents"]);
     assert_eq!(code, 0, "{stderr}");
     // A root was not reached from anywhere, so naming an edge it arrived on
@@ -547,7 +744,7 @@ fn reach_marks_a_root_as_a_root() {
 
 #[test]
 fn build_cleans_up_only_what_it_generated() {
-    let fixture = full_project("cleanup", "        - {ClaudeAdapter}");
+    let fixture = full_project("cleanup", "        - {ClaudeCodeAdapter}");
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(fixture.exists(".claude/skills/x-release/SKILL.md"));
@@ -579,7 +776,7 @@ fn build_cleans_up_only_what_it_generated() {
 
 #[test]
 fn a_dry_run_writes_nothing() {
-    let fixture = full_project("dry", "        - {ClaudeAdapter}");
+    let fixture = full_project("dry", "        - {ClaudeCodeAdapter}");
     let (stdout, stderr, code) = fixture.run(&["build", "--dry-run"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(
@@ -593,9 +790,9 @@ fn a_dry_run_writes_nothing() {
 fn an_unknown_adapter_is_rejected() {
     let fixture = Fixture::new("badadapter");
     fixture.write("a.pi", "export anchor A:\n    x: 1\n");
-    let (_, stderr, code) = fixture.run(&["compile", "a.pi", "--adapter", "toml"]);
+    let (_, stderr, code) = fixture.run(&["compile", "a.pi", "--renderer", "toml"]);
     assert_eq!(code, 1);
-    assert!(stderr.contains("unknown adapter `toml`"), "{stderr}");
+    assert!(stderr.contains("unknown renderer `toml`"), "{stderr}");
 }
 
 #[test]
@@ -642,7 +839,7 @@ fn help_lists_every_documented_command() {
 fn rebuilding_produces_identical_bytes() {
     let fixture = full_project(
         "determinism",
-        "        - {ClaudeAdapter}\n        - {CodexAdapter}",
+        "        - {ClaudeCodeAdapter}\n        - {CodexAdapter}",
     );
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
@@ -675,6 +872,7 @@ fn compile_can_report_what_it_read() {
         "from ./base import Base\n\nexport anchor Thing:\n    uses: {Base}\n",
     );
 
+    // `--adapter` is the old spelling of `--renderer`, still accepted.
     let (stdout, stderr, code) = fixture.run(&[
         "compile",
         "--adapter",
@@ -684,9 +882,12 @@ fn compile_can_report_what_it_read() {
     ]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("\"value\""), "{stdout}");
-    // The imported file is a dependency even though the caller never named it.
-    assert!(stdout.contains("spec/base.pi"), "{stdout}");
-    assert!(stdout.contains("spec/index.pi"), "{stdout}");
+    // The imported file is a dependency even though the caller never named
+    // it, and every path is absolute although the argument was relative.
+    let base = fixture.dir.join("spec/base.pi");
+    let index = fixture.dir.join("spec/index.pi");
+    assert!(stdout.contains(&format!("\"{}\"", base.display())), "{stdout}");
+    assert!(stdout.contains(&format!("\"{}\"", index.display())), "{stdout}");
     // A bundled package lives in the binary and cannot be watched.
     assert!(!stdout.contains("\"@piton"), "{stdout}");
 }
@@ -717,4 +918,25 @@ fn agent_prints_its_fluency_without_building_or_launching() {
         !fixture.exists("AGENTS.md"),
         "printing the prompt builds nothing"
     );
+}
+
+#[test]
+fn build_output_references_point_into_the_output_tree() {
+    let fixture = Fixture::new("dist-references");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write("spec/components/Button.pi", "export anchor Button:\n    color: blue\n");
+    fixture.write(
+        "spec/index.pi",
+        "use @piton/belay\n\nfrom @piton/belay import BELAY_PROJECT_ROOT\nfrom ./components/Button import Button\n\nexport anchor Index:\n    link: @{Button.color}\n    root: ${BELAY_PROJECT_ROOT}\n",
+    );
+    let (stdout, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    let index = fixture.read("dist/index.json");
+    assert!(index.contains("\"link\": \"./components/Button.json:Button.color\""), "{index}");
+    assert!(!index.contains('\u{e000}'), "internal markers must not leak: {index}");
+    assert!(index.contains("\"root\": \"..\""), "{index}");
+    assert!(fixture.exists("dist/components/Button.json"));
 }

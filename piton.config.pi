@@ -2,7 +2,7 @@ use @piton/packaging
 use @piton/config
 use @piton/belay
 
-from @piton/belay import ClaudeAdapter
+from @piton/belay import ClaudeCodeAdapter
 
 export piton-config PitonLanguageTest:
     root: ./spec
@@ -19,8 +19,8 @@ belay-config BelayConfiguration:
     shapeRoot: ./spec/shape
 
     adapters:
-        - {ClaudeAdapter}
+        - {ClaudeCodeAdapter}
 
-package Piton:
+piton-package Piton:
     name: piton
     root: ./spec

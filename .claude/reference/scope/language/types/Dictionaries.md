@@ -25,7 +25,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ## Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md) and [Inference](Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md#type-coercion) and [Inference](./Inference.md#inference).
 
 ## Description
 
@@ -66,5 +66,3 @@ So for example, `thisIsAKey` and `123` and `foo-bar` and `false` and `null` are 
 ## Hyphenated Keys
 
 A hyphen in the middle of a name is part of the name, so `{config.foo-bar}` reads the key `foo-bar`. If you want subtraction, put spaces around it: `{a - b}`.
-
-Links in this document point at reference files. Read one when the work touches what it describes.

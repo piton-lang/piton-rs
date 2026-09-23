@@ -10,8 +10,15 @@ npm install tree-sitter-piton
 ## Queries
 
 `queries/` holds highlights, injections, locals, folds and indents. Editors
-that read tree-sitter queries — Helix, Neovim, Zed — can point at them
-directly.
+that read tree-sitter queries can point at them directly, with one exception:
+`indents.scm` is written in nvim-treesitter's vocabulary (`@indent.begin`).
+Helix reads a different one and ships its own `indents.scm` in the Piton
+repository under `editors/helix/queries/`; Zed indents from a line pattern.
+
+The indent query covers Enter on a colon line (a declaration, or a property
+with nothing after its colon). The other Enter rule — a blank line inside a
+block dedents the next line — is not something a query over this
+line-oriented grammar can express.
 
 Injections matter more here than in most languages: a Piton value can hold a
 fenced code block in another language, and the injection query is what makes

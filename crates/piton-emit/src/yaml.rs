@@ -4,7 +4,7 @@
 //! leaving them bare would change how YAML reads them, which keeps prose
 //! readable while staying unambiguous.
 
-use piton_core::{format_number, AnchorId, AnchorView, Properties, Value};
+use piton_core::{format_number, AnchorId, AnchorView, Properties, Ref, Value};
 
 /// Renders a map of top-level declarations as a YAML document.
 pub fn declarations(map: &Properties, anchors: &dyn AnchorView) -> String {
@@ -160,8 +160,9 @@ fn push_block(out: &mut String, pad: &str, block: &str) {
     }
 }
 
+/// Same as JSON, with the YAML output file.
 fn reference_text(id: AnchorId, anchors: &dyn AnchorView) -> String {
-    format!("{}#{}", anchors.source_path(id).display(), anchors.name(id))
+    crate::reference_location(anchors, &Ref::anchor(id), "yaml")
 }
 
 fn render_scalar(value: &Value, anchors: &dyn AnchorView) -> String {
@@ -169,8 +170,10 @@ fn render_scalar(value: &Value, anchors: &dyn AnchorView) -> String {
         Value::Null => "null".to_string(),
         Value::Bool(b) => if *b { "true" } else { "false" }.to_string(),
         Value::Number(n) => format_number(*n),
-        Value::Str(text) => quote(&text.render_plain(anchors)),
-        Value::Reference(id) => quote(&format!("!ref {}", reference_text(*id, anchors))),
+        Value::Str(text) => {
+            quote(&text.render_with(|target| crate::reference_location(anchors, target, "yaml")))
+        }
+        Value::Reference(target) => quote(&crate::reference_location(anchors, target, "yaml")),
         _ => "null".to_string(),
     }
 }

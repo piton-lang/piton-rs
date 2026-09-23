@@ -18,18 +18,27 @@ export default defineConfig({
 
 ```astro
 ---
+import { SaveButton } from '../spec/app.pi';
 import spec from '../spec/app.pi';
-const button = spec.anchors.SaveButton;
+import { markdown } from 'astro-piton';
+
+const cancel = spec.CancelButton;
 ---
-<button style={`background: ${button.color}`}>Save</button>
+<button style={`background: ${SaveButton.color}`}>Save</button>
+<button style={`background: ${cancel.color}`}>Cancel</button>
+<pre>{markdown(SaveButton, { title: 'SaveButton' })}</pre>
 ```
 
 Astro builds on Vite, so this adds [`vite-plugin-piton`](../vite-plugin-piton)
-to Astro's Vite configuration and gets out of the way. Hot reload, dependency
-tracking and virtual modules all work as they do there, and the options are the
-same.
+to Astro's Vite configuration and gets out of the way. Named exports, the
+default export, hot reload, dependency tracking, virtual modules and the
+renderers all work as they do there, and the options (`renderer`, `binary`)
+are the same. The renderers are re-exported from `astro-piton` for
+convenience.
 
 Type declarations for `.pi` imports are injected into `.astro/`, so
-`import spec from './app.pi'` type-checks without any further setup.
+`import { SaveButton } from './app.pi'` type-checks without any further setup.
+Every import from a `.pi` module is typed `any`, because which names a file
+exports depends on the file.
 
 The `piton` compiler must be on `PATH`, or named with the `binary` option.

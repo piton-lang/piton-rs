@@ -9,14 +9,15 @@
 
 use std::fmt;
 
-use crate::value::{AnchorId, AnchorView};
+use crate::value::{AnchorId, AnchorView, Ref};
 
 /// One piece of a string value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Segment {
     Literal(String),
-    /// An anchor whose identity is preserved until output serialization.
-    Reference(AnchorId),
+    /// An anchor, or a property on one, whose identity is preserved until
+    /// output serialization.
+    Reference(Ref),
 }
 
 /// A string value, possibly containing embedded references.
@@ -41,9 +42,9 @@ impl Text {
         }
     }
 
-    pub fn reference(id: AnchorId) -> Text {
+    pub fn reference(target: impl Into<Ref>) -> Text {
         Text {
-            segments: vec![Segment::Reference(id)],
+            segments: vec![Segment::Reference(target.into())],
         }
     }
 
@@ -80,9 +81,16 @@ impl Text {
         }
     }
 
+    /// The anchors this text refers to. A reference to a property counts as
+    /// a reference to the anchor it is on.
     pub fn references(&self) -> impl Iterator<Item = AnchorId> + '_ {
+        self.refs().map(|target| target.anchor)
+    }
+
+    /// Every reference in this text, with its property path.
+    pub fn refs(&self) -> impl Iterator<Item = &Ref> + '_ {
         self.segments.iter().filter_map(|s| match s {
-            Segment::Reference(id) => Some(*id),
+            Segment::Reference(target) => Some(target),
             Segment::Literal(_) => None,
         })
     }
@@ -98,15 +106,15 @@ impl Text {
         }
     }
 
-    pub fn push_reference(&mut self, id: AnchorId) {
-        self.segments.push(Segment::Reference(id));
+    pub fn push_reference(&mut self, target: impl Into<Ref>) {
+        self.segments.push(Segment::Reference(target.into()));
     }
 
     pub fn push_text(&mut self, other: &Text) {
         for segment in &other.segments {
             match segment {
                 Segment::Literal(text) => self.push_literal(text),
-                Segment::Reference(id) => self.push_reference(*id),
+                Segment::Reference(target) => self.push_reference(target.clone()),
             }
         }
     }
@@ -124,19 +132,19 @@ impl Text {
         for segment in &self.segments {
             match segment {
                 Segment::Literal(text) => out.push_str(text),
-                Segment::Reference(id) => out.push_str(anchors.name(*id)),
+                Segment::Reference(target) => out.push_str(&target.display(anchors)),
             }
         }
         out
     }
 
     /// Renders the text with each reference replaced by `render`'s output.
-    pub fn render_with(&self, mut render: impl FnMut(AnchorId) -> String) -> String {
+    pub fn render_with(&self, mut render: impl FnMut(&Ref) -> String) -> String {
         let mut out = String::new();
         for segment in &self.segments {
             match segment {
                 Segment::Literal(text) => out.push_str(text),
-                Segment::Reference(id) => out.push_str(&render(*id)),
+                Segment::Reference(target) => out.push_str(&render(target)),
             }
         }
         out
@@ -150,7 +158,7 @@ impl Text {
                 .iter()
                 .map(|segment| match segment {
                     Segment::Literal(text) => Segment::Literal(f(text)),
-                    Segment::Reference(id) => Segment::Reference(*id),
+                    Segment::Reference(target) => Segment::Reference(target.clone()),
                 })
                 .collect(),
         }
@@ -189,7 +197,13 @@ impl fmt::Display for Text {
         for segment in &self.segments {
             match segment {
                 Segment::Literal(text) => f.write_str(text)?,
-                Segment::Reference(id) => write!(f, "@{{{id}}}")?,
+                Segment::Reference(target) => {
+                    write!(f, "@{{{}", target.anchor)?;
+                    for part in &target.path {
+                        write!(f, ".{part}")?;
+                    }
+                    f.write_str("}")?;
+                }
             }
         }
         Ok(())
@@ -214,7 +228,7 @@ mod tests {
         text.push_reference(AnchorId(7));
         assert!(!text.is_plain());
         assert_eq!(text.as_plain(), None);
-        assert_eq!(text.render_with(|id| format!("<{}>", id.0)), "see <7>");
+        assert_eq!(text.render_with(|target| format!("<{}>", target.anchor.0)), "see <7>");
     }
 
     #[test]

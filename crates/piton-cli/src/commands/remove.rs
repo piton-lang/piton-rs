@@ -8,6 +8,7 @@
 use piton_compile::packages::{self, Lock};
 
 use crate::commands::tether::fail;
+use crate::config_edit;
 use crate::packages as ops;
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
@@ -63,16 +64,52 @@ pub fn run(name: &str) -> u8 {
     }
 
     println!("removed {name}");
+
+    // And from the configuration, or the next `piton tether` or `piton update`
+    // would install it again.
     let source = removed.map(|entry| entry.source);
-    if let Some(dependency) = configured.dependencies.iter().find(|dependency| {
-        source.as_deref() == Some(dependency.source.as_str())
-            || dependency.default_name() == name
-    }) {
-        println!(
-            "it is still declared in piton.config.pi; drop `{}` from dependencies \
-or `piton update` will install it again",
-            dependency.source
-        );
+    let declared = configured.dependencies.iter().find(|dependency| {
+        source.as_deref() == Some(dependency.source.as_str()) || dependency.default_name() == name
+    });
+    if let (Some(dependency), Some(config_path)) = (declared, &configured.config_path) {
+        // A repository can publish several packages. It stays declared while
+        // any of the others is still installed from it.
+        let siblings: Vec<String> = lock
+            .packages
+            .iter()
+            .filter(|entry| entry.source == dependency.source)
+            .map(|entry| entry.name.clone())
+            .collect();
+        if !siblings.is_empty() {
+            println!(
+                "{} stays in piton.config.pi, because {} still {} installed from it",
+                dependency.source,
+                siblings.join(", "),
+                report::plural(siblings.len(), "is", "are")
+            );
+            return EXIT_SUCCESS;
+        }
+        let edited = std::fs::read_to_string(config_path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| config_edit::remove_dependency(&text, config_path, &dependency.source));
+        match edited {
+            Ok(Some(updated)) => {
+                if let Err(error) = std::fs::write(config_path, updated) {
+                    report::fail(format!("cannot write `{}`: {error}", config_path.display()));
+                    return EXIT_ERRORS;
+                }
+                println!("dropped {} from piton.config.pi", dependency.source);
+            }
+            Ok(None) => println!(
+                "{} is declared in piton.config.pi in a way that could not be edited; \
+drop it from dependencies by hand or `piton update` will install it again",
+                dependency.source
+            ),
+            Err(message) => {
+                report::fail(message);
+                return EXIT_ERRORS;
+            }
+        }
     }
 
     EXIT_SUCCESS

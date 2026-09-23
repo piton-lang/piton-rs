@@ -16,35 +16,12 @@ use std::path::{Path, PathBuf};
 use piton_compile::{config, Compilation, Framework};
 
 /// Files the golden tree contains that this compiler deliberately does not
-/// emit.
-///
-/// Each is an anchor named only in a `${...}` interpolation. Stringifying an
-/// anchor yields its name, not a link, so nothing in the golden tree links to
-/// these files either: they are orphans. Emitting a reference document takes a
-/// referential interpolation, `@{...}`.
-const KNOWN_ORPHANS: &[&str] = &[
-    ".claude/reference/scope/language/operators/arithmetic/AdditionOperator.md",
-    ".claude/reference/scope/language/operators/arithmetic/DivisionOperator.md",
-    ".claude/reference/scope/language/operators/arithmetic/ModuloOperator.md",
-    ".claude/reference/scope/language/operators/arithmetic/MultiplicationOperator.md",
-    ".claude/reference/scope/language/operators/arithmetic/SubtractionOperator.md",
-];
+/// emit. Empty while the tree is this compiler's own output.
+const KNOWN_ORPHANS: &[&str] = &[];
 
-/// Lines where the golden tree is older than the specification it came from.
-///
-/// `ClaudeCodeAdapter` and `ShapeRootReference` now spell the compiled shape
-/// location as `.claude/reference/shape`; the golden tree still carries the
-/// earlier `../../shape`. Generating the current text is correct.
-const STALE_GOLDEN_LINES: &[(&str, &str)] = &[
-    (
-        ".claude/reference/scope/belay/Belay.md",
-        "documentedClaudeLocation: ../../shape",
-    ),
-    (
-        ".claude/reference/scope/belay/Belay.md",
-        "- Preserve a separate compiled shape reference beneath ../../shape.",
-    ),
-];
+/// Lines where the golden tree is known to be older than the specification it
+/// came from. Empty while the tree is this compiler's own output.
+const STALE_GOLDEN_LINES: &[(&str, &str)] = &[];
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -137,6 +114,11 @@ fn golden(root: &Path) -> BTreeMap<String, String> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                // Git worktrees parked under `.claude/worktrees` are whole
+                // checkouts of the project, not generated output.
+                if path == root.join(".claude").join("worktrees") {
+                    continue;
+                }
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == "md") {
                 let relative = path.strip_prefix(root).expect("under root");

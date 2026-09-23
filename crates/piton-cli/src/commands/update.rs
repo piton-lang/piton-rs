@@ -10,14 +10,14 @@
 
 use piton_compile::packages::Lock;
 
-use crate::commands::tether::fail;
+use crate::commands::tether::{fail, report_config_errors};
 use crate::packages::Installer;
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 pub fn run(requested: &[String]) -> u8 {
     let (configured, diagnostics) = project::current();
-    for diagnostic in diagnostics.iter() {
-        eprintln!("warning: {}", diagnostic.message);
+    if report_config_errors(&configured, &diagnostics) {
+        return EXIT_ERRORS;
     }
 
     if configured.config_path.is_none() {

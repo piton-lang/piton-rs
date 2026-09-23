@@ -76,7 +76,7 @@ untouched, as `initialize` options and as the answer to
 
 That last row is the long one: diagnostics, completion, hover, go-to-definition,
 find-references, rename, document and workspace symbols, semantic highlighting,
-inlay hints, signature help, code actions, formatting, folding and selection
+inlay hints, code actions, formatting, folding and selection
 ranges.
 
 `src/piton.rs` adds two things on top of the protocol. It labels completions and
@@ -100,20 +100,20 @@ There is no `indents.scm`. Zed's `@indent` measures a node that spans the lines
 it indents, and the grammar has no such node: indentation is deliberately left
 out of it, so an anchor's header is a line and its body is not part of it.
 
-The rule is therefore a line pattern in `config.toml`:
+The rule is therefore a line pattern in `config.toml` (`increase_indent_pattern`).
+Enter on a colon line — a declaration, or a dictionary or anchor property with
+nothing after its colon (`frameworks:`, `config:: dictionary:`) — lands one
+level in. A key with a value on the same line does not, and neither does a
+comment, a list item or a merge line: a list item is never a key, so
+`- Settings:` is just a string.
 
-```toml
-increase_indent_pattern = ":\\s*$"
-```
-
-A declaration or a key that ends in a colon opens a block. A key with a value on
-the same line does not.
-
-Enter on a blank line inside a dictionary or anchor comes back one shiftwidth,
-bottoming at the margin. That is `decrease_indent_pattern = "^\\s*$"` in
-`config.toml`: only a whitespace-only line matches it, so it never fights the
-colon rule. The language server answers the same move through on-type
-formatting.
+Enter on a blank line inside a dictionary or anchor comes back one level. Zed
+cannot say that with a line pattern: its `decrease_indent_pattern` is tested
+against the new line itself, which is always empty after Enter, so a
+blank-line pattern would outdent every new line. The rule comes from the
+language server's on-type formatting instead, which Zed uses while
+`use_on_type_format` is on (its default). With the server off, a new line
+after a blank line keeps the block's indentation.
 
 Autoformat on save is Zed's `format_on_save` setting — the option
 `autoFormatOnSave` names. Zed's own default is `on`; keep Piton off until it
@@ -130,7 +130,8 @@ is wanted:
 ```
 
 Set it to `"on"` to opt in. However it runs — on save or from the format
-action — the formatter leaves commented content alone.
+action — the formatter adds the space after `//` and touches nothing else that
+is commented.
 
 ## Checking it
 

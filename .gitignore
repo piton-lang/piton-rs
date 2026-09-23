@@ -3,3 +3,6 @@
 node_modules/
 packages/*/dist/
 editors/zed/grammars/
+
+# `piton build` renderer output
+/dist/

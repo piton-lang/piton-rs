@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use piton_core::{
-    format_number, AnchorId, Diagnostic, Mixed, MixedItem, Properties, Span, Text, Value,
+    format_number, AnchorId, Diagnostic, Mixed, MixedItem, Properties, Ref, Span, Text, Value,
 };
 use piton_syntax::ast::{
     self, BinaryOp, Block, BlockItem, Expr, ExprKind, MergeOp, Paragraph, ProseLine, ProseSegment,
@@ -19,7 +19,7 @@ use piton_syntax::ast::{
 
 use crate::module::ModuleId;
 use crate::resolve::Resolution;
-use crate::store::{Symbol, VariableId};
+use crate::store::{Slot, Symbol, VariableId};
 
 /// Where an expression is being evaluated from.
 #[derive(Debug, Clone, Copy)]
@@ -44,12 +44,18 @@ impl Context {
     }
 }
 
-/// A value together with whether it was written as a quoted literal. Quoted
-/// values are explicitly strings and never coerce to another type.
+/// A value together with how it was written.
 #[derive(Debug, Clone)]
 struct Evaluated {
     value: Value,
+    /// True for a string that is explicitly a string: a `"..."` inside an
+    /// expression, or the result of `${...}`. It never coerces to another type.
     quoted: bool,
+    /// The source text of a literal, when the value was inferred from one.
+    ///
+    /// Coercing a literal keeps it exactly as written, so `x:: string: 1.0` is
+    /// "1.0" even though the number it was read as prints as `1`.
+    literal: Option<String>,
 }
 
 impl Evaluated {
@@ -57,6 +63,15 @@ impl Evaluated {
         Evaluated {
             value,
             quoted: false,
+            literal: None,
+        }
+    }
+
+    fn quoted(value: Value) -> Evaluated {
+        Evaluated {
+            value,
+            quoted: true,
+            literal: None,
         }
     }
 }
@@ -128,19 +143,6 @@ impl<'a> Evaluator<'a> {
         let path = self.path(module);
         self.diagnostics
             .push(Diagnostic::error(code, message, path, span));
-    }
-
-    fn warn_with_help(
-        &mut self,
-        code: &str,
-        message: impl Into<String>,
-        help: impl Into<String>,
-        module: ModuleId,
-        span: Span,
-    ) {
-        let path = self.path(module);
-        self.diagnostics
-            .push(Diagnostic::warning(code, message, path, span).with_help(help));
     }
 
     // -- anchors --------------------------------------------------------
@@ -215,6 +217,21 @@ impl<'a> Evaluator<'a> {
             return Value::Null;
         }
 
+        self.property_stack.push(key.clone());
+        let value = self.slot_value(anchor, &slot, name);
+        self.property_stack.pop();
+
+        self.properties.insert(key, value.clone());
+        value
+    }
+
+    /// Evaluates the declaration a slot points at, with `self` bound to
+    /// `derived`.
+    ///
+    /// This is usually the slot `derived` itself resolved to, but `super.x`
+    /// reads a base's declaration of `x` while `self` still means the anchor
+    /// the lookup started from, because `self` travels through inheritance.
+    fn slot_value(&mut self, derived: AnchorId, slot: &Slot, name: &str) -> Value {
         let owner = self.resolution.store.anchor(slot.owner);
         let owner_module = owner.module;
         let owner_item = owner.item;
@@ -236,26 +253,78 @@ impl<'a> Evaluator<'a> {
         let context = Context {
             module: owner_module,
             this: Some(slot.owner),
-            derived: Some(anchor),
+            derived: Some(derived),
             super_anchor,
         };
 
-        self.property_stack.push(key.clone());
         let evaluated = self.value_node(&property.value, &context);
-        let value = self.constrain(
+        self.constrain(
             evaluated,
             &slot.constraints,
             &format!(
                 "{}.{name}",
-                self.resolution.store.anchor(anchor).name
+                self.resolution.store.anchor(derived).name
             ),
             owner_module,
             property.name_span,
-        );
-        self.property_stack.pop();
+        )
+    }
 
-        self.properties.insert(key, value.clone());
-        value
+    /// Reads `name` through `super`: everything the anchor inherits, merged
+    /// left to right with the last in line winning, so a property only an
+    /// earlier base has is still found.
+    fn super_field(&mut self, context: &Context, name: &str, span: Span) -> Evaluated {
+        let Some(this) = context.this else {
+            self.error(
+                "invalid-super",
+                "`super` is only meaningful inside an anchor",
+                context.module,
+                span,
+            );
+            return Evaluated::plain(Value::Null);
+        };
+        let bases = self.resolution.store.anchor(this).bases.clone();
+        if bases.is_empty() {
+            self.error(
+                "invalid-super",
+                "`super` needs a base anchor; this anchor does not extend anything",
+                context.module,
+                span,
+            );
+            return Evaluated::plain(Value::Null);
+        }
+        for base in bases.iter().rev() {
+            let Some(slot) = self.resolution.store.anchor(*base).slots.get(name).cloned() else {
+                continue;
+            };
+            if !slot.has_value {
+                continue;
+            }
+            let derived = context.derived.unwrap_or(this);
+            let key = (derived, format!("{name}\u{0}super\u{0}{}", slot.owner.0));
+            if self.property_stack.contains(&key) {
+                let this_name = self.resolution.store.anchor(this).name.clone();
+                self.error(
+                    "cyclic-value",
+                    format!("`{this_name}.{name}` depends on its own value through `super`"),
+                    context.module,
+                    span,
+                );
+                return Evaluated::plain(Value::Null);
+            }
+            self.property_stack.push(key);
+            let value = self.slot_value(derived, &slot, name);
+            self.property_stack.pop();
+            return Evaluated::plain(value);
+        }
+        let this_name = self.resolution.store.anchor(this).name.clone();
+        self.error(
+            "unknown-property",
+            format!("none of the anchors `{this_name}` extends have a property `{name}`"),
+            context.module,
+            span,
+        );
+        Evaluated::plain(Value::Null)
     }
 
     fn variable_value(&mut self, id: VariableId) -> Value {
@@ -281,6 +350,22 @@ impl<'a> Evaluator<'a> {
         };
         let decl = decl.clone();
 
+        if !decl.value.declared {
+            // `x:: number` with no value. Only an abstract anchor can leave a
+            // property without one.
+            self.error(
+                "missing-value",
+                format!(
+                    "`{}` has a type constraint but no value; only a property in an abstract anchor can leave its value out",
+                    decl.name
+                ),
+                def.module,
+                decl.name_span,
+            );
+            self.variables.insert(id, Value::Null);
+            return Value::Null;
+        }
+
         self.variable_stack.push(id);
         let evaluated = self.value_node(&decl.value, &Context::file(def.module));
         let value = self.constrain(
@@ -299,6 +384,15 @@ impl<'a> Evaluator<'a> {
     // -- values ---------------------------------------------------------
 
     fn value_node(&mut self, node: &ValueNode, context: &Context) -> Evaluated {
+        if node.declared && node.is_empty() {
+            self.error(
+                "empty-value",
+                "a property has to have a value; write `null` if you mean nothing",
+                context.module,
+                node.span,
+            );
+            return Evaluated::plain(Value::Null);
+        }
         if let Some(items) = &node.inline_list {
             let values = items
                 .iter()
@@ -333,12 +427,13 @@ impl<'a> Evaluator<'a> {
         context: &Context,
         span: Span,
     ) -> Evaluated {
+        if pieces.iter().any(|piece| matches!(piece, Piece::Merge(..))) {
+            return self.merged_block(pieces, context, span);
+        }
         let has_prose = pieces
             .iter()
             .any(|p| matches!(p, Piece::Prose(_) | Piece::Fence(_) | Piece::Escape(_)));
-        let has_list = pieces
-            .iter()
-            .any(|p| matches!(p, Piece::ListItem(_) | Piece::Merge(..)));
+        let has_list = pieces.iter().any(|p| matches!(p, Piece::ListItem(_)));
         let has_property = pieces.iter().any(|p| matches!(p, Piece::Property(_)));
 
         match (has_prose, has_list, has_property) {
@@ -368,9 +463,11 @@ impl<'a> Evaluator<'a> {
                 macro_rules! flush_prose {
                     () => {
                         if !run.is_empty() {
-                            let value = self.prose_value(&run, context).value;
-                            if let Value::Str(text) = value {
-                                items.push(MixedItem::Text(text));
+                            match self.prose_value(&run, context).value {
+                                Value::Str(text) => items.push(MixedItem::Text(text)),
+                                Value::Mixed(mixed) => items.extend(mixed.items),
+                                Value::Null => {}
+                                other => items.push(MixedItem::Value(other)),
                             }
                             run.clear();
                         }
@@ -392,10 +489,11 @@ impl<'a> Evaluator<'a> {
                             flush_list!();
                             run.push(piece.clone());
                         }
-                        Piece::ListItem(_) | Piece::Merge(..) => {
+                        Piece::ListItem(_) => {
                             flush_prose!();
                             list_run.push(piece.clone());
                         }
+                        Piece::Merge(..) => unreachable!("merged blocks are handled first"),
                         Piece::Property(property) => {
                             flush_prose!();
                             flush_list!();
@@ -409,6 +507,66 @@ impl<'a> Evaluator<'a> {
                 Evaluated::plain(Value::Mixed(Mixed::new(items)))
             }
         }
+    }
+
+    /// Builds a block that has `+` or `++` lines in it.
+    ///
+    /// Blocks are built from top to bottom. A line starting with `+` or `++`
+    /// takes everything above it and combines it with that line's value, the
+    /// same way the operator does in an expression. Lines after it keep adding
+    /// to the result, which is how `+ {super.items}` followed by `- D` gives
+    /// the base's items and then D.
+    fn merged_block(&mut self, pieces: &[Piece], context: &Context, span: Span) -> Evaluated {
+        let mut accumulated: Option<Value> = None;
+        let mut segment: Vec<Piece> = Vec::new();
+        for piece in pieces {
+            match piece {
+                Piece::Merge(op, merge) => {
+                    if !segment.is_empty() {
+                        let value = self.pieces_to_value(&segment, context, span).value;
+                        accumulated = Some(continue_block(accumulated, value));
+                        segment.clear();
+                    }
+                    let operand = self.prose_line_value(&merge.value, context).value;
+                    accumulated = Some(match accumulated {
+                        // A block with just `+ {x}` in it is the same as `{x}`.
+                        None => operand,
+                        Some(previous) => {
+                            let operator = match op {
+                                MergeOp::Merge => BinaryOp::Add,
+                                MergeOp::Concat => BinaryOp::Concat,
+                            };
+                            let operand = match (&previous, operand) {
+                                // Merging nothing into a list leaves the list.
+                                (Value::List(_) | Value::Mixed(_), Value::Null) => {
+                                    Value::List(Vec::new())
+                                }
+                                // A single value merged into a list is one more item.
+                                (Value::List(_) | Value::Mixed(_), other)
+                                    if !matches!(other, Value::List(_) | Value::Mixed(_)) =>
+                                {
+                                    Value::List(vec![other])
+                                }
+                                (_, other) => other,
+                            };
+                            self.binary(
+                                operator,
+                                Evaluated::plain(previous),
+                                Evaluated::plain(operand),
+                                context,
+                                merge.span,
+                            )
+                        }
+                    });
+                }
+                other => segment.push(other.clone()),
+            }
+        }
+        if !segment.is_empty() {
+            let value = self.pieces_to_value(&segment, context, span).value;
+            accumulated = Some(continue_block(accumulated, value));
+        }
+        Evaluated::plain(accumulated.unwrap_or(Value::Null))
     }
 
     /// Evaluates a property declared inside a value block, applying its own
@@ -442,21 +600,6 @@ impl<'a> Evaluator<'a> {
                         other => items.push(other),
                     }
                 }
-                Piece::Merge(op, merge) => {
-                    let operand = self.prose_line_value(&merge.value, context);
-                    let mut extra = match &operand.value {
-                        Value::List(values) => values.clone(),
-                        Value::Mixed(_) => operand.value.as_list_items(),
-                        Value::Null => Vec::new(),
-                        other => vec![other.clone()],
-                    };
-                    items.append(&mut extra);
-                    if *op == MergeOp::Merge {
-                        // The merge operator concatenates in operand order and
-                        // then removes duplicates, keeping the last occurrence.
-                        items = dedup_keep_last(items);
-                    }
-                }
                 _ => {}
             }
         }
@@ -474,32 +617,32 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        // Each paragraph is considered on its own, because a paragraph that
-        // *is* a quoted string is a quoted literal whose quotes are syntax,
-        // while quotes inside a sentence are ordinary punctuation.
-        let mut paragraphs: Vec<Text> = Vec::new();
-        let mut quoted_paragraphs: Vec<bool> = Vec::new();
+        let mut paragraphs: Vec<Vec<Part>> = Vec::new();
         for piece in pieces {
             match piece {
                 Piece::Prose(lines) => {
-                    let mut text = Text::empty();
+                    let mut parts = Vec::new();
                     for (index, line) in lines.iter().enumerate() {
                         if index > 0 {
-                            text.push_literal(" ");
+                            parts.push(Part::Text(Text::plain(" ")));
                         }
-                        text.push_text(&self.prose_line_text(line, context));
+                        parts.extend(self.prose_line_parts(line, context));
                     }
-                    let trimmed = text.trim();
-                    match unquote_literal(&trimmed) {
-                        Some(inner) => {
-                            paragraphs.push(inner);
-                            quoted_paragraphs.push(true);
-                        }
-                        None => {
-                            paragraphs.push(trimmed);
-                            quoted_paragraphs.push(false);
+                    if parts.iter().any(|part| matches!(part, Part::Value(_))) {
+                        paragraphs.push(parts);
+                        continue;
+                    }
+                    let trimmed = parts_text(parts).trim();
+                    // Quotes are ordinary characters and stay in the value, but
+                    // a paragraph written entirely in quotes is being quoted
+                    // rather than asserted, so it is noted for whatever reads
+                    // the prose back.
+                    if let (Some(anchor), Some(inner)) = (context.derived, quoted_inner(&trimmed)) {
+                        if !inner.trim().is_empty() {
+                            self.mentioned.entry(anchor).or_default().push(inner);
                         }
                     }
+                    paragraphs.push(vec![Part::Text(trimmed)]);
                 }
                 Piece::Fence(fence) => {
                     let mut text = Text::empty();
@@ -510,8 +653,7 @@ impl<'a> Evaluator<'a> {
                         text.push_literal("\n");
                     }
                     text.push_literal(ticks);
-                    paragraphs.push(text);
-                    quoted_paragraphs.push(false);
+                    paragraphs.push(vec![Part::Text(text)]);
                 }
                 Piece::Escape(block) => {
                     // The delimiters were consumed by the parser; what is left
@@ -524,87 +666,90 @@ impl<'a> Evaluator<'a> {
                         }
                         text.push_literal(line);
                     }
-                    paragraphs.push(text);
-                    quoted_paragraphs.push(false);
+                    paragraphs.push(vec![Part::Text(text)]);
                 }
                 _ => {}
             }
         }
 
-        // A paragraph written entirely inside quotation marks is being
-        // mentioned. The quotes come off, so the note is kept instead.
-        if let Some(anchor) = context.derived {
-            for (paragraph, quoted) in paragraphs.iter().zip(&quoted_paragraphs) {
-                if !quoted {
-                    continue;
+        // A list, dictionary, or anchor dropped into text with `{x}` turns the
+        // whole value into an implicit list: the text around it, and the value.
+        if paragraphs.iter().flatten().any(|part| matches!(part, Part::Value(_))) {
+            let mut items: Vec<MixedItem> = Vec::new();
+            let mut buffer = Text::empty();
+            for (index, paragraph) in paragraphs.into_iter().enumerate() {
+                if index > 0 {
+                    buffer.push_literal("\n");
                 }
-                if let Some(text) = paragraph.as_plain() {
-                    if !text.trim().is_empty() {
-                        self.mentioned
-                            .entry(anchor)
-                            .or_default()
-                            .push(text.to_string());
+                for part in paragraph {
+                    match part {
+                        Part::Text(text) => buffer.push_text(&text),
+                        Part::Value(value) => {
+                            push_mixed(&mut items, Value::Str(std::mem::take(&mut buffer).trim()));
+                            push_mixed(&mut items, value);
+                        }
                     }
                 }
             }
+            push_mixed(&mut items, Value::Str(buffer.trim()));
+            return Evaluated::plain(Value::Mixed(Mixed::new(items)));
         }
 
+        let count = paragraphs.len();
         let mut combined = Text::empty();
-        for (index, paragraph) in paragraphs.iter().enumerate() {
+        for (index, paragraph) in paragraphs.into_iter().enumerate() {
             if index > 0 {
                 // A blank line in the source is how an explicit line break is
                 // written, so paragraphs join with a newline rather than a
                 // space.
                 combined.push_literal("\n");
             }
-            combined.push_text(paragraph);
+            combined.push_text(&parts_text(paragraph));
         }
 
-        // A value that is nothing but a quoted literal is explicitly a string
-        // and never coerces, so it skips literal inference entirely.
-        if paragraphs.len() == 1 && quoted_paragraphs[0] {
-            return Evaluated {
-                value: Value::Str(combined),
-                quoted: true,
-            };
-        }
-
-        let single_line = paragraphs.len() <= 1
+        let single_line = count <= 1
             && combined
                 .as_plain()
                 .is_none_or(|text| !text.contains('\n'));
         infer(combined, single_line)
     }
 
-    /// Renders one prose line as text, stringifying interpolations.
-    fn prose_line_text(&mut self, line: &ProseLine, context: &Context) -> Text {
-        let mut text = Text::empty();
+    /// Splits one prose line into text and the values `{x}` drops into it.
+    ///
+    /// A simple value is written into the text. A list, dictionary, or anchor
+    /// is kept whole, because it makes the text around it an implicit list.
+    fn prose_line_parts(&mut self, line: &ProseLine, context: &Context) -> Vec<Part> {
+        let mut parts = Vec::new();
         for segment in &line.segments {
             match segment {
-                ProseSegment::Text(raw) | ProseSegment::Literal(raw) => text.push_literal(raw),
+                ProseSegment::Text(raw) | ProseSegment::Literal(raw) => {
+                    parts.push(Part::Text(Text::plain(raw.clone())));
+                }
                 ProseSegment::Interpolation(interpolation) => {
                     let evaluated = self.interpolation_value(interpolation, context);
                     match evaluated.value {
-                        Value::Str(inner) => text.push_text(&inner),
-                        Value::Reference(id) => text.push_reference(id),
+                        Value::Str(inner) => parts.push(Part::Text(inner)),
+                        Value::Reference(target) => parts.push(Part::Text(Text::reference(target))),
+                        value @ (Value::List(_)
+                        | Value::Mixed(_)
+                        | Value::Dict(_)
+                        | Value::Anchor(_)) => parts.push(Part::Value(value)),
                         other => {
-                            let rendered =
-                                self.stringify(&other, context, interpolation.span);
-                            text.push_text(&rendered);
+                            let rendered = self.stringify(&other, context, interpolation.span);
+                            parts.push(Part::Text(rendered));
                         }
                     }
                 }
             }
         }
-        text
+        parts
     }
 
     fn prose_line_value(&mut self, line: &ProseLine, context: &Context) -> Evaluated {
         if let Some(interpolation) = line.sole_interpolation() {
             return self.interpolation_value(interpolation, context);
         }
-        let text = self.prose_line_text(line, context);
-        infer(text.trim(), true)
+        self.prose_value(&[Piece::Prose(vec![line.clone()])], context)
     }
 
     fn interpolation_value(
@@ -612,26 +757,153 @@ impl<'a> Evaluator<'a> {
         interpolation: &ast::Interpolation,
         context: &Context,
     ) -> Evaluated {
-        let value = self.expr(&interpolation.expr, context);
-        match interpolation.sigil {
-            Sigil::Standard => value,
+        self.sigil_value(interpolation.sigil, &interpolation.expr, context, interpolation.span)
+    }
+
+    /// Applies what a sigil asks for to the expression inside it.
+    fn sigil_value(&mut self, sigil: Sigil, expr: &Expr, context: &Context, span: Span) -> Evaluated {
+        match sigil {
+            Sigil::Standard => self.expr(expr, context),
             Sigil::Stringify => {
-                let text = self.stringify(&value.value, context, interpolation.span);
-                Evaluated {
-                    value: Value::Str(text),
-                    quoted: true,
-                }
+                let value = self.expr(expr, context).value;
+                let text = match &value {
+                    // A named list or dictionary becomes its name, like
+                    // `Anchor.propertyName`, or just the variable name at the
+                    // top of a file.
+                    Value::List(_) | Value::Mixed(_) | Value::Dict(_) => {
+                        match self.expr_name(expr, context) {
+                            Some(name) => Text::plain(name),
+                            None => {
+                                self.error(
+                                    "no-string-form",
+                                    format!(
+                                        "this {} has no name, so it has no string form",
+                                        value.kind()
+                                    ),
+                                    context.module,
+                                    span,
+                                );
+                                Text::empty()
+                            }
+                        }
+                    }
+                    _ => self.stringify(&value, context, span),
+                };
+                Evaluated::quoted(Value::Str(text))
             }
             Sigil::Numeric => {
-                let number = self.numeric(&value.value, context, interpolation.span);
-                Evaluated::plain(number)
+                let value = self.expr(expr, context).value;
+                Evaluated::plain(self.numeric(&value, context, span))
             }
-            Sigil::Reference => Evaluated::plain(self.reference(
-                &value.value,
-                context,
-                interpolation.span,
-            )),
+            Sigil::Reference => match self.reference_target(expr, context) {
+                Some(target) => Evaluated::plain(Value::Reference(target)),
+                None => {
+                    let path = self.path(context.module);
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            "invalid-reference",
+                            "`@{...}` has to point at an anchor or a property on one",
+                            path,
+                            span,
+                        )
+                        .with_help("to put a value into the text instead, use `${...}` or `{...}`"),
+                    );
+                    Evaluated::plain(Value::Null)
+                }
+            },
         }
+    }
+
+    /// The name a list or dictionary is known by, for `${...}`.
+    fn expr_name(&mut self, expr: &Expr, context: &Context) -> Option<String> {
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.expr_name(inner, context),
+            ExprKind::Name(name) => Some(name.clone()),
+            ExprKind::Field(base, field) => {
+                let base_name = match &base.kind {
+                    ExprKind::This => context.this.map(|a| self.anchor_name(a)),
+                    ExprKind::SelfRef => context.derived.map(|a| self.anchor_name(a)),
+                    ExprKind::Super => context.super_anchor.map(|a| self.anchor_name(a)),
+                    _ => self.expr_name(base, context),
+                }?;
+                Some(format!("{base_name}.{}", field.value))
+            }
+            _ => None,
+        }
+    }
+
+    fn anchor_name(&self, anchor: AnchorId) -> String {
+        self.resolution.store.anchor(anchor).name.clone()
+    }
+
+    /// Works out what `@{...}` points at without copying it: an anchor, or a
+    /// property on one.
+    fn reference_target(&mut self, expr: &Expr, context: &Context) -> Option<Ref> {
+        match &expr.kind {
+            ExprKind::Paren(inner) | ExprKind::Nested(Sigil::Reference, inner) => {
+                self.reference_target(inner, context)
+            }
+            ExprKind::This => context.this.map(Ref::anchor),
+            ExprKind::SelfRef => context.derived.map(Ref::anchor),
+            ExprKind::Super => context.super_anchor.map(Ref::anchor),
+            ExprKind::Name(name) => match self.resolution.lookup(context.module, name) {
+                Some(Symbol::Anchor(anchor)) => Some(Ref::anchor(anchor)),
+                Some(Symbol::Variable(variable)) => match self.variable_value(variable) {
+                    Value::Anchor(anchor) => Some(Ref::anchor(anchor)),
+                    Value::Reference(target) => Some(target),
+                    _ => None,
+                },
+                None => {
+                    self.error(
+                        "unresolved-symbol",
+                        format!("`{name}` is not in scope"),
+                        context.module,
+                        expr.span,
+                    );
+                    None
+                }
+            },
+            ExprKind::Field(base, field) => {
+                let mut target = self.reference_target(base, context)?;
+                // The property has to exist; reading it also reports a missing
+                // one the same way any other access does.
+                let value = if target.path.is_empty() {
+                    let anchor = target.anchor;
+                    self.field(&Value::Anchor(anchor), &field.value, context, field.span).value
+                } else {
+                    let holder = self.ref_value(&target);
+                    self.field(&holder, &field.value, context, field.span).value
+                };
+                match value {
+                    // A property holding an anchor points at that anchor.
+                    Value::Anchor(anchor) => Some(Ref::anchor(anchor)),
+                    Value::Reference(inner) => Some(inner),
+                    _ => {
+                        target.path.push(field.value.clone());
+                        Some(target)
+                    }
+                }
+            }
+            _ => match self.expr(expr, context).value {
+                Value::Anchor(anchor) => Some(Ref::anchor(anchor)),
+                Value::Reference(target) => Some(target),
+                _ => None,
+            },
+        }
+    }
+
+    /// The value a reference points at.
+    fn ref_value(&mut self, target: &Ref) -> Value {
+        let mut value = Value::Anchor(target.anchor);
+        for part in &target.path {
+            value = match value {
+                Value::Anchor(anchor) => self.property_value(anchor, part),
+                Value::Dict(map) => map.get(part).cloned().unwrap_or(Value::Null),
+                Value::Mixed(mixed) => mixed.get(part).cloned().unwrap_or(Value::Null),
+                _ => Value::Null,
+            };
+        }
+        value
     }
 
     // -- expressions ----------------------------------------------------
@@ -641,10 +913,8 @@ impl<'a> Evaluator<'a> {
             ExprKind::Number(n) => Evaluated::plain(Value::Number(*n)),
             ExprKind::Bool(b) => Evaluated::plain(Value::Bool(*b)),
             ExprKind::Null => Evaluated::plain(Value::Null),
-            ExprKind::Quoted(text) => Evaluated {
-                value: Value::Str(Text::plain(text.clone())),
-                quoted: true,
-            },
+            ExprKind::Quoted(text) => Evaluated::quoted(Value::Str(Text::plain(text.clone()))),
+            ExprKind::Nested(sigil, inner) => self.sigil_value(*sigil, inner, context, expr.span),
             ExprKind::Error => Evaluated::plain(Value::Null),
             ExprKind::Paren(inner) => self.expr(inner, context),
             ExprKind::This => match context.this {
@@ -698,6 +968,9 @@ impl<'a> Evaluator<'a> {
                     Evaluated::plain(Value::Null)
                 }
             },
+            ExprKind::Field(base, field) if matches!(base.kind, ExprKind::Super) => {
+                self.super_field(context, &field.value, expr.span)
+            }
             ExprKind::Field(base, field) => {
                 let base_value = self.expr(base, context).value;
                 self.field(&base_value, &field.value, context, expr.span)
@@ -708,7 +981,18 @@ impl<'a> Evaluator<'a> {
             ExprKind::Unary(op, operand) => {
                 let value = self.expr(operand, context).value;
                 let result = match op {
-                    UnaryOp::Not => Value::Bool(!value.is_truthy()),
+                    UnaryOp::Not => match value {
+                        Value::Bool(b) => Value::Bool(!b),
+                        other => {
+                            self.error(
+                                "invalid-operand",
+                                format!("`!` needs a boolean, found {}", other.kind()),
+                                context.module,
+                                expr.span,
+                            );
+                            Value::Null
+                        }
+                    },
                     UnaryOp::Negate => match value {
                         Value::Number(n) => Value::Number(-n),
                         other => {
@@ -725,11 +1009,23 @@ impl<'a> Evaluator<'a> {
                 Evaluated::plain(result)
             }
             ExprKind::Ternary(condition, consequent, alternative) => {
-                // Only the selected branch is evaluated.
-                if self.expr(condition, context).value.is_truthy() {
-                    self.expr(consequent, context)
-                } else {
-                    self.expr(alternative, context)
+                // Only the selected branch is evaluated. There is no truthiness
+                // in Piton, so the condition has to be a boolean.
+                match self.expr(condition, context).value {
+                    Value::Bool(true) => self.expr(consequent, context),
+                    Value::Bool(false) => self.expr(alternative, context),
+                    other => {
+                        self.error(
+                            "invalid-condition",
+                            format!(
+                                "the condition of `? :` has to be a boolean, found {}",
+                                other.kind()
+                            ),
+                            context.module,
+                            condition.span,
+                        );
+                        Evaluated::plain(Value::Null)
+                    }
                 }
             }
             ExprKind::Binary(op, lhs, rhs) => {
@@ -748,7 +1044,7 @@ impl<'a> Evaluator<'a> {
         span: Span,
     ) -> Evaluated {
         match base {
-            Value::Anchor(anchor) | Value::Reference(anchor) => {
+            Value::Anchor(anchor) => {
                 if self
                     .resolution
                     .store
@@ -823,8 +1119,25 @@ impl<'a> Evaluator<'a> {
     ) -> Value {
         use BinaryOp::*;
         match op {
-            And => Value::Bool(left.value.is_truthy() && right.value.is_truthy()),
-            Or => Value::Bool(left.value.is_truthy() || right.value.is_truthy()),
+            And | Or => match (&left.value, &right.value) {
+                (Value::Bool(a), Value::Bool(b)) => {
+                    Value::Bool(if op == And { *a && *b } else { *a || *b })
+                }
+                (a, b) => {
+                    self.error(
+                        "invalid-operand",
+                        format!(
+                            "`{}` needs two booleans, found {} and {}",
+                            op.symbol(),
+                            a.kind(),
+                            b.kind()
+                        ),
+                        context.module,
+                        span,
+                    );
+                    Value::Null
+                }
+            },
             Equal => Value::Bool(equal(&left.value, &right.value)),
             NotEqual => Value::Bool(!equal(&left.value, &right.value)),
             Less | LessEqual | Greater | GreaterEqual => {
@@ -892,6 +1205,7 @@ impl<'a> Evaluator<'a> {
                     items.extend(right.value.as_list_items());
                     Value::List(dedup_keep_last(items))
                 }
+                // A shallow merge: keys from both, the right side wins.
                 (Value::Dict(a), Value::Dict(b)) => {
                     let mut merged = a.clone();
                     for (key, value) in b {
@@ -899,13 +1213,31 @@ impl<'a> Evaluator<'a> {
                     }
                     Value::Dict(merged)
                 }
-                _ => {
-                    // Anything else concatenates as text, which is how
-                    // `2 + Hello` becomes `2Hello`.
-                    let mut text = self.stringify(&left.value, context, span);
-                    let right_text = self.stringify(&right.value, context, span);
+                (a, b) if is_text(a) && is_text(b) && (is_string(a) || is_string(b)) => {
+                    // One side is a string and the other a simple value, which
+                    // is turned into a string first: `2 + "Hello"` is `2Hello`.
+                    let mut text = self.stringify(a, context, span);
+                    let right_text = self.stringify(b, context, span);
                     text.push_text(&right_text);
                     Value::Str(text)
+                }
+                (a, b) if (is_string(a) && b.is_complex()) || (a.is_complex() && is_string(b)) => {
+                    // A list, dictionary, or anchor next to a string is not
+                    // turned into text. It makes an implicit list, the same as
+                    // putting `{x}` in the middle of some text.
+                    let mut items = Vec::new();
+                    push_mixed(&mut items, a.clone());
+                    push_mixed(&mut items, b.clone());
+                    Value::Mixed(Mixed::new(items))
+                }
+                (a, b) => {
+                    self.error(
+                        "invalid-operand",
+                        format!("`+` cannot combine {} and {}", a.kind(), b.kind()),
+                        context.module,
+                        span,
+                    );
+                    Value::Null
                 }
             },
             Concat => match (&left.value, &right.value) {
@@ -914,18 +1246,25 @@ impl<'a> Evaluator<'a> {
                     items.extend(right.value.as_list_items());
                     Value::List(items)
                 }
-                (Value::Dict(a), Value::Dict(b)) => {
-                    let mut merged = a.clone();
-                    for (key, value) in b {
-                        merged.insert(key.clone(), value.clone());
-                    }
-                    Value::Dict(merged)
-                }
-                _ => {
-                    let mut text = self.stringify(&left.value, context, span);
-                    let right_text = self.stringify(&right.value, context, span);
+                // A deep merge: dictionaries under the same key merge too, all
+                // the way down. Otherwise the right side wins.
+                (Value::Dict(a), Value::Dict(b)) => Value::Dict(deep_merge(a, b)),
+                // On strings `++` joins them with a line break.
+                (a, b) if is_text(a) && is_text(b) && (is_string(a) || is_string(b)) => {
+                    let mut text = self.stringify(a, context, span);
+                    text.push_literal("\n");
+                    let right_text = self.stringify(b, context, span);
                     text.push_text(&right_text);
                     Value::Str(text)
+                }
+                (a, b) => {
+                    self.error(
+                        "invalid-operand",
+                        format!("`++` cannot combine {} and {}", a.kind(), b.kind()),
+                        context.module,
+                        span,
+                    );
+                    Value::Null
                 }
             },
         }
@@ -941,7 +1280,7 @@ impl<'a> Evaluator<'a> {
             Value::Null => Text::plain("null"),
             // Stringifying an anchor yields its source name.
             Value::Anchor(id) => Text::plain(self.resolution.store.anchor(*id).name.clone()),
-            Value::Reference(id) => Text::reference(*id),
+            Value::Reference(target) => Text::reference(target.clone()),
             other => {
                 self.error(
                     "no-string-form",
@@ -984,31 +1323,6 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn reference(&mut self, value: &Value, context: &Context, span: Span) -> Value {
-        match value {
-            Value::Anchor(id) | Value::Reference(id) => Value::Reference(*id),
-            other => {
-                // Reference identity for non-anchor values is listed as an open
-                // question in the specification. Rather than fail a build over
-                // an unfinished rule, fall back to the value itself and say so.
-                //
-                // The help matters more than the warning here: `@{...}` asks for
-                // a link to a compiled document, and only an anchor has one.
-                self.warn_with_help(
-                    "reference-not-an-anchor",
-                    format!(
-                        "`@{{...}}` resolved to {} rather than an anchor, so there is no document to link to; its value is used instead",
-                        other.kind()
-                    ),
-                    reference_help(other),
-                    context.module,
-                    span,
-                );
-                other.clone()
-            }
-        }
-    }
-
     /// Applies type constraints left to right, using the first type the value
     /// can validly represent.
     fn constrain(
@@ -1023,7 +1337,7 @@ impl<'a> Evaluator<'a> {
             return evaluated.value;
         }
         for constraint in constraints {
-            if let Some(value) = self.coerce(&evaluated, constraint) {
+            if let Some(value) = self.coerce(&evaluated, constraint, module) {
                 return value;
             }
         }
@@ -1041,7 +1355,12 @@ impl<'a> Evaluator<'a> {
         evaluated.value
     }
 
-    fn coerce(&self, evaluated: &Evaluated, constraint: &TypeConstraint) -> Option<Value> {
+    fn coerce(
+        &self,
+        evaluated: &Evaluated,
+        constraint: &TypeConstraint,
+        module: ModuleId,
+    ) -> Option<Value> {
         let value = &evaluated.value;
         if constraint.list {
             let items = match value {
@@ -1055,13 +1374,7 @@ impl<'a> Evaluator<'a> {
             };
             let mut out = Vec::with_capacity(items.len());
             for item in items {
-                out.push(self.coerce(
-                    &Evaluated {
-                        value: item,
-                        quoted: false,
-                    },
-                    &element,
-                )?);
+                out.push(self.coerce(&Evaluated::plain(item), &element, module)?);
             }
             return Some(Value::List(out));
         }
@@ -1072,9 +1385,15 @@ impl<'a> Evaluator<'a> {
             TypeName::Complex => value.is_complex().then(|| value.clone()),
             TypeName::String => match value {
                 Value::Str(_) => Some(value.clone()),
-                // Unquoted literals coerce when their syntax fits the target.
-                Value::Number(n) => Some(Value::Str(Text::plain(format_number(*n)))),
-                Value::Bool(b) => Some(Value::Str(Text::plain(if *b { "true" } else { "false" }))),
+                // Numbers can be coerced into strings. A literal keeps exactly
+                // what was written; an expression's result is what gets coerced.
+                Value::Number(n) => Some(Value::Str(Text::plain(
+                    evaluated
+                        .literal
+                        .clone()
+                        .unwrap_or_else(|| format_number(*n)),
+                ))),
+                // Booleans and null are never coerced.
                 _ => None,
             },
             TypeName::Number => match value {
@@ -1113,27 +1432,25 @@ impl<'a> Evaluator<'a> {
                 let Value::Anchor(anchor) = value else {
                     return None;
                 };
-                let target = self
-                    .resolution
-                    .store
-                    .anchors
-                    .iter()
-                    .find(|candidate| candidate.name == *name)?;
+                let target = match self.resolution.lookup(module, name) {
+                    Some(Symbol::Anchor(target)) => target,
+                    _ => {
+                        self.resolution
+                            .store
+                            .anchors
+                            .iter()
+                            .find(|candidate| candidate.name == *name)?
+                            .id
+                    }
+                };
+                let store = &self.resolution.store;
                 if constraint.extends {
-                    // `extends A` is satisfied by any anchor whose chain
-                    // includes A.
-                    self.resolution
-                        .store
-                        .inherits_from(*anchor, target.id)
+                    // `extends A` is satisfied by any concrete anchor whose
+                    // chain includes A.
+                    (!store.anchor(*anchor).is_abstract && store.inherits_from(*anchor, target))
                         .then(|| value.clone())
                 } else {
-                    // A bare anchor name is satisfied by a direct implementer.
-                    self.resolution
-                        .store
-                        .anchor(*anchor)
-                        .bases
-                        .contains(&target.id)
-                        .then(|| value.clone())
+                    direct_match(store, *anchor, target).then(|| value.clone())
                 }
             }
         }
@@ -1168,55 +1485,138 @@ fn collect_pieces(block: &Block, out: &mut Vec<Piece>) {
     }
 }
 
-/// A list item that carries both text and a nested list contributes them as two
-/// siblings of the enclosing list.
+/// Anything indented under a list item isn't part of that item; it becomes the
+/// next item. So `- text` with a nested list under it contributes the text and
+/// the list as siblings, and a dictionary indented under an item is one
+/// dictionary right after it.
 fn split_nested_list(mixed: Mixed) -> Vec<Value> {
-    let mut out = Vec::new();
-    for item in mixed.items {
-        match item {
-            MixedItem::Text(text) => out.push(Value::Str(text)),
-            MixedItem::List(values) => out.push(Value::List(values)),
-            MixedItem::Entry(key, value) => {
-                let mut map = Properties::new();
+    Value::Mixed(mixed).as_list_items()
+}
+
+/// Adds what comes after a `+` line to everything built so far.
+fn continue_block(accumulated: Option<Value>, next: Value) -> Value {
+    let Some(previous) = accumulated else {
+        return next;
+    };
+    match (previous, next) {
+        (previous, Value::Null) => previous,
+        (Value::List(mut items), Value::List(more)) => {
+            items.extend(more);
+            Value::List(items)
+        }
+        (previous @ Value::Mixed(_), Value::List(more)) => {
+            let mut items = previous.as_list_items();
+            items.extend(more);
+            Value::List(items)
+        }
+        // More text after a joined string continues it like a following line.
+        (Value::Str(mut text), Value::Str(more)) => {
+            text.push_literal(" ");
+            text.push_text(&more);
+            Value::Str(text)
+        }
+        (Value::Dict(mut map), Value::Dict(more)) => {
+            for (key, value) in more {
                 map.insert(key, value);
-                out.push(Value::Dict(map));
             }
+            Value::Dict(map)
+        }
+        (previous, next) => {
+            let mut items = Vec::new();
+            push_mixed(&mut items, previous);
+            push_mixed(&mut items, next);
+            Value::Mixed(Mixed::new(items))
         }
     }
-    out
+}
+
+/// Adds a value to an implicit list, keeping text as text and lists as lists.
+fn push_mixed(items: &mut Vec<MixedItem>, value: Value) {
+    match value {
+        Value::Null => {}
+        Value::Str(text) => {
+            if !text.is_empty() {
+                items.push(MixedItem::Text(text));
+            }
+        }
+        Value::List(values) => items.push(MixedItem::List(values)),
+        Value::Mixed(mixed) => items.extend(mixed.items),
+        other => items.push(MixedItem::Value(other)),
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// What to do about an `@{...}` that did not resolve to an anchor.
-fn reference_help(value: &Value) -> String {
-    match value {
-        // A dictionary usually means the declaration is missing its `anchor`
-        // keyword, so it became an exported variable instead.
-        Value::Dict(_) | Value::Mixed(_) => {
-            "if the target is meant to be an anchor, declare it with `anchor`; only anchors compile to a document that can be linked"
-                .to_string()
+/// One piece of a prose value: text, or a value `{x}` dropped into it.
+enum Part {
+    Text(Text),
+    Value(Value),
+}
+
+/// Joins text parts. Only called once there are no values among them.
+fn parts_text(parts: Vec<Part>) -> Text {
+    let mut text = Text::empty();
+    for part in parts {
+        if let Part::Text(piece) = part {
+            text.push_text(&piece);
         }
-        // Reading a property gives a value, not the anchor that holds it.
-        _ => "`@{...}` links to an anchor's compiled document; to insert this value as text, use `${...}`"
-            .to_string(),
+    }
+    text
+}
+
+/// The inside of a text that is entirely one double-quoted run.
+fn quoted_inner(text: &Text) -> Option<String> {
+    let plain = text.as_plain()?;
+    (plain.len() >= 2 && plain.starts_with('"') && plain.ends_with('"'))
+        .then(|| plain[1..plain.len() - 1].to_string())
+}
+
+fn is_string(value: &Value) -> bool {
+    matches!(value, Value::Str(_))
+}
+
+/// A value `+` can turn into text: a simple value, or a reference.
+fn is_text(value: &Value) -> bool {
+    value.is_simple() || matches!(value, Value::Reference(_))
+}
+
+/// A plain anchor type only matches anchors that directly implement it. If an
+/// anchor has more than one abstract, the one that counts is the one that
+/// wins: the keyword's abstract, or else the right-most one.
+fn direct_match(store: &crate::store::Store, anchor: AnchorId, target: AnchorId) -> bool {
+    if anchor == target {
+        return !store.anchor(anchor).is_abstract;
+    }
+    let def = store.anchor(anchor);
+    if store.anchor(target).is_abstract {
+        def.bases
+            .iter()
+            .rev()
+            .find(|base| store.anchor(**base).is_abstract)
+            .is_some_and(|winner| *winner == target)
+    } else {
+        def.bases.contains(&target)
     }
 }
 
-/// Returns the contents of a text that is entirely one double-quoted literal.
-///
-/// Text carrying a reference is never a plain literal, so it is left alone.
-fn unquote_literal(text: &Text) -> Option<Text> {
-    let plain = text.as_plain()?;
-    if plain.len() >= 2 && plain.starts_with('"') && plain.ends_with('"') {
-        return Some(Text::plain(plain[1..plain.len() - 1].to_string()));
+fn deep_merge(left: &Properties, right: &Properties) -> Properties {
+    let mut merged = left.clone();
+    for (key, value) in right {
+        let combined = match (merged.get(key), value) {
+            (Some(Value::Dict(a)), Value::Dict(b)) => Value::Dict(deep_merge(a, b)),
+            _ => value.clone(),
+        };
+        merged.insert(key.clone(), combined);
     }
-    None
+    merged
 }
 
 /// Applies literal inference to text that was not constrained to a type.
+///
+/// Quotes are ordinary characters, so `"false"` is the string `"false"`,
+/// quotes and all.
 fn infer(text: Text, single_line: bool) -> Evaluated {
     let Some(plain) = text.as_plain() else {
         return Evaluated::plain(Value::Str(text));
@@ -1227,42 +1627,45 @@ fn infer(text: Text, single_line: bool) -> Evaluated {
     if !single_line {
         return Evaluated::plain(Value::Str(text));
     }
-    // A quoted value is explicitly a string and keeps its text without quotes.
-    if plain.len() >= 2 && plain.starts_with('"') && plain.ends_with('"') {
-        return Evaluated {
-            value: Value::Str(Text::plain(plain[1..plain.len() - 1].to_string())),
-            quoted: true,
-        };
-    }
-    let value = match plain {
-        "true" => Value::Bool(true),
-        "false" => Value::Bool(false),
-        "null" => Value::Null,
+    match plain {
+        "true" => Evaluated::plain(Value::Bool(true)),
+        "false" => Evaluated::plain(Value::Bool(false)),
+        "null" => Evaluated::plain(Value::Null),
         other => match parse_number_literal(other) {
-            Some(number) => Value::Number(number),
-            None => Value::Str(text),
+            Some(number) => Evaluated {
+                value: Value::Number(number),
+                quoted: false,
+                literal: Some(other.trim().to_string()),
+            },
+            None => Evaluated::plain(Value::Str(text)),
         },
-    };
-    Evaluated::plain(value)
+    }
 }
 
 /// Parses a number only when the whole string is one, honouring the underscore
 /// separators the language allows.
+///
+/// A leading 0 is mandatory for decimals, so `.5` is not a number, and there is
+/// no exponent notation.
 fn parse_number_literal(text: &str) -> Option<f64> {
     let text = text.trim();
-    if text.is_empty() {
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    let mut chars = digits.chars();
+    if !chars.next().is_some_and(|c| c.is_ascii_digit()) {
         return None;
     }
-    let mut seen_digit = false;
-    for (index, ch) in text.char_indices() {
+    let mut seen_dot = false;
+    let mut previous = ' ';
+    for ch in digits.chars() {
         match ch {
-            '0'..='9' => seen_digit = true,
-            '_' | '.' => {}
-            '-' | '+' if index == 0 => {}
+            '0'..='9' => {}
+            '_' if previous.is_ascii_digit() => {}
+            '.' if !seen_dot && previous.is_ascii_digit() => seen_dot = true,
             _ => return None,
         }
+        previous = ch;
     }
-    if !seen_digit {
+    if !previous.is_ascii_digit() {
         return None;
     }
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();
@@ -1272,6 +1675,11 @@ fn parse_number_literal(text: &str) -> Option<f64> {
 fn equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Str(x), Value::Str(y)) => x == y,
+        (Value::Mixed(_), _) | (_, Value::Mixed(_)) => {
+            let left = if matches!(a, Value::Mixed(_)) { Value::List(a.as_list_items()) } else { a.clone() };
+            let right = if matches!(b, Value::Mixed(_)) { Value::List(b.as_list_items()) } else { b.clone() };
+            left == right
+        }
         _ => a == b,
     }
 }
@@ -1325,6 +1733,203 @@ pub fn constraint_label(constraint: &TypeConstraint) -> String {
     describe_constraint(constraint)
 }
 
+// ---------------------------------------------------------------------------
+// Probing (editor tooling)
+// ---------------------------------------------------------------------------
+
+/// One `+` or `++` line of a block, as the block was built.
+#[derive(Debug, Clone)]
+pub struct BlockStep {
+    /// The `+`/`++` line.
+    pub span: Span,
+    pub op: MergeOp,
+    /// Everything above the line, combined; `None` when nothing was.
+    pub before: Option<Value>,
+    /// The line's own value.
+    pub operand: Value,
+    /// The result of combining the two.
+    pub after: Value,
+}
+
+/// Evaluates single expressions and block steps after a compile, against the
+/// values that compile already produced.
+///
+/// For editor tooling: a hover that explains how `+` combined two inputs uses
+/// the compiler's own rules rather than a second copy of them. Nothing is
+/// reported; a result that would have raised a diagnostic comes back as `None`.
+pub struct Probe<'a> {
+    evaluator: Evaluator<'a>,
+}
+
+impl<'a> Probe<'a> {
+    /// A probe seeded with the values already stored on `resolution` (which
+    /// `Compilation::from_resolution` fills in), so nothing is evaluated twice.
+    pub fn new(resolution: &'a Resolution) -> Probe<'a> {
+        let mut evaluator = Evaluator {
+            resolution,
+            properties: HashMap::new(),
+            property_stack: Vec::new(),
+            variables: HashMap::new(),
+            variable_stack: Vec::new(),
+            anchors: HashMap::new(),
+            mentioned: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        for def in &resolution.store.anchors {
+            for (name, value) in &def.properties {
+                evaluator
+                    .properties
+                    .insert((def.id, name.clone()), value.clone());
+            }
+            evaluator.anchors.insert(def.id, def.properties.clone());
+        }
+        for def in &resolution.store.variables {
+            if let Some(value) = &def.value {
+                evaluator.variables.insert(def.id, value.clone());
+            }
+        }
+        Probe { evaluator }
+    }
+
+    fn context(&self, module: ModuleId, this: Option<AnchorId>) -> Context {
+        Context {
+            module,
+            this,
+            derived: this,
+            super_anchor: this.and_then(|anchor| {
+                self.evaluator.resolution.store.anchor(anchor).bases.last().copied()
+            }),
+        }
+    }
+
+    fn checked(&mut self, run: impl FnOnce(&mut Evaluator<'a>) -> Value) -> Option<Value> {
+        let before = self.evaluator.diagnostics.len();
+        let value = run(&mut self.evaluator);
+        let failed = self.evaluator.diagnostics.len() > before;
+        self.evaluator.diagnostics.truncate(before);
+        (!failed).then_some(value)
+    }
+
+    /// The value of `expr` as written in `module`, inside `this` when it is in
+    /// an anchor body.
+    pub fn expr(&mut self, module: ModuleId, this: Option<AnchorId>, expr: &Expr) -> Option<Value> {
+        let context = self.context(module, this);
+        self.checked(|evaluator| evaluator.expr(expr, &context).value)
+    }
+
+    /// The value of one prose line, interpolations included.
+    pub fn line(
+        &mut self,
+        module: ModuleId,
+        this: Option<AnchorId>,
+        line: &ProseLine,
+    ) -> Option<Value> {
+        let context = self.context(module, this);
+        self.checked(|evaluator| evaluator.prose_line_value(line, &context).value)
+    }
+
+    /// Combines two values with `+` or `++` exactly as an expression would.
+    pub fn combine(
+        &mut self,
+        module: ModuleId,
+        op: BinaryOp,
+        left: Value,
+        right: Value,
+    ) -> Option<Value> {
+        let context = self.context(module, None);
+        self.checked(|evaluator| {
+            evaluator.binary(
+                op,
+                Evaluated::plain(left),
+                Evaluated::plain(right),
+                &context,
+                Span::default(),
+            )
+        })
+    }
+
+    /// How a value block with `+`/`++` lines was built, one entry per line.
+    ///
+    /// Mirrors `Evaluator::merged_block`, recording each step.
+    pub fn block_steps(
+        &mut self,
+        module: ModuleId,
+        this: Option<AnchorId>,
+        node: &ValueNode,
+    ) -> Vec<BlockStep> {
+        let context = self.context(module, this);
+        let mut pieces: Vec<Piece> = Vec::new();
+        if let Some(block) = &node.block {
+            collect_pieces(block, &mut pieces);
+        }
+        if let Some(inline) = &node.inline {
+            if !inline.is_blank() {
+                match pieces.first_mut() {
+                    Some(Piece::Prose(lines)) => lines.insert(0, inline.clone()),
+                    _ => pieces.insert(0, Piece::Prose(vec![inline.clone()])),
+                }
+            }
+        }
+        let before_diagnostics = self.evaluator.diagnostics.len();
+        let evaluator = &mut self.evaluator;
+        let span = node.span;
+        let mut steps = Vec::new();
+        let mut accumulated: Option<Value> = None;
+        let mut segment: Vec<Piece> = Vec::new();
+        for piece in &pieces {
+            match piece {
+                Piece::Merge(op, merge) => {
+                    if !segment.is_empty() {
+                        let value = evaluator.pieces_to_value(&segment, &context, span).value;
+                        accumulated = Some(continue_block(accumulated, value));
+                        segment.clear();
+                    }
+                    let operand = evaluator.prose_line_value(&merge.value, &context).value;
+                    let before = accumulated.clone();
+                    let after = match accumulated.take() {
+                        None => operand.clone(),
+                        Some(previous) => {
+                            let operator = match op {
+                                MergeOp::Merge => BinaryOp::Add,
+                                MergeOp::Concat => BinaryOp::Concat,
+                            };
+                            let right = match (&previous, operand.clone()) {
+                                (Value::List(_) | Value::Mixed(_), Value::Null) => {
+                                    Value::List(Vec::new())
+                                }
+                                (Value::List(_) | Value::Mixed(_), other)
+                                    if !matches!(other, Value::List(_) | Value::Mixed(_)) =>
+                                {
+                                    Value::List(vec![other])
+                                }
+                                (_, other) => other,
+                            };
+                            evaluator.binary(
+                                operator,
+                                Evaluated::plain(previous),
+                                Evaluated::plain(right),
+                                &context,
+                                merge.span,
+                            )
+                        }
+                    };
+                    accumulated = Some(after.clone());
+                    steps.push(BlockStep {
+                        span: merge.span,
+                        op: *op,
+                        before,
+                        operand,
+                        after,
+                    });
+                }
+                other => segment.push(other.clone()),
+            }
+        }
+        self.evaluator.diagnostics.truncate(before_diagnostics);
+        steps
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1371,12 +1976,12 @@ mod tests {
             Value::Str(_)
         ));
         assert!(matches!(infer(Text::plain("null"), true).value, Value::Null));
+        // Quotes are just characters.
         let quoted = infer(Text::plain("\"false\""), true);
-        assert!(quoted.quoted);
-        assert_eq!(
-            quoted.value,
-            Value::Str(Text::plain("false"))
-        );
+        assert_eq!(quoted.value, Value::Str(Text::plain("\"false\"")));
+        assert!(matches!(infer(Text::plain(".5"), true).value, Value::Str(_)));
+        assert!(matches!(infer(Text::plain("1e3"), true).value, Value::Str(_)));
+        assert_eq!(infer(Text::plain("1.0"), true).literal.as_deref(), Some("1.0"));
     }
 
     #[test]

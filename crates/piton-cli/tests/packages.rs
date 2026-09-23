@@ -47,39 +47,58 @@ fn the_plugin_spawns_a_command_the_compiler_accepts() {
     }
 
     // And the compiler still takes them. A renamed flag fails here rather than
-    // in a project that installed the plugin.
+    // in a project that installed the plugin. `--adapter` is the old name of
+    // `--renderer`, kept as a hidden alias, so it is run rather than looked
+    // for in the help.
     let help = Command::new(binary())
         .args(["compile", "--help"])
         .output()
         .expect("piton compile --help");
     let text = String::from_utf8_lossy(&help.stdout);
-    assert!(text.contains("--adapter"), "{text}");
+    assert!(text.contains("--renderer"), "{text}");
     assert!(text.contains("--dependencies"), "{text}");
+
+    let directory = std::env::temp_dir().join(format!("piton-plugin-flags-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).expect("temp dir");
+    std::fs::write(directory.join("a.pi"), "export anchor A:\n    x: 1\n").expect("write");
+    let output = Command::new(binary())
+        .args(["compile", "--adapter", "json", "--dependencies", "a.pi"])
+        .current_dir(&directory)
+        .output()
+        .expect("piton compile --adapter");
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
-fn the_plugin_offers_the_adapters_the_compiler_has() {
-    // The plugin names the adapters in three places: the type it accepts, the
-    // virtual-module path it parses, and the renderers it exports. All three
-    // have to agree with the compiler.
-    let compiler = read("packages/vite-plugin-piton/src/compiler.ts");
+fn the_plugin_offers_the_renderers_the_compiler_has() {
+    // The plugin names the renderers once, in `renderers.ts`: the type it
+    // accepts and the check it runs on a virtual-module path. Both have to
+    // agree with the compiler, and the plugin has to use that check.
     let plugin = read("packages/vite-plugin-piton/src/index.ts");
     let renderers = read("packages/vite-plugin-piton/src/renderers.ts");
 
-    for adapter in ["json", "yaml", "markdown"] {
+    for renderer in ["json", "yaml", "markdown"] {
         assert!(
-            compiler.contains(&format!("'{adapter}'")),
-            "`{adapter}` is missing from the plugin's Adapter type"
+            renderers.contains(&format!("'{renderer}'")),
+            "`{renderer}` is missing from the plugin's Renderer type"
         );
         assert!(
-            plugin.contains(&format!("'{adapter}'")),
-            "`{adapter}` is not accepted in a virtual module path"
-        );
-        assert!(
-            renderers.contains(&format!("'{adapter}'")),
-            "`{adapter}` has no renderer function"
+            renderers.contains(&format!("export function {renderer}(")),
+            "`{renderer}` has no renderer function"
         );
     }
+    assert!(
+        plugin.contains("isRenderer("),
+        "virtual module paths should be checked against the renderers"
+    );
+    let compiler = read("packages/vite-plugin-piton/src/compiler.ts");
+    assert!(compiler.contains("--renderer"), "the plugin should ask for `--renderer`");
 }
 
 #[test]

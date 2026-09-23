@@ -77,6 +77,9 @@ fn git(directory: &Path, args: &[&str]) -> Outcome<String> {
 pub struct Checkout {
     pub directory: PathBuf,
     pub commit: Option<String>,
+    /// When `commit` was committed, in seconds since the epoch. Version
+    /// conflicts are settled by it: the newest commit wins.
+    pub committed_at: Option<i64>,
 }
 
 impl Drop for Checkout {
@@ -91,9 +94,14 @@ impl Drop for Checkout {
 /// cannot be: a server need not serve an arbitrary revision to a shallow fetch,
 /// so the repository is cloned in full and then checked out.
 pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    // Two checkouts can be alive at once -- comparing two versions of one
+    // repository takes both -- so each gets its own directory.
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
     std::fs::create_dir_all(scratch)
         .map_err(|error| Failure::new(format!("cannot create a working directory: {error}")))?;
-    let directory = scratch.join("checkout");
+    let directory = scratch.join(format!("checkout-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
     let _ = std::fs::remove_dir_all(&directory);
 
     let target = directory.to_string_lossy().to_string();
@@ -116,16 +124,28 @@ pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
     }
 
     let commit = git(&directory, &["rev-parse", "HEAD"]).ok();
-    Ok(Checkout { directory, commit })
+    let committed_at = git(&directory, &["log", "-1", "--format=%ct", "HEAD"])
+        .ok()
+        .and_then(|text| text.trim().parse().ok());
+    Ok(Checkout {
+        directory,
+        commit,
+        committed_at,
+    })
 }
 
 /// The packages a checkout publishes.
 ///
 /// A repository that carries a `piton.config.pi` says which of its directories
-/// are packages and what each is called. One that does not is installed whole,
-/// under the name its source implies, which is what makes a plain repository of
-/// `.pi` files usable without it having to know about Piton's packaging at all.
-pub fn published(checkout: &Path, fallback: &str) -> (Vec<PackageDecl>, Vec<Dependency>) {
+/// are packages, what each is called, and what each needs. Only those
+/// packages' own dependencies come along: the repository's project-level
+/// dependencies are for working on that repository, not for using what it
+/// publishes.
+///
+/// A repository that publishes no packages is installed whole, under the name
+/// its source implies, which is what makes a plain repository of `.pi` files
+/// usable without it having to know about Piton's packaging at all.
+pub fn published(checkout: &Path, fallback: &str) -> Vec<PackageDecl> {
     let (project, _) = config::load(checkout, None);
     // A configuration found outside the checkout belongs to whatever directory
     // the clone happened to land in, not to the package.
@@ -134,16 +154,13 @@ pub fn published(checkout: &Path, fallback: &str) -> (Vec<PackageDecl>, Vec<Depe
         .as_ref()
         .is_some_and(|path| path.starts_with(checkout));
     if !owned || project.packages.is_empty() {
-        return (
-            vec![PackageDecl {
-                name: fallback.to_string(),
-                root: checkout.to_path_buf(),
-                dependencies: Vec::new(),
-            }],
-            if owned { project.dependencies } else { Vec::new() },
-        );
+        return vec![PackageDecl {
+            name: fallback.to_string(),
+            root: checkout.to_path_buf(),
+            dependencies: Vec::new(),
+        }];
     }
-    (project.packages, project.dependencies)
+    project.packages
 }
 
 /// Copies a tree, leaving behind everything that made it a git repository.
@@ -284,17 +301,26 @@ pub fn install(
 /// Installs a set of dependencies and everything they in turn require.
 ///
 /// Dependencies are flat by design: one version of a repository is installed
-/// for the whole project. A source reached twice is fetched once, and a
-/// disagreement about which version to take is reported rather than resolved
-/// quietly, because a dependency nobody chose is worse than one nobody has.
+/// for the whole project. A source reached twice is fetched once. When two
+/// declarations ask for different versions, the one whose commit is newest is
+/// installed and the disagreement is reported, because a dependency version
+/// nobody chose is worse than one nobody has.
 pub struct Installer<'a> {
     pub project_root: &'a Path,
     pub scratch: PathBuf,
     pub lock: Lock,
     pub placed: Vec<Placed>,
     pub warnings: Vec<String>,
-    /// Sources already installed, with the pin they were taken at.
-    seen: Vec<(String, Pin)>,
+    /// Sources already installed.
+    seen: Vec<Seen>,
+}
+
+/// A source the installer has already placed, and the version it took.
+struct Seen {
+    source: String,
+    pin: Pin,
+    commit: Option<String>,
+    committed_at: Option<i64>,
 }
 
 impl<'a> Installer<'a> {
@@ -310,57 +336,79 @@ impl<'a> Installer<'a> {
         }
     }
 
-    /// Installs `dependency` and, transitively, whatever it requires.
+    /// Installs `dependency` and, transitively, what the packages it publishes
+    /// require.
     ///
     /// `rename` names the single package a repository publishes, which is what
-    /// `piton tether --as` and `piton untether --as` need; a repository that
-    /// publishes several names them itself.
+    /// `piton tether --as` needs; a repository that publishes several names them
+    /// itself.
     pub fn add(&mut self, dependency: &Dependency, rename: Option<&str>) -> Outcome<()> {
         let mut queue = vec![(dependency.clone(), rename.map(str::to_string))];
 
         while let Some((dependency, rename)) = queue.pop() {
-            // A source reached a second time is either already satisfied or a
-            // disagreement. One version of a repository is installed for the
-            // whole project, so the disagreement is reported and the more
-            // specific pin wins -- reinstalling when the winner is the one that
-            // arrived second, since otherwise the report and the files on disk
-            // would say different things.
-            match self
+            let checkout = match self
                 .seen
-                .iter_mut()
-                .find(|(source, _)| *source == dependency.source)
+                .iter()
+                .position(|seen| seen.source == dependency.source)
             {
-                Some((_, taken)) if *taken == dependency.pin => continue,
-                Some((_, taken)) => {
-                    let replace = packages::more_specific(&dependency.pin, taken);
-                    let keep = if replace {
-                        dependency.pin.clone()
-                    } else {
-                        taken.clone()
-                    };
-                    self.warnings.push(format!(
-                        "`{}` is required at {} and at {}; installing {keep}",
-                        dependency.source, taken, dependency.pin
-                    ));
-                    *taken = keep;
-                    if !replace {
+                Some(index) if self.seen[index].pin == dependency.pin => continue,
+                Some(index) => {
+                    // Asked for at a second version. Both are looked at, and
+                    // the newer commit is the one the project gets.
+                    let checkout = clone(&dependency.source, &dependency.pin, &self.scratch)?;
+                    let taken = &self.seen[index];
+                    if checkout.commit.is_some() && checkout.commit == taken.commit {
                         continue;
                     }
+                    let newer = match (checkout.committed_at, taken.committed_at) {
+                        (Some(candidate), Some(current)) => candidate > current,
+                        (Some(_), None) => true,
+                        _ => false,
+                    };
+                    let (winner, loser) = if newer {
+                        (&dependency.pin, &taken.pin)
+                    } else {
+                        (&taken.pin, &dependency.pin)
+                    };
+                    self.warnings.push(format!(
+                        "`{}` is required at {} and at {}; installing {winner}, which has the newest commit, instead of {loser}",
+                        dependency.source, taken.pin, dependency.pin
+                    ));
+                    if !newer {
+                        continue;
+                    }
+                    self.seen[index] = Seen {
+                        source: dependency.source.clone(),
+                        pin: dependency.pin.clone(),
+                        commit: checkout.commit.clone(),
+                        committed_at: checkout.committed_at,
+                    };
+                    checkout
                 }
-                None => self
-                    .seen
-                    .push((dependency.source.clone(), dependency.pin.clone())),
-            }
+                None => {
+                    let checkout = clone(&dependency.source, &dependency.pin, &self.scratch)?;
+                    self.seen.push(Seen {
+                        source: dependency.source.clone(),
+                        pin: dependency.pin.clone(),
+                        commit: checkout.commit.clone(),
+                        committed_at: checkout.committed_at,
+                    });
+                    checkout
+                }
+            };
 
-            let checkout = clone(&dependency.source, &dependency.pin, &self.scratch)?;
-            let (published, project_dependencies) =
-                published(&checkout.directory, &dependency.default_name());
+            let published = published(&checkout.directory, &dependency.default_name());
 
             let published = match (rename, published.len()) {
-                (Some(name), 1) => vec![PackageDecl {
-                    name,
-                    ..published.into_iter().next().expect("one")
-                }],
+                (Some(name), 1) => {
+                    if let Some(problem) = packages::validate_name(&name) {
+                        return Err(Failure::new(problem));
+                    }
+                    vec![PackageDecl {
+                        name,
+                        ..published.into_iter().next().expect("one")
+                    }]
+                }
                 (Some(name), count) => {
                     return Err(Failure::new(format!(
                         "`{}` publishes {count} packages, so `{name}` does not name one of them",
@@ -385,17 +433,16 @@ impl<'a> Installer<'a> {
                     &dependency.pin,
                     checkout.commit.as_deref(),
                 )?;
+                // A later, newer version replaces what an earlier one placed.
+                self.placed.retain(|earlier| earlier.name != placed.name);
                 self.placed.push(placed);
             }
 
-            // What the packages need, and what the repository itself declares:
-            // both become this project's dependencies, because there is nowhere
-            // nested for them to go.
-            for required in published
-                .iter()
-                .flat_map(|package| &package.dependencies)
-                .chain(&project_dependencies)
-            {
+            // What each package needs becomes this project's dependency too,
+            // because there is nowhere nested for it to go. The repository's
+            // own project dependencies are not followed: they are for working
+            // on that repository, not for using what it publishes.
+            for required in published.iter().flat_map(|package| &package.dependencies) {
                 queue.push((required.clone(), None));
             }
         }
@@ -504,7 +551,8 @@ pub fn rewrite_imports(sites: &[ImportSite], name: &str, replacement: &str) -> O
     Ok(changed)
 }
 
-/// Removes a package's directory, and any now-empty scope directories above it.
+/// Removes a package's directory, and `tethers/` itself when that leaves it
+/// empty.
 pub fn remove_directory(project_root: &Path, name: &str) -> Outcome<()> {
     let directory = packages::package_directory(project_root, name);
     std::fs::remove_dir_all(&directory).map_err(|error| {
@@ -513,31 +561,15 @@ pub fn remove_directory(project_root: &Path, name: &str) -> Outcome<()> {
             directory.display()
         ))
     })?;
-    prune_empty_scopes(project_root, &directory);
+    prune_empty_tethers(project_root);
     Ok(())
 }
 
-/// Removes the empty scope directories a package left behind beneath
-/// `tethers/`, starting from the package's own directory.
-pub fn prune_empty_scopes(project_root: &Path, package_directory: &Path) {
-    prune_empty(project_root, package_directory.parent());
-}
-
-/// Removes empty directories left behind beneath `tethers/`.
-fn prune_empty(project_root: &Path, from: Option<&Path>) {
+/// Removes `tethers/` when nothing is installed in it any more.
+pub fn prune_empty_tethers(project_root: &Path) {
     let tethers = project_root.join(packages::TETHERS);
-    let mut current = from.map(Path::to_path_buf);
-    while let Some(directory) = current {
-        if !directory.starts_with(&tethers) {
-            break;
-        }
-        if std::fs::read_dir(&directory).is_ok_and(|mut entries| entries.next().is_some()) {
-            break;
-        }
-        if std::fs::remove_dir(&directory).is_err() {
-            break;
-        }
-        current = directory.parent().map(Path::to_path_buf);
+    if std::fs::read_dir(&tethers).is_ok_and(|mut entries| entries.next().is_none()) {
+        let _ = std::fs::remove_dir(&tethers);
     }
 }
 
@@ -577,29 +609,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
     #[test]
-    fn an_empty_scope_directory_is_pruned() {
+    fn an_empty_tethers_directory_is_pruned_and_a_sibling_survives() {
         let dir = sandbox("prune");
-        let package = packages::package_directory(&dir, "MyScope/package");
-        std::fs::create_dir_all(&package).expect("dirs");
-        std::fs::write(package.join("index.pi"), "a: 1\n").expect("write");
-
-        remove_directory(&dir, "MyScope/package").expect("remove");
-        assert!(!package.exists());
-        assert!(!dir.join("tethers/MyScope").exists());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_sibling_package_survives_a_prune() {
-        let dir = sandbox("prune-sibling");
-        for name in ["MyScope/one", "MyScope/two"] {
+        for name in ["one", "two"] {
             let package = packages::package_directory(&dir, name);
             std::fs::create_dir_all(&package).expect("dirs");
             std::fs::write(package.join("index.pi"), "a: 1\n").expect("write");
         }
-        remove_directory(&dir, "MyScope/one").expect("remove");
-        assert!(dir.join("tethers/MyScope/two/index.pi").is_file());
+        remove_directory(&dir, "one").expect("remove");
+        assert!(dir.join("tethers/two/index.pi").is_file());
+        remove_directory(&dir, "two").expect("remove");
+        assert!(!dir.join("tethers").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

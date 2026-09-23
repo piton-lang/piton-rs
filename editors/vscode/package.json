@@ -5,16 +5,28 @@
   "version": "0.1.0",
   "publisher": "piton",
   "license": "MIT OR Apache-2.0",
-  "engines": { "vscode": "^1.75.0" },
-  "categories": ["Programming Languages"],
-  "activationEvents": ["onLanguage:piton"],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:piton",
+    "onCommand:piton.outputToSource"
+  ],
   "main": "./client.js",
   "contributes": {
     "languages": [
       {
         "id": "piton",
-        "aliases": ["Piton", "piton"],
-        "extensions": [".pi"],
+        "aliases": [
+          "Piton",
+          "piton"
+        ],
+        "extensions": [
+          ".pi"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -25,6 +37,35 @@
         "path": "./syntaxes/piton.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "piton.sourceToOutput",
+        "title": "Show Compiled Output for This Construct",
+        "category": "Piton"
+      },
+      {
+        "command": "piton.outputToSource",
+        "title": "Go to Piton Source",
+        "category": "Piton"
+      },
+      {
+        "command": "piton.previewOutput",
+        "title": "Preview Compiled Output",
+        "category": "Piton"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "piton.sourceToOutput",
+          "when": "editorLangId == piton"
+        },
+        {
+          "command": "piton.previewOutput",
+          "when": "editorLangId == piton"
+        }
+      ]
+    },
     "configuration": {
       "title": "Piton",
       "properties": {
@@ -43,6 +84,13 @@
           "default": false,
           "description": "Format the document on save (the autoFormatOnSave option). Off unless turned on; the formatter leaves commented content alone."
         }
+      }
+    },
+    "configurationDefaults": {
+      "[piton]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false
       }
     }
   },

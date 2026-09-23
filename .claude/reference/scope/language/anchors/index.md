@@ -2,7 +2,7 @@
 
 ## Type Reference
 
-[AnchorType](../types/AnchorType.md)
+[AnchorType](../types/Anchors.md#anchor-type)
 
 ## Description
 
@@ -417,5 +417,3 @@ anchor ChildAnchor extends OtherBase, MyAnchor:
 ```
 Note that the user-defined keyword will be the last anchor in the inheritance chain, and so it wins any collisions with what's in extends. So here ChildAnchor's description starts with “This is a description of my anchor”.
 You can't use a reserved word as a keyword.
-
-Links in this document point at reference files. Read one when the work touches what it describes.

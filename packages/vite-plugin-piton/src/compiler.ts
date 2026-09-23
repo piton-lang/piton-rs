@@ -10,17 +10,22 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import type { Renderer } from './renderers.js';
+
 const run = promisify(execFile);
 
-/** Output formats the compiler can render a file through. */
-export type Adapter = 'json' | 'yaml' | 'markdown';
+export type { Renderer } from './renderers.js';
+
+/** @deprecated Renamed to {@link Renderer}, after `piton compile --renderer`. */
+export type Adapter = Renderer;
 
 /** A compiled file, with the sources it was built from. */
 export interface Compiled {
-  /** The rendered output, as text in the adapter's own format. */
+  /** The rendered output, as text in the renderer's own format. */
   value: string;
   /**
-   * Every `.pi` file the compilation read, including the entry.
+   * Every `.pi` file the compilation read, including the entry, as absolute
+   * paths.
    *
    * Imports resolve through the module graph, so a file can depend on one the
    * importing text never names. Watching these is what makes an edit to an
@@ -52,20 +57,30 @@ export class PitonError extends Error {
   }
 }
 
-/** Compiles one file, and reports what it read. */
-export async function compile(
+/**
+ * Compilers that predate `--renderer` and only know it as `--adapter`, by
+ * binary path, so the retry below happens once per binary rather than once per
+ * file.
+ */
+const legacyFlag = new Set<string>();
+
+function rejectsRendererFlag(stderr: string): boolean {
+  return /--renderer/.test(stderr) && /unexpected|unrecognized|unknown|wasn't expected/i.test(stderr);
+}
+
+async function invoke(
   file: string,
-  adapter: Adapter,
+  renderer: Renderer,
   options: CompilerOptions,
-): Promise<Compiled> {
-  let stdout: string;
+): Promise<string> {
+  const flag = legacyFlag.has(options.binary) ? '--adapter' : '--renderer';
   try {
     const result = await run(
       options.binary,
-      ['compile', '--adapter', adapter, '--dependencies', file],
+      ['compile', flag, renderer, '--dependencies', file],
       { cwd: options.cwd, maxBuffer: 64 * 1024 * 1024 },
     );
-    stdout = result.stdout;
+    return result.stdout;
   } catch (error) {
     const failure = error as { stderr?: string; stdout?: string; code?: string };
     if (failure.code === 'ENOENT') {
@@ -75,14 +90,38 @@ export async function compile(
           `the \`binary\` option to its path.`,
       );
     }
-    throw new PitonError(file, failure.stderr ?? failure.stdout ?? String(error));
+    if (flag === '--renderer' && rejectsRendererFlag(failure.stderr ?? '')) {
+      legacyFlag.add(options.binary);
+      return invoke(file, renderer, options);
+    }
+    throw new PitonError(file, failure.stderr || failure.stdout || String(error));
   }
+}
 
+/** Compiles one file through a renderer, and reports what it read. */
+export async function compile(
+  file: string,
+  renderer: Renderer,
+  options: CompilerOptions,
+): Promise<Compiled> {
+  const stdout = await invoke(file, renderer, options);
   let parsed: Compiled;
   try {
     parsed = JSON.parse(stdout) as Compiled;
   } catch {
     throw new PitonError(file, `the compiler returned output that is not JSON:\n${stdout}`);
+  }
+  if (typeof parsed?.value !== 'string' || !Array.isArray(parsed.dependencies)) {
+    throw new PitonError(
+      file,
+      `the compiler's \`--dependencies\` output has no \`value\` string and ` +
+        `\`dependencies\` list:\n${stdout}`,
+    );
+  }
+  // Printed plainly, a compiled file ends in a newline; wrapped as `value` it
+  // may not. The two should read the same, so the text always ends in one.
+  if (parsed.value !== '' && !parsed.value.endsWith('\n')) {
+    parsed.value += '\n';
   }
   return parsed;
 }

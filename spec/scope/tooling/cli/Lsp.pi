@@ -109,14 +109,14 @@ export cli-command Lsp:
             Belay cannot resolve the result deterministically.
 
         referenceResolution:
-            Resolve symbolic references such as anchors and `@{...}` expressions
-            to their actual target and report unresolved or ambiguous
-            references.
+            Resolve symbolic references such as anchors and `\ @{...} \`
+            expressions to their actual target and report unresolved or
+            ambiguous references.
 
         expressionValidation:
-            Parse and validate Piton expressions inside `{...}`, `${...}`,
-            `#{...}`, and `@{...}` expression forms according to their
-            expected output type.
+            Parse and validate Piton expressions inside `\ {...} \`,
+            `\ ${...} \`, `\ #{...} \`, and `\ @{...} \` expression forms
+            according to their expected output type.
 
         expressionTypeInformation:
             Show the inferred output type of an expression and warn when the

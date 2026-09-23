@@ -85,6 +85,18 @@ pub fn kebab_case(name: &str) -> String {
         .join("-")
 }
 
+/// Words the language reserves. They can't be used as user-defined keywords,
+/// though they are still fine as keys.
+pub const RESERVED_WORDS: &[&str] = &[
+    "anchor", "abstract", "export", "from", "import", "use", "as", "extends", "pass", "this",
+    "self", "super", "true", "false", "null", "any", "simple", "complex", "string", "number",
+    "boolean", "list", "dictionary",
+];
+
+pub fn is_reserved(word: &str) -> bool {
+    RESERVED_WORDS.contains(&word)
+}
+
 /// True when `name` is a legal user-defined keyword: all lowercase, optionally
 /// kebab-cased.
 pub fn is_valid_keyword(name: &str) -> bool {

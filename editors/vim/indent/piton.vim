@@ -17,9 +17,11 @@ let b:did_indent = 1
 
 setlocal autoindent
 setlocal indentexpr=PitonIndent()
-" Nothing a person types closes a block, so nothing should re-indent the line
-" they are on.
-setlocal indentkeys=
+" Only a new line is indented: `o` and `O` cover Enter in insert mode as well
+" as the normal-mode commands. Nothing a person types closes a block, so no
+" other key re-indents the line they are on. (An empty 'indentkeys' would stop
+" 'indentexpr' from running on Enter at all, leaving only 'autoindent'.)
+setlocal indentkeys=o,O
 
 if exists("*PitonIndent")
   finish
@@ -76,10 +78,14 @@ function! s:opens_block(line) abort
     return 0
   endif
 
-  " A list item is judged by what it carries: `- key:` opens, and
-  " `- a note:` does not.
-  let l:body = substitute(l:code, '^\s*++\|^\s*+\|^\s*-\s*', '', '')
-  let l:body = substitute(l:body, '^\s*', '', '')
+  " A list item is never a key, even with a colon at the end: `- Settings:`
+  " is just the string `Settings:`. A merge line (`+ ...`, `++ ...`) adds an
+  " item to a list the same way. Neither opens a block.
+  if l:code =~# '^\s*\%(-\|+\|++\)\%(\s\|$\)'
+    return 0
+  endif
+
+  let l:body = substitute(l:code, '^\s*', '', '')
 
   let l:colon = stridx(l:body, ':')
   if l:colon >= 0 && strpart(l:body, 0, l:colon) =~# '^\S\+$'

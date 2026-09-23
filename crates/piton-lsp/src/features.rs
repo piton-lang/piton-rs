@@ -10,11 +10,13 @@ use std::path::{Path, PathBuf};
 use piton_compile::{reach, Compilation, Project, Symbol};
 use piton_core::{AnchorId, Diagnostic, Severity, Span};
 use piton_emit::markdown;
-use piton_syntax::ast::{self, Item};
+use piton_syntax::ast::{self, Expr, ExprKind, Item};
 use piton_syntax::language::COMMENT_PREFIX;
 use piton_syntax::{format, SyntaxKind};
 use tower_lsp::lsp_types::*;
 
+use crate::world::OutputSettings;
+use piton_emit::Adapter;
 use crate::convert::{
     offset_to_position, path_to_url, position_to_offset, span_to_range, url_to_path,
 };
@@ -23,7 +25,15 @@ use crate::world::World;
 use crate::{TOKEN_MODIFIERS, TOKEN_TYPES};
 
 /// Converts a compiler diagnostic into the editor's form.
-pub fn to_lsp_diagnostic(diagnostic: &Diagnostic, text: &str) -> tower_lsp::lsp_types::Diagnostic {
+///
+/// `text_of` supplies the text of other files, so a label pointing into one
+/// (the first import, the base that constrained a property) lands on the right
+/// line there rather than at the top of the file.
+pub fn to_lsp_diagnostic(
+    diagnostic: &Diagnostic,
+    text: &str,
+    text_of: &dyn Fn(&Path) -> Option<String>,
+) -> tower_lsp::lsp_types::Diagnostic {
     let mut message = diagnostic.message.clone();
     if let Some(help) = &diagnostic.help {
         message.push_str("\n\nhelp: ");
@@ -50,10 +60,17 @@ pub fn to_lsp_diagnostic(diagnostic: &Diagnostic, text: &str) -> tower_lsp::lsp_
                 .labels
                 .iter()
                 .filter_map(|label| {
+                    let range = if label.file == diagnostic.file {
+                        span_to_range(text, label.span)
+                    } else {
+                        text_of(&label.file)
+                            .map(|other| span_to_range(&other, label.span))
+                            .unwrap_or_default()
+                    };
                     Some(DiagnosticRelatedInformation {
                         location: Location {
                             uri: path_to_url(&label.file)?,
-                            range: Range::default(),
+                            range,
                         },
                         message: label.message.clone(),
                     })
@@ -104,7 +121,7 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
     let occurrence = index.at(cursor.offset);
     let mut parts = Vec::new();
     if let Some(occurrence) = occurrence {
-        if let Some(markdown) = describe(cursor.compilation, &occurrence.target) {
+        if let Some(markdown) = describe(cursor.compilation, &world.output, &occurrence.target) {
             parts.push(markdown);
         }
     }
@@ -157,9 +174,54 @@ fn mapping_note(
     Some(lines.join("\n"))
 }
 
+/// A value as the project's configured renderer writes it, fenced for a hover.
+fn rendered(compilation: &Compilation, output: &OutputSettings, value: &piton_core::Value) -> String {
+    let (language, text) = match output.renderer {
+        Adapter::Json => ("json", piton_emit::json::value(value, compilation)),
+        Adapter::Yaml => ("yaml", piton_emit::yaml::value(value, compilation)),
+        Adapter::Markdown => {
+            let context = markdown::Context {
+                anchors: compilation,
+                links: &markdown::NoLinks,
+            };
+            ("markdown", markdown::body(value, 1, &context))
+        }
+    };
+    format!(
+        "Resolves to ({}):\n\n```{language}\n{}\n```",
+        output.renderer,
+        truncate(&text, 2000)
+    )
+}
+
+/// The first sentence or line of an anchor's `description`, for places that
+/// have room for a summary: symbol search, hierarchy items, outlines.
+pub fn summary(compilation: &Compilation, anchor: AnchorId) -> Option<String> {
+    let description = compilation
+        .store()
+        .anchor(anchor)
+        .properties
+        .get("description")?;
+    let piton_core::Value::Str(text) = description else {
+        return None;
+    };
+    let plain = text.render_plain(compilation);
+    let first = plain.lines().find(|line| !line.trim().is_empty())?.trim();
+    let sentence = match first.find(". ") {
+        Some(index) => &first[..=index],
+        None => first,
+    };
+    let clipped: String = sentence.chars().take(80).collect();
+    Some(if sentence.chars().count() > 80 {
+        format!("{clipped}\u{2026}")
+    } else {
+        clipped
+    })
+}
+
 /// Builds the documentation shown for a target: what it is, where it came
 /// from, its inheritance chain, and the value it resolves to.
-fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
+fn describe(compilation: &Compilation, output: &OutputSettings, target: &Target) -> Option<String> {
     match target {
         Target::Anchor(anchor) => {
             let def = compilation.store().anchor(*anchor);
@@ -178,6 +240,9 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                 out.push_str(&format!(" as {alias}"));
             }
             out.push_str("\n```\n\n");
+            if let Some(summary) = summary(compilation, *anchor) {
+                out.push_str(&format!("{summary}\n\n"));
+            }
 
             let chain: Vec<String> = compilation
                 .store()
@@ -197,16 +262,13 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                 out.push_str("_Not exported; only this file can use it._\n\n");
             }
 
-            if !def.properties.is_empty() {
+            if !def.properties.is_empty() && !def.is_abstract {
                 // The compiled interpretation is often the real question.
-                let context = markdown::Context {
-                    anchors: compilation,
-                    links: &markdown::NoLinks,
-                };
-                let rendered = markdown::render_map(&def.properties, 0, &context);
-                out.push_str("Resolves to:\n\n```\n");
-                out.push_str(&truncate(&rendered, 2000));
-                out.push_str("\n```");
+                out.push_str(&rendered(
+                    compilation,
+                    output,
+                    &piton_core::Value::Anchor(*anchor),
+                ));
             }
             Some(out)
         }
@@ -226,13 +288,7 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                 out.push_str(&format!("Constrained to: {}\n\n", names.join(" or ")));
             }
             if let Some(value) = &def.value {
-                let context = markdown::Context {
-                    anchors: compilation,
-                    links: &markdown::NoLinks,
-                };
-                out.push_str("Resolves to:\n\n```\n");
-                out.push_str(&truncate(&markdown::body(value, 1, &context), 2000));
-                out.push_str("\n```");
+                out.push_str(&rendered(compilation, output, value));
             }
             Some(out)
         }
@@ -245,6 +301,11 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                 // Knowing which base contributed a value is the whole point of
                 // structural inheritance being visible.
                 out.push_str(&format!("Inherited from `{}`\n\n", owner.name));
+            } else if let Some(replaced) = overridden(compilation, *anchor, name) {
+                out.push_str(&format!(
+                    "Overrides `{}.{name}`\n\n",
+                    compilation.store().anchor(replaced).name
+                ));
             }
             if !slot.constraints.is_empty() {
                 let names: Vec<String> = slot
@@ -258,13 +319,21 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                 out.push_str("_Abstract: an implementing anchor must define it._\n\n");
             }
             if let Some(value) = def.properties.get(name) {
-                let context = markdown::Context {
-                    anchors: compilation,
-                    links: &markdown::NoLinks,
-                };
-                out.push_str("Resolves to:\n\n```\n");
-                out.push_str(&truncate(&markdown::body(value, 1, &context), 2000));
-                out.push_str("\n```");
+                out.push_str(&rendered(compilation, output, value));
+            }
+            Some(out)
+        }
+        Target::Key(anchor, path) => {
+            let def = compilation.store().anchor(*anchor);
+            let (last, parents) = path.split_last()?;
+            let mut out = format!(
+                "`{last}` in `{}.{}`\n\n_A key of that dictionary, not a property of `{}`._\n\n",
+                def.name,
+                parents.join("."),
+                def.name
+            );
+            if let Some(value) = key_value(compilation, *anchor, path) {
+                out.push_str(&rendered(compilation, output, value));
             }
             Some(out)
         }
@@ -274,7 +343,7 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
                 Some(anchor) => {
                     let def = compilation.store().anchor(*anchor);
                     out.push_str(&format!(
-                        "Shorthand for `extends {}`, declared in `{}`.\n\nA user keyword contributes the left-most base, so anything further right in an `extends` list wins a collision.",
+                        "Shorthand for `extends {}`, declared in `{}`.\n\nA user keyword's anchor is always the last base, so it wins any collision with what is in `extends`.",
                         def.name,
                         compilation.anchor_module_path(*anchor).display()
                     ));
@@ -288,6 +357,35 @@ fn describe(compilation: &Compilation, target: &Target) -> Option<String> {
         Target::Module(path) => Some(format!("Module `{}`", path.display())),
         Target::Unresolved(name) => Some(format!("`{name}` is not in scope.")),
     }
+}
+
+/// The resolved value at a nested key.
+fn key_value<'a>(
+    compilation: &'a Compilation,
+    anchor: AnchorId,
+    path: &[String],
+) -> Option<&'a piton_core::Value> {
+    let (first, rest) = path.split_first()?;
+    let mut value = compilation.store().anchor(anchor).properties.get(first)?;
+    for segment in rest {
+        value = value.property(segment, compilation)?;
+    }
+    Some(value)
+}
+
+/// The base whose declaration of `name` an anchor's own declaration replaces:
+/// the right-most base that has it.
+pub fn overridden(compilation: &Compilation, anchor: AnchorId, name: &str) -> Option<AnchorId> {
+    let store = compilation.store();
+    let def = store.anchor(anchor);
+    if def.slots.get(name).is_none_or(|slot| slot.owner != anchor) {
+        return None;
+    }
+    def.bases
+        .iter()
+        .rev()
+        .find(|base| store.anchor(**base).slots.contains_key(name))
+        .copied()
 }
 
 fn truncate(text: &str, limit: usize) -> String {
@@ -326,6 +424,7 @@ fn definition_location(world: &World, target: &Target) -> Option<Location> {
                 slot.span,
             )
         }
+        Target::Key(anchor, path) => key_declaration(compilation, *anchor, path)?,
         Target::Keyword(_, anchor) => {
             let anchor = (*anchor)?;
             let def = compilation.store().anchor(anchor);
@@ -340,10 +439,52 @@ fn definition_location(world: &World, target: &Target) -> Option<Location> {
     })
 }
 
+/// Where a nested key was written: in the anchor that supplies the property
+/// it sits in, walking down the dictionaries by name.
+fn key_declaration(
+    compilation: &Compilation,
+    anchor: AnchorId,
+    path: &[String],
+) -> Option<(PathBuf, Span)> {
+    let (first, rest) = path.split_first()?;
+    let slot = compilation.store().anchor(anchor).slots.get(first)?;
+    let owner = compilation.store().anchor(slot.owner);
+    let module = compilation.graph().get(owner.module);
+    let Item::Anchor(decl) = &module.ast().items[owner.item] else {
+        return None;
+    };
+    let mut property = decl.body.properties().find(|property| property.name == *first)?;
+    for segment in rest {
+        property = property
+            .value
+            .block
+            .as_ref()?
+            .properties()
+            .find(|nested| nested.name == *segment)?;
+    }
+    Some((module.path.clone(), property.name_span))
+}
+
+/// The location of the declaration an anchor's own property replaces.
+fn overridden_location(world: &World, anchor: AnchorId, name: &str) -> Option<Location> {
+    let compilation = world.compilation.as_ref()?;
+    let base = overridden(compilation, anchor, name)?;
+    definition_location(world, &Target::Property(base, name.to_string()))
+}
+
 pub fn definition(world: &World, uri: &Url, position: Position) -> Option<GotoDefinitionResponse> {
     let cursor = cursor(world, uri, position)?;
     let index = world.index.get(cursor.module)?;
     let occurrence = index.at(cursor.offset)?;
+
+    // On the declaration of a property that overrides an inherited one, the
+    // interesting place to go is the declaration it replaces.
+    if let (Target::Property(anchor, name), Role::Definition) = (&occurrence.target, occurrence.role)
+    {
+        if let Some(location) = overridden_location(world, *anchor, name) {
+            return Some(GotoDefinitionResponse::Scalar(location));
+        }
+    }
 
     // A module path navigates to the module's own file.
     if let Target::Module(written) = &occurrence.target {
@@ -428,6 +569,13 @@ fn related_to<'a>(
             (Target::Keyword(keyword, _), Target::Keyword(other, _)) => keyword == other,
             (Target::Property(anchor, name), Target::Property(other_anchor, other_name)) => {
                 name == other_name
+                    && (compilation.store().inherits_from(*anchor, *other_anchor)
+                        || compilation.store().inherits_from(*other_anchor, *anchor))
+            }
+            // A nested key is only ever the same key at the same path, never a
+            // property that happens to share its name.
+            (Target::Key(anchor, path), Target::Key(other_anchor, other_path)) => {
+                path == other_path
                     && (compilation.store().inherits_from(*anchor, *other_anchor)
                         || compilation.store().inherits_from(*other_anchor, *anchor))
             }
@@ -524,9 +672,16 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
     let text = &cursor.text;
 
     let mut symbols = Vec::new();
-    for item in &module.ast().items {
+    for (item_index, item) in module.ast().items.iter().enumerate() {
         match item {
             Item::Anchor(decl) => {
+                let described = cursor
+                    .compilation
+                    .store()
+                    .anchors
+                    .iter()
+                    .find(|def| def.module == cursor.module && def.item == item_index)
+                    .and_then(|def| summary(cursor.compilation, def.id));
                 let children: Vec<DocumentSymbol> = decl
                     .body
                     .properties()
@@ -542,11 +697,16 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
                         )
                     })
                     .collect();
-                let detail = if decl.is_abstract {
-                    Some(format!("abstract {}", decl.keyword))
+                let mut detail = if decl.is_abstract {
+                    format!("abstract {}", decl.keyword)
                 } else {
-                    Some(decl.keyword.clone())
+                    decl.keyword.clone()
                 };
+                if let Some(described) = described {
+                    detail.push_str(" \u{2014} ");
+                    detail.push_str(&described);
+                }
+                let detail = Some(detail);
                 symbols.push(symbol(
                     &decl.name,
                     if decl.is_abstract {
@@ -632,7 +792,13 @@ pub fn workspace_symbols(world: &World, query: &str) -> Option<Vec<SymbolInforma
                 uri,
                 range: span_to_range(text, def.name_span),
             },
-            container_name: Some(def.keyword.clone()),
+            // The protocol has no detail field for a workspace symbol; the
+            // container name is what editors show beside it, so the summary
+            // of its description rides along there.
+            container_name: Some(match summary(compilation, def.id) {
+                Some(described) => format!("{} \u{2014} {described}", def.keyword),
+                None => def.keyword.clone(),
+            }),
         });
     }
 
@@ -755,7 +921,15 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         // A list item holds the value of the key above it, so that key's
         // constraints are what say which values belong in it.
         Context::Value { key } => {
-            let key = key.or_else(|| enclosing_key(&cursor.text, line_start));
+            // The key has to be one of the anchor's own properties for its
+            // constraints to say anything; a key nested in a dictionary only
+            // shares a name with them.
+            let key = match key {
+                Some(key) => (!in_nested_block(&cursor.text, cursor.offset)).then_some(key),
+                None => enclosing_key(&cursor.text, line_start).and_then(|(key, at)| {
+                    (!in_nested_block(&cursor.text, at)).then_some(key)
+                }),
+            };
             values(&cursor, key)
         }
         Context::Body => body(&cursor),
@@ -841,7 +1015,7 @@ pub fn resolve_completion(world: &World, mut item: CompletionItem) -> Completion
     let Some(target) = item.data.as_ref().and_then(target_from_data) else {
         return item;
     };
-    if let Some(markdown) = describe(compilation, &target) {
+    if let Some(markdown) = describe(compilation, &world.output, &target) {
         item.documentation = Some(Documentation::MarkupContent(MarkupContent {
             kind: MarkupKind::Markdown,
             value: markdown,
@@ -1068,7 +1242,9 @@ fn open_interpolation(prefix: &str) -> Option<(&'static str, usize)> {
 /// with whatever has been typed after it left off.
 fn member_path(inside: &str) -> Option<&str> {
     let start = inside
-        .rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+        // A hyphen inside a name is part of it: `config.foo-bar.` reads the
+        // key `foo-bar`.
+        .rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '-'))
         .map(|index| index + 1)
         .unwrap_or(0);
     let token = &inside[start..];
@@ -1156,7 +1332,9 @@ fn key_tail(after_key: &str) -> KeyTail<'_> {
 /// do with what is being written, which is why a value only completes while it
 /// is still short enough to be a name.
 fn value_context<'a>(key: Option<&'a str>, written: &str) -> Context<'a> {
-    if is_prose(written) {
+    // Nothing written yet is nothing to complete on: after `property: ` the
+    // likely intent is to write prose, and a list popping up is in the way.
+    if written.trim().is_empty() || is_prose(written) {
         Context::Nothing
     } else {
         Context::Value { key }
@@ -1178,18 +1356,20 @@ fn is_prose(written: &str) -> bool {
 /// `frameworks:` followed by `- {BelayConfiguration}` -- the list item carries
 /// the value of the key above it, and the key is where the constraints saying
 /// what may go in it were written.
-fn enclosing_key(text: &str, line_start: usize) -> Option<&str> {
+/// Returns the key and the offset of the line it is on.
+fn enclosing_key(text: &str, line_start: usize) -> Option<(&str, usize)> {
     let indent = indent_width(&text[line_start..]);
-    for line in text[..line_start].lines().rev() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if indent_width(line) >= indent {
+    let mut end = line_start;
+    while end > 0 {
+        let start = text[..end - 1].rfind('\n').map(|index| index + 1).unwrap_or(0);
+        let line = &text[start..end - 1];
+        end = start;
+        if line.trim().is_empty() || indent_width(line) >= indent {
             continue;
         }
         // The first less-indented line is the one this belongs to, whether or
         // not it turns out to be a key.
-        return split_key(line.trim_start()).map(|(key, _)| key);
+        return split_key(line.trim_start()).map(|(key, _)| (key, start + indent_width(line)));
     }
     None
 }
@@ -1589,10 +1769,29 @@ fn members(cursor: &Cursor<'_>, path: &str) -> Vec<CompletionItem> {
         return Vec::new();
     };
 
+    if head == "super" {
+        let Some(anchor) = enclosing_anchor(cursor) else {
+            return Vec::new();
+        };
+        let rest: Vec<&str> = segments.filter(|segment| !segment.is_empty()).collect();
+        return match rest.split_first() {
+            // `super` is everything the anchor inherits, merged the way
+            // inheritance merges it, so every base contributes.
+            None => super_slots(compilation, anchor),
+            Some((first, deeper)) => {
+                let Some(base) = crate::index::super_provider(compilation, anchor, first) else {
+                    return Vec::new();
+                };
+                let Some(value) = compilation.store().anchor(base).properties.get(*first) else {
+                    return Vec::new();
+                };
+                nested_members(compilation, value, deeper)
+            }
+        };
+    }
+
     let anchor = match head {
         "self" | "this" => enclosing_anchor(cursor),
-        "super" => enclosing_anchor(cursor)
-            .and_then(|anchor| compilation.store().anchor(anchor).bases.first().copied()),
         name => match compilation.resolution.lookup(cursor.module, name) {
             Some(Symbol::Anchor(anchor)) => Some(anchor),
             _ => None,
@@ -1612,29 +1811,60 @@ fn members(cursor: &Cursor<'_>, path: &str) -> Vec<CompletionItem> {
 
     // Past the anchor, the resolved value is the only thing that knows the
     // shape, because a nested key may have come from a base or an expression.
-    let Some(mut value) = def.properties.get(rest[0]) else {
+    let Some(value) = def.properties.get(rest[0]) else {
         return Vec::new();
     };
-    for segment in &rest[1..] {
-        let piton_core::Value::Dict(map) = value else {
-            return Vec::new();
-        };
-        let Some(next) = map.get(*segment) else {
+    nested_members(compilation, value, &rest[1..])
+}
+
+/// The keys under `path` inside a resolved value.
+fn nested_members<'a>(
+    compilation: &'a Compilation,
+    mut value: &'a piton_core::Value,
+    path: &[&str],
+) -> Vec<CompletionItem> {
+    for segment in path {
+        let Some(next) = value.property(segment, compilation) else {
             return Vec::new();
         };
         value = next;
     }
-    let piton_core::Value::Dict(map) = value else {
-        return Vec::new();
+    let entries: Vec<(String, &piton_core::Value)> = match value {
+        piton_core::Value::Anchor(anchor) => return slots_of(compilation, *anchor),
+        piton_core::Value::Dict(map) => map.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        piton_core::Value::Mixed(mixed) => mixed
+            .entries()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+        _ => return Vec::new(),
     };
-    map.iter()
+    entries
+        .into_iter()
         .map(|(name, nested)| CompletionItem {
-            label: name.clone(),
+            label: name,
             kind: Some(CompletionItemKind::FIELD),
             detail: Some(nested.kind().to_string()),
             ..Default::default()
         })
         .collect()
+}
+
+/// What `super.` reaches: the slots of every base, the right-most base
+/// winning a name more than one of them has.
+fn super_slots(compilation: &Compilation, anchor: AnchorId) -> Vec<CompletionItem> {
+    let store = compilation.store();
+    let mut seen: Vec<String> = Vec::new();
+    let mut items = Vec::new();
+    for base in store.anchor(anchor).bases.iter().rev() {
+        for item in slots_of(compilation, *base) {
+            if seen.contains(&item.label) {
+                continue;
+            }
+            seen.push(item.label.clone());
+            items.push(item);
+        }
+    }
+    items
 }
 
 /// An anchor's properties, its inherited ones included.
@@ -1771,12 +2001,34 @@ fn constants(words: &[&str]) -> Vec<CompletionItem> {
         .collect()
 }
 
+/// Whether the line the cursor is on sits inside a property's dictionary
+/// rather than directly in an anchor body.
+///
+/// The first less-indented line above is what the line belongs to: the
+/// declaration (at the margin) for a body line, a key for a nested one.
+fn in_nested_block(text: &str, offset: usize) -> bool {
+    let line_start = text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+    let indent = indent_width(&text[line_start..]);
+    for line in text[..line_start].lines().rev() {
+        if line.trim().is_empty() || indent_width(line) >= indent {
+            continue;
+        }
+        return indent_width(line) > 0;
+    }
+    false
+}
+
 /// The keys that belong in the anchor body the cursor is inside.
 fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let Some(anchor) = enclosing_anchor(cursor) else {
         return Vec::new();
     };
+    // Inside a nested dictionary the anchor's own properties are not what
+    // goes there, and nothing says what does.
+    if in_nested_block(&cursor.text, cursor.offset) {
+        return Vec::new();
+    }
     let def = compilation.store().anchor(anchor);
 
     let mut items = Vec::new();
@@ -2031,17 +2283,15 @@ fn opens_a_block(line: &str) -> bool {
         return false;
     }
 
-    // A list item is judged by what it carries: `- key:` opens, and
-    // `- a note:` does not.
+    // A list item is never a key, colon or not -- `- Settings:` is just the
+    // string `Settings:` -- and a `+`/`++` line holds a value to combine, so
+    // neither opens a block.
     let trimmed = code.trim_start();
-    let body = trimmed
-        .strip_prefix("++")
-        .or_else(|| trimmed.strip_prefix('+'))
-        .or_else(|| trimmed.strip_prefix('-'))
-        .map(str::trim_start)
-        .unwrap_or(trimmed);
+    if trimmed == "-" || trimmed.starts_with("- ") || trimmed.starts_with('+') {
+        return false;
+    }
 
-    match split_key(body) {
+    match split_key(trimmed) {
         // The line ends where the value would begin: nothing has been
         // written after the colon that opens it.
         Some((_, after)) => {
@@ -2282,6 +2532,9 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
         }));
     }
 
+    actions.extend(qualify_actions(world, &cursor, uri, start, end));
+    actions.extend(conflict_actions(&cursor, uri, start, end));
+
     if let Some(edits) = organize_import_edits(world, &cursor) {
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: "Organize imports".into(),
@@ -2310,6 +2563,281 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
     }
 
     Some(actions)
+}
+
+fn edit_action(title: String, kind: CodeActionKind, uri: &Url, edits: Vec<TextEdit>) -> CodeActionOrCommand {
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(kind),
+        edit: Some(WorkspaceEdit {
+            changes: Some(HashMap::from([(uri.clone(), edits)])),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+/// A local name for `name` imported from `path` that says where it came
+/// from: `./lib/Type` gives `LibType`, `./other` gives `OtherButton`.
+fn qualified_alias(path: &str, name: &str) -> String {
+    let trimmed = path.trim_end_matches('/').trim_end_matches(".pi");
+    let mut segments: Vec<&str> = trimmed
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != "." && *segment != "..")
+        .map(|segment| segment.trim_start_matches('@'))
+        .collect();
+    if segments.last() == Some(&"index") {
+        segments.pop();
+    }
+    let mut stem = segments.pop().unwrap_or("Imported");
+    if stem == name {
+        stem = segments.pop().unwrap_or("Imported");
+    }
+    let mut words = String::new();
+    for part in stem.split(['-', '_']) {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            words.extend(first.to_uppercase());
+            words.push_str(chars.as_str());
+        }
+    }
+    format!("{words}{name}")
+}
+
+/// "Qualify an ambiguous reference": give one of the imports behind an
+/// ambiguous name an alias, and say at the reference which one is meant.
+fn qualify_actions(
+    world: &World,
+    cursor: &Cursor<'_>,
+    uri: &Url,
+    start: usize,
+    end: usize,
+) -> Vec<CodeActionOrCommand> {
+    let touches = |span: Span| span.start <= end && span.end >= start;
+    let mut actions = Vec::new();
+    for ambiguity in &world.analysis.ambiguities {
+        if ambiguity.module != cursor.module {
+            continue;
+        }
+        let Some(here) = ambiguity
+            .references
+            .iter()
+            .copied()
+            .find(|span| touches(*span))
+        else {
+            continue;
+        };
+        for (position, binding) in ambiguity.bindings.iter().enumerate() {
+            let Some(from) = &binding.from else {
+                continue;
+            };
+            let alias = qualified_alias(from, &ambiguity.name);
+            let entry = &cursor.text[binding.entry_span.start..binding.entry_span.end];
+            // `Name` becomes `Name Alias`; `Name Old` becomes `Name Alias`.
+            let original = entry.split_whitespace().next().unwrap_or(&ambiguity.name);
+            let mut edits = vec![TextEdit {
+                range: span_to_range(&cursor.text, binding.entry_span),
+                new_text: format!("{original} {alias}"),
+            }];
+            // Every reference meant the winning binding, so qualifying that
+            // one rewrites them all; qualifying another only rewrites the
+            // reference the action was asked from.
+            let rewritten: Vec<Span> = if position == ambiguity.winner {
+                ambiguity.references.clone()
+            } else {
+                vec![here]
+            };
+            for span in rewritten {
+                edits.push(TextEdit {
+                    range: span_to_range(&cursor.text, span),
+                    new_text: alias.clone(),
+                });
+            }
+            actions.push(edit_action(
+                format!(
+                    "Qualify `{}` as `{alias}` (the one from `{from}`)",
+                    ambiguity.name
+                ),
+                CodeActionKind::QUICKFIX,
+                uri,
+                edits,
+            ));
+        }
+    }
+    actions
+}
+
+/// "Resolve a simple inheritance conflict": when two bases disagree about a
+/// property, say which one should win -- by reordering `extends`, by writing
+/// the property on the child, or, for abstracts whose constraints cannot
+/// both hold, by dropping one of them.
+fn conflict_actions(
+    cursor: &Cursor<'_>,
+    uri: &Url,
+    start: usize,
+    end: usize,
+) -> Vec<CodeActionOrCommand> {
+    let compilation = cursor.compilation;
+    let store = compilation.store();
+    let ast = compilation.graph().get(cursor.module).ast();
+    let mut actions = Vec::new();
+
+    for (item_index, item) in ast.items.iter().enumerate() {
+        let Item::Anchor(decl) = item else { continue };
+        // Asked from the declaration's header line.
+        let header_end = cursor.text[decl.span.start..]
+            .find('\n')
+            .map(|offset| decl.span.start + offset)
+            .unwrap_or(decl.span.end);
+        if start > header_end || end < decl.span.start {
+            continue;
+        }
+        let Some(def) = store
+            .anchors
+            .iter()
+            .find(|def| def.module == cursor.module && def.item == item_index)
+        else {
+            continue;
+        };
+        if def.bases.len() < 2 {
+            continue;
+        }
+        let explicit: Vec<(String, Span, Option<AnchorId>)> = decl
+            .extends
+            .iter()
+            .map(|base| {
+                let id = match compilation.resolution.lookup(cursor.module, &base.value) {
+                    Some(Symbol::Anchor(anchor)) => Some(anchor),
+                    _ => None,
+                };
+                (base.value.clone(), base.span, id)
+            })
+            .collect();
+        let list_span = match (explicit.first(), explicit.last()) {
+            (Some(first), Some(last)) => Some(Span::new(first.1.start, last.1.end)),
+            _ => None,
+        };
+        let rewrite_extends = |order: &[&str]| -> Option<TextEdit> {
+            let span = list_span?;
+            if order.is_empty() {
+                // Drop ` extends ...` altogether.
+                let keyword = cursor.text[..span.start].rfind("extends")?;
+                let from = cursor.text[..keyword].trim_end().len();
+                return Some(TextEdit {
+                    range: span_to_range(&cursor.text, Span::new(from, span.end)),
+                    new_text: String::new(),
+                });
+            }
+            Some(TextEdit {
+                range: span_to_range(&cursor.text, span),
+                new_text: order.join(", "),
+            })
+        };
+
+        // Abstracts whose constraints cannot both hold: the compiler says
+        // so, and the fix is to implement one of them, not both.
+        let conflicting = compilation.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "conflicting-abstracts"
+                && paths_equal(&diagnostic.file, &cursor.path)
+                && diagnostic.span == def.name_span
+        });
+        if conflicting {
+            for (name, _, id) in &explicit {
+                if !id.is_some_and(|id| store.anchor(id).is_abstract) {
+                    continue;
+                }
+                let remaining: Vec<&str> = explicit
+                    .iter()
+                    .map(|(other, _, _)| other.as_str())
+                    .filter(|other| other != name)
+                    .collect();
+                if let Some(edit) = rewrite_extends(&remaining) {
+                    actions.push(edit_action(
+                        format!("Stop extending `{name}`"),
+                        CodeActionKind::QUICKFIX,
+                        uri,
+                        vec![edit],
+                    ));
+                }
+            }
+        }
+
+        // Properties more than one base supplies, with different values,
+        // that the child does not settle itself.
+        let own: Vec<&str> = decl.body.properties().map(|p| p.name.as_str()).collect();
+        let indent = decl
+            .body
+            .items
+            .first()
+            .map(|item| {
+                let line_start = cursor.text[..item.span().start]
+                    .rfind('\n')
+                    .map(|index| index + 1)
+                    .unwrap_or(0);
+                cursor.text[line_start..item.span().start].to_string()
+            })
+            .filter(|indent| indent.trim().is_empty() && !indent.is_empty())
+            .unwrap_or_else(|| " ".repeat(format::INDENT));
+        let insert_at = (header_end + 1).min(cursor.text.len());
+        let mut names: Vec<&String> = def.slots.keys().collect();
+        names.retain(|name| !own.contains(&name.as_str()));
+        for name in names {
+            let suppliers: Vec<AnchorId> = def
+                .bases
+                .iter()
+                .copied()
+                .filter(|base| store.anchor(*base).properties.contains_key(name))
+                .collect();
+            if suppliers.len() < 2 {
+                continue;
+            }
+            let winner = *suppliers.last().expect("two suppliers");
+            let winning = store.anchor(winner).properties.get(name);
+            for loser in suppliers.iter().copied().filter(|base| *base != winner) {
+                if store.anchor(loser).properties.get(name) == winning {
+                    continue;
+                }
+                let loser_name = store.anchor(loser).name.clone();
+                let winner_name = store.anchor(winner).name.clone();
+                // Moving the base last in `extends` makes it win -- unless
+                // the winner came from a keyword, which is always last.
+                let movable = explicit.iter().any(|(_, _, id)| *id == Some(loser))
+                    && explicit.iter().any(|(_, _, id)| *id == Some(winner));
+                if movable {
+                    let mut order: Vec<&str> = explicit
+                        .iter()
+                        .map(|(written, _, _)| written.as_str())
+                        .filter(|written| *written != loser_name)
+                        .collect();
+                    order.push(loser_name.as_str());
+                    if let Some(edit) = rewrite_extends(&order) {
+                        actions.push(edit_action(
+                            format!("Move `{loser_name}` last in `extends` so its `{name}` wins"),
+                            CodeActionKind::QUICKFIX,
+                            uri,
+                            vec![edit],
+                        ));
+                    }
+                }
+                if compilation.resolution.lookup(cursor.module, &loser_name)
+                    == Some(Symbol::Anchor(loser))
+                {
+                    actions.push(edit_action(
+                        format!(
+                            "Take `{name}` from `{loser_name}` (it currently comes from `{winner_name}`)"
+                        ),
+                        CodeActionKind::QUICKFIX,
+                        uri,
+                        vec![TextEdit {
+                            range: span_to_range(&cursor.text, Span::empty(insert_at)),
+                            new_text: format!("{indent}{name}: {{{loser_name}.{name}}}\n"),
+                        }],
+                    ));
+                }
+            }
+        }
+    }
+    actions
 }
 
 fn organize_import_edits(world: &World, cursor: &Cursor<'_>) -> Option<Vec<TextEdit>> {
@@ -2385,7 +2913,7 @@ fn insertion_point(
 }
 
 // ---------------------------------------------------------------------------
-// Inlay hints and signature help
+// Inlay hints
 // ---------------------------------------------------------------------------
 
 pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHint>> {
@@ -2477,67 +3005,201 @@ pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHi
     Some(out)
 }
 
-pub fn signature_help(world: &World, uri: &Url, position: Position) -> Option<SignatureHelp> {
-    let cursor = cursor(world, uri, position)?;
-    let anchor = enclosing_anchor(&cursor)?;
-    let def = cursor.compilation.store().anchor(anchor);
-
-    // Piton has no functions; the structured input a construct expects is its
-    // set of properties, so that is what the editor shows.
-    let parameters: Vec<ParameterInformation> = def
-        .slots
-        .iter()
-        .map(|(name, slot)| {
-            let constraints: Vec<String> = slot
-                .constraints
-                .iter()
-                .map(piton_compile::eval::constraint_label)
-                .collect();
-            let label = if constraints.is_empty() {
-                name.clone()
-            } else {
-                format!("{name}:: {}", constraints.join(":: "))
-            };
-            ParameterInformation {
-                label: ParameterLabel::Simple(label),
-                documentation: (!slot.has_value).then(|| Documentation::String("required".into())),
-            }
-        })
-        .collect();
-
-    Some(SignatureHelp {
-        signatures: vec![SignatureInformation {
-            label: format!("{} {}", def.keyword, def.name),
-            documentation: Some(Documentation::String(format!(
-                "{} {}",
-                def.slots.len(),
-                if def.slots.len() == 1 {
-                    "property"
-                } else {
-                    "properties"
-                }
-            ))),
-            parameters: Some(parameters),
-            active_parameter: None,
-        }],
-        active_signature: Some(0),
-        active_parameter: None,
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Semantic tokens
 // ---------------------------------------------------------------------------
+
+/// Token type indexes into [`TOKEN_TYPES`].
+mod token {
+    pub const ANCHOR: u32 = 0;
+    pub const PROPERTY: u32 = 1;
+    pub const VARIABLE: u32 = 2;
+    pub const KEYWORD: u32 = 3;
+    pub const COMMENT: u32 = 4;
+    pub const STRING: u32 = 5;
+    pub const NUMBER: u32 = 6;
+    pub const OPERATOR: u32 = 7;
+    pub const NAMESPACE: u32 = 8;
+    pub const TYPE: u32 = 9;
+}
+
+/// Token modifier bits, in the order of [`TOKEN_MODIFIERS`].
+mod modifier {
+    pub const DECLARATION: u32 = 1 << 0;
+    pub const DEFINITION: u32 = 1 << 1;
+    pub const ABSTRACT: u32 = 1 << 2;
+    pub const DEFAULT_LIBRARY: u32 = 1 << 3;
+    pub const INHERITED: u32 = 1 << 4;
+    pub const EXPORTED: u32 = 1 << 5;
+    pub const IMPORTED: u32 = 1 << 6;
+}
+
+/// One candidate token. Where two overlap at the same start, the lower
+/// priority wins: a type constraint over the anchor it names, a resolved name
+/// over the raw keyword token.
+struct RawToken {
+    span: Span,
+    kind: u32,
+    modifiers: u32,
+    priority: u8,
+}
+
+/// Collects the tokens the syntax tree cannot give: type constraints, and
+/// everything inside an interpolation, which the tree keeps as one run of text.
+struct TokenWalker<'a> {
+    source: &'a str,
+    out: Vec<RawToken>,
+}
+
+impl TokenWalker<'_> {
+    fn push(&mut self, span: Span, kind: u32, priority: u8) {
+        if !span.is_empty() && span.end <= self.source.len() {
+            self.out.push(RawToken {
+                span,
+                kind,
+                modifiers: 0,
+                priority,
+            });
+        }
+    }
+
+    fn constraints(&mut self, constraints: &[ast::TypeConstraint]) {
+        for constraint in constraints {
+            self.push(constraint.span, token::TYPE, 0);
+        }
+    }
+
+    fn value(&mut self, value: &ast::ValueNode) {
+        if let Some(line) = &value.inline {
+            self.line(line);
+        }
+        for item in value.inline_list.iter().flatten() {
+            self.value(item);
+        }
+        if let Some(block) = &value.block {
+            self.block(block);
+        }
+    }
+
+    fn block(&mut self, block: &ast::Block) {
+        for item in &block.items {
+            match item {
+                ast::BlockItem::Property(property) => {
+                    self.constraints(&property.constraints);
+                    self.value(&property.value);
+                }
+                ast::BlockItem::ListItem(entry) => self.value(&entry.value),
+                ast::BlockItem::Merge(merge) => {
+                    let marker = match merge.op {
+                        ast::MergeOp::Merge => 1,
+                        ast::MergeOp::Concat => 2,
+                    };
+                    self.push(
+                        Span::new(merge.span.start, merge.span.start + marker),
+                        token::OPERATOR,
+                        0,
+                    );
+                    self.line(&merge.value);
+                }
+                ast::BlockItem::Prose(paragraph) => {
+                    for line in &paragraph.lines {
+                        self.line(line);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn line(&mut self, line: &ast::ProseLine) {
+        for segment in &line.segments {
+            if let ast::ProseSegment::Interpolation(interpolation) = segment {
+                let open = interpolation.sigil.prefix().len();
+                let span = interpolation.span;
+                self.push(Span::new(span.start, span.start + open), token::OPERATOR, 0);
+                self.push(Span::new(span.end.saturating_sub(1), span.end), token::OPERATOR, 0);
+                self.expr(&interpolation.expr);
+            }
+        }
+    }
+
+    /// The operator written between two spans, found in the source.
+    fn between(&mut self, from: usize, to: usize) {
+        let Some(gap) = self.source.get(from..to) else {
+            return;
+        };
+        let trimmed = gap.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let offset = from + (gap.len() - gap.trim_start().len());
+        self.push(Span::new(offset, offset + trimmed.len()), token::OPERATOR, 0);
+    }
+
+    fn expr(&mut self, expr: &Expr) {
+        match &expr.kind {
+            ExprKind::Quoted(_) => self.push(expr.span, token::STRING, 0),
+            ExprKind::Number(_) => self.push(expr.span, token::NUMBER, 0),
+            ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::This
+            | ExprKind::SelfRef
+            | ExprKind::Super => self.push(expr.span, token::KEYWORD, 2),
+            ExprKind::Field(base, field) => {
+                self.expr(base);
+                self.between(base.span.end, field.span.start);
+            }
+            ExprKind::Unary(_, operand) => {
+                self.between(expr.span.start, operand.span.start);
+                self.expr(operand);
+            }
+            ExprKind::Binary(_, left, right) => {
+                self.expr(left);
+                self.between(left.span.end, right.span.start);
+                self.expr(right);
+            }
+            ExprKind::Ternary(condition, consequent, alternative) => {
+                self.expr(condition);
+                self.between(condition.span.end, consequent.span.start);
+                self.expr(consequent);
+                self.between(consequent.span.end, alternative.span.start);
+                self.expr(alternative);
+            }
+            ExprKind::List(items) => {
+                for item in items {
+                    self.expr(item);
+                }
+            }
+            ExprKind::Paren(inner) => self.expr(inner),
+            ExprKind::Nested(sigil, inner) => {
+                let open = sigil.prefix().len();
+                self.push(
+                    Span::new(expr.span.start, expr.span.start + open),
+                    token::OPERATOR,
+                    0,
+                );
+                self.push(
+                    Span::new(expr.span.end.saturating_sub(1), expr.span.end),
+                    token::OPERATOR,
+                    0,
+                );
+                self.expr(inner);
+            }
+            _ => {}
+        }
+    }
+}
 
 pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult> {
     let cursor = file_context(world, uri)?;
     let index = world.index.get(cursor.module)?;
     let compilation = cursor.compilation;
+    let module = compilation.graph().get(cursor.module);
 
-    let mut raw: Vec<(Span, u32, u32)> = Vec::new();
+    let mut raw: Vec<RawToken> = Vec::new();
 
     // Syntax-level tokens the index does not carry.
-    let syntax = compilation.graph().get(cursor.module).parse.syntax();
+    let syntax = module.parse.syntax();
     for token in syntax
         .descendants_with_tokens()
         .filter_map(|element| element.into_token())
@@ -2548,67 +3210,145 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
         );
         let kind = token.kind();
         let index_of = if kind == SyntaxKind::COMMENT {
-            4
+            token::COMMENT
         } else if kind.is_keyword() {
-            3
+            token::KEYWORD
         } else if kind == SyntaxKind::NUMBER {
-            6
+            token::NUMBER
         } else if kind == SyntaxKind::FENCE_TEXT || kind == SyntaxKind::FENCE_MARK {
-            5
+            token::STRING
         } else {
             continue;
         };
-        raw.push((span, index_of, 0));
+        raw.push(RawToken {
+            span,
+            kind: index_of,
+            modifiers: 0,
+            priority: 5,
+        });
     }
 
+    // Constraints and the insides of interpolations.
+    let mut walker = TokenWalker {
+        source: &cursor.text,
+        out: Vec::new(),
+    };
+    for item in &module.ast().items {
+        match item {
+            Item::Anchor(decl) => walker.block(&decl.body),
+            Item::Variable(decl) => {
+                walker.constraints(&decl.constraints);
+                walker.value(&decl.value);
+            }
+            _ => {}
+        }
+    }
+    raw.extend(walker.out);
+
     // Semantic tokens from the resolved program.
+    let store = compilation.store();
+    let is_package = |module: piton_compile::ModuleId| compilation.graph().get(module).is_package();
     for occurrence in &index.occurrences {
+        let definition = occurrence.role == Role::Definition;
+        let declared = if definition {
+            modifier::DECLARATION | modifier::DEFINITION
+        } else {
+            0
+        };
         let (kind, modifiers) = match &occurrence.target {
             Target::Anchor(anchor) => {
-                let def = compilation.store().anchor(*anchor);
-                let mut modifiers = 0u32;
-                if occurrence.role == Role::Definition {
-                    modifiers |= 1 << 1;
-                }
+                let def = store.anchor(*anchor);
+                let mut modifiers = declared;
                 if def.is_abstract {
-                    modifiers |= 1 << 2;
+                    modifiers |= modifier::ABSTRACT;
                 }
-                (0u32, modifiers)
+                if def.exported {
+                    modifiers |= modifier::EXPORTED;
+                }
+                if def.module != cursor.module {
+                    modifiers |= modifier::IMPORTED;
+                }
+                if is_package(def.module) {
+                    modifiers |= modifier::DEFAULT_LIBRARY;
+                }
+                (token::ANCHOR, modifiers)
             }
-            Target::Property(..) => (
-                1,
-                if occurrence.role == Role::Definition {
-                    1 << 0
+            Target::Property(anchor, name) => {
+                let mut modifiers = declared;
+                // A property read through `self`, `super` or an anchor whose
+                // value a base supplies is an inherited value.
+                if !definition
+                    && store
+                        .anchor(*anchor)
+                        .slots
+                        .get(name)
+                        .is_some_and(|slot| slot.owner != *anchor)
+                {
+                    modifiers |= modifier::INHERITED;
+                }
+                (token::PROPERTY, modifiers)
+            }
+            Target::Key(..) => (token::PROPERTY, declared),
+            Target::Variable(variable) => {
+                let def = store.variable(*variable);
+                let mut modifiers = declared;
+                if def.exported {
+                    modifiers |= modifier::EXPORTED;
+                }
+                if def.module != cursor.module {
+                    modifiers |= modifier::IMPORTED;
+                }
+                (token::VARIABLE, modifiers)
+            }
+            Target::Keyword(_, aliased) => {
+                let mut modifiers = if definition { modifier::DECLARATION } else { 0 };
+                if let Some(anchor) = aliased {
+                    let def = store.anchor(*anchor);
+                    if def.module != cursor.module {
+                        modifiers |= modifier::IMPORTED;
+                    }
+                    if is_package(def.module) {
+                        modifiers |= modifier::DEFAULT_LIBRARY;
+                    }
+                }
+                (token::KEYWORD, modifiers)
+            }
+            Target::Module(path) => (
+                token::NAMESPACE,
+                if path.to_string_lossy().starts_with('@') {
+                    modifier::DEFAULT_LIBRARY
                 } else {
                     0
                 },
             ),
-            Target::Variable(_) => (2, 0),
-            Target::Keyword(..) => (3, 0),
-            Target::Module(_) => (8, 0),
             Target::Unresolved(_) => continue,
         };
-        raw.push((occurrence.span, kind, modifiers));
+        raw.push(RawToken {
+            span: occurrence.span,
+            kind,
+            modifiers,
+            priority: 1,
+        });
     }
 
-    raw.sort_by_key(|(span, _, _)| (span.start, span.len()));
+    raw.sort_by_key(|token| (token.span.start, token.priority, token.span.len()));
     // Overlapping tokens confuse clients; keep the first at each start.
-    let mut filtered: Vec<(Span, u32, u32)> = Vec::new();
+    let mut filtered: Vec<RawToken> = Vec::new();
     let mut cursor_offset = 0usize;
     for entry in raw {
-        if entry.0.start < cursor_offset || entry.0.is_empty() {
+        if entry.span.start < cursor_offset || entry.span.is_empty() {
             continue;
         }
-        cursor_offset = entry.0.end;
+        cursor_offset = entry.span.end;
         filtered.push(entry);
     }
 
     let mut data = Vec::new();
     let mut previous_line = 0u32;
     let mut previous_start = 0u32;
-    for (span, kind, modifiers) in filtered {
-        let start = offset_to_position(&cursor.text, span.start);
-        let end = offset_to_position(&cursor.text, span.end);
+    for entry in filtered {
+        let start = offset_to_position(&cursor.text, entry.span.start);
+        let end = offset_to_position(&cursor.text, entry.span.end);
         if end.line != start.line {
             continue;
         }
@@ -2622,14 +3362,14 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
             delta_line,
             delta_start,
             length: end.character - start.character,
-            token_type: kind,
-            token_modifiers_bitset: modifiers,
+            token_type: entry.kind,
+            token_modifiers_bitset: entry.modifiers,
         });
         previous_line = start.line;
         previous_start = start.character;
     }
 
-    debug_assert!(TOKEN_TYPES.len() >= 9 && !TOKEN_MODIFIERS.is_empty());
+    debug_assert!(TOKEN_TYPES.len() > token::TYPE as usize && TOKEN_MODIFIERS.len() >= 7);
     Some(SemanticTokensResult::Tokens(SemanticTokens {
         result_id: None,
         data,
@@ -2674,7 +3414,7 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
             ),
             command: Some(Command {
                 title,
-                command: "piton.sourceToOutput".into(),
+                command: SOURCE_TO_OUTPUT.into(),
                 arguments: Some(vec![serde_json::json!({
                     "path": mapping.output_path,
                     "offset": mapping.output_start,
@@ -2683,7 +3423,102 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
             data: None,
         });
     }
+
+    // An overriding property links to the declaration it replaces.
+    if let Some(compilation) = world.compilation.as_ref() {
+        for def in compilation
+            .store()
+            .anchors
+            .iter()
+            .filter(|def| def.module == cursor.module)
+        {
+            let Item::Anchor(decl) = &compilation.graph().get(def.module).ast().items[def.item]
+            else {
+                continue;
+            };
+            for property in decl.body.properties() {
+                let Some(base) = overridden(compilation, def.id, &property.name) else {
+                    continue;
+                };
+                let Some(location) = overridden_location(world, def.id, &property.name) else {
+                    continue;
+                };
+                lenses.push(CodeLens {
+                    range: span_to_range(&cursor.text, Span::empty(property.name_span.start)),
+                    command: Some(Command {
+                        title: format!(
+                            "overrides {}.{}",
+                            compilation.store().anchor(base).name,
+                            property.name
+                        ),
+                        command: SHOW_LOCATION.into(),
+                        arguments: Some(vec![serde_json::json!({
+                            "uri": location.uri,
+                            "range": location.range,
+                        })]),
+                    }),
+                    data: None,
+                });
+            }
+        }
+    }
     Some(lenses)
+}
+
+/// The command a source-to-output code lens runs: open the compiled file at
+/// the slice the construct produced.
+pub const SOURCE_TO_OUTPUT: &str = "piton.sourceToOutput";
+/// The command an "overrides" code lens runs: open a location.
+pub const SHOW_LOCATION: &str = "piton.showLocation";
+
+/// What running a command should do: show a document, or tell the user why
+/// it cannot.
+#[derive(Debug, PartialEq)]
+pub enum CommandOutcome {
+    Show(ShowDocumentParams),
+    Message(String),
+}
+
+/// `workspace/executeCommand` for the commands the server's code lenses use.
+pub fn execute_command(
+    _world: &World,
+    command: &str,
+    arguments: &[serde_json::Value],
+) -> Option<CommandOutcome> {
+    let argument = arguments.first()?;
+    match command {
+        SOURCE_TO_OUTPUT => {
+            let path = PathBuf::from(argument.get("path")?.as_str()?);
+            let offset = argument.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                return Some(CommandOutcome::Message(format!(
+                    "`{}` has not been compiled yet; run `piton compile` to write it",
+                    path.display()
+                )));
+            };
+            let position = offset_to_position(&text, offset);
+            Some(CommandOutcome::Show(ShowDocumentParams {
+                uri: path_to_url(&path)?,
+                external: Some(false),
+                take_focus: Some(true),
+                selection: Some(Range {
+                    start: position,
+                    end: position,
+                }),
+            }))
+        }
+        SHOW_LOCATION => {
+            let uri = Url::parse(argument.get("uri")?.as_str()?).ok()?;
+            let range: Range = serde_json::from_value(argument.get("range")?.clone()).ok()?;
+            Some(CommandOutcome::Show(ShowDocumentParams {
+                uri,
+                external: Some(false),
+                take_focus: Some(true),
+                selection: Some(range),
+            }))
+        }
+        _ => None,
+    }
 }
 
 pub fn document_links(world: &World, uri: &Url) -> Option<Vec<DocumentLink>> {
@@ -2865,29 +3700,34 @@ mod completion_tests {
     #[test]
     fn a_key_takes_the_first_colon_and_the_constraints_take_the_rest() {
         assert_eq!(context("    ti"), Context::Body);
-        assert_eq!(context("    title:"), Context::Value { key: Some("title") });
+        // Nothing written after the colon is nothing to complete on.
+        assert_eq!(context("    title:"), Context::Nothing);
+        assert_eq!(context("    title: "), Context::Nothing);
         assert_eq!(
-            context("    title: "),
+            context("    title: t"),
             Context::Value { key: Some("title") }
         );
         assert_eq!(context("    name:: "), Context::TypeConstraint);
         assert_eq!(context("    name:: str"), Context::TypeConstraint);
+        assert_eq!(context("    name:: string: "), Context::Nothing);
         assert_eq!(
-            context("    name:: string: "),
+            context("    name:: string: n"),
             Context::Value { key: Some("name") }
         );
         // Constraints chain, and the state flips on every colon.
         assert_eq!(context("    p:: dictionary:: "), Context::TypeConstraint);
         assert_eq!(
-            context("    p:: dictionary:: null: "),
+            context("    p:: dictionary:: null: nu"),
             Context::Value { key: Some("p") }
         );
     }
 
     #[test]
     fn a_list_item_holds_a_value() {
-        assert_eq!(context("    - "), Context::Value { key: None });
-        assert_eq!(context("    ++ "), Context::Value { key: None });
+        assert_eq!(context("    - t"), Context::Value { key: None });
+        assert_eq!(context("    ++ t"), Context::Value { key: None });
+        // An empty item proposes nothing, like an empty value.
+        assert_eq!(context("    - "), Context::Nothing);
     }
 
     #[test]
@@ -3020,23 +3860,73 @@ fn derived(compilation: &Compilation, base: AnchorId) -> Vec<AnchorId> {
     found
 }
 
-/// `textDocument/implementation`: from a base anchor to what extends it.
+/// `textDocument/implementation`.
+///
+/// From a base anchor: what extends it, then what composes it with `{X}`.
+/// From a property: the declarations in descendants that override it -- the
+/// other direction of go-to-definition on an overriding property.
 pub fn implementations(
     world: &World,
     uri: &Url,
     position: Position,
 ) -> Option<request::GotoImplementationResponse> {
     let compilation = world.compilation.as_ref()?;
-    let anchor = anchor_at(world, uri, position)?;
-    let locations: Vec<Location> = derived(compilation, anchor)
-        .into_iter()
-        .filter_map(|id| definition_location(world, &Target::Anchor(id)))
-        .collect();
+    let cursor = cursor(world, uri, position)?;
+    let index = world.index.get(cursor.module)?;
+    let occurrence = index.at(cursor.offset)?;
+
+    let locations: Vec<Location> = if let Target::Property(anchor, name) = &occurrence.target {
+        let store = compilation.store();
+        let owner = store
+            .anchor(*anchor)
+            .slots
+            .get(name)
+            .map(|slot| slot.owner)
+            .unwrap_or(*anchor);
+        let mut overriding: Vec<AnchorId> = store
+            .anchors
+            .iter()
+            .filter(|def| {
+                def.id != owner
+                    && store.inherits_from(def.id, owner)
+                    && def.slots.get(name).is_some_and(|slot| slot.owner == def.id)
+            })
+            .map(|def| def.id)
+            .collect();
+        overriding.sort_by_key(|id| store.anchor(*id).name.clone());
+        overriding
+            .into_iter()
+            .filter_map(|id| definition_location(world, &Target::Property(id, name.clone())))
+            .collect()
+    } else {
+        let anchor = anchor_at(world, uri, position)?;
+        let mut related = derived(compilation, anchor);
+        for composer in world.analysis.composers.get(&anchor).into_iter().flatten() {
+            if !related.contains(composer) {
+                related.push(*composer);
+            }
+        }
+        related
+            .into_iter()
+            .filter_map(|id| definition_location(world, &Target::Anchor(id)))
+            .collect()
+    };
     (!locations.is_empty()).then_some(request::GotoImplementationResponse::Array(locations))
 }
 
+/// How a hierarchy item relates to the one it was asked from.
+#[derive(Clone, Copy)]
+enum Relation {
+    Itself,
+    Inheritance,
+    /// It composes the other (`{Other}` in one of its values).
+    Composes,
+    /// The other composes it.
+    ComposedInto,
+}
+
 /// Builds the hierarchy entry for one anchor.
-fn hierarchy_item(world: &World, anchor: AnchorId) -> Option<TypeHierarchyItem> {
+fn hierarchy_item(world: &World, anchor: AnchorId, relation: Relation) -> Option<TypeHierarchyItem> {
     let compilation = world.compilation.as_ref()?;
     let def = compilation.store().anchor(anchor);
     let location = definition_location(world, &Target::Anchor(anchor))?;
@@ -3046,6 +3936,15 @@ fn hierarchy_item(world: &World, anchor: AnchorId) -> Option<TypeHierarchyItem> 
     }
     if let Some(alias) = &def.alias {
         detail.push_str(&format!(" as {alias}"));
+    }
+    match relation {
+        Relation::Composes => detail.push_str(" \u{00b7} composes it"),
+        Relation::ComposedInto => detail.push_str(" \u{00b7} composed into it"),
+        Relation::Itself | Relation::Inheritance => {}
+    }
+    if let Some(described) = summary(compilation, anchor) {
+        detail.push_str(" \u{2014} ");
+        detail.push_str(&described);
     }
     Some(TypeHierarchyItem {
         name: def.name.clone(),
@@ -3089,39 +3988,145 @@ pub fn prepare_type_hierarchy(
     position: Position,
 ) -> Option<Vec<TypeHierarchyItem>> {
     let anchor = anchor_at(world, uri, position)?;
-    hierarchy_item(world, anchor).map(|item| vec![item])
+    hierarchy_item(world, anchor, Relation::Itself).map(|item| vec![item])
 }
 
 /// `typeHierarchy/supertypes`: the bases an anchor extends, in declaration
-/// order, which is the order collisions resolve in.
+/// order (the order collisions resolve in), then the anchors it composes.
 pub fn type_hierarchy_supertypes(
     world: &World,
     item: &TypeHierarchyItem,
 ) -> Option<Vec<TypeHierarchyItem>> {
     let compilation = world.compilation.as_ref()?;
     let anchor = hierarchy_anchor(world, item)?;
-    Some(
-        compilation
-            .store()
-            .anchor(anchor)
-            .bases
-            .iter()
-            .filter_map(|base| hierarchy_item(world, *base))
-            .collect(),
-    )
+    let mut items: Vec<TypeHierarchyItem> = compilation
+        .store()
+        .anchor(anchor)
+        .bases
+        .iter()
+        .filter_map(|base| hierarchy_item(world, *base, Relation::Inheritance))
+        .collect();
+    for component in world.analysis.components.get(&anchor).into_iter().flatten() {
+        items.extend(hierarchy_item(world, *component, Relation::ComposedInto));
+    }
+    Some(items)
 }
 
-/// `typeHierarchy/subtypes`: everything that extends this anchor.
+/// `typeHierarchy/subtypes`: everything that extends this anchor, then
+/// everything that composes it.
 pub fn type_hierarchy_subtypes(
     world: &World,
     item: &TypeHierarchyItem,
 ) -> Option<Vec<TypeHierarchyItem>> {
     let compilation = world.compilation.as_ref()?;
     let anchor = hierarchy_anchor(world, item)?;
-    Some(
-        derived(compilation, anchor)
-            .into_iter()
-            .filter_map(|id| hierarchy_item(world, id))
-            .collect(),
-    )
+    let mut items: Vec<TypeHierarchyItem> = derived(compilation, anchor)
+        .into_iter()
+        .filter_map(|id| hierarchy_item(world, id, Relation::Inheritance))
+        .collect();
+    for composer in world.analysis.composers.get(&anchor).into_iter().flatten() {
+        items.extend(hierarchy_item(world, *composer, Relation::Composes));
+    }
+    Some(items)
+}
+
+// ---------------------------------------------------------------------------
+// Compiled output preview
+// ---------------------------------------------------------------------------
+
+/// `piton/preview`: a file, or the anchor under a position, as it compiles.
+///
+/// Parameters: `uri`, an optional `position` (`{line, character}`) naming an
+/// anchor to preview on its own, and an optional `renderer` -- `json`, `yaml`,
+/// `markdown`, or a Belay target id such as `claude` -- defaulting to the
+/// renderer the project is configured with. The answer carries the renderer
+/// used, the file the output is written to, and the text.
+pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
+    let failure = |message: &str| serde_json::json!({ "error": message });
+    let Some(uri) = params
+        .get("uri")
+        .and_then(|value| value.as_str())
+        .and_then(|text| Url::parse(text).ok())
+    else {
+        return failure("a `uri` is required");
+    };
+    let position = params
+        .get("position")
+        .and_then(|value| serde_json::from_value::<Position>(value.clone()).ok());
+    let Some(cursor) = cursor(world, &uri, position.unwrap_or_default()) else {
+        return failure("that file is not part of the compiled workspace");
+    };
+    let compilation = cursor.compilation;
+    let anchor = position.and_then(|position| anchor_at(world, &uri, position));
+    let requested = params.get("renderer").and_then(|value| value.as_str());
+
+    let adapter = match requested {
+        None => Some(world.output.renderer),
+        Some(name) => name.parse::<Adapter>().ok(),
+    };
+    if let Some(adapter) = adapter {
+        let declarations = match anchor {
+            Some(anchor) => {
+                let def = compilation.store().anchor(anchor);
+                let mut one = piton_core::Properties::new();
+                one.insert(def.name.clone(), piton_core::Value::Anchor(anchor));
+                one
+            }
+            None => crate::analysis::file_declarations(compilation, cursor.module),
+        };
+        let output = world
+            .output
+            .output_with(&compilation.project, &cursor.path, adapter);
+        let directory = output.parent().unwrap_or(Path::new("."));
+        let context = piton_emit::MarkdownContext {
+            from_directory: directory,
+            source_root: &compilation.project.source_root,
+        };
+        let text = piton_emit::render(adapter, &declarations, compilation, context);
+        return serde_json::json!({
+            "renderer": adapter.as_str(),
+            "path": output,
+            "text": text,
+        });
+    }
+
+    // Anything else names a Belay target.
+    let target = requested.unwrap_or_default();
+    let Some(config) = compilation.project.belay() else {
+        return failure(&format!(
+            "`{target}` is not a renderer (json, yaml, markdown), and the project has no Belay configuration"
+        ));
+    };
+    let plan = piton_belay::plan(compilation, config);
+    let files: Vec<&piton_belay::OutputFile> = plan
+        .files
+        .iter()
+        .filter(|file| file.target == target)
+        .filter(|file| match anchor {
+            // `origin` names the anchor a file came from, or every anchor a
+            // combined file carries, comma separated.
+            Some(anchor) => {
+                let name = &compilation.store().anchor(anchor).name;
+                file.origin.split(',').any(|origin| origin.trim() == name)
+                    && file.sources.iter().any(|source| paths_equal(source, &cursor.path))
+            }
+            None => file.sources.iter().any(|source| paths_equal(source, &cursor.path)),
+        })
+        .collect();
+    if files.is_empty() {
+        return failure(&format!(
+            "the `{target}` target produces nothing from this construct"
+        ));
+    }
+    let text = files
+        .iter()
+        .map(|file| format!("<!-- {} -->\n{}", file.path.display(), file.contents))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    serde_json::json!({
+        "renderer": target,
+        "path": compilation.project.root.join(&files[0].path),
+        "paths": files.iter().map(|file| compilation.project.root.join(&file.path)).collect::<Vec<_>>(),
+        "text": text,
+    })
 }

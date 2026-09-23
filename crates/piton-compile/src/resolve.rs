@@ -580,26 +580,6 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
             let decl = decl.clone();
             let mut bases = Vec::new();
 
-            if keyword != "anchor" {
-                match resolution.scope(*id).keywords.get(&keyword).copied() {
-                    // A user keyword is sugar for `extends`, and it contributes
-                    // the left-most base so anything further right wins a
-                    // collision.
-                    Some(base) => bases.push(base),
-                    None => diagnostics.push(
-                        Diagnostic::error(
-                            "unknown-keyword",
-                            format!("`{keyword}` is not a keyword in scope"),
-                            &module_path,
-                            decl.keyword_span,
-                        )
-                        .with_help(
-                            "add a `use` declaration for the module that exports it".to_string(),
-                        ),
-                    ),
-                }
-            }
-
             for base in &decl.extends {
                 match resolution.lookup(*id, &base.value) {
                     Some(Symbol::Anchor(base_id)) => bases.push(base_id),
@@ -618,6 +598,26 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
                 }
             }
 
+            if keyword != "anchor" {
+                match resolution.scope(*id).keywords.get(&keyword).copied() {
+                    // A user keyword is sugar for `extends`, and its anchor is
+                    // always the last in the inheritance chain, so it wins any
+                    // collision with what's in `extends`.
+                    Some(base) => bases.push(base),
+                    None => diagnostics.push(
+                        Diagnostic::error(
+                            "unknown-keyword",
+                            format!("`{keyword}` is not a keyword in scope"),
+                            &module_path,
+                            decl.keyword_span,
+                        )
+                        .with_help(
+                            "add a `use` declaration for the module that exports it".to_string(),
+                        ),
+                    ),
+                }
+            }
+
             assignments.push((anchor, bases));
         }
     }
@@ -628,57 +628,189 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
 
     // Inheritance cycles would make property resolution non-terminating.
     let count = resolution.store.anchors.len();
+    let cycles: Vec<(AnchorId, Vec<AnchorId>)> = (0..count)
+        .map(|index| AnchorId(index as u32))
+        .filter_map(|anchor| find_cycle(&resolution.store, anchor).map(|cycle| (anchor, cycle)))
+        .collect();
+    for (anchor, cycle) in cycles {
+        let def = resolution.store.anchor(anchor);
+        let path = resolution.graph.get(def.module).path.clone();
+        // Show the cycle that caused the error: `A -> B -> A`.
+        let chain: Vec<&str> = std::iter::once(anchor)
+            .chain(cycle.iter().copied())
+            .map(|id| resolution.store.anchor(id).name.as_str())
+            .collect();
+        let mut diagnostic = Diagnostic::error(
+            "inheritance-cycle",
+            format!("`{}` inherits from itself ({})", def.name, chain.join(" -> ")),
+            &path,
+            def.name_span,
+        );
+        for step in cycle.iter().filter(|id| **id != anchor) {
+            let step_def = resolution.store.anchor(*step);
+            let step_path = resolution.graph.get(step_def.module).path.clone();
+            diagnostic = diagnostic.with_label(Label::new(
+                step_path,
+                step_def.name_span,
+                format!("`{}` is part of the cycle", step_def.name),
+            ));
+        }
+        diagnostics.push(diagnostic);
+    }
+    // Clear bases only after every cycle is described, so each anchor on a
+    // cycle reports the whole loop.
     for index in 0..count {
         let anchor = AnchorId(index as u32);
         if has_cycle(&resolution.store, anchor) {
-            let def = resolution.store.anchor(anchor);
-            let path = resolution.graph.get(def.module).path.clone();
-            diagnostics.push(Diagnostic::error(
-                "inheritance-cycle",
-                format!("`{}` inherits from itself", def.name),
-                &path,
-                def.name_span,
-            ));
             resolution.store.anchor_mut(anchor).bases.clear();
         }
     }
 
-    // A concrete anchor may implement at most one abstract anchor directly.
+    // An anchor can implement more than one abstract. If two of them put type
+    // constraints on the same property and the types don't overlap at all,
+    // nothing could satisfy both, so that is an error. If they do overlap,
+    // the right-most one wins, like any other inheritance.
     for index in 0..count {
         let anchor = AnchorId(index as u32);
         let def = resolution.store.anchor(anchor).clone();
-        if def.is_abstract {
-            continue;
-        }
-        let abstract_bases: Vec<&AnchorDef> = def
+        let abstracts: Vec<AnchorId> = def
             .bases
             .iter()
-            .map(|b| resolution.store.anchor(*b))
-            .filter(|b| b.is_abstract)
+            .copied()
+            .filter(|b| resolution.store.anchor(*b).is_abstract)
             .collect();
-        if abstract_bases.len() > 1 {
-            let names: Vec<&str> = abstract_bases.iter().map(|b| b.name.as_str()).collect();
-            let path = resolution.graph.get(def.module).path.clone();
-            diagnostics.push(
-                Diagnostic::error(
-                    "multiple-abstract-bases",
-                    format!(
-                        "`{}` implements more than one abstract anchor: {}",
-                        def.name,
-                        names.join(", ")
-                    ),
-                    &path,
-                    def.name_span,
-                )
-                .with_help(
-                    "Piton does not union abstract anchors; extend concrete anchors instead"
-                        .to_string(),
-                ),
-            );
+        if abstracts.len() < 2 {
+            continue;
+        }
+        let path = resolution.graph.get(def.module).path.clone();
+        let mut seen: Vec<(String, AnchorId, Vec<ast::TypeConstraint>)> = Vec::new();
+        for base in &abstracts {
+            for (name, constraints) in declared_constraints(resolution, *base) {
+                for (other_name, other, other_constraints) in &seen {
+                    if *other_name == name
+                        && *other != *base
+                        && !constraints_overlap(&resolution.store, &constraints, other_constraints)
+                    {
+                        diagnostics.push(Diagnostic::error(
+                            "conflicting-abstracts",
+                            format!(
+                                "`{}` implements `{}` and `{}`, which constrain `{name}` to types that don't overlap",
+                                def.name,
+                                resolution.store.anchor(*other).name,
+                                resolution.store.anchor(*base).name,
+                            ),
+                            &path,
+                            def.name_span,
+                        ));
+                    }
+                }
+                seen.push((name, *base, constraints));
+            }
         }
     }
 
     resolution.diagnostics.extend(diagnostics);
+}
+
+/// The type constraints an anchor's whole chain puts on each property.
+fn declared_constraints(resolution: &Resolution, anchor: AnchorId) -> Vec<(String, Vec<ast::TypeConstraint>)> {
+    let mut out: Vec<(String, Vec<ast::TypeConstraint>)> = Vec::new();
+    for member in resolution.store.base_chain(anchor).into_iter().chain(std::iter::once(anchor)) {
+        let def = resolution.store.anchor(member);
+        let Item::Anchor(decl) = &resolution.graph.get(def.module).ast().items[def.item] else {
+            continue;
+        };
+        for property in decl.body.properties() {
+            if property.constraints.is_empty() {
+                continue;
+            }
+            match out.iter_mut().find(|(name, _)| *name == property.name) {
+                Some(entry) => entry.1 = property.constraints.clone(),
+                None => out.push((property.name.clone(), property.constraints.clone())),
+            }
+        }
+    }
+    out
+}
+
+/// True when some value could satisfy both sets of constraints.
+fn constraints_overlap(store: &Store, left: &[ast::TypeConstraint], right: &[ast::TypeConstraint]) -> bool {
+    left.iter()
+        .any(|a| right.iter().any(|b| constraint_overlap(store, a, b)))
+}
+
+fn constraint_overlap(store: &Store, a: &ast::TypeConstraint, b: &ast::TypeConstraint) -> bool {
+    use ast::TypeName::*;
+    let family = |c: &ast::TypeConstraint| -> &'static str {
+        if c.list {
+            return "list";
+        }
+        match &c.name {
+            String | Number | Boolean | Null => "simple",
+            Reference => "reference",
+            List => "list",
+            Dictionary => "dictionary",
+            Anchor | Named(_) => "anchor",
+            Any => "any",
+            Simple => "simple*",
+            Complex => "complex*",
+        }
+    };
+    if matches!(a.name, Any) && !a.list || matches!(b.name, Any) && !b.list {
+        return true;
+    }
+    if a.list && b.list {
+        let element = |c: &ast::TypeConstraint| ast::TypeConstraint { list: false, ..c.clone() };
+        return constraint_overlap(store, &element(a), &element(b));
+    }
+    let (fa, fb) = (family(a), family(b));
+    let is_complex = |f: &str| matches!(f, "list" | "dictionary" | "anchor");
+    match (fa, fb) {
+        ("simple*", f) | (f, "simple*") => f == "simple" || f == "simple*",
+        ("complex*", f) | (f, "complex*") => is_complex(f) || f == "complex*",
+        ("simple", "simple") => a.name == b.name,
+        ("anchor", "anchor") => match (&a.name, &b.name) {
+            (Named(x), Named(y)) => {
+                x == y || {
+                    let find = |n: &str| store.anchors.iter().find(|d| d.name == n).map(|d| d.id);
+                    match (find(x), find(y)) {
+                        (Some(x), Some(y)) => store.inherits_from(x, y) || store.inherits_from(y, x),
+                        _ => true,
+                    }
+                }
+            }
+            _ => true,
+        },
+        (x, y) => x == y,
+    }
+}
+
+/// The chain of bases that leads from `anchor` back to itself, if there is one.
+fn find_cycle(store: &Store, anchor: AnchorId) -> Option<Vec<AnchorId>> {
+    fn walk(
+        store: &Store,
+        current: AnchorId,
+        target: AnchorId,
+        path: &mut Vec<AnchorId>,
+        seen: &mut Vec<AnchorId>,
+    ) -> bool {
+        for base in &store.anchor(current).bases {
+            path.push(*base);
+            if *base == target {
+                return true;
+            }
+            if !seen.contains(base) {
+                seen.push(*base);
+                if walk(store, *base, target, path, seen) {
+                    return true;
+                }
+            }
+            path.pop();
+        }
+        false
+    }
+    let mut path = Vec::new();
+    walk(store, anchor, anchor, &mut path, &mut Vec::new()).then_some(path)
 }
 
 fn has_cycle(store: &Store, anchor: AnchorId) -> bool {
@@ -768,6 +900,32 @@ fn build_slots_for(
 
     for (index, property) in decl.body.properties().enumerate() {
         let has_value = property.value.declared;
+        // A child can't redeclare a constraint it inherits; it can only give
+        // the property a value.
+        if !property.constraints.is_empty() {
+            if let Some(inherited) = slots.get(&property.name) {
+                if !inherited.constraints.is_empty() {
+                    let owner = resolution.store.anchor(inherited.owner);
+                    let owner_path = resolution.graph.get(owner.module).path.clone();
+                    diagnostics.push(
+                        Diagnostic::error(
+                            "redeclared-constraint",
+                            format!(
+                                "`{}` already has a type constraint from `{}`; write `{}: <value>` without `::`",
+                                property.name, owner.name, property.name
+                            ),
+                            &module_path,
+                            property.name_span,
+                        )
+                        .with_label(Label::new(
+                            owner_path,
+                            inherited.span,
+                            "the inherited constraint".to_string(),
+                        )),
+                    );
+                }
+            }
+        }
         let constraints = if property.constraints.is_empty() {
             slots
                 .get(&property.name)
@@ -801,6 +959,18 @@ fn build_slots_for(
         if matches!(item, ast::BlockItem::Property(_) | ast::BlockItem::Pass(_)) {
             continue;
         }
+        if let Some(key) = invalid_key(item) {
+            diagnostics.push(
+                Diagnostic::error(
+                    "invalid-key",
+                    format!("`{key}` is not a valid key"),
+                    &module_path,
+                    item.span(),
+                )
+                .with_help("keys can have letters, numbers, underscores, and hyphens; nothing else, and no spaces"),
+            );
+            continue;
+        }
         let (message, help) = describe_non_property(item, &def.name);
         diagnostics.push(
             Diagnostic::warning("non-property-in-anchor", message, &module_path, item.span())
@@ -816,6 +986,19 @@ fn build_slots_for(
             }
             let owner = resolution.store.anchor(slot.owner);
             let owner_path = resolution.graph.get(owner.module).path.clone();
+            if slot.owner == anchor {
+                // Declared right here with a constraint and no value. Only an
+                // abstract anchor can leave a property without one.
+                diagnostics.push(Diagnostic::error(
+                    "missing-value",
+                    format!(
+                        "`{name}` has a type constraint but no value; only a property in an abstract anchor can leave its value out"
+                    ),
+                    &module_path,
+                    slot.span,
+                ));
+                continue;
+            }
             diagnostics.push(
                 Diagnostic::error(
                     "unimplemented-property",
@@ -837,6 +1020,29 @@ fn build_slots_for(
 
     resolution.store.anchor_mut(anchor).slots = slots;
     done.insert(anchor);
+}
+
+/// The key of a line in an anchor body that is written like a property but
+/// uses characters a key can't have, like `a.b: 1`.
+fn invalid_key(item: &ast::BlockItem) -> Option<String> {
+    let ast::BlockItem::Prose(paragraph) = item else {
+        return None;
+    };
+    let [line] = paragraph.lines.as_slice() else {
+        return None;
+    };
+    let text: String = line
+        .segments
+        .iter()
+        .map(|segment| match segment {
+            ast::ProseSegment::Text(text) => text.clone(),
+            _ => " ".to_string(),
+        })
+        .collect();
+    let (key, _) = text.split_once(": ").or_else(|| text.strip_suffix(':').map(|k| (k, "")))?;
+    let valid = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
+    (!key.is_empty() && !key.contains(char::is_whitespace) && !key.chars().all(valid))
+        .then(|| key.to_string())
 }
 
 /// Explains why one line of an anchor body is not a property.

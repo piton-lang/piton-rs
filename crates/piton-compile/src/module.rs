@@ -297,8 +297,22 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         });
     }
 
-    // `./Foo` may mean `./Foo.pi` or `./Foo/index.pi`; `.` and `./dir` mean the
-    // directory's index.
+    // `.` and `..`, alone or ending a path, always name a directory, so they
+    // mean its index -- never a sibling file that happens to share the
+    // directory's name.
+    // A package named on its own is its directory, for the same reason.
+    let index = base.join("index.pi");
+    if names_directory(text) || (installed.is_some() && !text.contains('/')) {
+        if index.is_file() {
+            return Ok(normalize(&index));
+        }
+        return Err(ResolveError::NotFound {
+            written: text.to_string(),
+            tried: vec![normalize(&index)],
+        });
+    }
+
+    // `./Foo` may mean `./Foo.pi` or `./Foo/index.pi`.
     let with_extension = if base.extension().is_some_and(|e| e == "pi") {
         base.clone()
     } else {
@@ -307,7 +321,6 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
     if with_extension.is_file() {
         return Ok(with_extension);
     }
-    let index = base.join("index.pi");
     if index.is_file() {
         return Ok(normalize(&index));
     }
@@ -315,6 +328,14 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         written: text.to_string(),
         tried: vec![with_extension, index],
     })
+}
+
+/// True when a written path can only name a directory: `.` or `..` on its own,
+/// or a path whose last segment is one of them.
+fn names_directory(text: &str) -> bool {
+    let trimmed = text.trim_end_matches('/');
+    let last = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    matches!(last, "." | "..") || (trimmed.is_empty() && !text.is_empty())
 }
 
 /// Every module path a project can import by name: the bundled packages, and
@@ -440,6 +461,65 @@ mod tests {
             ),
             PathBuf::from("../Language.md")
         );
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "piton-module-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        directory
+    }
+
+    #[test]
+    fn a_dot_path_is_the_directory_index_never_a_sibling_file() {
+        let root = scratch("dots");
+        std::fs::create_dir_all(root.join("a/b")).expect("dirs");
+        std::fs::write(root.join("a/index.pi"), "x: 1\n").expect("write");
+        // A sibling named like the directory, which `..` must not pick.
+        std::fs::write(root.join("a.pi"), "x: 2\n").expect("write");
+        std::fs::write(root.join("a/b/index.pi"), "x: 3\n").expect("write");
+        std::fs::write(root.join("a/b.pi"), "x: 4\n").expect("write");
+
+        let from = root.join("a/b");
+        let context = ResolutionContext::flat(&from, &root);
+        assert_eq!(resolve("..", &context).unwrap(), root.join("a/index.pi"));
+        assert_eq!(resolve("../", &context).unwrap(), root.join("a/index.pi"));
+        assert_eq!(resolve(".", &context).unwrap(), root.join("a/b/index.pi"));
+        assert_eq!(resolve("../b/.", &context).unwrap(), root.join("a/b/index.pi"));
+        assert_eq!(resolve("../b/..", &context).unwrap(), root.join("a/index.pi"));
+        // Without the dot, a file still wins over a directory of the same name.
+        assert_eq!(resolve("../b", &context).unwrap(), root.join("a/b.pi"));
+
+        std::fs::remove_file(root.join("a/b/index.pi")).expect("remove");
+        assert!(resolve(".", &context).is_err(), "no index, no module");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_package_without_an_index_is_still_a_location() {
+        let root = scratch("package");
+        std::fs::create_dir_all(root.join("tethers/my-package")).expect("dirs");
+        std::fs::write(root.join("tethers/my-package/Foo.pi"), "export x: 1\n").expect("write");
+        std::fs::create_dir_all(root.join("spec")).expect("dirs");
+
+        let from = root.join("spec");
+        let context = ResolutionContext::new(
+            &from,
+            Roots {
+                source_root: &from,
+                project_root: &root,
+            },
+        );
+        assert_eq!(
+            resolve("my-package/Foo", &context).unwrap(),
+            root.join("tethers/my-package/Foo.pi")
+        );
+        assert!(resolve("my-package", &context).is_err(), "nothing to import by name alone");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

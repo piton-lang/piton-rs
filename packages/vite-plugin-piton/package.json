@@ -12,15 +12,23 @@
     "./renderers": {
       "types": "./dist/renderers.d.ts",
       "import": "./dist/renderers.js"
+    },
+    "./files": {
+      "types": "./dist/files.d.ts",
+      "import": "./dist/files.js"
+    },
+    "./client": {
+      "types": "./client.d.ts"
     }
   },
   "files": [
     "dist",
+    "client.d.ts",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test test/"
+    "test": "npm run build && node --test test/"
   },
   "peerDependencies": {
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0"

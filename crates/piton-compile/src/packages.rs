@@ -27,8 +27,14 @@ pub const TETHERS: &str = "tethers";
 /// Directory, relative to the source root, that untethered packages move to.
 pub const UNTETHERED: &str = "untethered";
 
-/// The lock file, relative to the project root.
-pub const LOCK_FILE: &str = ".piton/packages.lock.json";
+/// The lock file, relative to the project root (the directory holding
+/// `piton.config.pi`).
+pub const LOCK_FILE: &str = ".piton/tether.lock";
+
+/// Where earlier versions of the tooling kept the lock file. It is still read
+/// when the current one is missing, and removed the next time the lock file is
+/// saved, so an existing project migrates without anyone doing anything.
+pub const LEGACY_LOCK_FILE: &str = ".piton/packages.lock.json";
 
 /// How a dependency's version is selected.
 ///
@@ -118,9 +124,9 @@ impl Dependency {
 /// A package this project publishes, declared by a `package` anchor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageDecl {
-    /// The name the package installs under. May contain `/`, which is how a
-    /// scoped package such as `MyScope/package` lands at
-    /// `tethers/MyScope/package`.
+    /// The name the package installs under, and the directory directly beneath
+    /// `tethers/` it lands in. Never contains `/` and never starts with `@`;
+    /// see [`validate_name`].
     pub name: String,
     /// The directory whose contents are published, absolute.
     pub root: PathBuf,
@@ -241,8 +247,9 @@ impl Lock {
     /// one, and the commands that need it say so themselves with a message
     /// about the package they were asked about.
     pub fn load(project_root: &Path) -> Lock {
-        let path = project_root.join(LOCK_FILE);
-        let Ok(text) = std::fs::read_to_string(path) else {
+        let text = std::fs::read_to_string(project_root.join(LOCK_FILE))
+            .or_else(|_| std::fs::read_to_string(project_root.join(LEGACY_LOCK_FILE)));
+        let Ok(text) = text else {
             return Lock::default();
         };
         parse_lock(&text).unwrap_or_default()
@@ -253,7 +260,14 @@ impl Lock {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, self.to_json())
+        std::fs::write(path, self.to_json())?;
+        // The old location is migrated rather than kept in step: two lock
+        // files would sooner or later disagree about what is installed.
+        let legacy = project_root.join(LEGACY_LOCK_FILE);
+        if legacy.is_file() {
+            let _ = std::fs::remove_file(legacy);
+        }
+        Ok(())
     }
 
     /// Serializes the lock file.
@@ -394,77 +408,84 @@ pub fn digest_tree(directory: &Path) -> BTreeMap<String, String> {
     out
 }
 
-/// Where a package's files live.
-pub fn package_directory(project_root: &Path, name: &str) -> PathBuf {
-    let mut path = project_root.join(TETHERS);
-    for segment in name.split('/').filter(|segment| !segment.is_empty()) {
-        path.push(segment);
+/// Why a package name cannot be used, or `None` when it can.
+///
+/// A name is one directory directly beneath `tethers/`, so it cannot contain
+/// `/`. A leading `@` is reserved for the packages bundled with the compiler,
+/// such as `@piton/belay`, and a name made only of dots would climb out of
+/// `tethers/` altogether.
+pub fn validate_name(name: &str) -> Option<String> {
+    if name.is_empty() {
+        return Some("a package name cannot be empty".to_string());
     }
-    path
+    if name.contains('/') || name.contains('\\') {
+        return Some(format!(
+            "package name `{name}` contains `/`; a package is one directory under tethers/"
+        ));
+    }
+    if name.starts_with('@') {
+        return Some(format!(
+            "package name `{name}` starts with `@`, which is reserved for the packages bundled with the compiler"
+        ));
+    }
+    if name.chars().all(|ch| ch == '.') {
+        return Some(format!("`{name}` is not a package name"));
+    }
+    None
+}
+
+/// Where a package's files live: one directory directly beneath `tethers/`.
+pub fn package_directory(project_root: &Path, name: &str) -> PathBuf {
+    project_root.join(TETHERS).join(name)
 }
 
 /// Every installed package, discovered from the tethers directory.
 ///
-/// The lock file is not consulted. A package is a directory beneath `tethers/`
-/// that is a module -- it has an `index.pi` -- and that is true whether it was
-/// installed by `piton tether` or committed by hand. Resolution answering the
-/// same question the filesystem does is what keeps a checked-out project
-/// working before any command has been run in it.
+/// The lock file is not consulted. Every directory directly beneath `tethers/`
+/// is a package, whether or not it has an `index.pi`: one without an index is
+/// still a location its files are imported through, as in
+/// `from my-package/Foo import X`. That holds whether it was installed by
+/// `piton tether` or committed by hand, and resolution answering the same
+/// question the filesystem does is what keeps a checked-out project working
+/// before any command has been run in it.
 pub fn installed_names(project_root: &Path) -> Vec<String> {
-    let tethers = project_root.join(TETHERS);
-    let mut found = Vec::new();
-    let mut stack = vec![(tethers.clone(), String::new())];
-    while let Some((directory, prefix)) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let Some(segment) = path.file_name().map(|name| name.to_string_lossy().to_string())
-            else {
-                continue;
-            };
-            let name = if prefix.is_empty() {
-                segment
-            } else {
-                format!("{prefix}/{segment}")
-            };
-            if path.join("index.pi").is_file() {
-                // A package is a module. Its own subdirectories are its
-                // contents, not further packages.
-                found.push(name);
-            } else {
-                stack.push((path, name));
-            }
-        }
-    }
+    let Ok(entries) = std::fs::read_dir(project_root.join(TETHERS)) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .filter(|name| validate_name(name).is_none() && !name.starts_with('.'))
+        .collect();
     found.sort();
     found
 }
 
-/// Resolves a written module path whose first segments name an installed
+/// Resolves a written module path whose first segment names an installed
 /// package.
 ///
 /// Returns the path with the package name replaced by the directory it is
 /// installed in, leaving the rest of the path to resolve as any other path
-/// does. A name is matched longest-first so a scoped `MyScope/package` wins
-/// over a `MyScope` that happens to exist alongside it.
+/// does.
 pub fn resolve_prefix(project_root: &Path, text: &str) -> Option<PathBuf> {
-    let mut names = installed_names(project_root);
-    names.sort_by_key(|name| std::cmp::Reverse(name.split('/').count()));
-    for name in names {
-        if text == name {
-            return Some(package_directory(project_root, &name));
-        }
-        if let Some(rest) = text.strip_prefix(&format!("{name}/")) {
-            return Some(package_directory(project_root, &name).join(rest));
-        }
+    let (first, rest) = match text.split_once('/') {
+        Some((first, rest)) => (first, Some(rest)),
+        None => (text, None),
+    };
+    if validate_name(first).is_some() || first.starts_with('.') {
+        return None;
     }
-    None
+    let directory = package_directory(project_root, first);
+    if !directory.is_dir() {
+        return None;
+    }
+    Some(match rest {
+        Some(rest) if !rest.is_empty() => directory.join(rest),
+        _ => directory,
+    })
 }
+
 
 /// True when a written module path could name a package rather than a location.
 ///
@@ -478,19 +499,96 @@ pub fn is_bare_path(text: &str) -> bool {
         && !text.starts_with('@')
 }
 
+/// A version pin exactly as it was written in the source, before evaluation.
+///
+/// `@piton/config` types commit, tag, and branch as strings, so `tag: 1.0`
+/// pins the tag `1.0`. Evaluation reads an unquoted `1.0` as the number 1, and
+/// the number has lost the spelling, so the written text is collected from the
+/// syntax tree and consulted whenever a pin evaluated to something other than
+/// a string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinLiteral {
+    pub key: String,
+    pub text: String,
+}
+
+/// The version specifiers a dependency accepts.
+pub const PIN_KEYS: [&str; 3] = ["commit", "tag", "branch"];
+
+/// Collects the written text of every pin inside a `dependencies` value.
+pub fn pin_literals(value: &piton_syntax::ast::ValueNode, source: &str) -> Vec<PinLiteral> {
+    use piton_syntax::ast::BlockItem;
+
+    fn walk_block(block: &piton_syntax::ast::Block, source: &str, out: &mut Vec<PinLiteral>) {
+        for item in &block.items {
+            match item {
+                BlockItem::Property(property) => {
+                    if PIN_KEYS.contains(&property.name.as_str()) {
+                        if let Some(inline) = &property.value.inline {
+                            let text = source
+                                .get(inline.span.start..inline.span.end)
+                                .unwrap_or_default()
+                                .trim();
+                            let text = strip_comment(text);
+                            out.push(PinLiteral {
+                                key: property.name.clone(),
+                                text: unquote(text).to_string(),
+                            });
+                        }
+                    }
+                    walk_value(&property.value, source, out);
+                }
+                BlockItem::ListItem(item) => walk_value(&item.value, source, out),
+                _ => {}
+            }
+        }
+    }
+
+    fn walk_value(value: &piton_syntax::ast::ValueNode, source: &str, out: &mut Vec<PinLiteral>) {
+        if let Some(block) = &value.block {
+            walk_block(block, source, out);
+        }
+    }
+
+    let mut out = Vec::new();
+    walk_value(value, source, &mut out);
+    out
+}
+
+fn strip_comment(text: &str) -> &str {
+    match text.find("//") {
+        Some(index) => text[..index].trim_end(),
+        None => text,
+    }
+}
+
+fn unquote(text: &str) -> &str {
+    text.strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(text)
+}
+
 /// Reads the `dependencies` list of a configuration or package anchor.
 ///
-/// The list compiles flat: a dependency is a string, and a pin block written
-/// beneath it arrives as the dictionary that follows it. So a dictionary
-/// attaches to the dependency before it, and one with nothing before it is a
-/// pin for a dependency that was never named.
+/// A dependency is a URL, optionally followed by a dictionary holding one of
+/// `commit`, `tag`, or `branch`. The list compiles flat: a pin block indented
+/// beneath a URL arrives as the dictionary item that follows it, so a
+/// dictionary attaches to the dependency before it, and one with nothing
+/// before it is a pin for a dependency that was never named.
+///
+/// More than one specifier for one URL is an error: they can only disagree,
+/// and choosing between them quietly would install a version nobody chose.
 pub fn read_dependencies(
     value: &Value,
+    literals: &[PinLiteral],
     file: &Path,
     span: Span,
     diagnostics: &mut DiagnosticSink,
 ) -> Vec<Dependency> {
     let mut out: Vec<Dependency> = Vec::new();
+    // How many specifiers the current dependency has been given.
+    let mut pins_for_last = 0usize;
+    let mut used: Vec<bool> = vec![false; literals.len()];
     for item in value.as_list_items() {
         match &item {
             Value::Str(text) => {
@@ -498,6 +596,7 @@ pub fn read_dependencies(
                     let source = source.trim();
                     if !source.is_empty() {
                         out.push(Dependency::new(source));
+                        pins_for_last = 0;
                     }
                 }
             }
@@ -518,37 +617,46 @@ pub fn read_dependencies(
                     continue;
                 };
                 for (key, pinned) in map {
-                    let Some(text) = pin_text(pinned) else {
-                        continue;
-                    };
-                    if matches!(pinned, Value::Number(_)) {
+                    if !PIN_KEYS.contains(&key.as_str()) {
                         diagnostics.push(
                             Diagnostic::warning(
-                                "unquoted-pin",
-                                format!("`{key}: {text}` was read as a number"),
+                                "unknown-pin",
+                                format!("`{key}` is not a version specifier"),
                                 file,
                                 span,
                             )
                             .with_help(
-                                "quote a version so it keeps its exact spelling, as in `tag: \"1.0\"`"
-                                    .to_string(),
+                                "the specifiers are `commit`, `tag`, and `branch`".to_string(),
                             ),
                         );
+                        continue;
                     }
-                    match key.as_str() {
-                        "commit" => last.pin = Pin::Commit(text),
-                        "tag" => last.pin = Pin::Tag(text),
-                        "branch" => last.pin = Pin::Branch(text),
-                        other => diagnostics.push(
-                            Diagnostic::warning(
-                                "unknown-pin",
-                                format!("`{other}` is not a version specifier"),
+                    let Some(text) = pin_text(key, pinned, literals, &mut used) else {
+                        continue;
+                    };
+                    pins_for_last += 1;
+                    if pins_for_last > 1 {
+                        diagnostics.push(
+                            Diagnostic::error(
+                                "multiple-pins",
+                                format!(
+                                    "`{}` is pinned more than once; give it one of commit, tag, or branch",
+                                    last.source
+                                ),
                                 file,
                                 span,
                             )
-                            .with_help("the specifiers are `commit`, `tag`, and `branch`".to_string()),
-                        ),
+                            .with_help(
+                                "a dependency takes a single commit, tag, or branch".to_string(),
+                            ),
+                        );
+                        continue;
                     }
+                    last.pin = match key.as_str() {
+                        "commit" => Pin::Commit(text),
+                        "tag" => Pin::Tag(text),
+                        _ => Pin::Branch(text),
+                    };
                 }
             }
             _ => {}
@@ -557,34 +665,52 @@ pub fn read_dependencies(
     out
 }
 
-fn pin_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(text) => text.as_plain().map(|text| text.trim().to_string()),
-        Value::Number(number) => Some(piton_core::value::format_number(*number)),
-        _ => None,
+/// The text of one pin: a string as it evaluated, anything else as written.
+fn pin_text(
+    key: &str,
+    value: &Value,
+    literals: &[PinLiteral],
+    used: &mut [bool],
+) -> Option<String> {
+    if let Value::Str(text) = value {
+        if let Some(text) = text.as_plain() {
+            // Quotes carry no meaning in a value, and no git ref contains one,
+            // so `tag: "v1"` is read as the tag it was clearly meant to be.
+            let text = unquote(text.trim());
+            mark_literal(key, text, literals, used);
+            return Some(text.to_string());
+        }
     }
+    let evaluated = match value {
+        Value::Number(number) => piton_core::value::format_number(*number),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Null => return None,
+        _ => return None,
+    };
+    // The first unused literal for this key that reads as the same value.
+    for (index, literal) in literals.iter().enumerate() {
+        if used[index] || literal.key != key {
+            continue;
+        }
+        let same = match value {
+            Value::Number(number) => literal.text.parse::<f64>().ok() == Some(*number),
+            _ => literal.text == evaluated,
+        };
+        if same {
+            used[index] = true;
+            return Some(literal.text.clone());
+        }
+    }
+    Some(evaluated)
 }
 
-/// Which of two pins is the more specific, when declarations disagree.
-///
-/// Dependencies are flat: one version of a repository is installed for the
-/// whole project, so two packages asking for different versions of a third have
-/// to be reconciled. A commit names one revision, a tag one release, a branch a
-/// moving target, and nothing at all the default branch -- so the leftmost of
-/// those that anyone asked for is the one that satisfies the most callers.
-///
-/// Whichever way it goes, the caller reports it: a dependency version nobody
-/// chose is worse than one nobody has.
-pub fn more_specific(a: &Pin, b: &Pin) -> bool {
-    specificity(a) > specificity(b)
-}
-
-fn specificity(pin: &Pin) -> u8 {
-    match pin {
-        Pin::Default => 0,
-        Pin::Branch(_) => 1,
-        Pin::Tag(_) => 2,
-        Pin::Commit(_) => 3,
+fn mark_literal(key: &str, text: &str, literals: &[PinLiteral], used: &mut [bool]) {
+    if let Some(index) = literals
+        .iter()
+        .enumerate()
+        .position(|(index, literal)| !used[index] && literal.key == key && literal.text == text)
+    {
+        used[index] = true;
     }
 }
 
@@ -804,16 +930,77 @@ mod tests {
         assert_eq!(lock.packages[0].commit.as_deref(), Some("def456"));
     }
 
+    fn scratch(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "piton-packages-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        directory
+    }
+
     #[test]
-    fn a_scoped_name_nests_under_tethers() {
-        assert_eq!(
-            package_directory(Path::new("/project"), "MyScope/package"),
-            PathBuf::from("/project/tethers/MyScope/package")
-        );
+    fn a_package_is_one_directory_under_tethers() {
         assert_eq!(
             package_directory(Path::new("/project"), "MyPackage"),
             PathBuf::from("/project/tethers/MyPackage")
         );
+    }
+
+    #[test]
+    fn a_package_name_has_no_slash_and_no_leading_at() {
+        assert!(validate_name("my-package").is_none());
+        assert!(validate_name("MyPackage").is_none());
+        assert!(validate_name("MyScope/package").is_some());
+        assert!(validate_name("@piton/belay").is_some());
+        assert!(validate_name("@mine").is_some());
+        assert!(validate_name("").is_some());
+        assert!(validate_name("..").is_some());
+    }
+
+    #[test]
+    fn every_directory_under_tethers_is_a_package_even_without_an_index() {
+        let root = scratch("installed");
+        std::fs::create_dir_all(root.join("tethers/with-index")).expect("dirs");
+        std::fs::write(root.join("tethers/with-index/index.pi"), "a: 1\n").expect("write");
+        std::fs::create_dir_all(root.join("tethers/no-index/nested")).expect("dirs");
+        std::fs::write(root.join("tethers/no-index/Foo.pi"), "a: 1\n").expect("write");
+        std::fs::write(root.join("tethers/stray.pi"), "a: 1\n").expect("write");
+
+        assert_eq!(installed_names(&root), vec!["no-index", "with-index"]);
+        // Nested directories are the package's contents, not further packages.
+        assert_eq!(
+            resolve_prefix(&root, "no-index/Foo"),
+            Some(root.join("tethers/no-index/Foo"))
+        );
+        assert_eq!(
+            resolve_prefix(&root, "no-index"),
+            Some(root.join("tethers/no-index"))
+        );
+        assert_eq!(resolve_prefix(&root, "missing/Foo"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_lock_file_is_tether_lock_and_the_old_one_migrates() {
+        let root = scratch("lock");
+        let mut old = Lock::default();
+        old.insert(entry("alpha"));
+        std::fs::create_dir_all(root.join(".piton")).expect("dirs");
+        std::fs::write(root.join(LEGACY_LOCK_FILE), old.to_json()).expect("write");
+
+        // Read from the old location when that is all there is.
+        let loaded = Lock::load(&root);
+        assert_eq!(loaded, old);
+
+        // Saved to the new one, and the old one goes away.
+        loaded.save(&root).expect("save");
+        assert!(root.join(".piton/tether.lock").is_file());
+        assert!(!root.join(LEGACY_LOCK_FILE).exists());
+        assert_eq!(Lock::load(&root), old);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -835,27 +1022,13 @@ mod tests {
     #[test]
     fn only_a_bare_path_can_name_a_package() {
         assert!(is_bare_path("my-package"));
-        assert!(is_bare_path("MyScope/package/Thing"));
+        assert!(is_bare_path("my-package/Thing"));
         assert!(!is_bare_path("./my-package"));
         assert!(!is_bare_path("/my-package"));
         assert!(!is_bare_path("@piton/belay"));
         assert!(!is_bare_path(""));
     }
 
-    #[test]
-    fn a_commit_is_more_specific_than_anything_else() {
-        let commit = Pin::Commit("abc".to_string());
-        let tag = Pin::Tag("1.0".to_string());
-        let branch = Pin::Branch("main".to_string());
-
-        assert!(more_specific(&commit, &tag));
-        assert!(more_specific(&tag, &branch));
-        assert!(more_specific(&branch, &Pin::Default));
-        assert!(!more_specific(&Pin::Default, &branch));
-        // A pin is never more specific than itself, so two declarations that
-        // agree are not a conflict.
-        assert!(!more_specific(&tag, &tag.clone()));
-    }
 
     #[test]
     fn drift_names_what_changed() {

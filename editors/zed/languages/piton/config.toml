@@ -13,22 +13,24 @@ hard_tabs = false
 # and the block is the indented lines beneath it: `anchor A:`, `frameworks:`,
 # `config:: dictionary:`. A colon inside a value opens nothing -- `prompt:
 # Careful: ` ends a sentence rather than a property -- and neither does a
-# comment, whatever it happens to end with. The language server draws the
-# same line in `on_type_formatting`; this pattern is what the editor has
-# when it indents on its own.
+# comment, whatever it happens to end with. Nor does a list item or a merge
+# line: a list item is never a key, even with a colon at the end, so
+# `- Settings:` is just the string `Settings:`. The language server draws the
+# same line in `on_type_formatting`; this pattern is what the editor has when
+# it indents on its own.
 #
 # This is a line pattern rather than an `indents.scm` because the grammar has
 # no node to hang one on: indentation is deliberately not in the grammar, so
 # nothing there spans a body for Zed's `@indent` to measure.
-increase_indent_pattern = "^[^/\\s][^:]*:\\s*$|^\\s*[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$|^\\s*[-+]{1,2}\\s+[^:/\\s]+(::\\s*[^:/\\s]+)*:\\s*$"
+increase_indent_pattern = "^[^-+/\\s][^:]*:\\s*$|^\\s*[^-+:/\\s][^:/\\s]*(::\\s*[^:/\\s]+)*:\\s*$"
 
-# Enter on a blank line inside a dictionary or anchor leaves the block: the
-# new line comes back one shiftwidth, bottoming at the margin. Only a
-# whitespace-only line matches this pattern, so it never touches the colon
-# rule above -- neither pattern matches the other's lines. The language
-# server answers the same move in `on_type_formatting`; this is what the
-# editor has when it indents on its own.
-decrease_indent_pattern = "^\\s*$"
+# There is deliberately no `decrease_indent_pattern`. Zed tests that pattern
+# against the line being indented, and the line Enter has just made is empty:
+# `^\s*$` would match every new line, outdenting after every ordinary
+# property and cancelling the colon rule above. Enter on a blank line inside a
+# dictionary or anchor (back one level) comes from the language server's
+# on-type formatting, which Zed requests while `use_on_type_format` is on (the
+# default).
 
 # Keys and user keywords are kebab-case, so a hyphen is part of a word:
 # double-clicking `no-rewrite` should take all of it, and typing the hyphen

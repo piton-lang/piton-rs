@@ -122,7 +122,8 @@ fn completing_a_module_path_offers_installed_packages() {
     ));
 
     assert!(labels.contains(&"dep-lib".to_string()), "{labels:?}");
-    assert!(labels.contains(&"MyScope/inner".to_string()), "{labels:?}");
+    // Packages are flat: every directory directly under `tethers/` is one.
+    assert!(labels.contains(&"MyScope".to_string()), "{labels:?}");
     // The bundled packages are still offered alongside them.
     assert!(labels.contains(&"@piton/belay".to_string()), "{labels:?}");
     assert!(

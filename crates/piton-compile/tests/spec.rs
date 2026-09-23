@@ -38,9 +38,10 @@ fn inherited_properties_keep_the_base_order() {
     let compilation = compile_spec();
     let strings = compilation.find_anchor("Strings").expect("Strings");
     let names: Vec<&str> = compilation.store().anchor(strings).slots.keys().map(String::as_str).collect();
+    // Inherited properties keep the base's order; the child's own come after.
     assert_eq!(
-        names,
-        vec![
+        &names[..4],
+        &[
             "whatIsAType",
             "supportedOperators",
             "unsupportedOperators",
@@ -50,7 +51,7 @@ fn inherited_properties_keep_the_base_order() {
 
     let dictionaries = compilation.find_anchor("Dictionaries").expect("Dictionaries");
     let names: Vec<&str> = compilation.store().anchor(dictionaries).slots.keys().map(String::as_str).collect();
-    assert_eq!(names.last(), Some(&"validKeys"), "child-only properties append");
+    assert_eq!(names.last(), Some(&"hyphenatedKeys"), "child-only properties append");
 }
 
 #[test]
@@ -74,7 +75,7 @@ fn adapters_inherit_the_shared_contract() {
     let names: Vec<&str> = compilation.store().anchor(claude).slots.keys().map(String::as_str).collect();
     assert_eq!(
         &names[..6],
-        &["description", "targetId", "instructionFile", "referenceRoot", "status", "documentationChecked"]
+        &["description", "targetId", "instructionFile", "referenceRoot", "documentationChecked", "requirements"]
     );
     let properties = &compilation.store().anchor(claude).properties;
     assert_eq!(
