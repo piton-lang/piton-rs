@@ -1,10 +1,11 @@
 //! JSON serialization.
 //!
 //! Anchors serialize as their resolved content. References do not: a reference
-//! must not silently become an embedded copy or a bare name, so it serializes
-//! as an explicit `$ref` object naming the anchor and the file it came from.
+//! must not silently become an embedded copy or a bare name, so it becomes a
+//! string: the path to the other file, a colon, and the dot path to the value,
+//! like `../file.json:Anchor.property`.
 
-use piton_core::{format_number, AnchorId, AnchorView, Properties, Value};
+use piton_core::{format_number, AnchorId, AnchorView, Properties, Ref, Value};
 
 /// How much to indent each nesting level.
 const INDENT: usize = 2;
@@ -35,7 +36,9 @@ fn write_value(
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => out.push_str(&format_number(*n)),
-        Value::Str(text) => out.push_str(&quote(&text.render_plain(anchors))),
+        Value::Str(text) => out.push_str(&quote(
+            &text.render_with(|target| crate::reference_location(anchors, target, "json")),
+        )),
         Value::List(items) => write_array(items, anchors, depth, out, stack),
         Value::Mixed(_) => write_array(&value.as_list_items(), anchors, depth, out, stack),
         Value::Dict(map) => write_object(map, anchors, depth, out, stack),
@@ -43,26 +46,19 @@ fn write_value(
             if stack.contains(id) {
                 // A value that embeds itself cannot be written out; emit the
                 // reference form instead of recursing forever.
-                out.push_str(&reference(*id, anchors));
+                out.push_str(&reference(&Ref::anchor(*id), anchors));
                 return;
             }
             stack.push(*id);
             write_object(anchors.properties(*id), anchors, depth, out, stack);
             stack.pop();
         }
-        Value::Reference(id) => out.push_str(&reference(*id, anchors)),
+        Value::Reference(target) => out.push_str(&reference(target, anchors)),
     }
 }
 
-fn reference(id: AnchorId, anchors: &dyn AnchorView) -> String {
-    format!(
-        "{{\"$ref\": {}}}",
-        quote(&format!(
-            "{}#{}",
-            anchors.source_path(id).display(),
-            anchors.name(id)
-        ))
-    )
+fn reference(target: &Ref, anchors: &dyn AnchorView) -> String {
+    quote(&crate::reference_location(anchors, target, "json"))
 }
 
 fn write_array(

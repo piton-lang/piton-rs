@@ -19,6 +19,10 @@ pub enum Target {
     Variable(piton_compile::VariableId),
     /// A property of an anchor, identified by the anchor that declares it.
     Property(AnchorId, String),
+    /// A key nested inside a property's dictionary: the anchor, then the path
+    /// from the property down, so `config: a: 1` is `(Anchor, [config, a])`.
+    /// Never confused with the anchor's own properties.
+    Key(AnchorId, Vec<String>),
     /// A user-defined keyword and the anchor it aliases.
     Keyword(String, Option<AnchorId>),
     /// A module path in a `use` or `from` declaration.
@@ -188,7 +192,7 @@ impl Builder<'_> {
                             self.push(constraint.span, target, Role::Reference, name);
                         }
                     }
-                    self.walk_value(&decl.value, None);
+                    self.walk_value(&decl.value, None, &Place::Unaddressable);
                 }
                 Item::Anchor(decl) => self.walk_anchor(decl),
             }
@@ -236,21 +240,38 @@ impl Builder<'_> {
             Target::Anchor(anchor) => Some(anchor),
             _ => None,
         };
-        self.walk_block(&decl.body, owner);
+        self.walk_block(&decl.body, owner, &Place::Body);
     }
 
-    fn walk_block(&mut self, block: &ast::Block, owner: Option<AnchorId>) {
+    fn walk_block(&mut self, block: &ast::Block, owner: Option<AnchorId>, place: &Place) {
         for item in &block.items {
             match item {
                 BlockItem::Property(property) => {
-                    if let Some(anchor) = owner {
-                        self.push(
-                            property.name_span,
-                            Target::Property(anchor, property.name.clone()),
-                            Role::Definition,
-                            &property.name,
-                        );
-                    }
+                    let nested = match (owner, place) {
+                        (Some(anchor), Place::Body) => {
+                            self.push(
+                                property.name_span,
+                                Target::Property(anchor, property.name.clone()),
+                                Role::Definition,
+                                &property.name,
+                            );
+                            Place::Nested(vec![property.name.clone()])
+                        }
+                        (Some(anchor), Place::Nested(path)) => {
+                            // A key inside a property's dictionary belongs to
+                            // that dictionary, not to the anchor.
+                            let mut path = path.clone();
+                            path.push(property.name.clone());
+                            self.push(
+                                property.name_span,
+                                Target::Key(anchor, path.clone()),
+                                Role::Definition,
+                                &property.name,
+                            );
+                            Place::Nested(path)
+                        }
+                        _ => Place::Unaddressable,
+                    };
                     for constraint in &property.constraints {
                         if let ast::TypeName::Named(name) = &constraint.name {
                             let target = self.resolve(name);
@@ -260,9 +281,13 @@ impl Builder<'_> {
                     self.index
                         .structures
                         .push((property.span, property.name.clone()));
-                    self.walk_value(&property.value, owner);
+                    self.walk_value(&property.value, owner, &nested);
                 }
-                BlockItem::ListItem(entry) => self.walk_value(&entry.value, owner),
+                // Anything under a list item is part of a list, and list
+                // elements are never addressable.
+                BlockItem::ListItem(entry) => {
+                    self.walk_value(&entry.value, owner, &Place::Unaddressable)
+                }
                 BlockItem::Merge(merge) => self.walk_prose(&merge.value, owner),
                 BlockItem::Prose(paragraph) => {
                     for line in &paragraph.lines {
@@ -285,17 +310,17 @@ impl Builder<'_> {
         }
     }
 
-    fn walk_value(&mut self, value: &ValueNode, owner: Option<AnchorId>) {
+    fn walk_value(&mut self, value: &ValueNode, owner: Option<AnchorId>, place: &Place) {
         if let Some(line) = &value.inline {
             self.walk_prose(line, owner);
         }
         if let Some(items) = &value.inline_list {
             for item in items {
-                self.walk_value(item, owner);
+                self.walk_value(item, owner, &Place::Unaddressable);
             }
         }
         if let Some(block) = &value.block {
-            self.walk_block(block, owner);
+            self.walk_block(block, owner, place);
         }
     }
 
@@ -315,15 +340,16 @@ impl Builder<'_> {
             }
             ExprKind::Field(base, field) => {
                 self.walk_expr(base, owner);
-                // A field on `this` or `self` names a property of the enclosing
-                // anchor, which is what makes go-to-definition work on it.
-                if let Some(anchor) = self.field_owner(base, owner) {
-                    self.push(
-                        field.span,
-                        Target::Property(anchor, field.value.clone()),
-                        Role::Reference,
-                        &field.value,
-                    );
+                // A field on `this`, `self`, `super` or an anchor names one of
+                // its properties (or, further down, a nested key), which is
+                // what makes go-to-definition work on it.
+                if let Some((anchor, path)) = self.field_target(expr, owner) {
+                    let target = if path.len() == 1 {
+                        Target::Property(anchor, field.value.clone())
+                    } else {
+                        Target::Key(anchor, path)
+                    };
+                    self.push(field.span, target, Role::Reference, &field.value);
                 }
             }
             ExprKind::Unary(_, operand) => self.walk_expr(operand, owner),
@@ -341,23 +367,48 @@ impl Builder<'_> {
                     self.walk_expr(item, owner);
                 }
             }
-            ExprKind::Paren(inner) => self.walk_expr(inner, owner),
+            ExprKind::Paren(inner) | ExprKind::Nested(_, inner) => self.walk_expr(inner, owner),
             _ => {}
         }
     }
 
+    /// The anchor a field chain reads from and the path below it.
+    ///
+    /// `this.a` is `(this, [a])`, `Card.config.size` is `(Card, [config,
+    /// size])`. A property that holds an anchor starts a new chain at that
+    /// anchor, because that is where the next name is looked up.
+    fn field_target(&self, expr: &Expr, owner: Option<AnchorId>) -> Option<(AnchorId, Vec<String>)> {
+        let ExprKind::Field(base, field) = &expr.kind else {
+            return None;
+        };
+        let (anchor, mut path) = match &base.kind {
+            ExprKind::Paren(inner) => return self.field_target(inner, owner),
+            ExprKind::Field(..) => self.field_target(base, owner)?,
+            _ => (self.field_owner(base, &field.value, owner)?, Vec::new()),
+        };
+        path.push(field.value.clone());
+        let store = self.compilation.store();
+        if path.len() == 1 {
+            return Some((anchor, path));
+        }
+        // Re-root at an anchor held by the prefix.
+        let mut value = store.anchor(anchor).properties.get(&path[0])?;
+        for segment in &path[1..path.len() - 1] {
+            value = value.property(segment, self.compilation)?;
+        }
+        if let piton_core::Value::Anchor(inner) = value {
+            return Some((*inner, vec![field.value.clone()]));
+        }
+        Some((anchor, path))
+    }
     /// Which anchor a field access reads from, when that can be known.
-    fn field_owner(&self, base: &Expr, owner: Option<AnchorId>) -> Option<AnchorId> {
+    ///
+    /// `super.x` reads `x` from everything the anchor inherits, merged the way
+    /// inheritance merges it: the right-most base that has `x` supplies it.
+    fn field_owner(&self, base: &Expr, field: &str, owner: Option<AnchorId>) -> Option<AnchorId> {
         match &base.kind {
             ExprKind::This | ExprKind::SelfRef => owner,
-            ExprKind::Super => owner.and_then(|anchor| {
-                self.compilation
-                    .store()
-                    .anchor(anchor)
-                    .bases
-                    .last()
-                    .copied()
-            }),
+            ExprKind::Super => owner.and_then(|anchor| super_provider(self.compilation, anchor, field)),
             ExprKind::Name(name) => match self.compilation.resolution.lookup(self.module, name) {
                 Some(Symbol::Anchor(anchor)) => Some(anchor),
                 _ => None,
@@ -365,4 +416,38 @@ impl Builder<'_> {
             _ => None,
         }
     }
+}
+
+/// Where a walk over a block is: directly in an anchor body, inside a
+/// property's dictionary (with the path to it), or somewhere no key can be
+/// addressed from outside, such as a list.
+#[derive(Debug, Clone)]
+enum Place {
+    Body,
+    Nested(Vec<String>),
+    Unaddressable,
+}
+
+/// The base `super.<name>` reads from: the right-most base with a value for
+/// it, else the right-most that declares it at all.
+pub fn super_provider(compilation: &Compilation, anchor: AnchorId, name: &str) -> Option<AnchorId> {
+    let store = compilation.store();
+    let bases = &store.anchor(anchor).bases;
+    bases
+        .iter()
+        .rev()
+        .find(|base| {
+            store
+                .anchor(**base)
+                .slots
+                .get(name)
+                .is_some_and(|slot| slot.has_value)
+        })
+        .or_else(|| {
+            bases
+                .iter()
+                .rev()
+                .find(|base| store.anchor(**base).slots.contains_key(name))
+        })
+        .copied()
 }

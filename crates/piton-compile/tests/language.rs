@@ -253,7 +253,7 @@ export anchor ChildAnchor extends BaseAnchor:
 // -- user keywords --------------------------------------------------------
 
 #[test]
-fn a_user_keyword_is_the_left_most_base() {
+fn a_user_keyword_is_the_last_base() {
     let source = r#"anchor MyAnchor as my-anchor:
     description: This is a description of my anchor
 
@@ -263,10 +263,11 @@ anchor OtherBase:
 export my-anchor ChildAnchor extends OtherBase:
     extra: 1
 "#;
-    // The keyword contributes the left-most base, so `OtherBase` wins.
+    // The keyword's anchor is always last in the inheritance chain, so it
+    // wins any collision with what's in `extends`.
     assert_eq!(
         text_of(&property(source, "ChildAnchor", "description")),
-        "Other Base"
+        "This is a description of my anchor"
     );
 }
 
@@ -408,9 +409,10 @@ fn constraints_are_tried_left_to_right() {
 "#;
     assert_eq!(property(source, "A", "numberFirst"), Value::Number(42.0));
     assert_eq!(text_of(&property(source, "A", "stringFirst")), "42");
+    // The quotes are part of the value, so it isn't a boolean or a number.
     assert_eq!(
         text_of(&property(source, "A", "quotedFallsThrough")),
-        "false"
+        "\"false\""
     );
     assert_eq!(property(source, "A", "unquotedBoolean"), Value::Bool(false));
 }
@@ -566,17 +568,65 @@ export anchor C:
 }
 
 #[test]
-fn implementing_two_abstracts_is_rejected() {
+fn an_anchor_can_implement_two_abstracts() {
     let sandbox = Sandbox::new("two-abstracts");
     sandbox.file(
         "main.pi",
         "abstract anchor A:\n    a:: string\n\nabstract anchor B:\n    b:: string\n\nexport anchor C extends A, B:\n    a: one\n    b: two\n",
     );
     let compilation = sandbox.compile("main.pi");
+    assert!(!compilation.has_errors(), "{:?}", compilation.diagnostics.as_slice());
+}
+
+#[test]
+fn two_abstracts_with_types_that_do_not_overlap_are_an_error() {
+    let sandbox = Sandbox::new("conflicting-abstracts");
+    sandbox.file(
+        "main.pi",
+        "abstract anchor A:\n    x:: string\n\nabstract anchor B:\n    x:: number\n\nexport anchor C extends A, B:\n    x: 1\n",
+    );
+    let compilation = sandbox.compile("main.pi");
     assert!(compilation
         .diagnostics
         .iter()
-        .any(|d| d.code == "multiple-abstract-bases"));
+        .any(|d| d.code == "conflicting-abstracts"));
+
+    // Overlapping types are fine; the right-most one wins.
+    let sandbox = Sandbox::new("overlapping-abstracts");
+    sandbox.file(
+        "main.pi",
+        "abstract anchor A:\n    x:: string\n\nabstract anchor B:\n    x:: simple\n\nexport anchor C extends A, B:\n    x: 1\n",
+    );
+    assert!(!sandbox.compile("main.pi").has_errors());
+}
+
+#[test]
+fn a_child_cannot_redeclare_an_inherited_constraint() {
+    let sandbox = Sandbox::new("redeclare");
+    sandbox.file(
+        "main.pi",
+        "abstract anchor Card:\n    subtitle:: string:: null\n\nexport anchor A extends Card:\n    subtitle:: string: Hi\n\nexport anchor B extends Card:\n    subtitle: Hi\n",
+    );
+    let compilation = sandbox.compile("main.pi");
+    let redeclared: Vec<_> = compilation
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "redeclared-constraint")
+        .collect();
+    assert_eq!(redeclared.len(), 1, "{:?}", compilation.diagnostics.as_slice());
+}
+
+#[test]
+fn a_constraint_with_no_value_is_only_allowed_in_an_abstract_anchor() {
+    let sandbox = Sandbox::new("missing-value");
+    sandbox.file(
+        "main.pi",
+        "export anchor Page:\n    title:: string\n\nexport x:: number\n\nexport anchor Empty:\n    title:\n",
+    );
+    let compilation = sandbox.compile("main.pi");
+    let codes: Vec<&str> = compilation.diagnostics.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(codes.iter().filter(|c| **c == "missing-value").count(), 2, "{codes:?}");
+    assert!(codes.contains(&"empty-value"), "{codes:?}");
 }
 
 // -- collections and prose ------------------------------------------------
@@ -652,11 +702,21 @@ fn a_blank_line_is_an_explicit_line_break() {
 }
 
 #[test]
-fn fenced_blocks_are_verbatim() {
-    let source = "export anchor A:\n    text:\n        before\n\n        ```piton\n        // not a comment\n        key: not a property\n        ```\n";
+fn code_blocks_are_parsed_like_any_other_text() {
+    // Code blocks are not escaped: a comment inside one is still a comment and
+    // a key is still a key.
+    let source = "export anchor A:\n    text:\n        before\n\n        ```piton\n        // a comment\n        key: a property\n        ```\n";
+    let value = property(source, "A", "text");
+    let Value::Mixed(mixed) = value else { panic!("expected an implicit list, got {value:?}") };
+    assert_eq!(mixed.get("key"), Some(&Value::string("a property")));
+}
+
+#[test]
+fn an_escape_block_inside_a_code_block_keeps_it_literal() {
+    let source = "export anchor A:\n    text:\n        ```piton\n        \\\\\\\n        // not a comment\n        key: not a property\n        \\\\\\\n        ```\n";
     assert_eq!(
         text_of(&property(source, "A", "text")),
-        "before\n```piton\n// not a comment\nkey: not a property\n```"
+        "```piton\n// not a comment\nkey: not a property\n```"
     );
 }
 
@@ -898,15 +958,13 @@ fn a_reference_renders_as_a_link_and_a_value_renders_inline() {
         links: &links,
     };
     let rendered = markdown::document(a, &context);
-    assert!(rendered.contains("[Target](Target.md)"), "{rendered}");
+    assert!(rendered.contains("[Target](./main.md#target)"), "{rendered}");
     assert!(rendered.contains("## Inline\n\n### V\n\n1"), "{rendered}");
-    assert!(rendered.contains(markdown::LINK_FOOTER), "{rendered}");
 }
 
 #[test]
-fn a_paragraph_that_is_a_quoted_string_loses_its_quotes() {
-    // Quotes are syntax when they wrap a whole paragraph, and punctuation when
-    // they sit inside a sentence.
+fn quotes_are_just_characters() {
+    // Quotes don't mean anything special, even around a whole paragraph.
     let source = r#"export anchor A:
     text:
         In one place we say "The Save Button is Blue" and elsewhere we say
@@ -920,7 +978,7 @@ fn a_paragraph_that_is_a_quoted_string_loses_its_quotes() {
 "#;
     assert_eq!(
         text_of(&property(source, "A", "text")),
-        "In one place we say \"The Save Button is Blue\" and elsewhere we say \"The Save Button is Red\".\nExample\nThe Save Button is Blue\nmay produce a claim."
+        "In one place we say \"The Save Button is Blue\" and elsewhere we say \"The Save Button is Red\".\nExample\n\"The Save Button is Blue\"\nmay produce a claim."
     );
 }
 
@@ -931,16 +989,16 @@ fn a_quoted_value_never_coerces_even_when_it_looks_like_another_type() {
     looksNumeric:: number:: string: "42"
     plainBoolean:: boolean:: string: false
 "#;
-    assert_eq!(text_of(&property(source, "A", "looksBoolean")), "false");
-    assert_eq!(text_of(&property(source, "A", "looksNumeric")), "42");
+    assert_eq!(text_of(&property(source, "A", "looksBoolean")), "\"false\"");
+    assert_eq!(text_of(&property(source, "A", "looksNumeric")), "\"42\"");
     assert_eq!(property(source, "A", "plainBoolean"), Value::Bool(false));
 }
 
 #[test]
 fn an_unconstrained_quoted_value_stays_a_string() {
     let source = "export anchor A:\n    n: \"42\"\n    b: \"true\"\n";
-    assert_eq!(text_of(&property(source, "A", "n")), "42");
-    assert_eq!(text_of(&property(source, "A", "b")), "true");
+    assert_eq!(text_of(&property(source, "A", "n")), "\"42\"");
+    assert_eq!(text_of(&property(source, "A", "b")), "\"true\"");
 }
 
 #[test]
@@ -1073,4 +1131,294 @@ fn an_abstract_anchor_the_entry_exports_has_no_value_to_compile() {
     let rendered = entry_surface(&sandbox, "main.pi");
     assert!(rendered.contains("\"Thing\""), "{rendered}");
     assert!(!rendered.contains("\"Shape\""), "{rendered}");
+}
+
+// -- rules clarified in the specification ---------------------------------
+
+fn error_codes(source: &str) -> Vec<String> {
+    let sandbox = Sandbox::new("codes");
+    sandbox.file("main.pi", source);
+    let compilation = sandbox.compile("main.pi");
+    compilation
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.code.clone())
+        .collect()
+}
+
+#[test]
+fn plus_lines_in_a_string_block_join_with_nothing_and_double_plus_with_a_break() {
+    let source = r#"anchor Base:
+    d: Base text.
+
+export anchor Plus extends Base:
+    d:
+        Child text.
+        + {super.d}
+
+export anchor DoublePlus extends Base:
+    d:
+        Child text.
+        ++ {super.d}
+"#;
+    assert_eq!(text_of(&property(source, "Plus", "d")), "Child text.Base text.");
+    assert_eq!(text_of(&property(source, "DoublePlus", "d")), "Child text.\nBase text.");
+}
+
+#[test]
+fn plus_lines_combine_everything_above_them() {
+    let source = r#"anchor BaseAnchor:
+    items:
+        - A
+        - B
+        - C
+
+export anchor First extends BaseAnchor:
+    items:
+        + {super.items}
+        - D
+
+export anchor Merged extends BaseAnchor:
+    items:
+        - A
+        - D
+        + {super.items}
+"#;
+    assert_eq!(list_of(&property(source, "First", "items")), vec!["A", "B", "C", "D"]);
+    assert_eq!(list_of(&property(source, "Merged", "items")), vec!["D", "A", "B", "C"]);
+}
+
+#[test]
+fn super_finds_a_property_on_an_earlier_base() {
+    let source = r#"anchor Left:
+    d: from-left
+
+anchor Right:
+    other: x
+
+export anchor Child extends Left, Right:
+    d: ${super.d} plus child
+"#;
+    assert_eq!(text_of(&property(source, "Child", "d")), "from-left plus child");
+}
+
+#[test]
+fn super_keeps_self_on_the_derived_anchor() {
+    let source = r#"anchor Base:
+    name: Base
+    greeting: Hello ${self.name}
+
+export anchor Child extends Base:
+    name: Child
+    greeting: ${super.greeting}!
+"#;
+    assert_eq!(text_of(&property(source, "Child", "greeting")), "Hello Child!");
+}
+
+#[test]
+fn a_reference_can_point_at_a_property() {
+    let source = r#"anchor Button:
+    color: blue
+
+export anchor A:
+    link: @{Button.color}
+    same: {@{Button} == @{Button}}
+    different: {@{Button} == @{Button.color}}
+"#;
+    match property(source, "A", "link") {
+        Value::Reference(target) => assert_eq!(target.path, vec!["color".to_string()]),
+        other => panic!("expected a reference, got {other:?}"),
+    }
+    assert_eq!(property(source, "A", "same"), Value::Bool(true));
+    assert_eq!(property(source, "A", "different"), Value::Bool(false));
+}
+
+#[test]
+fn a_reference_to_something_that_is_not_an_anchor_is_an_error() {
+    let codes = error_codes("x: 1\nexport anchor A:\n    link: @{x}\n");
+    assert!(codes.contains(&"invalid-reference".to_string()), "{codes:?}");
+}
+
+#[test]
+fn a_reference_renders_as_a_path_in_json() {
+    let sandbox = Sandbox::new("json-ref");
+    sandbox.file("main.pi", "export anchor Button:\n    color: blue\n\nexport link: @{Button.color}\n");
+    let compilation = sandbox.compile("main.pi");
+    let surface = compilation.compiled_surface(compilation.resolution.entry);
+    let rendered = piton_emit::render(
+        piton_emit::Adapter::Json,
+        &surface,
+        &compilation,
+        piton_emit::MarkdownContext {
+            from_directory: &sandbox.dir,
+            source_root: &sandbox.dir,
+        },
+    );
+    assert!(rendered.contains("\"link\": \"./main.json:Button.color\""), "{rendered}");
+}
+
+#[test]
+fn an_anchor_in_the_middle_of_text_makes_an_implicit_list() {
+    let source = "anchor Foo:\n    a: 1\n\nexport anchor A:\n    see: See {Foo} for details\n";
+    match property(source, "A", "see") {
+        Value::Mixed(mixed) => {
+            let items = Value::Mixed(mixed).as_list_items();
+            assert_eq!(items.len(), 3);
+            assert_eq!(items[0], Value::string("See"));
+            assert!(matches!(items[1], Value::Anchor(_)));
+            assert_eq!(items[2], Value::string("for details"));
+        }
+        other => panic!("expected an implicit list, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_string_plus_a_list_is_an_implicit_list_and_the_name_needs_a_string_expression() {
+    let source = "tags: [a, b]\n\nexport anchor A:\n    joined: {\"Tags: \" + tags}\n    name: ${tags}\n    flag: {\"Enabled: \" + true}\n";
+    assert!(matches!(property(source, "A", "joined"), Value::Mixed(_)));
+    assert_eq!(text_of(&property(source, "A", "name")), "tags");
+    assert_eq!(text_of(&property(source, "A", "flag")), "Enabled: true");
+}
+
+#[test]
+fn a_named_property_list_stringifies_to_its_dotted_name() {
+    let source = "export anchor A:\n    items: [x, y]\n    name: ${this.items}\n";
+    assert_eq!(text_of(&property(source, "A", "name")), "A.items");
+}
+
+#[test]
+fn a_list_item_is_never_a_key() {
+    let source = "export anchor A:\n    h:\n        - Settings:\n            a: 1\n            b: 2\n";
+    match property(source, "A", "h") {
+        Value::List(items) => {
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0], Value::string("Settings:"));
+            assert!(matches!(&items[1], Value::Dict(map) if map.len() == 2));
+        }
+        other => panic!("expected a list, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_literal_coerced_to_a_string_keeps_its_text() {
+    let source = "export anchor A:\n    written:: string: 1.0\n    evaluated:: string: {1.0}\n";
+    assert_eq!(text_of(&property(source, "A", "written")), "1.0");
+    assert_eq!(text_of(&property(source, "A", "evaluated")), "1");
+}
+
+#[test]
+fn booleans_and_null_never_coerce_to_strings() {
+    assert!(error_codes("export flag:: string: false\n").contains(&"type-mismatch".to_string()));
+    assert!(error_codes("export flag:: string: null\n").contains(&"type-mismatch".to_string()));
+}
+
+#[test]
+fn logical_operators_and_the_ternary_need_booleans() {
+    assert!(error_codes("export a: {1 ? 2 : 3}\n").contains(&"invalid-condition".to_string()));
+    assert!(error_codes("export a: {1 && true}\n").contains(&"invalid-operand".to_string()));
+    assert!(error_codes("export a: {!1}\n").contains(&"invalid-operand".to_string()));
+}
+
+#[test]
+fn plus_on_values_it_cannot_combine_is_an_error() {
+    assert!(error_codes("export a: {true + 1}\n").contains(&"invalid-operand".to_string()));
+}
+
+#[test]
+fn double_plus_merges_dictionaries_deeply() {
+    let source = "x:\n    a:\n        p: 1\ny:\n    a:\n        q: 2\n\nexport anchor A:\n    shallow: {x + y}\n    deep: {x ++ y}\n";
+    let deep = property(source, "A", "deep");
+    let Value::Dict(deep) = deep else { panic!("expected a dictionary") };
+    assert!(matches!(deep.get("a"), Some(Value::Dict(a)) if a.len() == 2));
+    let Value::Dict(shallow) = property(source, "A", "shallow") else { panic!() };
+    assert!(matches!(shallow.get("a"), Some(Value::Dict(a)) if a.len() == 1));
+}
+
+#[test]
+fn a_hyphen_inside_a_name_is_part_of_the_name() {
+    let source = "export anchor K:\n    foo-bar: w\n    read: {this.foo-bar}\n";
+    assert_eq!(text_of(&property(source, "K", "read")), "w");
+}
+
+#[test]
+fn a_decimal_needs_its_leading_zero() {
+    let source = "export anchor N:\n    a: .5\n    b: 0.5\n    c: 1e3\n";
+    assert_eq!(property(source, "N", "a"), Value::string(".5"));
+    assert_eq!(property(source, "N", "b"), Value::Number(0.5));
+    assert_eq!(property(source, "N", "c"), Value::string("1e3"));
+}
+
+#[test]
+fn an_escaped_comment_marker_is_text() {
+    let source = "export anchor A:\n    b: \\ // \\ Just Text\n";
+    assert_eq!(text_of(&property(source, "A", "b")), "// Just Text");
+}
+
+#[test]
+fn compiled_output_holds_only_exports() {
+    let sandbox = Sandbox::new("exports-only");
+    sandbox.file(
+        "main.pi",
+        "anchor Hidden:\n    a: 1\n\nabstract anchor Shape:\n    a:: number\n\nexport anchor Shown:\n    b: 2\n\nx: 3\n",
+    );
+    let compilation = sandbox.compile("main.pi");
+    let surface = compilation.compiled_surface(compilation.resolution.entry);
+    let keys: Vec<&str> = surface.keys().map(String::as_str).collect();
+    assert_eq!(keys, vec!["Shown"]);
+}
+
+#[test]
+fn syntax_problems_are_reported_by_the_compilation() {
+    let codes = error_codes("garbage line here\n");
+    assert!(codes.contains(&"invalid-declaration".to_string()), "{codes:?}");
+    let codes = error_codes("export anchor A:\n    a: 1\n\tb: 2\n");
+    assert!(codes.contains(&"inconsistent-indentation".to_string()), "{codes:?}");
+}
+
+#[test]
+fn syntax_rules_from_the_overview_are_enforced() {
+    assert!(error_codes("anchor A as list:\n    a: 1\n").contains(&"reserved-keyword".to_string()));
+    assert!(error_codes("export anchor A:\nexport x: 1\n").contains(&"empty-anchor".to_string()));
+    assert!(error_codes("export myVariable::number:42\n").contains(&"constraint-spacing".to_string()));
+    assert!(error_codes("export anchor A:\n    x::number: 1\n").contains(&"constraint-spacing".to_string()));
+    assert!(error_codes("export anchor A:\n    a.b: 1\n").contains(&"invalid-key".to_string()));
+}
+
+#[test]
+fn an_inheritance_cycle_shows_the_cycle() {
+    let sandbox = Sandbox::new("cycle");
+    sandbox.file("main.pi", "anchor A extends B:\n    x: 1\n\nanchor B extends A:\n    y: 1\n");
+    let compilation = sandbox.compile("main.pi");
+    assert!(compilation
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "inheritance-cycle" && d.message.contains("A -> B -> A")));
+}
+
+#[test]
+fn a_plain_anchor_type_takes_the_winning_abstract() {
+    let sandbox = Sandbox::new("winning-abstract");
+    sandbox.file(
+        "main.pi",
+        "abstract anchor A:\n    a:: string\n\nabstract anchor B:\n    b:: string\n\nanchor Both extends A, B:\n    a: one\n    b: two\n\nexport anchor Holder:\n    onlyB:: B[]: [{Both}]\n",
+    );
+    assert!(!sandbox.compile("main.pi").has_errors());
+    sandbox.file(
+        "main.pi",
+        "abstract anchor A:\n    a:: string\n\nabstract anchor B:\n    b:: string\n\nanchor Both extends A, B:\n    a: one\n    b: two\n\nexport anchor Holder:\n    onlyA:: A[]: [{Both}]\n",
+    );
+    assert!(sandbox.compile("main.pi").has_errors());
+}
+
+#[test]
+fn a_duplicate_key_in_one_block_is_an_error() {
+    assert!(error_codes("export anchor A:\n    a: 1\n    a: 2\n").contains(&"duplicate-key".to_string()));
+}
+
+#[test]
+fn wrapping_is_the_only_way_to_escape() {
+    let source = "export anchor A:\n    wrapped: Similarly\\ : \\\n    bare: back\\slash\n";
+    assert_eq!(text_of(&property(source, "A", "wrapped")), "Similarly:");
+    assert_eq!(text_of(&property(source, "A", "bare")), "back\\slash");
 }

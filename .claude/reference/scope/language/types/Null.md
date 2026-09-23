@@ -14,10 +14,8 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ## Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md) and [Inference](Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md#type-coercion) and [Inference](./Inference.md#inference).
 
 ## Description
 
 Null is represented with lowercase null. Null is a value that means "nothing" So yes, `{null == null}` is true. Piton doesn’t have the concept of undefined or any other "nothing" value.
-
-Links in this document point at reference files. Read one when the work touches what it describes.

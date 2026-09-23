@@ -2,7 +2,7 @@
 #
 # Append to ~/.config/helix/languages.toml, then run `hx --grammar fetch` and
 # `hx --grammar build`. The `piton` binary must be on PATH; install it with
-# `cargo xtask install`.
+# `cargo xtask install`. See README.md for the query files.
 
 [language-server.piton]
 command = "piton"
@@ -17,9 +17,15 @@ indent = { tab-width = 4, unit = "    " }
 language-servers = ["piton"]
 roots = ["piton.config.pi"]
 # Autoformat on save is an option (the spec's autoFormatOnSave): it stays off
-# here, and turning it on formats on save with commented content left alone.
+# here. Set it to true to format through the language server on save; the
+# formatter adds the space after `//` and touches nothing else that is
+# commented.
 auto-format = false
 
 [[grammar]]
 name = "piton"
-source = { git = "https://github.com/mctavishdynamics/piton", rev = "HEAD", subpath = "editors/tree-sitter-piton" }
+# The published grammar: the same repository and commit the Zed extension pins
+# in editors/zed/extension.toml. It holds the grammar and the generated parser
+# at its root, and the revision has to be a real commit -- `HEAD` is not
+# something Helix can check out reproducibly.
+source = { git = "https://github.com/piton-lang/tree-sitter-piton", rev = "5d2fa75e8776694e316c6505bc8ba646121e56b8" }

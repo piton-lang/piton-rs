@@ -13,37 +13,40 @@
 use std::path::Path;
 
 use piton_core::{
-    format_number, title_case, AnchorId, AnchorView, Mixed, MixedItem, Properties, Text, Value,
+    format_number, title_case, AnchorId, AnchorView, Mixed, MixedItem, Properties, Ref, Text, Value,
 };
 
 /// Markdown allows six heading levels; past that Belay uses a bold label.
 const MAX_HEADING_LEVEL: usize = 6;
 
-/// Appended to any document that contains reference links, so a reader knows
-/// the links are worth following.
+/// Formerly appended to any document that contained reference links. The
+/// specification asks for no such footer, so nothing appends it any more; the
+/// constant remains only so existing callers that search for it still build.
 pub const LINK_FOOTER: &str =
     "Links in this document point at reference files. Read one when the work touches what it describes.";
 
 /// Resolves a reference to a link target relative to the file being written.
 pub trait LinkResolver {
-    /// The link target for `anchor`, or `None` when the target has no compiled
-    /// representation in this output.
-    fn link(&self, anchor: AnchorId) -> Option<String>;
+    /// The link target for a reference, or `None` when the target has no
+    /// compiled representation in this output.
+    fn link(&self, target: &Ref) -> Option<String>;
 }
 
-/// A resolver that produces no links; references fall back to the anchor name.
+/// A resolver that produces no links; references fall back to their name.
 pub struct NoLinks;
 
 impl LinkResolver for NoLinks {
-    fn link(&self, _: AnchorId) -> Option<String> {
+    fn link(&self, _: &Ref) -> Option<String> {
         None
     }
 }
 
-/// Links anchors to a sibling tree that mirrors the source layout, which is the
-/// convention Belay's reference directories follow.
+/// Links to wherever the anchor was rendered when each source file compiles to
+/// a Markdown file next to it, which is what `piton compile` does: a reference
+/// to Button from a file next to it links to `./Button.md#button`, and one to a
+/// property links to that property's heading.
 pub struct MirroredLinks<'a> {
-    /// Directory of the file being written, expressed in source-tree terms.
+    /// Directory of the file being written.
     pub from_directory: &'a Path,
     /// Root the source tree is measured from.
     pub source_root: &'a Path,
@@ -51,20 +54,9 @@ pub struct MirroredLinks<'a> {
 }
 
 impl LinkResolver for MirroredLinks<'_> {
-    fn link(&self, anchor: AnchorId) -> Option<String> {
-        let source = self.anchors.source_path(anchor);
-        let directory = source.parent()?;
-        let name = format!("{}.md", self.anchors.name(anchor));
-        // An anchor outside the source root has no place in the mirrored tree;
-        // link to it as a sibling rather than leaking an absolute path.
-        let Ok(relative) = directory.strip_prefix(self.source_root) else {
-            return Some(name);
-        };
-        let from = self
-            .from_directory
-            .strip_prefix(self.source_root)
-            .unwrap_or(Path::new(""));
-        Some(crate::relative_link(from, &relative.join(name)))
+    fn link(&self, target: &Ref) -> Option<String> {
+        let file = crate::reference_file(self.anchors, target, "md");
+        Some(format!("{file}#{}", crate::reference_fragment(self.anchors, target)))
     }
 }
 
@@ -76,16 +68,18 @@ pub struct Context<'a> {
 
 impl Context<'_> {
     fn render_text(&self, text: &Text) -> String {
-        text.render_with(|id| self.reference_markup(id))
+        text.render_with(|target| self.reference_markup(target))
     }
 
     /// A reference renders as a Markdown link to the referenced anchor's
-    /// compiled representation. Access stays lazy: the link is not an include.
-    fn reference_markup(&self, id: AnchorId) -> String {
-        let name = self.anchors.name(id);
-        match self.links.link(id) {
-            Some(target) => format!("[{name}]({target})"),
-            None => name.to_string(),
+    /// compiled representation, with the anchor's name as the link text, or
+    /// `Anchor.property` for a property. Access stays lazy: the link is not an
+    /// include.
+    fn reference_markup(&self, target: &Ref) -> String {
+        let name = target.display(self.anchors);
+        match self.links.link(target) {
+            Some(link) => format!("[{name}]({link})"),
+            None => name,
         }
     }
 }
@@ -96,6 +90,16 @@ pub fn document(anchor: AnchorId, context: &Context<'_>) -> String {
     out.push_str(&heading(1, &title_case(context.anchors.name(anchor))));
     out.push('\n');
     render_properties(context.anchors.properties(anchor), 2, context, &mut out);
+    finish(out)
+}
+
+/// Renders a document with the anchor's title and the given properties, for a
+/// caller that leaves some of them out.
+pub fn document_with(anchor: AnchorId, properties: &Properties, context: &Context<'_>) -> String {
+    let mut out = String::new();
+    out.push_str(&heading(1, &title_case(context.anchors.name(anchor))));
+    out.push('\n');
+    render_properties(properties, 2, context, &mut out);
     finish(out)
 }
 
@@ -122,10 +126,6 @@ pub fn body(value: &Value, level: usize, context: &Context<'_>) -> String {
 fn finish(mut out: String) -> String {
     while out.ends_with('\n') {
         out.pop();
-    }
-    if out.contains("](") {
-        out.push_str("\n\n");
-        out.push_str(LINK_FOOTER);
     }
     out.push('\n');
     out
@@ -161,7 +161,7 @@ fn render_value(value: &Value, level: usize, context: &Context<'_>, out: &mut St
         Value::Number(n) => paragraph(&format_number(*n), out),
         Value::Bool(b) => paragraph(if *b { "true" } else { "false" }, out),
         Value::Null => paragraph("null", out),
-        Value::Reference(id) => paragraph(&context.reference_markup(*id), out),
+        Value::Reference(target) => paragraph(&context.reference_markup(target), out),
         Value::List(items) => {
             if items.is_empty() {
                 return;
@@ -221,6 +221,12 @@ fn render_mixed(mixed: &Mixed, level: usize, context: &Context<'_>, out: &mut St
                 out.push_str(&heading(level + 1, &title_case(name)));
                 out.push('\n');
                 render_value(value, level + 1, context, out);
+            }
+            // A value dropped into the text, such as the copy of an anchor,
+            // renders in place.
+            MixedItem::Value(value) => {
+                flush_fenced!();
+                render_value(value, level, context, out);
             }
         }
     }
@@ -321,7 +327,7 @@ fn scalar(value: &Value, context: &Context<'_>) -> String {
         Value::Number(n) => format_number(*n),
         Value::Bool(b) => if *b { "true" } else { "false" }.to_string(),
         Value::Null => "null".to_string(),
-        Value::Reference(id) => context.reference_markup(*id),
+        Value::Reference(target) => context.reference_markup(target),
         Value::Dict(_) | Value::Anchor(_) | Value::List(_) | Value::Mixed(_) => String::new(),
     }
 }

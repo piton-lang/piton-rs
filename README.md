@@ -5,8 +5,9 @@ for writing agent guidance, and **Belay**, the framework that compiles that
 guidance into the artifacts agentic coding tools read.
 
 Piton has no runtime. It compiles to data — JSON, YAML, Markdown — through
-adapters. The specification in `spec/` is itself written in Piton, so the
-compiler's acceptance suite is the language describing itself.
+renderers, and frameworks like Belay add adapters on top of them. The
+specification in `spec/` is itself written in Piton, so the compiler's
+acceptance suite is the language describing itself.
 
 ```
 piton check      # validate the specbase
@@ -22,7 +23,8 @@ cargo build --release
 ./target/release/piton --help
 ```
 
-Requires Rust 1.75 or newer. There are no system dependencies.
+Requires Rust 1.75 or newer. The package commands (`tether`, `update`) also
+need `git` on `PATH`; nothing else does.
 
 ## Installing
 
@@ -44,28 +46,36 @@ what would happen. `cargo xtask` on its own lists the tasks.
 
 | Command | What it does |
 | --- | --- |
-| `piton agent <agent>` | Builds the project, then launches the agent with a primer on how to read it |
-| `piton build [config]` | Compiles the project configured by `piton.config.pi`; `--dry-run` reports without writing |
+| `piton agent [claude]` | Launches the agent with a primer on the project and the fluency prompt; `--print-fluency` prints the prompt instead |
+| `piton build [config]` | Builds the project configured by `piton.config.pi`; `--dry-run` reports without writing |
 | `piton check [paths]` | Validates syntax, imports, references, types, inheritance, composition, exports, and circular dependencies; exits 1 on any error |
-| `piton compile <path>` | Renders one file, or a `--write` glob, through `--adapter json\|yaml\|markdown` |
-| `piton format [path]` | Applies canonical formatting; `--check` reports without writing |
+| `piton compile <path>` | Prints one file's output, or writes a glob's with `--write`; `--renderer json\|yaml\|markdown`, `--dependencies` |
+| `piton format [path]` | Applies canonical formatting; `--check` reports without writing, and `piton format -` formats stdin to stdout |
 | `piton loc [paths]` | Counts total, code, comment, and blank lines per file |
 | `piton lsp` | Runs the language server over stdio |
-| `piton reach [targets]` | Reports reachable and unreachable anchors, with depth and path |
-| `piton remove <package>` | Deletes an installed package, refusing while anything still imports it |
-| `piton tether <source>` | Clones a git repository, strips it of git, and installs what it publishes under `tethers/` |
-| `piton untether <package>` | Moves an installed package into the source root and rewrites the imports that named it |
+| `piton reach [targets]` | Reports reachable anchors with depth and path, and what is unreachable; `--no-paths` and `--no-unreachable` trim the report |
+| `piton remove <package>` | Deletes an installed package and drops it from `dependencies`, refusing if it was edited or anything still imports it |
+| `piton tether [source]` | Installs every dependency, or adds `source` to `dependencies` and installs it; `--as` picks the name |
+| `piton untether <package>` | Moves an installed package to `<root>/untethered/` and rewrites the imports that named it; `--as` renames it, `--no-rewrite` only moves it |
 | `piton update [packages]` | Reinstalls the dependencies declared in `piton.config.pi` at their pinned versions |
+
+`piton build` writes the renderer's output to the `output` directory in the
+config (default `./dist`, as JSON unless `renderer` says otherwise): the entry
+file and every file its exports reference, each at its place under `root`. So
+`spec/components/Button.pi` becomes `dist/components/Button.json`. Frameworks
+add their own output on top.
 
 ## Packages
 
 Dependencies are vendored and managed. `piton tether <git-url>` clones a
-repository, removes every trace of git from it, and copies what it publishes
-into `tethers/`, where it is committed with the project and read from disk like
+repository, removes every trace of git from it, and copies the packages it
+offers into `tethers/`, where it is committed with the project and read from disk like
 any other source. Nothing is fetched at compile time.
 
-A repository says what it publishes with `package` anchors from
-`@piton/packaging`, listed in its `piton.config.pi`:
+A repository says what it offers with `piton-package` anchors from
+`@piton/packaging`, listed under `packages` in its `piton.config.pi`. A project
+never installs its own packages; `packages` is for other projects that tether
+it.
 
 ```piton
 use @piton/config
@@ -79,16 +89,19 @@ export piton-config MyProject:
 
     dependencies:
         - https://github.com/piton-lang/piton-rs
-            tag: "1.0"
+            tag: 1.0
 
-package MyPackage:
+piton-package MyPackage:
     name: my-package
     root: ./spec
 ```
 
-A repository with no configuration is installed whole, under the name its URL
-implies. An installed package is imported by name rather than by path, and the
-rest of the path resolves as usual:
+Each package installs under `tethers/<name>`. Names are flat, with no `/`;
+names like `@piton/belay` are kept for the packages bundled with the compiler.
+Pins are strings, so `tag: 1.0` means the tag `1.0`, and a dependency gets one
+pin at most. A repository that offers no packages is installed whole, under the
+name its URL implies. An installed package is imported by name rather than by
+path, and the rest of the path resolves as usual:
 
 ```piton
 from my-package import MyAnchor
@@ -97,11 +110,11 @@ use my-package
 ```
 
 Dependencies are flat: one version of a repository is installed for the whole
-project, and a disagreement about which version is reported rather than
-resolved quietly. `.piton/packages.lock.json` records the commit each package
-came from and a digest of every file it installed, which is what lets `update`
-and `remove` tell an untouched package from an edited one. An edited package is
-never overwritten — `piton untether` is the way to keep the edits, and it moves
+project. When two packages want different versions, the newest commit wins and
+a warning says so. `.piton/tether.lock` records the URL and commit each package
+came from and a hash of its files, which is what lets `update` and `remove`
+tell an untouched package from an edited one. An edited package is never
+overwritten — `piton untether` is the way to keep the edits, and it moves
 the package to `<root>/untethered/` and rewrites every import that named it.
 
 ## Layout
@@ -110,7 +123,7 @@ the package to `<root>/untethered/` and rewrites every import that named it.
 crates/piton-core      values, text, diagnostics, naming rules
 crates/piton-syntax    lexer, parser, lossless CST, formatter
 crates/piton-compile   modules, inheritance, evaluation, types, reachability
-crates/piton-emit      JSON, YAML, and Markdown adapters
+crates/piton-emit      JSON, YAML, and Markdown renderers
 crates/piton-belay     the Belay framework and its three target adapters
 crates/piton-lsp       the language server
 crates/piton-cli       the `piton` binary
@@ -171,6 +184,11 @@ it, so `crates/piton-syntax/src/language.rs` holds the keyword lists and
 `crates/piton-syntax/tests/editors.rs` checks every definition against them.
 That test is not decoration: it caught `pass` missing from five of the nine.
 
+Some editors can't do everything natively. Helix has no way to express the
+"dedent on a blank line" Enter rule. Zed, Kate and JetBrains get that rule from
+the server's on-type formatting instead. JetBrains has no native highlighter
+yet: it uses the VS Code TextMate bundle plus the LSP4IJ plugin.
+
 ## Consuming a specification from a build
 
 `packages/vite-plugin-piton` makes `import spec from './app.pi'` work in Vite,
@@ -202,8 +220,9 @@ fails in this suite rather than in someone else's project.
 
 `piton lsp` implements diagnostics, completion, hover, go-to-definition,
 go-to-implementation, type hierarchy, find-references, rename, document and
-workspace symbols, semantic highlighting, inlay hints, signature help, code
-actions, formatting, folding, and selection ranges.
+workspace symbols, semantic highlighting, inlay hints, code actions, code
+lenses, formatting (including on-type formatting for the Enter rules), folding,
+selection ranges, and a compiled-output preview. There is no signature help.
 
 Every one of them answers from the *resolved* program rather than from raw
 syntax. Hovering a user keyword finds the anchor it aliases and says so.
@@ -222,82 +241,77 @@ that does not support dynamic registration simply never asks.
 
 ## Decisions
 
-The specification leaves several questions open, and a few of its statements
-disagree with its own examples. Each choice below is implemented as described and
-is covered by a test.
-
-**String interpolation of an anchor yields its source name.** `${Adapter}`
-renders `Adapter`. The reference output establishes this: `${self}` inside
-`ArithmeticOperators` renders `ArithmeticOperators`.
+The specification leaves some questions open. Each choice below is implemented
+as described and is covered by a test.
 
 **Only `@{...}` produces a reference document.** A `${...}` is a string, so it
-does not create a file and nothing links to one. The reference tree in
-`.claude/reference` contains five documents that nothing links to, all of them
-anchors named only in `${...}`; this compiler does not generate them.
-
-**A reference to something that is not an anchor warns and falls back to the
-value.** The specification says this should be an error, but it also lists
-reference identity as unresolved, and the specbase contains three such uses.
-Warning keeps the build honest without failing it over an unfinished rule.
+does not create a file and nothing links to one.
 
 **Braces that do not contain a valid expression are text.** Prose can discuss
-`{...}` and `${}` without escaping them, and a warning says so. This does not
-reintroduce string fallback for unknown symbols: a bare name still parses as an
-expression and still fails during resolution.
+`{...}` and `${}` without escaping them, and a warning (`braces-as-text`) says
+so. The spec says an invalid expression is an error, so this may change. It does
+not bring back string fallback for unknown symbols: a bare name still parses as
+an expression and still fails during resolution.
 
-**Any text without spaces is a property key.** `thisIsAKey`, `123`, `foo-bar`,
-`false`, and `null` are all keys, exactly as the Dictionaries specification says.
-A word that is a keyword elsewhere is still a key here: what separates
-`anchor MyAnchor:` from `anchor: a description` is the colon, not the word. An
-anchor body that contains something other than properties — a stray code fence,
-say — gets a warning naming what will not be emitted.
-
-**Only fully braced expressions evaluate.** `{a} && false` is the string
-`true && false`, following the normative text — "an expression must be wrapped in
-curly braces, otherwise it'll be interpreted as a string" — rather than the
-worked example in `Anchors.md`, which shows it evaluating to `false`.
-
-**The merge operator keeps the last occurrence.** Merging `[A, B, C]` into
-`[A, B, C, D]` yields `[D, A, B, C]`, which is the result the specification
-states.
-
-**A line that is nothing but backslashes delimits a multi-line escape block.**
-Its contents are literal and its delimiters are consumed, so a code example can
-quote syntax the compiler would otherwise read. The closing run must be the same
-length as the opening one, which lets a block quote another block's delimiters.
-A backslash run *inside* a line keeps its inline meaning, so the two forms do not
-collide — the same distinction Markdown draws between an inline code span and a
-fenced block.
+**An anchor body that holds something other than properties** — a stray code
+fence, say — gets a warning naming what will not be emitted.
 
 **Word splitting does not break up runs of capitals.** `whatIsAType` renders as
-`What Is AType`, matching the reference output. Acronym-aware splitting would
-produce a different document.
+`What Is AType`. Acronym splitting is an open decision in the specification.
 
 **Continuation lines are indented.** A multi-line value inside a list item or map
-entry is indented so it stays within its item. The reference output leaves such
-lines at column zero, which breaks the list it belongs to.
+entry is indented so it stays within its item.
 
-**Instructions outside `shapeRoot` attach to the code root**, with a warning,
-since the specification lists their placement as undefined.
+**Instructions outside `shapeRoot` are an error.** The specification lists
+their placement as undecided, so the build says so
+(`instruction-placement-unspecified`) rather than guessing.
+
+**A construct that is also referenced gets a warning.** What one anchor
+compiling to several outputs means is undecided, so `@{...}` on a skill links
+to its copy in the reference tree and warns (`reference-identity-unspecified`).
 
 ## The specification is the framework
 
 `@piton/belay` is not written in Rust. The four constructs are the `.pi` files in
-`spec/scope/belay/anchors`, embedded into the compiler at build time and served
-from a virtual filesystem, so the specification's description of a skill *is* the
-skill a project gets. Add a property to `Skill.pi` and every skill in every
-project is required to define it, immediately. There is no second copy.
+`spec/scope/belay/anchors`, and the three adapters are the files in
+`spec/scope/belay/adapters`. They are embedded into the compiler at build time
+and served from a virtual filesystem, so the specification's description of a
+skill *is* the skill a project gets. Add a property to `Skill.pi` and every
+skill in every project is required to define it, immediately. There is no
+second copy.
 
 Those files also hold the prose that documents each construct, so the package
-index re-exports the constructs by name rather than re-exporting the files
-wholesale: `from @piton/belay import Skill` works, `import SkillBehavior` does
-not.
+index re-exports the constructs and adapters by name rather than re-exporting
+the files wholesale: `from @piton/belay import Skill` works,
+`import SkillBehavior` does not. The index adds what has no spec file of its
+own: the `belay-config` anchor and the special imports. `ClaudeAdapter` is
+still exported as a deprecated alias of `ClaudeCodeAdapter`.
 
-Target configuration stays in the package index. The specification describes each
-adapter as a prose contract — what the target supports, what must be diagnosed —
-while the compiler needs machine-readable fields the contract does not carry, and
-names them differently. Those are two artifacts about one subject rather than one
-artifact written twice, so they are written separately.
+A project picks targets by listing adapter anchors in its `belay-config`:
+
+```piton
+use @piton/config
+use @piton/belay
+
+from @piton/belay import ClaudeCodeAdapter, CodexAdapter
+
+export piton-config MyProject:
+    root: ./spec
+
+    frameworks:
+        - {Belay}
+
+belay-config Belay:
+    codeRoot: ./src
+    shapeRoot: ./spec/shape
+
+    adapters:
+        - {ClaudeCodeAdapter}
+        - {CodexAdapter}
+```
+
+`crossDiscovery` (`allow` or `separate`) and `instructionByteLimit` are the
+other two fields.
 
 ### Location exports
 
@@ -309,8 +323,8 @@ at:
 | `BELAY_AGENT_ROOT` | The directory of the target being compiled — `.claude`, `.codex`, `.opencode` |
 | `BELAY_PROJECT_ROOT` | The project root |
 | `BELAY_SHAPE_ROOT` | The configured `shapeRoot`, or the project root |
-| `BELAY_CODE_ROOT` | The configured `codeRoot`, or the project root |
-| `__BELAY_SHAPE__` | The target's *compiled* shape directory, under its reference root |
+| `BELAY_CODE_ROOT` | The configured `codeRoot` |
+| `BELAY_COMPILED_SHAPE` | The target's *compiled* shape directory, under its reference root |
 
 None of them can be decided while evaluating: the agent root depends on which
 adapter is being compiled, and all five are written relative to the file that
@@ -319,6 +333,8 @@ file, per target — which is why the same source produces `../..` in a skill an
 something else in a reference document.
 
 ```piton
+use @piton/belay
+
 from @piton/belay import BELAY_CODE_ROOT
 
 export skill Example:
@@ -326,6 +342,14 @@ export skill Example:
     useWhen: Explicitly invoked
     prompt: The implementation is under ${BELAY_CODE_ROOT}.
 ```
+
+### Reference documents
+
+Everything the build reaches that is not a construct goes into the target's
+reference root, one Markdown file per source module, with each anchor as a
+heading. `@{Button}` becomes a relative link with a fragment, like
+`[Button](../../reference/components/Button.md#button)`, and
+`@{Button.color}` links to the property's heading.
 
 ## Determinism and safety
 
@@ -339,7 +363,9 @@ one path are rejected.
 Output order is stable and content is compared before writing, so identical
 source produces identical bytes. Each build records what it wrote in
 `.piton/manifest.json`, and cleanup only removes paths from that manifest — a
-file Belay did not write is never deleted.
+file Belay did not write is never deleted. `.piton/targets.json` records which
+adapter each target was built with and the date its platform documentation was
+last checked.
 
 ## Testing
 

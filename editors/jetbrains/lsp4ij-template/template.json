@@ -1,0 +1,17 @@
+{
+  "id": "piton",
+  "name": "Piton",
+  "programArgs": {
+    "default": "piton lsp",
+    "windows": "piton.exe lsp"
+  },
+  "fileTypeMappings": [
+    {
+      "fileType": {
+        "name": "Piton",
+        "patterns": ["*.pi"]
+      },
+      "languageId": "piton"
+    }
+  ]
+}

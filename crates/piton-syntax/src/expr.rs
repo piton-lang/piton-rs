@@ -8,7 +8,7 @@
 use chumsky::prelude::*;
 use piton_core::{Diagnostic, Span};
 
-use crate::ast::{BinaryOp, Expr, ExprKind, Spanned, UnaryOp};
+use crate::ast::{BinaryOp, Expr, ExprKind, Sigil, Spanned, UnaryOp};
 
 /// A token inside an expression.
 ///
@@ -48,6 +48,11 @@ pub enum ExprTokenKind {
     RParen,
     LBracket,
     RBracket,
+    /// `${`, `#{`, or `@{` opening a nested conversion or reference.
+    DollarBrace,
+    HashBrace,
+    AtBrace,
+    RBrace,
     Unknown,
 }
 
@@ -110,11 +115,28 @@ pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>
             }
             c if c.is_alphabetic() || c == '_' => {
                 let mut j = i;
-                while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
-                    j += 1;
+                loop {
+                    while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                        j += 1;
+                    }
+                    // A hyphen in the middle of a name is part of the name, so
+                    // `config.foo-bar` reads the key `foo-bar`. Subtraction
+                    // needs spaces around it.
+                    if j + 1 < chars.len()
+                        && chars[j] == '-'
+                        && (chars[j + 1].is_alphanumeric() || chars[j + 1] == '_')
+                    {
+                        j += 1;
+                        continue;
+                    }
+                    break;
                 }
                 (ExprTokenKind::Ident, j - i)
             }
+            '$' if chars.get(i + 1) == Some(&'{') => (ExprTokenKind::DollarBrace, 2),
+            '#' if chars.get(i + 1) == Some(&'{') => (ExprTokenKind::HashBrace, 2),
+            '@' if chars.get(i + 1) == Some(&'{') => (ExprTokenKind::AtBrace, 2),
+            '}' => (ExprTokenKind::RBrace, 1),
             '.' => (ExprTokenKind::Dot, 1),
             ',' => (ExprTokenKind::Comma, 1),
             '+' if chars.get(i + 1) == Some(&'+') => (ExprTokenKind::PlusPlus, 2),
@@ -269,6 +291,25 @@ pub fn parser() -> impl Parser<ExprToken, Expr, Error = Simple<ExprToken>> + Clo
                     span: span.into(),
                     kind: ExprKind::Paren(Box::new(inner)),
                 }),
+            filter(|t: &ExprToken| {
+                matches!(
+                    t.kind,
+                    ExprTokenKind::DollarBrace | ExprTokenKind::HashBrace | ExprTokenKind::AtBrace
+                )
+            })
+            .then(expr.clone())
+            .then_ignore(token(ExprTokenKind::RBrace))
+            .map_with_span(|(open, inner): (ExprToken, Expr), span: std::ops::Range<usize>| {
+                let sigil = match open.kind {
+                    ExprTokenKind::DollarBrace => Sigil::Stringify,
+                    ExprTokenKind::HashBrace => Sigil::Numeric,
+                    _ => Sigil::Reference,
+                };
+                Expr {
+                    span: span.into(),
+                    kind: ExprKind::Nested(sigil, Box::new(inner)),
+                }
+            }),
         ));
 
         // Property access binds tighter than every operator.
@@ -498,6 +539,27 @@ mod tests {
             parse_ok("\"false\"").kind,
             ExprKind::Quoted("false".to_string())
         );
+    }
+
+    #[test]
+    fn hyphens_inside_names_are_part_of_the_name() {
+        match parse_ok("config.foo-bar").kind {
+            ExprKind::Field(_, field) => assert_eq!(field.value, "foo-bar"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(matches!(parse_ok("a - b").kind, ExprKind::Binary(BinaryOp::Subtract, ..)));
+    }
+
+    #[test]
+    fn sigils_nest_inside_expressions() {
+        match parse_ok("@{Button} == @{Card.color}").kind {
+            ExprKind::Binary(BinaryOp::Equal, lhs, rhs) => {
+                assert!(matches!(lhs.kind, ExprKind::Nested(Sigil::Reference, _)));
+                assert!(matches!(rhs.kind, ExprKind::Nested(Sigil::Reference, _)));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(matches!(parse_ok("\"a\" + ${true}").kind, ExprKind::Binary(..)));
     }
 
     #[test]

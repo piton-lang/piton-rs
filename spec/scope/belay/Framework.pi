@@ -63,6 +63,8 @@ export anchor ProjectConfiguration extends FrameworkSpecification:
             codeRoot: Required. Where the app's code lives, relative to the project config.
             shapeRoot: Optional. Where the shape instructions live. Without it, BELAY_SHAPE_ROOT is the project root and nothing is placed by shape.
             adapters: Required. The list of adapters to build for.
+            crossDiscovery: Optional. allow or separate. Required when one tool would pick up another tool's output and change how it activates.
+            instructionByteLimit: Optional. The instruction byte limit to check against, for targets that have one.
 
         example:
             codeRoot: ./src/

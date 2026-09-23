@@ -121,6 +121,11 @@ struct ScannedLines {
     diagnostics: Vec<Diagnostic>,
 }
 
+/// The specification treats a Markdown code fence as plain text. The fence
+/// machinery is kept behind this switch rather than deleted, because the
+/// verbatim reading is what an editor wants when it highlights an example.
+const CODE_BLOCKS_ARE_TEXT: bool = true;
+
 fn scan_lines(source: &str, path: &Path) -> ScannedLines {
     let mut lines = Vec::new();
     let mut diagnostics = Vec::new();
@@ -177,7 +182,15 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
             continue;
         }
 
-        let ticks = trimmed.chars().take_while(|c| *c == '`').count();
+        // Code blocks are not escaped. To Piton they're just text, so anything
+        // inside them still gets parsed: expressions, comments, lists, all of
+        // it. That is why a code example puts an escape block inside its
+        // fence. So a fence line is ordinary prose and no region is opened.
+        let ticks = if CODE_BLOCKS_ARE_TEXT {
+            0
+        } else {
+            trimmed.chars().take_while(|c| *c == '`').count()
+        };
         match open {
             None => {
                 if ticks >= 3 {
@@ -429,11 +442,19 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        self.error(
-            "invalid-declaration",
-            "expected a declaration, an import, or a variable",
-            line.span(),
-        );
+        if misspaced_constraint(rest) {
+            self.error(
+                "constraint-spacing",
+                "a type constraint needs a space after `::` and after `:`, like `name:: number: 42`",
+                line.span(),
+            );
+        } else {
+            self.error(
+                "invalid-declaration",
+                "expected a declaration, an import, or a variable",
+                line.span(),
+            );
+        }
         self.pos += 1;
         // Consume any indented body so the error does not cascade.
         while self.more_below(line.indent) {
@@ -673,8 +694,27 @@ impl<'a> Parser<'a> {
         let end = body.span.end.max(line.end);
         self.leave(end);
 
+        if body.items.is_empty() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "empty-anchor",
+                    format!("`{}` has nothing indented under it", header.name),
+                    &self.file,
+                    header.name_span,
+                )
+                .with_help("an anchor always needs something indented under it; write `pass` if it has no properties of its own"),
+            );
+        }
+
         if let Some(alias) = &header.alias {
-            if !piton_core::names::is_valid_keyword(&alias.value) {
+            if piton_core::names::is_reserved(&alias.value) {
+                self.diagnostics.push(Diagnostic::error(
+                    "reserved-keyword",
+                    format!("`{}` is a reserved word, so it can't be used as a keyword", alias.value),
+                    &self.file,
+                    alias.span,
+                ));
+            } else if !piton_core::names::is_valid_keyword(&alias.value) {
                 self.diagnostics.push(Diagnostic::error(
                     "invalid-keyword",
                     format!(
@@ -788,12 +828,38 @@ impl<'a> Parser<'a> {
             let code_start = line.content_start + leading_len(&line.code);
             if let Some(header) = parse_property_header(code, code_start) {
                 flush!();
+                if let Some(first) = items.iter().find_map(|item| match item {
+                    BlockItem::Property(existing) if existing.name == header.name => Some(existing.name_span),
+                    _ => None,
+                }) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            "duplicate-key",
+                            format!("`{}` is already defined in this block", header.name),
+                            &self.file,
+                            header.name_span,
+                        )
+                        .with_label(piton_core::Label::new(
+                            self.file.clone(),
+                            first,
+                            "first defined here".to_string(),
+                        )),
+                    );
+                }
                 self.enter(SyntaxKind::PROPERTY, line.start);
                 let property = self.finish_property(&line, header, SyntaxKind::PROPERTY);
                 self.leave(property.span.end);
                 end = property.span.end;
                 items.push(BlockItem::Property(property));
                 continue;
+            }
+
+            if misspaced_constraint(code) {
+                self.error(
+                    "constraint-spacing",
+                    "a type constraint needs a space after `::` and after `:`, like `name:: number: 42`",
+                    line.code_span,
+                );
             }
 
             // Anything else is prose.
@@ -1220,6 +1286,21 @@ fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
     })
 }
 
+/// True for a line that starts like a typed property but gets the spacing
+/// wrong, such as `myVariable::number:42`. The whitespace after both `::` and
+/// `:` is part of the syntax.
+fn misspaced_constraint(text: &str) -> bool {
+    let name_len = text
+        .char_indices()
+        .take_while(|(i, c)| c.is_alphanumeric() || *c == '_' || (*c == '-' && *i > 0))
+        .map(|(i, c)| i + c.len_utf8())
+        .last()
+        .unwrap_or(0);
+    name_len > 0
+        && text[name_len..].starts_with("::")
+        && parse_property_header(text, 0).is_none()
+}
+
 /// Length of a type constraint starting at `text`, which ends at the next `::`
 /// or at a `:` that is followed by a space or the end of the line.
 fn constraint_length(text: &str) -> usize {
@@ -1523,8 +1604,8 @@ fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>
         }
     }
 
-    if depth == 0 {
-        // The root node was already closed; reopen to append the tail.
+    if depth == 0 && cursor < source.len() {
+        // The root node was closed with source still left over.
         diagnostics.push(Diagnostic::warning(
             "internal-tree",
             "syntax tree closed before the end of the file",
@@ -1719,24 +1800,19 @@ mod tests {
     }
 
     #[test]
-    fn fences_are_verbatim() {
-        let source = "anchor A:\n    body:\n        text\n\n        ```piton\n        key: value\n        - not a list\n        ```\n";
+    fn code_fences_are_ordinary_text() {
+        // Code blocks are not escaped; what's inside is parsed like anything
+        // else.
+        let source = "anchor A:\n    body:\n        text\n\n        ```piton\n        key: value\n        - a list item\n        ```\n";
         let parse = parse_str(source);
         assert_clean(&parse);
         assert_eq!(parse.syntax().text().to_string(), source);
         let anchor = parse.file.anchors().next().expect("anchor");
         let body = &anchor.body.properties().next().expect("property").value;
         let block = body.block.as_ref().expect("block");
-        let fence = block
-            .items
-            .iter()
-            .find_map(|item| match item {
-                BlockItem::Fence(fence) => Some(fence),
-                _ => None,
-            })
-            .expect("fence");
-        assert_eq!(fence.info, "piton");
-        assert_eq!(fence.lines, vec!["key: value", "- not a list"]);
+        assert!(block.items.iter().any(|item| matches!(item, BlockItem::Property(p) if p.name == "key")));
+        assert!(block.items.iter().any(|item| matches!(item, BlockItem::ListItem(_))));
+        assert!(!block.items.iter().any(|item| matches!(item, BlockItem::Fence(_))));
     }
 
     #[test]
@@ -1789,15 +1865,15 @@ mod tests {
             .block
             .as_ref()
             .expect("block");
-        let fence = block
+        let escape = block
             .items
             .iter()
             .find_map(|item| match item {
-                BlockItem::Fence(fence) => Some(fence),
+                BlockItem::Escape(escape) => Some(escape),
                 _ => None,
             })
-            .expect("fence");
-        assert_eq!(fence.lines, vec!["anchor B:", "    v: ${super.x}"]);
+            .expect("escape block");
+        assert_eq!(escape.lines, vec!["anchor B:", "    v: ${super.x}"]);
     }
 
     #[test]

@@ -203,7 +203,7 @@ fn every_definition_uses_four_spaces() {
 /// `textDocument/onTypeFormatting` for the clients that ask. Not every client
 /// does, so the editors that can express the rule themselves have to -- and
 /// they have to express it the same way, so the pattern lives in one place.
-const BLOCK_OPENS: &str = r"^[^/\s][^:]*:\s*$|^\s*[^:/\s]+(::\s*[^:/\s]+)*:\s*$|^\s*[-+]{1,2}\s+[^:/\s]+(::\s*[^:/\s]+)*:\s*$";
+const BLOCK_OPENS: &str = r"^[^-+/\s][^:]*:\s*$|^\s*[^-+:/\s][^:/\s]*(::\s*[^:/\s]+)*:\s*$";
 
 #[test]
 fn every_definition_indents_after_a_colon() {
@@ -255,8 +255,6 @@ fn the_block_opens_pattern_agrees_with_the_server() {
         "anchor A extends B as command:",
         "    frameworks:",
         "    config:: dictionary:",
-        "    - frameworks:",
-        "    ++ key:",
     ] {
         assert!(pattern.is_match(line), "`{line}` opens a block");
     }
@@ -268,6 +266,10 @@ fn the_block_opens_pattern_agrees_with_the_server() {
         "    //note:",
         "    title: a book",
         "greeting: Well:",
+        // A list item is never a key, even with a colon at the end, and a
+        // merge line takes a value rather than opening one.
+        "    - frameworks:",
+        "    ++ key:",
     ] {
         assert!(!pattern.is_match(line), "`{line}` opens nothing");
     }

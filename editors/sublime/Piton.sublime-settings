@@ -1,0 +1,7 @@
+{
+    // Four spaces per level, not tabs, and not configurable.
+    "tab_size": 4,
+    "translate_tabs_to_spaces": true,
+    "detect_indentation": false,
+    "auto_indent": true
+}

@@ -1,8 +1,10 @@
 //! `piton agent` — launch an agentic coding tool with Piton fluency.
 //!
-//! "Fluency" means two things: the project's artifacts are current before the
-//! agent starts, and the agent is told how to read them. Neither is something
-//! the agent can work out on its own from a directory of generated Markdown.
+//! "Fluency" is what the agent is told before it begins: a short primer about
+//! this project, followed by the fluency prompt -- the output of the
+//! GenerateFluencyPrompt skill, which lives in `FLUENCY_PROMPT.md` at the
+//! project root. None of it is something the agent could work out on its own
+//! from a directory of generated Markdown.
 
 use std::path::Path;
 use std::process::Command;
@@ -10,6 +12,9 @@ use std::process::Command;
 use piton_compile::{BelayConfig, Framework};
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
+
+/// The file the GenerateFluencyPrompt skill writes, at the project root.
+const FLUENCY_FILE: &str = "FLUENCY_PROMPT.md";
 
 /// What the agent is told about the project before it begins.
 fn primer(root: &Path, reference_root: &str, instruction_file: &str) -> String {
@@ -28,14 +33,23 @@ fn primer(root: &Path, reference_root: &str, instruction_file: &str) -> String {
     )
 }
 
-/// How the language, Belay, packaging, and tooling behave, generated from the
-/// specification by the GenerateFluencyPrompt skill. It is the same for every
-/// project; only the primer ahead of it is project-specific.
-const REFERENCE: &str = include_str!("../fluency.md");
+/// The fluency prompt the compiler was built with: a copy of the repository's
+/// `FLUENCY_PROMPT.md`, used when a project has none of its own.
+const EMBEDDED_FLUENCY: &str = include_str!("../fluency.md");
+
+/// The fluency prompt for a project: its own `FLUENCY_PROMPT.md` when it has
+/// one, since that is the one generated from the specification it is using,
+/// and the embedded copy otherwise.
+fn reference(root: &Path) -> String {
+    std::fs::read_to_string(root.join(FLUENCY_FILE))
+        .ok()
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or_else(|| EMBEDDED_FLUENCY.to_string())
+}
 
 /// The complete fluency prompt for a project, as its first configured adapter
 /// lays artifacts out.
-fn fluency(source_root: &Path, belay: Option<&BelayConfig>) -> String {
+fn fluency(root: &Path, source_root: &Path, belay: Option<&BelayConfig>) -> String {
     let adapter = belay
         .and_then(|config| config.adapters.first())
         .and_then(|target| piton_belay::adapter::Adapter::by_target(target));
@@ -45,63 +59,35 @@ fn fluency(source_root: &Path, belay: Option<&BelayConfig>) -> String {
         None => (".claude/reference", "CLAUDE.md"),
     };
     format!(
-        "{}\n\n{REFERENCE}",
-        primer(source_root, reference_root, instruction_file)
+        "{}\n\n{}",
+        primer(source_root, reference_root, instruction_file),
+        reference(root).trim_end()
     )
 }
 
 pub fn run(agent: &str, print_fluency: bool, args: &[String]) -> u8 {
+    // Without a configuration the working directory is the project, which is
+    // all the prompt needs: where the source is, and where FLUENCY_PROMPT.md
+    // would be.
     let (project, _) = project::current();
-    if project.config_path.is_none() {
-        report::fail("no piton.config.pi found; run from a Piton project");
-        return EXIT_ERRORS;
-    }
-
-    // Guidance the agent reads has to reflect the current source, so build
-    // first and refuse to launch on a broken specbase.
     let root = project.root.clone();
-    let source_root = project.source_root.clone();
     let belay = project
         .frameworks
         .iter()
         .find_map(|framework| match framework {
             Framework::Belay(config) => Some(config.clone()),
         });
+    let prompt = fluency(&root, &project.source_root, belay.as_ref());
 
     // Printing the prompt is read-only: nothing is built and nothing launched.
     if print_fluency {
-        println!("{}", fluency(&source_root, belay.as_ref()));
+        println!("{prompt}");
         return EXIT_SUCCESS;
-    }
-
-    let compilation = project::compile_project(project);
-
-    let mut diagnostics = compilation.diagnostics.clone();
-    let mut plan = piton_belay::Plan::default();
-    if let Some(config) = &belay {
-        plan = piton_belay::plan(&compilation, config);
-        diagnostics.extend(plan.diagnostics.iter().cloned());
-    }
-    diagnostics.sort();
-    if report::diagnostics(
-        &diagnostics,
-        &|path| compilation.source_of(path).map(str::to_string),
-        &root,
-    ) {
-        eprintln!("agent not launched; fix the errors above first");
-        return EXIT_ERRORS;
-    }
-    if let Err(error) = piton_belay::write(&plan, &root) {
-        report::fail(format!("cannot write project artifacts: {error}"));
-        return EXIT_ERRORS;
     }
 
     let (program, launch_args) = match agent {
         "claude" => {
-            let mut launch = vec![
-                "--append-system-prompt".to_string(),
-                fluency(&source_root, belay.as_ref()),
-            ];
+            let mut launch = vec!["--append-system-prompt".to_string(), prompt];
             launch.extend(args.iter().cloned());
             ("claude", launch)
         }
@@ -125,7 +111,7 @@ pub fn run(agent: &str, print_fluency: bool, args: &[String]) -> u8 {
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             report::fail(format!(
-                "`{program}` is not on PATH; install it or run it yourself with:\n  {program} --append-system-prompt '<piton primer>'"
+                "`{program}` is not on PATH; install it or print the prompt with `piton agent --print-fluency`"
             ));
             EXIT_ERRORS
         }
@@ -133,5 +119,30 @@ pub fn run(agent: &str, print_fluency: bool, args: &[String]) -> u8 {
             report::fail(format!("cannot launch `{program}`: {error}"));
             EXIT_ERRORS
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_embedded_copy_is_the_fluency_prompt() {
+        assert!(EMBEDDED_FLUENCY.starts_with("# Piton Fluency"));
+    }
+
+    #[test]
+    fn a_project_fluency_prompt_is_preferred() {
+        let directory = std::env::temp_dir().join(format!(
+            "piton-agent-fluency-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        assert_eq!(reference(&directory), EMBEDDED_FLUENCY);
+        std::fs::write(directory.join(FLUENCY_FILE), "# Project Fluency\n").expect("write");
+        assert_eq!(reference(&directory), "# Project Fluency\n");
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }

@@ -11,5 +11,5 @@ piton-compile.workspace = true
 piton-emit.workspace = true
 piton-belay.workspace = true
 tower-lsp.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["time", "sync"] }
 serde_json.workspace = true

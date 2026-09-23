@@ -149,11 +149,11 @@ fn report_managed(project: &piton_compile::Project, sites: &[ops::ImportSite], n
 /// rename is atomic; they need not be, and a package that cannot be untethered
 /// because a temporary directory lives elsewhere would be a strange limit.
 ///
-/// Either way the scope directories the package left behind are pruned, so
-/// untethering `MyScope/package` does not leave an empty `tethers/MyScope`.
+/// Either way `tethers/` is removed when the package was the last thing in
+/// it.
 fn move_tree(project_root: &Path, name: &str, from: &Path, to: &Path) -> Result<(), Failure> {
     if std::fs::rename(from, to).is_ok() {
-        ops::prune_empty_scopes(project_root, from);
+        ops::prune_empty_tethers(project_root);
         return Ok(());
     }
     ops::copy_ungitted(from, to)?;

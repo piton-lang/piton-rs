@@ -2,7 +2,7 @@
 
 ## Description
 
-Generates a Piton fluency prompt for the agent
+Generates a Piton fluency prompt for the agent.
 
 ## Prompt
 

@@ -1,8 +1,10 @@
 //! The Piton command-line compiler.
 
 mod commands;
+mod config_edit;
 mod packages;
 mod project;
+mod render;
 mod report;
 
 use std::path::PathBuf;
@@ -53,7 +55,9 @@ enum Command {
 
     /// Check specific files or the project and report errors
     Check {
-        /// Files or directories to check; defaults to the project
+        /// Optional file, directory, or glob. Defaults to the project, or to
+        /// every .pi file under the working directory when there is no
+        /// piton.config.pi
         paths: Vec<PathBuf>,
     },
 
@@ -65,10 +69,10 @@ enum Command {
     Compile {
         /// File or glob
         path: String,
-        /// Output format
-        #[arg(long, default_value = "json")]
-        adapter: String,
-        /// Write each result next to its input with the adapter's extension
+        /// Renderer: json, yaml, or markdown
+        #[arg(long, default_value = "json", alias = "adapter")]
+        renderer: String,
+        /// Write each result next to its input with the renderer's extension
         #[arg(long)]
         write: bool,
         /// Wrap the result with the source files it was compiled from, for a
@@ -79,7 +83,8 @@ enum Command {
 
     /// Apply canonical formatting
     Format {
-        /// File or glob; defaults to the project
+        /// File or glob; defaults to the project. `-` reads the source from
+        /// stdin and writes the formatted text to stdout
         path: Option<String>,
         /// Only check the files and report problems; do not write
         #[arg(long)]
@@ -88,7 +93,7 @@ enum Command {
 
     /// Count lines of Piton source for specific files or the project
     Loc {
-        /// Files or directories to count; defaults to the project
+        /// Optional file, directory, or glob; defaults to the project
         paths: Vec<PathBuf>,
     },
 
@@ -96,15 +101,19 @@ enum Command {
     Lsp,
 
     /// Analyze which parts of the specbase are reachable
+    ///
+    /// Reports what is reachable, what is unreachable, the depth of each
+    /// reachable anchor, and the path taken to it.
     Reach {
-        /// Files or anchor names to start from; defaults to the project entry
+        /// Optional file, glob, or anchor to start from; defaults to the
+        /// project's entry
         targets: Vec<String>,
-        /// Also list what nothing reaches
-        #[arg(long, default_value_t = true)]
-        unreachable: bool,
-        /// Show the path taken to each reachable anchor
-        #[arg(long)]
-        paths: bool,
+        /// Don't list what nothing reaches
+        #[arg(long = "no-unreachable")]
+        no_unreachable: bool,
+        /// Don't show the path taken to each reachable anchor
+        #[arg(long = "no-paths")]
+        no_paths: bool,
     },
 
     /// Remove a package from the project
@@ -113,10 +122,13 @@ enum Command {
         package: String,
     },
 
-    /// Clone and "un-git" a repository into the tethers directory
+    /// Clone and "un-git" repositories into the tethers directory
+    ///
+    /// On its own, installs everything in piton.config.pi's dependencies.
+    /// Given a source, adds it to piton.config.pi and installs it.
     Tether {
-        /// Path to the git repository
-        source: String,
+        /// Optional URL (or path) of the git repository
+        source: Option<String>,
         /// Install it under this name instead of the one it publishes
         #[arg(long = "as")]
         rename: Option<String>,
@@ -153,20 +165,22 @@ fn main() -> ExitCode {
         Command::Check { paths } => commands::check::run(&paths),
         Command::Compile {
             path,
-            adapter,
+            renderer,
             write,
             dependencies,
-        } => commands::compile::run(&path, &adapter, write, dependencies),
+        } => commands::compile::run(&path, &renderer, write, dependencies),
         Command::Format { path, check } => commands::format::run(path.as_deref(), check),
         Command::Loc { paths } => commands::loc::run(&paths),
         Command::Lsp => commands::lsp::run(),
         Command::Reach {
             targets,
-            unreachable,
-            paths,
-        } => commands::reach::run(&targets, unreachable, paths),
+            no_unreachable,
+            no_paths,
+        } => commands::reach::run(&targets, !no_unreachable, !no_paths),
         Command::Remove { package } => commands::remove::run(&package),
-        Command::Tether { source, rename } => commands::tether::run(&source, rename.as_deref()),
+        Command::Tether { source, rename } => {
+            commands::tether::run(source.as_deref(), rename.as_deref())
+        }
         Command::Untether {
             package,
             rename,

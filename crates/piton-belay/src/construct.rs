@@ -40,6 +40,18 @@ impl ConstructKind {
     }
 }
 
+impl ConstructKind {
+    /// Properties emitted as target metadata rather than body text, where a
+    /// reference has no representation.
+    pub fn metadata_properties(self) -> &'static [&'static str] {
+        match self {
+            ConstructKind::Instruction => &[],
+            ConstructKind::Skill => &["description", "useWhen"],
+            ConstructKind::Command | ConstructKind::Agent => &["description"],
+        }
+    }
+}
+
 /// A recognized construct, with its resolved content.
 #[derive(Debug, Clone)]
 pub struct Construct {

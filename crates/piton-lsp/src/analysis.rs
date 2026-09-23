@@ -10,13 +10,17 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use piton_compile::eval::{BlockStep, Probe};
 use piton_compile::{reach, Compilation, ModuleId, Symbol};
-use piton_core::{title_case, AnchorId, Diagnostic, Label, Severity, Span, Value, ValueKind};
+use piton_core::{
+    format_number, title_case, AnchorId, Diagnostic, Label, MixedItem, Span, Value, ValueKind,
+};
 use piton_emit::markdown;
 use piton_syntax::ast::{self, BinaryOp, BlockItem, Expr, ExprKind, FromKind, Item, MergeOp};
 use piton_syntax::format::{INDENT, WRAP_COLUMN};
 
 use crate::index::{Index, Role, Target};
+use crate::world::{is_config_file, OutputSettings};
 
 /// One correspondence between a source construct and a slice of compiled output.
 #[derive(Debug, Clone)]
@@ -45,12 +49,43 @@ pub struct Composition {
     pub hint: String,
 }
 
+/// One place a name is bound in a module: a declaration, or an import entry.
+#[derive(Debug, Clone)]
+pub struct Binding {
+    /// The span of the name as the binding writes it.
+    pub span: Span,
+    /// The path text of the `from` declaration, or `None` for a declaration
+    /// written in the module itself.
+    pub from: Option<String>,
+    /// The span of the whole import entry, for rewriting it.
+    pub entry_span: Span,
+    pub symbol: Symbol,
+}
+
+/// A name a module binds to more than one thing.
+#[derive(Debug, Clone)]
+pub struct Ambiguity {
+    pub module: ModuleId,
+    pub name: String,
+    /// Every binding, in source order. `winner` indexes the one references
+    /// resolve to.
+    pub bindings: Vec<Binding>,
+    pub winner: usize,
+    /// Where the module reads the name.
+    pub references: Vec<Span>,
+}
+
 /// Everything the editor features below read from one compilation.
 #[derive(Debug, Default)]
 pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     pub compositions: Vec<Composition>,
     pub mappings: Vec<Mapping>,
+    pub ambiguities: Vec<Ambiguity>,
+    /// For each anchor, the anchors that copy it in with `{X}`.
+    pub composers: HashMap<AnchorId, Vec<AnchorId>>,
+    /// For each anchor, the anchors it copies in with `{X}`.
+    pub components: HashMap<AnchorId, Vec<AnchorId>>,
 }
 
 impl Analysis {
@@ -117,15 +152,17 @@ pub fn is_unnecessary(code: &str) -> bool {
 }
 
 /// Builds the analysis for a compiled program and its occurrence index.
-pub fn analyze(compilation: &Compilation, index: &Index) -> Analysis {
+pub fn analyze(compilation: &Compilation, index: &Index, output: &OutputSettings) -> Analysis {
     let mut analysis = Analysis::default();
     let reachability = reach::from_entry(compilation);
 
     imports(compilation, index, &mut analysis.diagnostics);
+    ambiguities(compilation, index, &mut analysis);
     unused(compilation, index, &reachability, &mut analysis.diagnostics);
     redundant(compilation, &mut analysis.diagnostics);
-    conflicts(compilation, &mut analysis);
-    map_outputs(compilation, &mut analysis.mappings);
+    compositions(compilation, &mut analysis);
+    composition_edges(compilation, &mut analysis);
+    map_outputs(compilation, output, &mut analysis.mappings);
     belay(compilation, &mut analysis);
 
     analysis.diagnostics.sort_by(|left, right| {
@@ -169,7 +206,9 @@ pub fn organize_imports(
                     .iter()
                     .map(|entry| render_import_entry(entry))
                     .collect::<Vec<_>>();
-                if kept == current {
+                // A path still written with `.pi` is rewritten without it, the
+                // way `piton format` writes it.
+                if kept == current && !decl.path.text.ends_with(".pi") {
                     continue;
                 }
                 if kept.is_empty() {
@@ -422,6 +461,8 @@ fn render_import_entry(entry: &ast::ImportItem) -> String {
 }
 
 fn render_from(path: &str, keyword: &str, names: &[String], star: bool) -> String {
+    // The extension is optional in an import path, and the formatter drops it.
+    let path = path.strip_suffix(".pi").unwrap_or(path);
     let head = format!("from {path} {keyword}");
     if star {
         return format!("{head} *");
@@ -449,8 +490,207 @@ fn render_from(path: &str, keyword: &str, names: &[String], star: bool) -> Strin
 }
 
 // ---------------------------------------------------------------------------
+// Ambiguous references
+// ---------------------------------------------------------------------------
+
+/// Names a module binds to more than one thing: two imports of the same name
+/// from different modules, or an import a local declaration hides.
+///
+/// The compiler resolves these silently -- a declaration beats an import, and
+/// the last import beats earlier ones -- so a reference can mean something
+/// other than what its author had in mind. The editor says so.
+fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis) {
+    for module in compilation.graph().iter() {
+        if module.is_package() {
+            continue;
+        }
+        let ast = module.ast();
+        let mut bindings: Vec<(String, Binding)> = Vec::new();
+        let mut import_spans: Vec<Span> = Vec::new();
+        for item in &ast.items {
+            match item {
+                Item::Anchor(decl) => {
+                    if let Some(symbol) = compilation.resolution.lookup(module.id, &decl.name) {
+                        bindings.push((
+                            decl.name.clone(),
+                            Binding {
+                                span: decl.name_span,
+                                from: None,
+                                entry_span: decl.name_span,
+                                symbol,
+                            },
+                        ));
+                    }
+                }
+                Item::Variable(decl) => {
+                    if let Some(symbol) = compilation.resolution.lookup(module.id, &decl.name) {
+                        bindings.push((
+                            decl.name.clone(),
+                            Binding {
+                                span: decl.name_span,
+                                from: None,
+                                entry_span: decl.name_span,
+                                symbol,
+                            },
+                        ));
+                    }
+                }
+                Item::From(decl) if decl.kind == FromKind::Import && !decl.star => {
+                    import_spans.push(decl.span);
+                    let Some(source) = resolve_written(compilation, module.id, &decl.path.text)
+                    else {
+                        continue;
+                    };
+                    for entry in &decl.items {
+                        let Some(symbol) = compilation.resolution.lookup_export(
+                            source,
+                            &entry.name,
+                            &mut HashSet::new(),
+                        ) else {
+                            continue;
+                        };
+                        bindings.push((
+                            entry.local_name().to_string(),
+                            Binding {
+                                span: entry
+                                    .alias
+                                    .as_ref()
+                                    .map(|alias| alias.span)
+                                    .unwrap_or(entry.name_span),
+                                from: Some(decl.path.text.clone()),
+                                entry_span: entry.span,
+                                symbol,
+                            },
+                        ));
+                    }
+                }
+                Item::From(decl) => import_spans.push(decl.span),
+                _ => {}
+            }
+        }
+
+        let mut names: Vec<String> = bindings.iter().map(|(name, _)| name.clone()).collect();
+        names.sort();
+        names.dedup();
+        for name in names {
+            let mut found: Vec<Binding> = bindings
+                .iter()
+                .filter(|(bound, _)| *bound == name)
+                .map(|(_, binding)| binding.clone())
+                .collect();
+            // Importing the same thing twice is a duplicate, reported as one;
+            // only different things under one name are ambiguous.
+            let mut distinct: Vec<Symbol> = Vec::new();
+            for binding in &found {
+                if !distinct.contains(&binding.symbol) {
+                    distinct.push(binding.symbol);
+                }
+            }
+            if distinct.len() < 2 {
+                continue;
+            }
+            found.sort_by_key(|binding| binding.span.start);
+            let resolved = compilation.resolution.lookup(module.id, &name);
+            // The compiler prefers a declaration, then the last import.
+            let winner = found
+                .iter()
+                .position(|binding| binding.from.is_none())
+                .or_else(|| {
+                    found
+                        .iter()
+                        .rposition(|binding| Some(binding.symbol) == resolved)
+                })
+                .unwrap_or(found.len() - 1);
+
+            let references: Vec<Span> = index
+                .get(module.id)
+                .map(|module_index| {
+                    module_index
+                        .occurrences
+                        .iter()
+                        .filter(|occurrence| {
+                            occurrence.role == Role::Reference
+                                && occurrence.text == name
+                                && matches!(
+                                    occurrence.target,
+                                    Target::Anchor(_) | Target::Variable(_)
+                                )
+                                && !import_spans
+                                    .iter()
+                                    .any(|span| span.contains(occurrence.span.start))
+                        })
+                        .map(|occurrence| occurrence.span)
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let describe = |binding: &Binding| match &binding.from {
+                Some(path) => format!("`{name}` imported from `{path}`"),
+                None => format!("`{name}` declared in this file"),
+            };
+            let meanings = found.iter().map(describe).collect::<Vec<_>>().join(" or ");
+            let chosen = describe(&found[winner]);
+
+            for span in &references {
+                let mut diagnostic = Diagnostic::warning(
+                    "ambiguous-reference",
+                    format!("`{name}` is ambiguous: it could be {meanings}; it resolves to {chosen}"),
+                    &module.path,
+                    *span,
+                )
+                .with_help("give one of the imports an alias to say which one is meant".to_string());
+                for binding in &found {
+                    diagnostic = diagnostic.with_label(Label::new(
+                        module.path.clone(),
+                        binding.span,
+                        describe(binding),
+                    ));
+                }
+                analysis.diagnostics.push(diagnostic);
+            }
+            for (position, binding) in found.iter().enumerate() {
+                if position == winner || binding.from.is_none() {
+                    continue;
+                }
+                analysis.diagnostics.push(
+                    Diagnostic::warning(
+                        "shadowed-import",
+                        format!(
+                            "{} is hidden: `{name}` in this file means {chosen}",
+                            describe(binding)
+                        ),
+                        &module.path,
+                        binding.span,
+                    )
+                    .with_label(Label::new(
+                        module.path.clone(),
+                        found[winner].span,
+                        "this binding wins",
+                    ))
+                    .with_help("alias the import, or remove it".to_string()),
+                );
+            }
+
+            analysis.ambiguities.push(Ambiguity {
+                module: module.id,
+                name,
+                bindings: found,
+                winner,
+                references,
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unused symbols
 // ---------------------------------------------------------------------------
+
+/// Whether a module is the project configuration, which is read by the
+/// compiler rather than compiled, so nothing in it is "unused" or "output".
+fn is_config_module(compilation: &Compilation, module: ModuleId) -> bool {
+    is_config_file(&compilation.graph().get(module).path)
+}
 
 fn unused(
     compilation: &Compilation,
@@ -461,7 +701,7 @@ fn unused(
     for anchor in &reachability.unreachable {
         let def = compilation.store().anchor(*anchor);
         let path = compilation.graph().get(def.module).path.clone();
-        if path.to_string_lossy().starts_with('@') {
+        if path.to_string_lossy().starts_with('@') || is_config_module(compilation, def.module) {
             continue;
         }
         // A keyword that something actually writes is not dead, even when the
@@ -493,7 +733,7 @@ fn unused(
 
     for def in &compilation.store().variables {
         let path = compilation.graph().get(def.module).path.clone();
-        if path.to_string_lossy().starts_with('@') {
+        if path.to_string_lossy().starts_with('@') || is_config_module(compilation, def.module) {
             continue;
         }
         if reachability.modules.contains(&def.module) {
@@ -529,7 +769,7 @@ fn unused(
 
     // `export Name` that nothing, including a reached barrel, ever imports.
     for module in compilation.graph().iter() {
-        if module.is_package() {
+        if module.is_package() || is_config_module(compilation, module.id) {
             continue;
         }
         for item in &module.ast().items {
@@ -603,6 +843,11 @@ fn target_of(symbol: Symbol) -> Target {
 // Redundant definitions
 // ---------------------------------------------------------------------------
 
+/// A property that repeats, value for value, what the anchor would inherit
+/// anyway can be deleted without changing the resolved specification.
+///
+/// A child cannot redeclare an inherited constraint (the compiler rejects
+/// that), so a constraint on the declaration is no reason to keep it.
 fn redundant(compilation: &Compilation, out: &mut Vec<Diagnostic>) {
     for def in &compilation.store().anchors {
         let path = compilation.graph().get(def.module).path.clone();
@@ -625,15 +870,6 @@ fn redundant(compilation: &Compilation, out: &mut Vec<Diagnostic>) {
             if resolved != inherited {
                 continue;
             }
-            // A declaration that tightens the inherited constraints is not
-            // dead even when today's value would have satisfied both.
-            if !property.constraints.is_empty() {
-                let inherited_constraints =
-                    inherited_constraints(compilation, def.id, &property.name);
-                if property.constraints != inherited_constraints {
-                    continue;
-                }
-            }
             out.push(
                 Diagnostic::warning(
                     "redundant-definition",
@@ -653,266 +889,132 @@ fn redundant(compilation: &Compilation, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// The value the right-most base would contribute for `name`, if any base has it.
+/// The value the anchor would inherit for `name` without its own declaration:
+/// the right-most base that has one, which is also what `super.name` reads.
 fn inherited_value<'a>(
     compilation: &'a Compilation,
     anchor: AnchorId,
     name: &str,
 ) -> Option<&'a Value> {
-    let mut found = None;
-    for base in compilation.store().base_chain(anchor) {
-        if base == anchor {
-            break;
-        }
-        if let Some(value) = compilation.store().anchor(base).properties.get(name) {
-            found = Some(value);
-        }
-    }
-    found
-}
-
-fn inherited_constraints(
-    compilation: &Compilation,
-    anchor: AnchorId,
-    name: &str,
-) -> Vec<piton_syntax::ast::TypeConstraint> {
-    let mut found = Vec::new();
-    for base in compilation.store().base_chain(anchor) {
-        if base == anchor {
-            break;
-        }
-        if let Some(slot) = compilation.store().anchor(base).slots.get(name) {
-            if !slot.constraints.is_empty() {
-                found = slot.constraints.clone();
-            }
-        }
-    }
-    found
+    let store = compilation.store();
+    store
+        .anchor(anchor)
+        .bases
+        .iter()
+        .rev()
+        .find_map(|base| store.anchor(*base).properties.get(name))
 }
 
 // ---------------------------------------------------------------------------
-// Conflicts and composition
+// Composition
 // ---------------------------------------------------------------------------
 
-struct Contribution {
-    owner: AnchorId,
-    constraints: Vec<ast::TypeConstraint>,
+/// Where a composition sits, so its result can be read back from what the
+/// compiler produced rather than worked out a second time.
+#[derive(Clone)]
+enum Holder {
+    /// A property (or a key nested in one) of an anchor.
+    Anchor(AnchorId, Vec<String>),
+    /// A top-level variable, or a key nested in one.
+    Variable(piton_compile::VariableId, Vec<String>),
+    /// Somewhere no path reaches, such as inside a list.
+    Nowhere,
 }
 
-fn conflicts(compilation: &Compilation, analysis: &mut Analysis) {
-    for def in compilation.store().anchors.clone() {
-        let path = compilation.graph().get(def.module).path.clone();
-        if path.to_string_lossy().starts_with('@') {
-            continue;
-        }
-        let Item::Anchor(decl) = &compilation.graph().get(def.module).ast().items[def.item] else {
-            continue;
-        };
-        let decl = decl.clone();
-
-        inheritance_conflicts(compilation, &def, &decl, &path, &mut analysis.diagnostics);
-        walk_anchor_compositions(compilation, &def, &decl, &path, analysis);
-    }
-}
-
-fn inheritance_conflicts(
-    compilation: &Compilation,
-    def: &piton_compile::store::AnchorDef,
-    decl: &ast::AnchorDecl,
-    path: &Path,
-    out: &mut Vec<Diagnostic>,
-) {
-    let mut contributed: HashMap<String, Vec<Contribution>> = HashMap::new();
-    for base in &def.bases {
-        for (name, slot) in &compilation.store().anchor(*base).slots {
-            let entry = contributed.entry(name.clone()).or_default();
-            if entry.iter().any(|item| item.owner == slot.owner) {
-                continue;
+impl Holder {
+    fn child(&self, name: &str) -> Holder {
+        match self {
+            Holder::Anchor(anchor, path) => {
+                let mut path = path.clone();
+                path.push(name.to_string());
+                Holder::Anchor(*anchor, path)
             }
-            entry.push(Contribution {
-                owner: slot.owner,
-                constraints: slot.constraints.clone(),
-            });
+            Holder::Variable(variable, path) => {
+                let mut path = path.clone();
+                path.push(name.to_string());
+                Holder::Variable(*variable, path)
+            }
+            Holder::Nowhere => Holder::Nowhere,
         }
     }
 
-    for (name, sources) in contributed {
-        let constrained: Vec<&Contribution> = sources
-            .iter()
-            .filter(|item| !item.constraints.is_empty())
-            .collect();
-        if constrained.len() < 2 {
-            continue;
-        }
-        let disagrees = constrained.iter().any(|left| {
-            constrained.iter().any(|right| {
-                left.owner != right.owner && incompatible(&left.constraints, &right.constraints)
-            })
-        });
-        if !disagrees {
-            continue;
-        }
-        if decl
-            .body
-            .properties()
-            .any(|property| property.name == name && !property.constraints.is_empty())
-        {
-            // The child named the constraint, so the disagreement is resolved.
-            continue;
-        }
-        let abstracts = constrained
-            .iter()
-            .filter(|item| compilation.store().anchor(item.owner).is_abstract)
-            .count();
-        let severity = if abstracts >= 2 {
-            Severity::Error
-        } else {
-            Severity::Warning
+    /// The compiled value at this place.
+    fn value<'a>(&self, compilation: &'a Compilation) -> Option<&'a Value> {
+        let (root, path) = match self {
+            Holder::Anchor(anchor, path) => {
+                let (first, rest) = path.split_first()?;
+                (compilation.store().anchor(*anchor).properties.get(first)?, rest)
+            }
+            Holder::Variable(variable, path) => {
+                (compilation.store().variable(*variable).value.as_ref()?, path.as_slice())
+            }
+            Holder::Nowhere => return None,
         };
-        let described = constrained
-            .iter()
-            .map(|item| {
-                let owner = compilation.store().anchor(item.owner);
-                let labels = item
-                    .constraints
-                    .iter()
-                    .map(piton_compile::eval::constraint_label)
-                    .collect::<Vec<_>>()
-                    .join(" or ");
-                format!("`{}` ({labels})", owner.name)
-            })
-            .collect::<Vec<_>>()
-            .join(" and ");
-        let span = decl
-            .body
-            .properties()
-            .find(|property| property.name == name)
-            .map(|property| property.name_span)
-            .unwrap_or(def.name_span);
-        let mut diagnostic = Diagnostic::new(
-            severity,
-            "inheritance-conflict",
-            format!(
-                "`{}` inherits `{name}` from {described}, and those constraints cannot be resolved together",
-                def.name
-            ),
-            path,
-            span,
-        )
-        .with_help(
-            "declare the constraint on this anchor, or drop one of the bases".to_string(),
-        );
-        for item in constrained {
-            let owner = compilation.store().anchor(item.owner);
-            let owner_path = compilation.graph().get(owner.module).path.clone();
-            diagnostic = diagnostic.with_label(Label::new(
-                owner_path,
-                item.owner_span(compilation, &name),
-                format!("`{name}` constrained here"),
-            ));
+        let mut value = root;
+        for segment in path {
+            value = value.property(segment, compilation)?;
         }
-        out.push(diagnostic);
+        Some(value)
     }
 }
 
-impl Contribution {
-    fn owner_span(&self, compilation: &Compilation, name: &str) -> Span {
-        compilation
-            .store()
-            .anchor(self.owner)
-            .slots
-            .get(name)
-            .map(|slot| slot.span)
-            .unwrap_or_else(|| compilation.store().anchor(self.owner).name_span)
-    }
-}
-
-fn incompatible(left: &[ast::TypeConstraint], right: &[ast::TypeConstraint]) -> bool {
-    !left.iter().any(|constraint| {
-        right.iter().any(|other| {
-            piton_compile::eval::constraint_label(constraint)
-                == piton_compile::eval::constraint_label(other)
-        })
-    })
-}
-
-fn walk_anchor_compositions(
-    compilation: &Compilation,
-    def: &piton_compile::store::AnchorDef,
-    decl: &ast::AnchorDecl,
-    path: &Path,
-    analysis: &mut Analysis,
-) {
-    for property in decl.body.properties() {
-        walk_value(
-            compilation,
-            def.module,
-            property.span,
-            Some(def.id),
-            &property.value,
-            path,
-            analysis,
-        );
-    }
-}
-
-fn walk_value(
-    compilation: &Compilation,
+struct Composer<'a, 'b> {
+    compilation: &'a Compilation,
+    probe: Probe<'a>,
+    analysis: &'b mut Analysis,
     module: ModuleId,
-    enclosing: Span,
     owner: Option<AnchorId>,
-    value: &ast::ValueNode,
-    path: &Path,
-    analysis: &mut Analysis,
-) {
-    if let Some(line) = &value.inline {
-        walk_prose(compilation, module, enclosing, owner, line, path, analysis);
-    }
-    if let Some(items) = &value.inline_list {
-        for item in items {
-            walk_value(compilation, module, enclosing, owner, item, path, analysis);
+    path: PathBuf,
+}
+
+fn compositions(compilation: &Compilation, analysis: &mut Analysis) {
+    let mut composer = Composer {
+        compilation,
+        probe: Probe::new(&compilation.resolution),
+        analysis,
+        module: ModuleId(0),
+        owner: None,
+        path: PathBuf::new(),
+    };
+    for module in compilation.graph().iter() {
+        if module.is_package() {
+            continue;
         }
-    }
-    if let Some(block) = &value.block {
-        walk_list_merges(compilation, module, enclosing, owner, block, path, analysis);
-        for item in &block.items {
+        composer.module = module.id;
+        composer.path = module.path.clone();
+        for (item_index, item) in module.ast().items.iter().enumerate() {
             match item {
-                BlockItem::Property(property) => {
-                    walk_value(
-                        compilation,
-                        module,
-                        property.span,
-                        owner,
-                        &property.value,
-                        path,
-                        analysis,
-                    );
-                }
-                BlockItem::ListItem(entry) => {
-                    walk_value(
-                        compilation,
-                        module,
-                        enclosing,
-                        owner,
-                        &entry.value,
-                        path,
-                        analysis,
-                    );
-                }
-                BlockItem::Prose(paragraph) => {
-                    for line in &paragraph.lines {
-                        walk_prose(compilation, module, enclosing, owner, line, path, analysis);
+                Item::Anchor(decl) => {
+                    let Some(def) = compilation
+                        .store()
+                        .anchors
+                        .iter()
+                        .find(|def| def.module == module.id && def.item == item_index)
+                    else {
+                        continue;
+                    };
+                    composer.owner = Some(def.id);
+                    for property in decl.body.properties() {
+                        composer.value(
+                            &property.value,
+                            property.span,
+                            &property.name,
+                            Holder::Anchor(def.id, vec![property.name.clone()]),
+                        );
                     }
                 }
-                BlockItem::Merge(merge) => {
-                    walk_prose(
-                        compilation,
-                        module,
-                        enclosing,
-                        owner,
-                        &merge.value,
-                        path,
-                        analysis,
+                Item::Variable(decl) => {
+                    let Some(Symbol::Variable(variable)) =
+                        compilation.resolution.lookup(module.id, &decl.name)
+                    else {
+                        continue;
+                    };
+                    composer.owner = None;
+                    composer.value(
+                        &decl.value,
+                        decl.span,
+                        &decl.name,
+                        Holder::Variable(variable, Vec::new()),
                     );
                 }
                 _ => {}
@@ -921,462 +1023,401 @@ fn walk_value(
     }
 }
 
-fn walk_prose(
-    compilation: &Compilation,
-    module: ModuleId,
-    enclosing: Span,
-    owner: Option<AnchorId>,
-    line: &ast::ProseLine,
-    path: &Path,
-    analysis: &mut Analysis,
-) {
-    for segment in &line.segments {
-        if let ast::ProseSegment::Interpolation(interpolation) = segment {
-            walk_expr(
-                compilation,
-                module,
-                enclosing,
-                owner,
-                &interpolation.expr,
-                path,
-                analysis,
-            );
-        }
+impl Composer<'_, '_> {
+    fn source(&self) -> &str {
+        self.compilation.graph().get(self.module).source.as_str()
     }
-}
 
-fn walk_expr(
-    compilation: &Compilation,
-    module: ModuleId,
-    enclosing: Span,
-    owner: Option<AnchorId>,
-    expr: &Expr,
-    path: &Path,
-    analysis: &mut Analysis,
-) {
-    if let ExprKind::Binary(op @ (BinaryOp::Add | BinaryOp::Concat), left, right) = &expr.kind {
-        record_binary(
-            compilation,
-            module,
-            enclosing,
-            owner,
-            expr.span,
-            *op,
-            left,
-            right,
-            path,
-            analysis,
-        );
-    }
-    match &expr.kind {
-        ExprKind::Field(base, _) => {
-            walk_expr(compilation, module, enclosing, owner, base, path, analysis)
+    fn value(&mut self, value: &ast::ValueNode, enclosing: Span, name: &str, holder: Holder) {
+        if let Some(line) = &value.inline {
+            self.line(line, enclosing);
         }
-        ExprKind::Unary(_, operand) | ExprKind::Paren(operand) => {
-            walk_expr(
-                compilation,
-                module,
-                enclosing,
-                owner,
-                operand,
-                path,
-                analysis,
-            );
-        }
-        ExprKind::Binary(_, left, right) => {
-            walk_expr(compilation, module, enclosing, owner, left, path, analysis);
-            walk_expr(compilation, module, enclosing, owner, right, path, analysis);
-        }
-        ExprKind::Ternary(condition, consequent, alternative) => {
-            walk_expr(
-                compilation,
-                module,
-                enclosing,
-                owner,
-                condition,
-                path,
-                analysis,
-            );
-            walk_expr(
-                compilation,
-                module,
-                enclosing,
-                owner,
-                consequent,
-                path,
-                analysis,
-            );
-            walk_expr(
-                compilation,
-                module,
-                enclosing,
-                owner,
-                alternative,
-                path,
-                analysis,
-            );
-        }
-        ExprKind::List(items) => {
+        if let Some(items) = &value.inline_list {
             for item in items {
-                walk_expr(compilation, module, enclosing, owner, item, path, analysis);
+                self.value(item, enclosing, name, Holder::Nowhere);
             }
         }
-        _ => {}
-    }
-}
-
-fn record_binary(
-    compilation: &Compilation,
-    module: ModuleId,
-    enclosing: Span,
-    owner: Option<AnchorId>,
-    span: Span,
-    op: BinaryOp,
-    left: &Expr,
-    right: &Expr,
-    path: &Path,
-    analysis: &mut Analysis,
-) {
-    let left_value = resolve_expr(compilation, module, owner, left);
-    let right_value = resolve_expr(compilation, module, owner, right);
-    let combined = match (&left_value, &right_value) {
-        (Some(left), Some(right)) => compose(op, left, right),
-        _ => None,
-    };
-    if let (Some(left), Some(right)) = (&left_value, &right_value) {
-        if combined.is_none() && left.is_complex() && right.is_complex() {
-            analysis.diagnostics.push(
-                Diagnostic::warning(
-                    "composition-conflict",
-                    format!(
-                        "`{}` cannot compose {} and {}; neither the merge nor the concatenation rule applies",
-                        op.symbol(),
-                        left.kind(),
-                        right.kind()
-                    ),
-                    path,
-                    span,
-                )
-                .with_help(
-                    "combine lists with lists, or dictionaries with dictionaries".to_string(),
+        let Some(block) = &value.block else {
+            return;
+        };
+        if block
+            .items
+            .iter()
+            .any(|item| matches!(item, BlockItem::Merge(_)))
+        {
+            self.block(value, block, enclosing, name, &holder);
+        }
+        for item in &block.items {
+            match item {
+                BlockItem::Property(property) => self.value(
+                    &property.value,
+                    property.span,
+                    &property.name,
+                    holder.child(&property.name),
                 ),
-            );
+                BlockItem::ListItem(entry) => {
+                    self.value(&entry.value, enclosing, name, Holder::Nowhere)
+                }
+                BlockItem::Prose(paragraph) => {
+                    for line in &paragraph.lines {
+                        self.line(line, enclosing);
+                    }
+                }
+                BlockItem::Merge(merge) => self.line(&merge.value, enclosing),
+                _ => {}
+            }
         }
     }
-    let source = compilation.graph().get(module).source.as_str();
-    analysis.compositions.push(Composition {
-        module,
-        span,
-        enclosing,
-        summary: describe_binary(
-            compilation,
-            source,
-            op,
-            left,
-            right,
-            left_value.as_ref(),
-            right_value.as_ref(),
-            combined.as_ref(),
-        ),
-        hint: format!("{} {}", op.symbol(), compose_word(op)),
-    });
-}
 
-fn walk_list_merges(
-    compilation: &Compilation,
-    module: ModuleId,
-    enclosing: Span,
-    owner: Option<AnchorId>,
-    block: &ast::Block,
-    path: &Path,
-    analysis: &mut Analysis,
-) {
-    let merges: Vec<&ast::MergeItem> = block
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            BlockItem::Merge(merge) => Some(merge),
-            _ => None,
-        })
-        .collect();
-    if merges.is_empty() {
-        return;
-    }
-    let source = compilation.graph().get(module).source.as_str();
-    let mut steps: Vec<(String, Option<Value>, MergeOp)> = Vec::new();
-    for item in &block.items {
-        match item {
-            BlockItem::ListItem(entry) => {
-                let text = snippet(source, entry.span);
-                let value = entry
-                    .value
-                    .inline
-                    .as_ref()
-                    .and_then(|line| resolve_line(compilation, module, owner, line))
-                    .or_else(|| {
-                        snippet(source, entry.value.span)
-                            .is_empty()
-                            .then_some(Value::Null)
-                    });
-                steps.push((text, value, MergeOp::Concat));
+    fn line(&mut self, line: &ast::ProseLine, enclosing: Span) {
+        for segment in &line.segments {
+            if let ast::ProseSegment::Interpolation(interpolation) = segment {
+                self.expr(&interpolation.expr, enclosing);
             }
-            BlockItem::Merge(merge) => {
-                let value = resolve_line(compilation, module, owner, &merge.value);
-                steps.push((snippet(source, merge.span), value, merge.op));
+        }
+    }
+
+    fn expr(&mut self, expr: &Expr, enclosing: Span) {
+        if let ExprKind::Binary(op @ (BinaryOp::Add | BinaryOp::Concat), left, right) = &expr.kind
+        {
+            self.binary(expr, *op, left, right, enclosing);
+        }
+        match &expr.kind {
+            ExprKind::Field(base, _) => self.expr(base, enclosing),
+            ExprKind::Unary(_, operand) | ExprKind::Paren(operand) | ExprKind::Nested(_, operand) => {
+                self.expr(operand, enclosing)
+            }
+            ExprKind::Binary(_, left, right) => {
+                self.expr(left, enclosing);
+                self.expr(right, enclosing);
+            }
+            ExprKind::Ternary(condition, consequent, alternative) => {
+                self.expr(condition, enclosing);
+                self.expr(consequent, enclosing);
+                self.expr(alternative, enclosing);
+            }
+            ExprKind::List(items) => {
+                for item in items {
+                    self.expr(item, enclosing);
+                }
             }
             _ => {}
         }
     }
-    if steps.iter().all(|(_, value, _)| value.is_none()) {
-        return;
-    }
-    let mut combined: Vec<Value> = Vec::new();
-    let mut described = String::from("Composition");
-    described.push_str("\n\n");
-    for (index, (text, value, op)) in steps.iter().enumerate() {
-        let word = match op {
-            MergeOp::Merge => "merge, duplicates removed",
-            MergeOp::Concat => "concatenate, duplicates kept",
+
+    /// `{a + b}` or `{a ++ b}`: both inputs and the result, each evaluated by
+    /// the compiler's own rules.
+    fn binary(&mut self, whole: &Expr, op: BinaryOp, left: &Expr, right: &Expr, enclosing: Span) {
+        let left_value = self.probe.expr(self.module, self.owner, left);
+        let right_value = self.probe.expr(self.module, self.owner, right);
+        let combined = match (&left_value, &right_value) {
+            (Some(_), Some(_)) => self.probe.expr(self.module, self.owner, whole),
+            _ => None,
         };
-        described.push_str(&format!("{}. `{text}` ({word})", index + 1));
-        if let Some(value) = value {
-            described.push_str(&format!(" → {}", value.kind()));
-            match op {
-                MergeOp::Merge | MergeOp::Concat => {
-                    let mut extra = match value {
-                        Value::List(items) => items.clone(),
-                        Value::Mixed(_) => value.as_list_items(),
-                        other => vec![other.clone()],
-                    };
-                    combined.append(&mut extra);
-                    if *op == MergeOp::Merge {
-                        combined = dedup_keep_last(combined);
-                    }
-                }
+        let source = self.source().to_string();
+        let rule = match (&left_value, &right_value) {
+            (Some(left), Some(right)) => rule(op, left, right),
+            _ => Rule::unknown(op),
+        };
+        let mut out = format!("**Composition** — {}\n\n", rule.explanation);
+        out.push_str(&format!("1. `{}`", snippet(&source, left.span)));
+        if let Some(value) = &left_value {
+            out.push_str(&format!(" → {}", short(self.compilation, value)));
+        }
+        out.push_str(&format!("\n2. `{}`", snippet(&source, right.span)));
+        if let Some(value) = &right_value {
+            out.push_str(&format!(" → {}", short(self.compilation, value)));
+        }
+        out.push_str("\n\n");
+        match &combined {
+            Some(value) => {
+                out.push_str("Result:\n\n```\n");
+                out.push_str(&preview(self.compilation, value));
+                out.push_str("\n```");
+            }
+            // The compiler reports why; the hover only has to say it failed.
+            None if left_value.is_some() && right_value.is_some() => out.push_str(
+                "_These inputs do not combine under this operator; see the compiler's error._",
+            ),
+            None => {}
+        }
+        self.analysis.compositions.push(Composition {
+            module: self.module,
+            span: whole.span,
+            enclosing,
+            summary: out,
+            hint: rule.hint,
+        });
+    }
+
+    /// A block with `+`/`++` lines, built from top to bottom.
+    fn block(
+        &mut self,
+        node: &ast::ValueNode,
+        block: &ast::Block,
+        enclosing: Span,
+        name: &str,
+        holder: &Holder,
+    ) {
+        let steps = self.probe.block_steps(self.module, self.owner, node);
+        if steps.is_empty() {
+            return;
+        }
+        let source = self.source().to_string();
+        let mut out = format!(
+            "**Composition** — `{name}` is built from top to bottom: each `+` or `++` line combines everything above it with its own value.\n\n"
+        );
+        let mut hints: Vec<String> = Vec::new();
+        for (number, step) in steps.iter().enumerate() {
+            let rule = step_rule(step);
+            out.push_str(&format!(
+                "{}. `{}` — {}\n",
+                number + 1,
+                snippet(&source, step.span),
+                rule.explanation
+            ));
+            if let Some(before) = &step.before {
+                out.push_str(&format!(
+                    "   above: {} · this line: {} → {}\n",
+                    short(self.compilation, before),
+                    short(self.compilation, &step.operand),
+                    short(self.compilation, &step.after)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "   this line: {}\n",
+                    short(self.compilation, &step.operand)
+                ));
+            }
+            if !hints.contains(&rule.hint) {
+                hints.push(rule.hint.clone());
+            }
+            // A line that leaves the result exactly as it was contributes
+            // nothing, whatever it says.
+            if step.before.as_ref() == Some(&step.after) {
+                self.analysis.diagnostics.push(
+                    Diagnostic::warning(
+                        "redundant-definition",
+                        "this line does not change the result and can be removed",
+                        &self.path,
+                        step.span,
+                    )
+                    .with_help(match step.op {
+                        MergeOp::Merge => {
+                            "everything it adds is already there once `+` has combined them"
+                                .to_string()
+                        }
+                        MergeOp::Concat => "combining with it leaves the value as it was".to_string(),
+                    }),
+                );
             }
         }
-        described.push_str("\n\n");
-    }
-    if !combined.is_empty() {
-        described.push_str("Combined:\n\n```\n");
-        described.push_str(&preview(compilation, &Value::List(combined)));
-        described.push_str("\n```");
-    }
-    let span = merges
-        .iter()
-        .map(|merge| merge.span)
-        .reduce(|left, right| left.cover(right))
-        .unwrap_or(enclosing);
-    let hint = if merges.iter().any(|merge| merge.op == MergeOp::Merge) {
-        "+ merge"
-    } else {
-        "++ concat"
-    };
-    analysis.compositions.push(Composition {
-        module,
-        span,
-        enclosing,
-        summary: described,
-        hint: hint.to_string(),
-    });
-
-    for merge in merges {
-        if merge.op != MergeOp::Merge {
-            continue;
-        }
-        let Some(value) = resolve_line(compilation, module, owner, &merge.value) else {
-            continue;
-        };
-        if !value.is_complex() {
-            continue;
-        }
-        let items = match &value {
-            Value::List(items) => items.clone(),
-            Value::Mixed(_) => value.as_list_items(),
-            Value::Dict(_) => continue,
-            other => vec![other.clone()],
-        };
-        // A merge that only repeats values already written above it changes
-        // nothing once duplicates are removed.
-        let prior = steps
-            .iter()
-            .take_while(|(text, _, _)| text.as_str() != snippet(source, merge.span))
-            .filter_map(|(_, value, _)| value.clone())
-            .flat_map(|value| match value {
-                Value::List(items) => items,
-                other => vec![other],
-            })
-            .collect::<Vec<_>>();
-        if !items.is_empty()
-            && items
-                .iter()
-                .all(|item| prior.iter().any(|have| have == item))
-        {
-            analysis.diagnostics.push(
-                Diagnostic::warning(
-                    "redundant-definition",
-                    "this merge repeats values already in the list and can be removed",
-                    path,
-                    merge.span,
-                )
-                .with_help(
-                    "`+` drops duplicates, so this operand does not change the resolved list"
-                        .to_string(),
-                ),
-            );
-        }
-    }
-}
-
-fn describe_binary(
-    compilation: &Compilation,
-    source: &str,
-    op: BinaryOp,
-    left: &Expr,
-    right: &Expr,
-    left_value: Option<&Value>,
-    right_value: Option<&Value>,
-    combined: Option<&Value>,
-) -> String {
-    let word = match op {
-        BinaryOp::Add => {
-            "merge (`+`): lists and dictionaries combine, duplicates removed, last kept"
-        }
-        BinaryOp::Concat => "concatenation (`++`): lists and dictionaries combine, duplicates kept",
-        _ => "composition",
-    };
-    let mut out = format!("Composition — {word}\n\n");
-    out.push_str(&format!("1. `{}`", snippet(source, left.span)));
-    if let Some(value) = left_value {
-        out.push_str(&format!(" → {}", value.kind()));
-    }
-    out.push_str(&format!("\n2. `{}`", snippet(source, right.span)));
-    if let Some(value) = right_value {
-        out.push_str(&format!(" → {}", value.kind()));
-    }
-    out.push_str("\n\n");
-    match combined {
-        Some(value) => {
-            out.push_str("Combined:\n\n```\n");
-            out.push_str(&preview(compilation, value));
+        let result = holder
+            .value(self.compilation)
+            .cloned()
+            .or_else(|| steps.last().map(|step| step.after.clone()));
+        if let Some(value) = result {
+            out.push_str("\nResult:\n\n```\n");
+            out.push_str(&preview(self.compilation, &value));
             out.push_str("\n```");
         }
-        None => {
-            out.push_str("_These inputs do not combine under the operator's composition rule._")
-        }
+        let span = block
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                BlockItem::Merge(merge) => Some(merge.span),
+                _ => None,
+            })
+            .reduce(|left, right| left.cover(right))
+            .unwrap_or(enclosing);
+        self.analysis.compositions.push(Composition {
+            module: self.module,
+            span,
+            enclosing,
+            summary: out,
+            hint: hints.join(", "),
+        });
     }
-    // Belay has no composition operator of its own: a skill list, an agent
-    // prompt, and a shared instruction are Piton values combined with these
-    // same operators, then inherited. Showing the inputs is the resolution.
-    out
 }
 
-fn compose_word(op: BinaryOp) -> &'static str {
+/// What an operator does with a pair of inputs, in words and as an inlay.
+struct Rule {
+    explanation: String,
+    hint: String,
+}
+
+impl Rule {
+    fn new(explanation: &str, hint: &str) -> Rule {
+        Rule {
+            explanation: explanation.to_string(),
+            hint: hint.to_string(),
+        }
+    }
+
+    fn unknown(op: BinaryOp) -> Rule {
+        match op {
+            BinaryOp::Concat => Rule::new("`++`: what it does depends on the kinds of its inputs", "++"),
+            _ => Rule::new("`+`: what it does depends on the kinds of its inputs", "+"),
+        }
+    }
+}
+
+fn is_list(value: &Value) -> bool {
+    matches!(value.kind(), ValueKind::List)
+}
+
+/// The rule the compiler applies to `left op right`, by the kinds of the two.
+fn rule(op: BinaryOp, left: &Value, right: &Value) -> Rule {
+    let string = |value: &Value| matches!(value, Value::Str(_));
     match op {
-        BinaryOp::Add => "merge",
-        BinaryOp::Concat => "concat",
-        _ => "compose",
-    }
-}
-
-fn compose(op: BinaryOp, left: &Value, right: &Value) -> Option<Value> {
-    let lists = matches!(
-        (left.kind(), right.kind()),
-        (ValueKind::List, ValueKind::List)
-    );
-    let dicts = matches!(
-        (left.kind(), right.kind()),
-        (ValueKind::Dictionary, ValueKind::Dictionary)
-    );
-    if !lists && !dicts {
-        return None;
-    }
-    if lists {
-        let mut items = left.as_list_items();
-        items.extend(right.as_list_items());
-        if op == BinaryOp::Add {
-            items = dedup_keep_last(items);
-        }
-        return Some(Value::List(items));
-    }
-    let Value::Dict(left_map) = left else {
-        return None;
-    };
-    let Value::Dict(right_map) = right else {
-        return None;
-    };
-    let mut merged = left_map.clone();
-    for (key, value) in right_map {
-        merged.insert(key.clone(), value.clone());
-    }
-    Some(Value::Dict(merged))
-}
-
-fn resolve_line(
-    compilation: &Compilation,
-    module: ModuleId,
-    owner: Option<AnchorId>,
-    line: &ast::ProseLine,
-) -> Option<Value> {
-    if let Some(interpolation) = line.sole_interpolation() {
-        return resolve_expr(compilation, module, owner, &interpolation.expr);
-    }
-    None
-}
-
-fn resolve_expr(
-    compilation: &Compilation,
-    module: ModuleId,
-    owner: Option<AnchorId>,
-    expr: &Expr,
-) -> Option<Value> {
-    match &expr.kind {
-        ExprKind::Number(number) => Some(Value::Number(*number)),
-        ExprKind::Bool(value) => Some(Value::Bool(*value)),
-        ExprKind::Null => Some(Value::Null),
-        ExprKind::Quoted(text) => Some(Value::string(text.clone())),
-        ExprKind::List(items) => {
-            let mut out = Vec::new();
-            for item in items {
-                out.push(resolve_expr(compilation, module, owner, item)?);
+        BinaryOp::Add => {
+            if matches!((left, right), (Value::Number(_), Value::Number(_))) {
+                Rule::new("`+` adds the two numbers", "+ add")
+            } else if is_list(left) && is_list(right) {
+                Rule::new(
+                    "`+` merges the lists: they join in order, and a value that appears more than once is kept only where it appears last",
+                    "+ merge",
+                )
+            } else if matches!((left, right), (Value::Dict(_), Value::Dict(_))) {
+                Rule::new(
+                    "`+` merges the dictionaries shallowly: keys from both, the right side wins a shared key",
+                    "+ shallow merge",
+                )
+            } else if (string(left) || string(right)) && left.is_simple() && right.is_simple() {
+                Rule::new(
+                    "`+` joins the strings with nothing in between (a number, boolean or null becomes text first)",
+                    "+ join",
+                )
+            } else if (string(left) && right.is_complex()) || (left.is_complex() && string(right)) {
+                Rule::new(
+                    "`+` of text and a list, dictionary or anchor makes an implicit list of the two",
+                    "+ implicit list",
+                )
+            } else {
+                Rule::new(
+                    &format!("`+` cannot combine {} and {}", left.kind(), right.kind()),
+                    "+ ✗",
+                )
             }
-            Some(Value::List(out))
         }
-        ExprKind::Paren(inner) => resolve_expr(compilation, module, owner, inner),
-        ExprKind::Name(name) => match compilation.resolution.lookup(module, name)? {
-            Symbol::Anchor(anchor) => Some(Value::Anchor(anchor)),
-            Symbol::Variable(variable) => compilation.store().variable(variable).value.clone(),
-        },
-        ExprKind::Field(base, field) => {
-            let base = resolve_expr(compilation, module, owner, base)?;
-            base.property(&field.value, compilation).cloned()
+        BinaryOp::Concat => {
+            if is_list(left) && is_list(right) {
+                Rule::new(
+                    "`++` concatenates the lists in order and keeps duplicates",
+                    "++ concat",
+                )
+            } else if matches!((left, right), (Value::Dict(_), Value::Dict(_))) {
+                Rule::new(
+                    "`++` merges the dictionaries deeply: nested dictionaries under a shared key merge too, otherwise the right side wins",
+                    "++ deep merge",
+                )
+            } else if (string(left) || string(right)) && left.is_simple() && right.is_simple() {
+                Rule::new("`++` joins the strings with a line break between them", "++ join")
+            } else {
+                Rule::new(
+                    &format!("`++` cannot combine {} and {}", left.kind(), right.kind()),
+                    "++ ✗",
+                )
+            }
         }
-        ExprKind::This | ExprKind::SelfRef => owner.map(Value::Anchor),
-        ExprKind::Binary(op, left, right) => {
-            let left = resolve_expr(compilation, module, owner, left)?;
-            let right = resolve_expr(compilation, module, owner, right)?;
-            compose(*op, &left, &right)
-        }
-        _ => None,
+        _ => Rule::new("composition", ""),
     }
 }
 
-fn dedup_keep_last(items: Vec<Value>) -> Vec<Value> {
-    let mut keep = vec![true; items.len()];
-    let mut seen: Vec<&Value> = Vec::new();
-    for index in (0..items.len()).rev() {
-        if seen.iter().any(|value| *value == &items[index]) {
-            keep[index] = false;
-        } else {
-            seen.push(&items[index]);
+/// The rule for one block line, which has the block above it as its left side.
+fn step_rule(step: &BlockStep) -> Rule {
+    let op = match step.op {
+        MergeOp::Merge => BinaryOp::Add,
+        MergeOp::Concat => BinaryOp::Concat,
+    };
+    match &step.before {
+        None => Rule::new(
+            &format!(
+                "`{}` with nothing above it: the block starts as this value",
+                op.symbol()
+            ),
+            op.symbol(),
+        ),
+        Some(before) => {
+            // A single value combined into a list is one more item.
+            let right = if is_list(before) && !is_list(&step.operand) {
+                Value::List(vec![step.operand.clone()])
+            } else {
+                step.operand.clone()
+            };
+            rule(op, before, &right)
         }
     }
-    items
-        .into_iter()
-        .enumerate()
-        .filter(|(index, _)| keep[*index])
-        .map(|(_, value)| value)
-        .collect()
+}
+
+/// A one-line rendering of a value for a hover step.
+fn short(compilation: &Compilation, value: &Value) -> String {
+    fn walk(compilation: &Compilation, value: &Value, out: &mut String, budget: &mut usize) {
+        if *budget == 0 {
+            return;
+        }
+        let before = out.len();
+        match value {
+            Value::Null => out.push_str("null"),
+            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Value::Number(n) => out.push_str(&format_number(*n)),
+            Value::Str(text) => {
+                let plain = text.render_plain(compilation).replace('\n', "⏎");
+                let clipped: String = plain.chars().take(48).collect();
+                out.push('"');
+                out.push_str(&clipped);
+                if plain.chars().count() > 48 {
+                    out.push('…');
+                }
+                out.push('"');
+            }
+            Value::List(_) | Value::Mixed(_) => {
+                out.push('[');
+                for (index, item) in value.as_list_items().iter().enumerate() {
+                    if index > 0 {
+                        out.push_str(", ");
+                    }
+                    if *budget == 0 || index >= 8 {
+                        out.push('…');
+                        break;
+                    }
+                    walk(compilation, item, out, budget);
+                }
+                out.push(']');
+            }
+            Value::Dict(map) => {
+                out.push('{');
+                for (index, (key, item)) in map.iter().enumerate() {
+                    if index > 0 {
+                        out.push_str(", ");
+                    }
+                    if *budget == 0 || index >= 6 {
+                        out.push('…');
+                        break;
+                    }
+                    out.push_str(key);
+                    out.push_str(": ");
+                    walk(compilation, item, out, budget);
+                }
+                out.push('}');
+            }
+            Value::Anchor(anchor) => {
+                out.push('{');
+                out.push_str(&compilation.store().anchor(*anchor).name);
+                out.push('}');
+            }
+            Value::Reference(target) => {
+                out.push_str("@{");
+                out.push_str(&target.display(compilation));
+                out.push('}');
+            }
+        }
+        *budget = budget.saturating_sub(out.len() - before);
+    }
+    let mut out = String::new();
+    let mut budget = 160usize;
+    walk(compilation, value, &mut out, &mut budget);
+    out
 }
 
 fn preview(compilation: &Compilation, value: &Value) -> String {
@@ -1403,56 +1444,108 @@ fn snippet(source: &str, span: Span) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Composition edges
+// ---------------------------------------------------------------------------
+
+/// Which anchors copy which others in with `{X}`.
+///
+/// Only values an anchor writes itself count: an inherited property that
+/// embeds something is the base's composition, not the child's.
+fn composition_edges(compilation: &Compilation, analysis: &mut Analysis) {
+    fn collect(value: &Value, out: &mut Vec<AnchorId>) {
+        match value {
+            Value::Anchor(anchor) => {
+                if !out.contains(anchor) {
+                    out.push(*anchor);
+                }
+            }
+            Value::List(items) => items.iter().for_each(|item| collect(item, out)),
+            Value::Dict(map) => map.values().for_each(|item| collect(item, out)),
+            Value::Mixed(mixed) => {
+                for item in &mixed.items {
+                    match item {
+                        MixedItem::List(items) => items.iter().for_each(|item| collect(item, out)),
+                        MixedItem::Entry(_, value) | MixedItem::Value(value) => collect(value, out),
+                        MixedItem::Text(_) => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for def in &compilation.store().anchors {
+        let mut embedded = Vec::new();
+        for (name, slot) in &def.slots {
+            if slot.owner != def.id {
+                continue;
+            }
+            if let Some(value) = def.properties.get(name) {
+                collect(value, &mut embedded);
+            }
+        }
+        embedded.retain(|anchor| *anchor != def.id);
+        if embedded.is_empty() {
+            continue;
+        }
+        for component in &embedded {
+            analysis
+                .composers
+                .entry(*component)
+                .or_default()
+                .push(def.id);
+        }
+        analysis.components.insert(def.id, embedded);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Source to output
 // ---------------------------------------------------------------------------
 
-fn map_outputs(compilation: &Compilation, mappings: &mut Vec<Mapping>) {
+/// Maps every compiled module to the file `piton compile` writes for it: the
+/// configured output directory and renderer.
+fn map_outputs(compilation: &Compilation, output: &OutputSettings, mappings: &mut Vec<Mapping>) {
     for module in compilation.graph().iter() {
-        if module.is_package() {
+        if module.is_package() || is_config_module(compilation, module.id) {
             continue;
         }
         let declarations = file_declarations(compilation, module.id);
         if declarations.is_empty() {
             continue;
         }
-        let directory = module.path.parent().unwrap_or(Path::new("."));
+        let adapter = output.renderer;
+        let output_path = output.output_for(&compilation.project, &module.path);
+        let directory = output_path.parent().unwrap_or(Path::new("."));
         let context = piton_emit::MarkdownContext {
             from_directory: directory,
             source_root: &compilation.project.source_root,
         };
-        for adapter in piton_emit::Adapter::ALL {
-            let rendered = piton_emit::render(adapter, &declarations, compilation, context);
-            let output = module.path.with_extension(adapter.extension());
-            match adapter {
-                piton_emit::Adapter::Markdown => {
-                    map_markdown(
-                        compilation,
-                        &module.path,
-                        &output,
-                        &rendered,
-                        &declarations,
-                        mappings,
-                    );
-                }
-                piton_emit::Adapter::Json | piton_emit::Adapter::Yaml => {
-                    map_structured(
-                        compilation,
-                        &module.path,
-                        &output,
-                        adapter.as_str(),
-                        &rendered,
-                        &declarations,
-                        mappings,
-                    );
-                }
-            }
+        let rendered = piton_emit::render(adapter, &declarations, compilation, context);
+        match adapter {
+            piton_emit::Adapter::Markdown => map_markdown(
+                compilation,
+                &module.path,
+                &output_path,
+                &rendered,
+                &declarations,
+                mappings,
+            ),
+            piton_emit::Adapter::Json | piton_emit::Adapter::Yaml => map_structured(
+                compilation,
+                &module.path,
+                &output_path,
+                adapter.as_str(),
+                &rendered,
+                &declarations,
+                mappings,
+            ),
         }
     }
 }
 
 /// What a file compiles to, which is what the mapping has to describe: the
-/// same surface `piton compile` renders, exports included.
-fn file_declarations(compilation: &Compilation, module: ModuleId) -> piton_core::Properties {
+/// same surface `piton compile` renders -- its exports.
+pub fn file_declarations(compilation: &Compilation, module: ModuleId) -> piton_core::Properties {
     compilation.compiled_surface(module)
 }
 

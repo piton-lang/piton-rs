@@ -53,7 +53,8 @@ pub struct AnchorDef {
     pub keyword: String,
     /// The keyword this anchor declares with `as`.
     pub alias: Option<String>,
-    /// Bases in inheritance order: the keyword's anchor first, then `extends`.
+    /// Bases in inheritance order: `extends` left to right, then the keyword's
+    /// anchor, which is always last so it wins collisions.
     pub bases: Vec<AnchorId>,
     /// Properties in output order, each pointing at the declaration that wins.
     pub slots: IndexMap<String, Slot>,

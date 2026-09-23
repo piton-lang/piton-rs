@@ -48,7 +48,7 @@ export anchor Expressions:
         ```
 
         `result` will be evaluated to the string "a + b". In order for this to
-        evaluate to 3 you’ll need to use the {} expression syntax:
+        evaluate to 3 you’ll need to use the \ {} \ expression syntax:
 
         ```piton
         \\\

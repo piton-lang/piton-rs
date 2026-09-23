@@ -12,7 +12,9 @@ pub mod index;
 pub mod world;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use piton_syntax::language;
 use tokio::sync::RwLock;
@@ -36,20 +38,68 @@ pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::TYPE,      // type constraints
 ];
 
-/// Semantic token modifiers.
+/// Semantic token modifiers. The last three are Piton's own: a property whose
+/// value a base supplies, a declaration other files can import, and a name
+/// declared in another file.
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DECLARATION,
     SemanticTokenModifier::DEFINITION,
     SemanticTokenModifier::ABSTRACT,
     SemanticTokenModifier::DEFAULT_LIBRARY,
+    SemanticTokenModifier::new("inherited"),
+    SemanticTokenModifier::new("exported"),
+    SemanticTokenModifier::new("imported"),
 ];
+
+/// How long typing has to pause before the server recompiles on its own.
+///
+/// A request (hover, completion, ...) never waits for this: it compiles first
+/// if the buffers moved since the last compilation. The pause only decides
+/// when diagnostics are republished while someone is still typing.
+const DEBOUNCE: Duration = Duration::from_millis(250);
 
 pub struct Backend {
     client: Client,
-    world: RwLock<World>,
+    world: Arc<RwLock<World>>,
     /// Whether the client said it would accept a file watcher registered after
     /// `initialize`.
     watching: AtomicBool,
+    /// Whether the client can take a type hierarchy registration.
+    hierarchy: AtomicBool,
+    /// Bumped on every edit, so a debounced recompile can tell it was
+    /// overtaken by a later keystroke.
+    generation: Arc<AtomicU64>,
+}
+
+/// Recompiles if anything changed and publishes diagnostics for every file
+/// that has or had them.
+async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>) {
+    let published = {
+        let mut world = world.write().await;
+        if !world.refresh(focus.as_deref()) {
+            return;
+        }
+        let grouped = world.diagnostics_by_file();
+        world.last_reported = grouped.keys().cloned().collect();
+
+        let text_of = |path: &std::path::Path| world.text(path);
+        grouped
+            .into_iter()
+            .filter_map(|(path, diagnostics)| {
+                let url = convert::path_to_url(&path)?;
+                let text = world.text(&path).unwrap_or_default();
+                let items = diagnostics
+                    .iter()
+                    .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text, &text_of))
+                    .collect::<Vec<_>>();
+                Some((url, items))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for (url, diagnostics) in published {
+        client.publish_diagnostics(url, diagnostics, None).await;
+    }
 }
 
 impl Backend {
@@ -57,9 +107,23 @@ impl Backend {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Backend {
             client,
-            world: RwLock::new(World::new(&root)),
+            world: Arc::new(RwLock::new(World::new(&root))),
             watching: AtomicBool::new(false),
+            hierarchy: AtomicBool::new(false),
+            generation: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// The world, compiled against the current buffers.
+    ///
+    /// Edits are compiled lazily (see [`DEBOUNCE`]), so a request that arrives
+    /// mid-typing compiles first -- positions in the buffer have to agree with
+    /// the spans in the compilation.
+    async fn fresh(&self) -> tokio::sync::RwLockReadGuard<'_, World> {
+        if self.world.read().await.needs_compile() {
+            publish(&self.client, &self.world, None).await;
+        }
+        self.world.read().await
     }
 
     /// Asks the client to tell the server when a `.pi` file appears, changes or
@@ -108,6 +172,9 @@ impl Backend {
     /// A client that does not support it simply never asks, which is the same
     /// outcome as not advertising the feature.
     async fn offer_type_hierarchy(&self) {
+        if !self.hierarchy.load(Ordering::Relaxed) {
+            return;
+        }
         let registration = Registration {
             id: "piton-type-hierarchy".into(),
             method: "textDocument/prepareTypeHierarchy".into(),
@@ -124,42 +191,37 @@ impl Backend {
     }
 
     async fn source_to_output(&self, params: serde_json::Value) -> Result<serde_json::Value> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::source_to_output(&world, &params))
     }
 
     async fn output_to_source(&self, params: serde_json::Value) -> Result<serde_json::Value> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::output_to_source(&world, &params))
     }
 
-    /// Recompiles and republishes diagnostics for every affected file.
+    async fn preview(&self, params: serde_json::Value) -> Result<serde_json::Value> {
+        let world = self.fresh().await;
+        Ok(features::preview(&world, &params))
+    }
+
+    /// Recompiles, if anything changed, and republishes diagnostics.
     async fn refresh(&self, focus: Option<PathBuf>) {
-        let published = {
-            let mut world = self.world.write().await;
-            world.recompile(focus.as_deref());
-            let grouped = world.diagnostics_by_file();
-            world.last_reported = grouped.keys().cloned().collect();
+        publish(&self.client, &self.world, focus).await;
+    }
 
-            grouped
-                .into_iter()
-                .filter_map(|(path, diagnostics)| {
-                    let url = convert::path_to_url(&path)?;
-                    let text = world.text(&path).unwrap_or_default();
-                    let items = diagnostics
-                        .iter()
-                        .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text))
-                        .collect::<Vec<_>>();
-                    Some((url, items))
-                })
-                .collect::<Vec<_>>()
-        };
-
-        for (url, diagnostics) in published {
-            self.client
-                .publish_diagnostics(url, diagnostics, None)
-                .await;
-        }
+    /// Recompiles after typing pauses, unless another edit arrives first.
+    fn schedule(&self, focus: PathBuf) {
+        let ticket = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let generation = self.generation.clone();
+        let client = self.client.clone();
+        let world = self.world.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(DEBOUNCE).await;
+            if generation.load(Ordering::SeqCst) == ticket {
+                publish(&client, &world, Some(focus)).await;
+            }
+        });
     }
 }
 
@@ -184,6 +246,14 @@ impl LanguageServer for Backend {
             .and_then(|watched| watched.dynamic_registration)
             .unwrap_or(false);
         self.watching.store(dynamic, Ordering::Relaxed);
+        let hierarchy = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text| text.type_hierarchy.as_ref())
+            .and_then(|hierarchy| hierarchy.dynamic_registration)
+            .unwrap_or(false);
+        self.hierarchy.store(hierarchy, Ordering::Relaxed);
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
@@ -203,7 +273,6 @@ impl LanguageServer for Backend {
                         ".".into(),
                         ":".into(),
                         "/".into(),
-                        " ".into(),
                     ]),
                     // The list is built on every keystroke and the description
                     // of an anchor renders its whole compiled value, so the
@@ -252,9 +321,12 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 }),
                 inlay_hint_provider: Some(OneOf::Left(true)),
-                signature_help_provider: Some(SignatureHelpOptions {
-                    trigger_characters: Some(vec![":".into()]),
-                    ..Default::default()
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec![
+                        features::SOURCE_TO_OUTPUT.into(),
+                        features::SHOW_LOCATION.into(),
+                    ],
+                    work_done_progress_options: Default::default(),
                 }),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
@@ -308,11 +380,16 @@ impl LanguageServer for Backend {
             let mut world = self.world.write().await;
             world.set_document(path.clone(), change.text);
         }
-        self.refresh(Some(path)).await;
+        self.schedule(path);
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let path = convert::url_to_path(&params.text_document.uri);
+        if path.as_deref().is_some_and(world::is_config_file) {
+            // The configuration decides the source root, the entry, and where
+            // output goes; the saved version is the one the compiler reads.
+            self.world.write().await.reload_project();
+        }
         self.refresh(path).await;
     }
 
@@ -349,6 +426,9 @@ impl LanguageServer for Backend {
                     _ => news = true,
                 }
             }
+            if news {
+                world.invalidate();
+            }
         }
         if news {
             self.refresh(None).await;
@@ -367,7 +447,7 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::hover(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -379,7 +459,7 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::definition(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -391,7 +471,7 @@ impl LanguageServer for Backend {
         &self,
         params: request::GotoImplementationParams,
     ) -> Result<Option<request::GotoImplementationResponse>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::implementations(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -403,7 +483,7 @@ impl LanguageServer for Backend {
         &self,
         params: TypeHierarchyPrepareParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::prepare_type_hierarchy(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -415,7 +495,7 @@ impl LanguageServer for Backend {
         &self,
         params: TypeHierarchySupertypesParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::type_hierarchy_supertypes(&world, &params.item))
     }
 
@@ -423,12 +503,12 @@ impl LanguageServer for Backend {
         &self,
         params: TypeHierarchySubtypesParams,
     ) -> Result<Option<Vec<TypeHierarchyItem>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::type_hierarchy_subtypes(&world, &params.item))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::references(
             &world,
             &params.text_document_position.text_document.uri,
@@ -441,7 +521,7 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::prepare_rename(
             &world,
             &params.text_document.uri,
@@ -450,7 +530,7 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::rename(
             &world,
             &params.text_document_position.text_document.uri,
@@ -463,7 +543,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::document_symbols(
             &world,
             &params.text_document.uri,
@@ -474,12 +554,12 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::workspace_symbols(&world, &params.query))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::completion(
             &world,
             &params.text_document_position.text_document.uri,
@@ -488,12 +568,12 @@ impl LanguageServer for Backend {
     }
 
     async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::resolve_completion(&world, item))
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::formatting(&world, &params.text_document.uri))
     }
 
@@ -501,7 +581,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentOnTypeFormattingParams,
     ) -> Result<Option<Vec<TextEdit>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::on_type_formatting(
             &world,
             &params.text_document_position.text_document.uri,
@@ -511,7 +591,7 @@ impl LanguageServer for Backend {
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::folding(&world, &params.text_document.uri))
     }
 
@@ -519,7 +599,7 @@ impl LanguageServer for Backend {
         &self,
         params: SelectionRangeParams,
     ) -> Result<Option<Vec<SelectionRange>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::selection_ranges(
             &world,
             &params.text_document.uri,
@@ -528,17 +608,17 @@ impl LanguageServer for Backend {
     }
 
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::code_lenses(&world, &params.text_document.uri))
     }
 
     async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::document_links(&world, &params.text_document.uri))
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::code_actions(
             &world,
             &params.text_document.uri,
@@ -547,7 +627,7 @@ impl LanguageServer for Backend {
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::inlay_hints(
             &world,
             &params.text_document.uri,
@@ -555,20 +635,35 @@ impl LanguageServer for Backend {
         ))
     }
 
-    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
-        let world = self.world.read().await;
-        Ok(features::signature_help(
-            &world,
-            &params.text_document_position_params.text_document.uri,
-            params.text_document_position_params.position,
-        ))
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
+        let outcome = {
+            let world = self.fresh().await;
+            features::execute_command(&world, &params.command, &params.arguments)
+        };
+        match outcome {
+            Some(features::CommandOutcome::Show(show)) => {
+                if let Err(error) = self.client.show_document(show).await {
+                    self.client
+                        .show_message(MessageType::WARNING, format!("cannot open it: {error}"))
+                        .await;
+                }
+            }
+            Some(features::CommandOutcome::Message(message)) => {
+                self.client.show_message(MessageType::INFO, message).await;
+            }
+            None => {}
+        }
+        Ok(None)
     }
 
     async fn semantic_tokens_full(
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let world = self.world.read().await;
+        let world = self.fresh().await;
         Ok(features::semantic_tokens(&world, &params.text_document.uri))
     }
 }
@@ -591,6 +686,7 @@ pub fn serve() {
         let (service, socket) = LspService::build(Backend::new)
             .custom_method("piton/sourceToOutput", Backend::source_to_output)
             .custom_method("piton/outputToSource", Backend::output_to_source)
+            .custom_method("piton/preview", Backend::preview)
             .finish();
         Server::new(stdin, stdout, socket).serve(service).await;
     });

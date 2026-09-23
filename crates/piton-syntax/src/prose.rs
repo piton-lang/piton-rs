@@ -58,19 +58,24 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                     buffer.push('\\');
                 }
             } else if literal {
-                // Closing delimiter: drop one space written just inside it.
+                // Closing delimiter: the wrapper is a backslash with a space
+                // on its inner side, and the space goes with it.
                 if buffer.ends_with(' ') {
                     buffer.pop();
+                    flush(&mut buffer, &mut segments, true);
+                    literal = false;
+                } else {
+                    buffer.push('\\');
                 }
-                flush(&mut buffer, &mut segments, true);
-                literal = false;
-            } else {
+            } else if i < bytes.len() && bytes[i].1 == ' ' {
+                // Opening delimiter: `\ ` -- the space is part of the wrapper.
                 flush(&mut buffer, &mut segments, false);
                 literal = true;
-                // Opening delimiter: drop one space written just inside it.
-                if i < bytes.len() && bytes[i].1 == ' ' {
-                    i += 1;
-                }
+                i += 1;
+            } else {
+                // Wrapping is the only way to escape, so a backslash that
+                // doesn't open a wrapper is just a character.
+                buffer.push('\\');
             }
             continue;
         }
@@ -205,21 +210,34 @@ fn matching_brace(bytes: &[(usize, char)], open: usize) -> Option<usize> {
 pub fn split_comment(line: &str) -> (&str, Option<&str>) {
     let bytes: Vec<(usize, char)> = line.char_indices().collect();
     let mut quoted = false;
+    // Inside `\ ... \` everything is literal, `//` included, so `\ // \`
+    // writes two slashes instead of starting a comment.
+    let mut literal = false;
     let mut i = 0usize;
     while i < bytes.len() {
         let (offset, ch) = bytes[i];
         match ch {
-            '"' => {
-                quoted = !quoted;
-                i += 1;
-            }
             '\\' => {
-                // Skip the whole run plus whatever it escapes.
                 let mut run = 0;
                 while i + run < bytes.len() && bytes[i + run].1 == '\\' {
                     run += 1;
                 }
-                i += run + usize::from(run % 2 == 1);
+                if run == 1 {
+                    let opens = !literal && bytes.get(i + 1).is_some_and(|(_, c)| *c == ' ');
+                    let closes = literal && i > 0 && bytes[i - 1].1 == ' ';
+                    if opens || closes {
+                        literal = !literal;
+                    }
+                    i += 1;
+                } else {
+                    // A stacked run escapes whatever follows it.
+                    i += run + usize::from(run % 2 == 1);
+                }
+            }
+            _ if literal => i += 1,
+            '"' => {
+                quoted = !quoted;
+                i += 1;
             }
             '/' if !quoted && bytes.get(i + 1).map(|(_, c)| *c) == Some('/') => {
                 let preceded_ok = i == 0 || bytes[i - 1].1.is_whitespace();
@@ -276,8 +294,10 @@ mod tests {
     }
 
     #[test]
-    fn escaped_colon_survives() {
-        assert_eq!(rendered(r"Similarly\:"), "Similarly:");
+    fn a_colon_is_escaped_by_wrapping_it() {
+        assert_eq!(rendered(r"Similarly\ : \"), "Similarly:");
+        // Wrapping is the only way to escape; a bare backslash is a character.
+        assert_eq!(rendered(r"Similarly\:"), r"Similarly\:");
     }
 
     #[test]
@@ -318,7 +338,8 @@ mod tests {
     #[test]
     fn quoted_and_escaped_slashes_are_not_comments() {
         assert_eq!(split_comment(r#"created with "//"."#).1, None);
-        assert_eq!(split_comment(r"\// Just Text").1, None);
+        assert_eq!(split_comment(r"\ // \ Just Text").1, None);
+        assert_eq!(split_comment(r"a: \ x \ // real").1, Some("// real"));
         assert_eq!(split_comment("https://example.com/a").1, None);
     }
 }

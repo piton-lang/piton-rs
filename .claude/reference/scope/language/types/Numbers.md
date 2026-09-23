@@ -42,7 +42,7 @@ The compiler uses types to check whether expressions and assignments make sense.
 
 ## Unsupported Operators
 
-Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md) and [Inference](Inference.md).
+Any operator not explicitly listed as supported will throw a compiler error.  Before throwing an error, the compiler will follow the rules of [TypeCoercion](../variables/TypeCoercion.md#type-coercion) and [Inference](./Inference.md#inference).
 
 ## Description
 
@@ -61,5 +61,3 @@ Under the hood, numbers are 64-bit floats (IEEE 754).
 Negative numbers are written with a minus, like `-5`. List items always have a space after the dash, so `-5` is a number and `- 5` is a list item.
 There's no exponent notation, so no `1e3`.
 When compiled, numbers are written in their shortest form, so `1_200_000.00` becomes `1200000` and `0.50` becomes `0.5`.
-
-Links in this document point at reference files. Read one when the work touches what it describes.

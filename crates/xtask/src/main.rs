@@ -884,6 +884,9 @@ mod publish_tests {
 /// Where the Zed extension pins the grammar it fetches.
 const ZED_EXTENSION: &str = "editors/zed/extension.toml";
 
+/// Other editors that fetch the same grammar at the same commit as Zed.
+const OTHER_GRAMMAR_PINS: [&str; 2] = ["editors/helix/languages.toml", "editors/neovim/piton.lua"];
+
 /// Points the Zed extension at the commit that was just published.
 ///
 /// Zed fetches one revision of the grammar repository and builds it. A pin
@@ -902,12 +905,14 @@ fn pin_zed_grammar(workspace: &Path, commit: &str) -> Result<(), Error> {
     let mut out = String::with_capacity(text.len());
     let mut in_grammar = false;
     let mut pinned = false;
+    let mut previous: Option<String> = None;
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
             in_grammar = trimmed == "[grammars.piton]";
         }
         if in_grammar && trimmed.starts_with("commit") && !pinned {
+            previous = trimmed.split('"').nth(1).map(str::to_string);
             out.push_str(&format!("commit = \"{commit}\"\n"));
             pinned = true;
             continue;
@@ -926,6 +931,23 @@ fn pin_zed_grammar(workspace: &Path, commit: &str) -> Result<(), Error> {
     fs::write(&path, out)
         .map_err(|error| Error::Message(format!("cannot write `{}`: {error}", path.display())))?;
     println!("pinned {ZED_EXTENSION} to {}", &commit[..commit.len().min(12)]);
-    println!("note: that is a change to this repository; commit it so Zed users get it");
+
+    // Helix and Neovim fetch the same grammar at the same commit, so they move
+    // with Zed.
+    if let Some(previous) = previous.filter(|p| !p.is_empty() && p != commit) {
+        for relative in OTHER_GRAMMAR_PINS {
+            let path = workspace.join(relative);
+            let Ok(text) = fs::read_to_string(&path) else { continue };
+            if !text.contains(&previous) {
+                println!("note: {relative} does not pin {previous}; left alone");
+                continue;
+            }
+            fs::write(&path, text.replace(&previous, commit)).map_err(|error| {
+                Error::Message(format!("cannot write `{}`: {error}", path.display()))
+            })?;
+            println!("pinned {relative} to {}", &commit[..commit.len().min(12)]);
+        }
+    }
+    println!("note: that is a change to this repository; commit it so editor users get it");
     Ok(())
 }

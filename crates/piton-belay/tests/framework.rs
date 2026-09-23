@@ -262,3 +262,93 @@ fn indent(text: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+#[test]
+fn the_adapters_are_served_from_the_specification_files() {
+    // Like the constructs, the adapter anchors a project lists are the
+    // specification's own files, not a hand-written copy.
+    let sandbox = Sandbox::new();
+    let entry = sandbox.dir.join("main.pi");
+    std::fs::write(
+        &entry,
+        "from @piton/belay import ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter, ClaudeAdapter\n",
+    )
+    .expect("write");
+    let mut project = Project::for_file(&entry);
+    project.source_root = sandbox.dir.clone();
+    project.root = sandbox.dir.clone();
+    let bundled = Compilation::build(project);
+    assert!(
+        !bundled.has_errors(),
+        "{:#?}",
+        bundled.diagnostics.as_slice()
+    );
+    let root = repo_root();
+
+    for (name, file) in [
+        ("ClaudeCodeAdapter", "ClaudeCode"),
+        ("CodexAdapter", "Codex"),
+        ("OpenCodeAdapter", "OpenCode"),
+    ] {
+        let anchor = find(&bundled, name);
+        let module = bundled.anchor_module_path(anchor);
+        assert_eq!(module, PathBuf::from(format!("@piton/belay/adapters/{file}")));
+        let served = bundled.source_of(&module).expect("source");
+        let on_disk = std::fs::read_to_string(
+            root.join(format!("spec/scope/belay/adapters/{file}.pi")),
+        )
+        .expect("readable");
+        assert_eq!(served, on_disk, "`{name}` is served from a copy");
+    }
+}
+
+#[test]
+fn the_adapter_anchors_agree_with_the_built_in_targets() {
+    // Belay reads each target's paths and settings from the anchor a project
+    // configures, and falls back to built-in constants without one. The two
+    // must say the same thing, or a project would build differently depending
+    // on whether its configuration could be read.
+    use piton_belay::adapter::{Adapter, Target};
+
+    let sandbox = Sandbox::new();
+    let entry = sandbox.dir.join("main.pi");
+    std::fs::write(
+        &entry,
+        "from @piton/belay import ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter\n",
+    )
+    .expect("write");
+    let mut project = Project::for_file(&entry);
+    project.source_root = sandbox.dir.clone();
+    project.root = sandbox.dir.clone();
+    let bundled = Compilation::build(project);
+
+    for adapter in Adapter::all() {
+        let anchor = find(&bundled, adapter.export_name);
+        let properties = &bundled.store().anchor(anchor).properties;
+        let read = Target::from_anchor(adapter, adapter.export_name, properties);
+        let builtin = Target::builtin(adapter);
+        let facts = |t: &Target| {
+            (
+                t.root.clone(),
+                t.instruction_file.clone(),
+                t.reference_root.clone(),
+                t.skill_output.clone(),
+                t.command_output.clone(),
+                t.policy_output.clone(),
+                t.agent_output.clone(),
+                t.command_support,
+                t.agent_format,
+                t.default_mode.clone(),
+                t.documentation_checked.clone(),
+            )
+        };
+        assert_eq!(facts(&read), facts(&builtin), "{}", adapter.target_id);
+        let target_id = properties
+            .get("targetId")
+            .and_then(|v| match v {
+                piton_core::Value::Str(t) => t.as_plain().map(str::to_string),
+                _ => None,
+            });
+        assert_eq!(target_id.as_deref(), Some(adapter.target_id));
+    }
+}

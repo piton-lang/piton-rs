@@ -23,7 +23,7 @@ diagnostics: Validate Piton syntax and Belay semantics continuously, reporting i
 completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
   However, don't autocomplete things that don't exist.
   Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
-  Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
+  Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md#property-access-operator) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
 autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
 hoverInformation: Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
 goToDefinition: Navigate from any reference to the anchor, property, skill, agent, import, or other symbol that defines it.
@@ -60,5 +60,3 @@ workspaceIndexing: Maintain an index of symbols, relationships, references, expo
 editorSelectionRanges: Understand Piton's semantic structure so expanding selection moves naturally from a value to a property, declaration, and enclosing anchor.
 folding: Provide folding ranges for anchors, skills, agents, multiline values, documentation blocks, and other structural Piton constructs.
 ```
-
-Links in this document point at reference files. Read one when the work touches what it describes.

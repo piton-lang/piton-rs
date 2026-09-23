@@ -2,26 +2,40 @@
 //!
 //! Belay resolves a project through the Piton compiler, builds a complete output
 //! plan for every configured adapter, validates that plan, and only then writes.
-//! Planning before writing is what lets it catch collisions, broken links, and
-//! cross-target discovery problems while they are still cheap to report.
+//! Planning before writing is what lets it catch collisions, broken links,
+//! unowned files and cross-target discovery problems while they are still cheap
+//! to report.
+//!
+//! What is emitted is what the build command emits: the entry file's exports
+//! and anything they reference. An exported construct becomes its target's
+//! native artifact; any other exported anchor, and every anchor an emitted
+//! artifact references, is compiled into the target's reference tree, one file
+//! per source module.
 
 pub mod adapter;
 pub mod construct;
+pub mod manifest;
+pub mod options;
+pub mod references;
 pub mod render;
 pub mod shape;
+mod validate;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use piton_compile::{module, prelude, reach, BelayConfig, Compilation};
-use piton_core::{
-    is_valid_artifact_name, kebab_case, AnchorId, Diagnostic, MixedItem, Span, Value,
-};
+use piton_compile::{module, prelude, BelayConfig, Compilation};
+use piton_core::{kebab_case, title_case, AnchorId, Diagnostic, Ref, Span, Value};
 use piton_emit::markdown;
 
-use adapter::{Adapter, AgentFormat, CommandSupport};
+use adapter::{AgentFormat, CommandSupport, NativeOption, OptionRule, Target};
 use construct::{Construct, ConstructKind};
+use options::Options;
+use references::{Closure, FileIndex, Links, Unrepresentable};
 use render::{FieldValue, Fields};
+
+pub use manifest::MANIFEST;
 
 /// What produced an output file, used for diagnostics and for cleanup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,6 +47,9 @@ pub enum OutputKind {
     Agent,
     Reference,
     ShapeReference,
+    /// The record of which target versions the artifacts were validated
+    /// against.
+    TargetRecord,
 }
 
 impl OutputKind {
@@ -45,6 +62,7 @@ impl OutputKind {
             OutputKind::Agent => "agent",
             OutputKind::Reference => "reference",
             OutputKind::ShapeReference => "shape reference",
+            OutputKind::TargetRecord => "target record",
         }
     }
 }
@@ -57,7 +75,9 @@ pub struct OutputFile {
     pub contents: String,
     pub kind: OutputKind,
     pub target: &'static str,
-    /// The source anchor this came from, named in diagnostics.
+    /// The source anchor this came from, named in diagnostics. A file holding
+    /// several anchors -- a module's reference document, a scope's combined
+    /// guidance -- names them all, comma separated.
     pub origin: String,
     /// The `.pi` files that contributed to this output, for provenance.
     pub sources: Vec<PathBuf>,
@@ -70,6 +90,47 @@ pub struct Plan {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// A planned file with the anchors whose content it carries, in order, so a
+/// diagnostic about the file can point at its source.
+#[derive(Debug, Clone)]
+pub(crate) struct Planned {
+    pub file: OutputFile,
+    pub anchors: Vec<AnchorId>,
+}
+
+impl std::ops::Deref for Planned {
+    type Target = OutputFile;
+    fn deref(&self) -> &OutputFile {
+        &self.file
+    }
+}
+
+impl std::ops::DerefMut for Planned {
+    fn deref_mut(&mut self) -> &mut OutputFile {
+        &mut self.file
+    }
+}
+
+/// The plan while it is being built.
+#[derive(Debug, Default)]
+pub(crate) struct Draft {
+    pub files: Vec<Planned>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl Draft {
+    fn push(&mut self, file: OutputFile, anchors: Vec<AnchorId>) {
+        self.files.push(Planned { file, anchors });
+    }
+}
+
+/// Where the target record is written, relative to the project root.
+///
+/// It records, per target, the adapter that produced the artifacts and the
+/// platform documentation date its mappings were validated against, beside
+/// the build manifest.
+pub const TARGET_RECORD: &str = ".piton/targets.json";
+
 impl Plan {
     pub fn has_errors(&self) -> bool {
         self.diagnostics.iter().any(Diagnostic::is_error)
@@ -77,11 +138,7 @@ impl Plan {
 
     /// The paths this plan owns, sorted, for the build manifest.
     pub fn manifest(&self) -> Vec<String> {
-        let mut paths: Vec<String> = self
-            .files
-            .iter()
-            .map(|file| file.path.to_string_lossy().replace('\\', "/"))
-            .collect();
+        let mut paths: Vec<String> = self.files.iter().map(|file| slash(&file.path)).collect();
         paths.sort();
         paths.dedup();
         paths
@@ -90,320 +147,552 @@ impl Plan {
 
 /// Builds the output plan for a compiled project.
 pub fn plan(compilation: &Compilation, config: &BelayConfig) -> Plan {
-    let mut plan = Plan::default();
+    let options = Options::load(compilation, config);
+    plan_with(compilation, config, &options)
+}
 
-    let adapters: Vec<&'static Adapter> = config
-        .adapters
-        .iter()
-        .filter_map(|target| match Adapter::by_target(target) {
-            Some(adapter) => Some(adapter),
-            None => {
-                plan.diagnostics.push(
-                    Diagnostic::error(
-                        "unknown-adapter",
-                        format!("`{target}` is not a known Belay adapter"),
-                        compilation
-                            .project
-                            .config_path
-                            .clone()
-                            .unwrap_or_else(|| compilation.project.root.clone()),
-                        Span::default(),
-                    )
-                    .with_help(format!(
-                        "available adapters: {}",
-                        Adapter::all()
-                            .iter()
-                            .map(|a| a.target_id)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                );
-                None
-            }
-        })
-        .collect();
-
-    if adapters.is_empty() {
-        return plan;
+/// Builds the output plan against already-loaded options.
+pub fn plan_with(compilation: &Compilation, config: &BelayConfig, options: &Options) -> Plan {
+    let mut plan = Draft::default();
+    plan.diagnostics.extend(options.diagnostics.iter().cloned());
+    if options.targets.is_empty() {
+        return Plan {
+            files: Vec::new(),
+            diagnostics: plan.diagnostics,
+        };
     }
 
-    let reachability = reach::from_entry(compilation);
-    let mut reachable: Vec<AnchorId> = reachability.reached.iter().map(|r| r.anchor).collect();
-    reachable.sort();
+    let emission = Emission::collect(compilation, config, &mut plan);
+    let closure = references::close(compilation, &emission.roots());
+    report_references(compilation, &emission, &closure, &mut plan);
 
-    let constructs = construct::collect(compilation, &reachable);
-    let mut references = referenced_anchors(compilation, &reachable);
-    for anchor in entry_documents(compilation, &constructs) {
-        references.insert(anchor);
+    for target in &options.targets {
+        build_target(compilation, config, target, &emission, &closure, &mut plan);
     }
+    plan.push(target_record(options), Vec::new());
 
-    for adapter in &adapters {
-        build_target(
-            compilation,
-            config,
-            adapter,
-            &constructs,
-            &references,
-            &mut plan,
-        );
-    }
-
-    validate(compilation, &adapters, &mut plan);
+    validate::validate(compilation, options, &mut plan);
+    validate::ownership(compilation, options, &mut plan);
     plan.files
         .sort_by(|a, b| a.path.cmp(&b.path).then(a.target.cmp(b.target)));
-    plan
-}
-
-/// Anchors the entry exports that no construct already accounts for.
-///
-/// Being exported from the entry is enough on its own to be compiled: it does
-/// not have to be used, and nothing has to link to it. A construct exported
-/// this way already produces its own artifact -- a skill file, a command file
-/// -- and needs nothing more. Anything else is an ordinary anchor, and the
-/// place an ordinary anchor is written is the reference tree, so that is where
-/// it goes. Without this a library whose entry does nothing but export its
-/// components builds to nothing at all, which is the one thing it plainly
-/// should not do.
-///
-/// An abstract anchor is left out. It declares a shape and has no value of its
-/// own to write.
-fn entry_documents(compilation: &Compilation, constructs: &[Construct]) -> Vec<AnchorId> {
-    let already: BTreeSet<AnchorId> = constructs.iter().map(|item| item.anchor).collect();
-    compilation
-        .entry_exports()
-        .into_iter()
-        .filter(|anchor| !already.contains(anchor))
-        .filter(|anchor| !compilation.store().anchor(*anchor).is_abstract)
-        .collect()
-}
-
-/// Every anchor reached through a reference, transitively, so the reference
-/// tree is closed: a link never points at a file that was not generated.
-fn referenced_anchors(compilation: &Compilation, reachable: &[AnchorId]) -> BTreeSet<AnchorId> {
-    let mut found = BTreeSet::new();
-    let mut queue: Vec<AnchorId> = Vec::new();
-
-    for anchor in reachable {
-        let def = compilation.store().anchor(*anchor);
-        for value in def.properties.values() {
-            collect_references(value, &mut queue);
-        }
+    Plan {
+        files: plan.files.into_iter().map(|planned| planned.file).collect(),
+        diagnostics: plan.diagnostics,
     }
-
-    while let Some(anchor) = queue.pop() {
-        if !found.insert(anchor) {
-            continue;
-        }
-        let def = compilation.store().anchor(anchor);
-        for value in def.properties.values() {
-            collect_references(value, &mut queue);
-        }
-    }
-    found
 }
 
-fn collect_references(value: &Value, out: &mut Vec<AnchorId>) {
-    match value {
-        Value::Reference(id) => out.push(*id),
-        Value::Str(text) => out.extend(text.references()),
-        Value::List(items) => items.iter().for_each(|item| collect_references(item, out)),
-        Value::Dict(map) => map.values().for_each(|item| collect_references(item, out)),
-        Value::Mixed(mixed) => {
-            for item in &mixed.items {
-                match item {
-                    MixedItem::Text(text) => out.extend(text.references()),
-                    MixedItem::List(items) => {
-                        items.iter().for_each(|item| collect_references(item, out))
-                    }
-                    MixedItem::Entry(_, value) => collect_references(value, out),
+/// Records the adapter and documentation date each target was validated
+/// against.
+fn target_record(options: &Options) -> OutputFile {
+    let quote = piton_emit::json::quote;
+    let entries: Vec<String> = options
+        .targets
+        .iter()
+        .map(|target| {
+            format!(
+                "  {}: {{\n    \"adapter\": {},\n    \"documentationChecked\": {}\n  }}",
+                quote(target.id),
+                quote(&target.anchor_name),
+                quote(&target.documentation_checked)
+            )
+        })
+        .collect();
+    OutputFile {
+        path: PathBuf::from(TARGET_RECORD),
+        contents: format!("{{\n{}\n}}\n", entries.join(",\n")),
+        kind: OutputKind::TargetRecord,
+        target: "belay",
+        origin: options
+            .targets
+            .iter()
+            .map(|t| t.anchor_name.clone())
+            .collect::<Vec<_>>()
+            .join(", "),
+        sources: Vec::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic locations
+// ---------------------------------------------------------------------------
+
+/// Where an anchor is declared.
+pub(crate) fn anchor_site(compilation: &Compilation, anchor: AnchorId) -> (PathBuf, Span) {
+    let def = compilation.store().anchor(anchor);
+    (compilation.anchor_module_path(anchor), def.name_span)
+}
+
+/// Where the winning declaration of an anchor's property is, falling back to
+/// the anchor.
+pub(crate) fn property_site(
+    compilation: &Compilation,
+    anchor: AnchorId,
+    key: &str,
+) -> (PathBuf, Span) {
+    let def = compilation.store().anchor(anchor);
+    match def.slots.get(key) {
+        Some(slot) if slot.span != Span::default() => {
+            (compilation.anchor_module_path(slot.owner), slot.span)
+        }
+        _ => anchor_site(compilation, anchor),
+    }
+}
+
+fn error_at(code: &str, message: String, (file, span): (PathBuf, Span)) -> Diagnostic {
+    Diagnostic::error(code, message, file, span)
+}
+
+fn warning_at(code: &str, message: String, (file, span): (PathBuf, Span)) -> Diagnostic {
+    Diagnostic::warning(code, message, file, span)
+}
+
+fn slash(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+// ---------------------------------------------------------------------------
+// What is emitted
+// ---------------------------------------------------------------------------
+
+/// The entry's exports, sorted into what they compile to.
+struct Emission {
+    /// Exported concrete constructs, which become native artifacts.
+    constructs: Vec<Construct>,
+    /// Exported concrete anchors that are not constructs, which become
+    /// reference documents.
+    documents: Vec<AnchorId>,
+    /// Exported instructions under `shapeRoot`, preserved in the compiled
+    /// shape tree as well as placed as scoped guidance.
+    shape_instructions: BTreeSet<AnchorId>,
+    /// Each placeable instruction's scope directory, relative to the project
+    /// root.
+    placements: HashMap<AnchorId, PathBuf>,
+}
+
+impl Emission {
+    fn collect(compilation: &Compilation, config: &BelayConfig, plan: &mut Draft) -> Emission {
+        let exports: Vec<AnchorId> = compilation
+            .entry_exports()
+            .into_iter()
+            .filter(|anchor| !compilation.store().anchor(*anchor).is_abstract)
+            .collect();
+        let constructs = construct::collect(compilation, &exports);
+        let construct_ids: BTreeSet<AnchorId> = constructs.iter().map(|c| c.anchor).collect();
+        let mut seen = BTreeSet::new();
+        let documents = exports
+            .iter()
+            .copied()
+            .filter(|anchor| !construct_ids.contains(anchor))
+            .filter(|anchor| seen.insert(*anchor))
+            .collect();
+
+        let project_root = &compilation.project.root;
+        let mut shape_instructions = BTreeSet::new();
+        let mut placements = HashMap::new();
+        for item in constructs.iter().filter(|c| c.kind == ConstructKind::Instruction) {
+            let source = compilation.anchor_module_path(item.anchor);
+            let site = anchor_site(compilation, item.anchor);
+            let Some(shape_root) = config
+                .shape_root
+                .as_ref()
+                .filter(|root| shape::is_shape_source(&source, root))
+            else {
+                // Placement outside shapeRoot is an open decision in the
+                // specification; tooling says so rather than guessing.
+                plan.diagnostics.push(
+                    error_at(
+                        "instruction-placement-unspecified",
+                        format!(
+                            "`{}` is not under the configured shapeRoot, and where such an instruction goes is not specified",
+                            item.name
+                        ),
+                        site,
+                    )
+                    .with_origin(item.name.clone())
+                    .with_help(
+                        "move it under shapeRoot (and configure one), or make it a skill; see OpenDecisions.instructionScope"
+                            .to_string(),
+                    ),
+                );
+                continue;
+            };
+            shape_instructions.insert(item.anchor);
+            let exists = |path: &Path| path.is_dir();
+            match shape::place(&source, shape_root, &config.code_root, &exists) {
+                Some(placement) => {
+                    let scope = placement
+                        .scope
+                        .strip_prefix(project_root)
+                        .map(Path::to_path_buf)
+                        .unwrap_or(placement.scope);
+                    placements.insert(item.anchor, scope);
                 }
+                None => plan.diagnostics.push(
+                    error_at(
+                        "unplaceable-instruction",
+                        format!(
+                            "`{}` has no scope to attach to; `{}` does not exist",
+                            item.name,
+                            config.code_root.display()
+                        ),
+                        site,
+                    )
+                    .with_origin(item.name.clone()),
+                ),
             }
         }
-        // An anchor embedded by value is inlined, but its own references still
-        // have to resolve from wherever it is inlined.
-        Value::Anchor(_) => {}
-        _ => {}
+
+        Emission {
+            constructs,
+            documents,
+            shape_instructions,
+            placements,
+        }
+    }
+
+    /// The anchors whose content is emitted directly.
+    fn roots(&self) -> Vec<AnchorId> {
+        let mut roots: Vec<AnchorId> = self.constructs.iter().map(|c| c.anchor).collect();
+        roots.extend(self.documents.iter().copied());
+        roots
+    }
+
+    /// The anchors that get a document in the reference tree, before
+    /// references are added.
+    fn documented(&self) -> BTreeSet<AnchorId> {
+        self.documents
+            .iter()
+            .chain(self.shape_instructions.iter())
+            .copied()
+            .collect()
+    }
+
+    fn is_construct(&self, anchor: AnchorId) -> bool {
+        self.constructs.iter().any(|c| c.anchor == anchor)
     }
 }
 
-/// Maps anchors to their compiled location for one target.
-struct Locations {
-    reference: HashMap<AnchorId, PathBuf>,
-}
+/// Reports references that cannot be compiled, references in metadata, and
+/// anchors that would compile to more than one output.
+fn report_references(
+    compilation: &Compilation,
+    emission: &Emission,
+    closure: &Closure,
+    plan: &mut Draft,
+) {
+    let mut reported: BTreeSet<(AnchorId, AnchorId, String)> = BTreeSet::new();
+    for occurrence in &closure.occurrences {
+        let target = &occurrence.target;
+        let key = (target.anchor, occurrence.from, occurrence.key.clone());
+        if !reported.insert(key) {
+            continue;
+        }
+        let site = property_site(compilation, occurrence.from, &occurrence.key);
+        let origin = format!(
+            "{}.{}",
+            compilation.store().anchor(occurrence.from).name,
+            occurrence.key
+        );
+        let shown = target.display(compilation);
+        if let Some(reason) = closure.unrepresentable.get(&target.anchor) {
+            let why = match reason {
+                Unrepresentable::Abstract => {
+                    "an abstract anchor, which is never compiled".to_string()
+                }
+                Unrepresentable::Package => format!(
+                    "`{}` from a bundled package, which has no compiled representation in this project",
+                    compilation.store().anchor(target.anchor).name
+                ),
+                Unrepresentable::OutsideProject => {
+                    "an anchor outside the project, which no output location covers".to_string()
+                }
+            };
+            plan.diagnostics.push(
+                error_at(
+                    "unrepresentable-reference",
+                    format!("`@{{{shown}}}` points at {why}, so the link would have nowhere to go"),
+                    site,
+                )
+                .with_origin(origin)
+                .with_help("reference a concrete anchor of this project, or write the name as text".to_string()),
+            );
+        } else if emission.is_construct(target.anchor) {
+            plan.diagnostics.push(
+                warning_at(
+                    "reference-identity-unspecified",
+                    format!(
+                        "`{}` is emitted as a {} and also referenced by `@{{{shown}}}`; what one anchor compiling to several outputs means is not specified, so the reference links to a copy in the reference tree",
+                        compilation.store().anchor(target.anchor).name,
+                        emission
+                            .constructs
+                            .iter()
+                            .find(|c| c.anchor == target.anchor)
+                            .map(|c| c.kind.as_str())
+                            .unwrap_or("construct")
+                    ),
+                    site,
+                )
+                .with_origin(origin)
+                .with_help("see OpenDecisions.referenceIdentity".to_string()),
+            );
+        }
+    }
 
-impl Locations {
-    fn get(&self, anchor: AnchorId) -> Option<&PathBuf> {
-        self.reference.get(&anchor)
+    // Discovery metadata is plain text: a link there would not be read as one.
+    for item in &emission.constructs {
+        for key in item.kind.metadata_properties() {
+            let Some(Value::Str(text)) = item.properties.get(*key) else {
+                continue;
+            };
+            if text.is_plain() {
+                continue;
+            }
+            plan.diagnostics.push(
+                error_at(
+                    "unrepresentable-reference",
+                    format!(
+                        "`{}.{key}` is emitted as target metadata, which has no representation for a reference",
+                        item.name
+                    ),
+                    property_site(compilation, item.anchor, key),
+                )
+                .with_origin(format!("{}.{key}", item.name))
+                .with_help("write the name as plain text, or move the reference into the prompt".to_string()),
+            );
+        }
     }
 }
 
-/// Resolves links relative to the file currently being written.
-struct Links<'a> {
-    from_directory: PathBuf,
-    locations: &'a Locations,
+// ---------------------------------------------------------------------------
+// One target
+// ---------------------------------------------------------------------------
+
+/// What rendering needs for one target.
+struct TargetContext<'a> {
+    compilation: &'a Compilation,
+    target: &'a Target,
+    locations: HashMap<AnchorId, PathBuf>,
+    index: HashMap<PathBuf, FileIndex>,
+    misses: RefCell<Vec<Ref>>,
 }
 
-impl markdown::LinkResolver for Links<'_> {
-    fn link(&self, anchor: AnchorId) -> Option<String> {
-        let target = self.locations.get(anchor)?;
-        Some(piton_emit::relative_link(&self.from_directory, target))
+impl TargetContext<'_> {
+    fn links(&self, path: &Path, indexed: bool) -> Links<'_> {
+        Links {
+            from_directory: path.parent().unwrap_or(Path::new("")).to_path_buf(),
+            anchors: self.compilation,
+            locations: &self.locations,
+            index: indexed.then_some(&self.index),
+            misses: &self.misses,
+        }
     }
 }
 
 fn build_target(
     compilation: &Compilation,
     config: &BelayConfig,
-    adapter: &'static Adapter,
-    constructs: &[Construct],
-    references: &BTreeSet<AnchorId>,
-    plan: &mut Plan,
+    target: &Target,
+    emission: &Emission,
+    closure: &Closure,
+    plan: &mut Draft,
 ) {
-    let project_root = &compilation.project.root;
-    let source_root = &compilation.project.source_root;
     let first_file = plan.files.len();
+    let project_root = &compilation.project.root;
 
     // Reference destinations are needed before anything renders, because a
     // reference link has to point at a planned output.
-    let mut locations = Locations {
-        reference: HashMap::new(),
-    };
-
-    // A shape instruction is preserved in the compiled shape tree whether or
-    // not anything references it: the shape tree is a view of the architecture,
-    // not just a link target. The scoped guidance file is a separate output.
-    let shape_instructions: BTreeSet<AnchorId> = constructs
-        .iter()
-        .filter(|item| item.kind == ConstructKind::Instruction)
-        .map(|item| item.anchor)
-        .filter(|anchor| {
-            config.shape_root.as_ref().is_some_and(|root| {
-                shape::is_shape_source(compilation.anchor_module_path(*anchor).as_path(), root)
-            })
-        })
-        .collect();
-
-    let documented: BTreeSet<AnchorId> = references.union(&shape_instructions).copied().collect();
-
+    let mut documented = emission.documented();
+    documented.extend(closure.referenced.iter().copied());
+    let compiled_shape = target.shape_root();
+    let mut files: BTreeMap<PathBuf, Vec<AnchorId>> = BTreeMap::new();
+    let mut locations = HashMap::new();
     for anchor in &documented {
-        let def = compilation.store().anchor(*anchor);
-        let source = compilation.graph().get(def.module).path.clone();
+        let source = compilation.anchor_module_path(*anchor);
         if source.to_string_lossy().starts_with('@') {
-            // Bundled package anchors have no source tree to mirror.
             continue;
         }
-        let directory = source.parent().unwrap_or(Path::new(""));
-        let under_shape = config
-            .shape_root
-            .as_ref()
-            .is_some_and(|root| shape::is_shape_source(&source, root));
-        // A shape document keeps its position relative to shapeRoot, so the
-        // compiled shape tree mirrors the architecture rather than repeating the
-        // directory that held it.
-        let (base, relative) = if under_shape {
-            let shape_root = config.shape_root.as_ref().expect("checked above");
-            (
-                PathBuf::from(adapter.shape_root()),
-                directory.strip_prefix(shape_root).unwrap_or(directory),
-            )
-        } else {
-            (
-                PathBuf::from(adapter.reference_root),
-                directory.strip_prefix(source_root).unwrap_or(directory),
-            )
-        };
-        let path = module::normalize(&base.join(relative).join(format!("{}.md", def.name)));
-        locations.reference.insert(*anchor, path);
+        let path = references::document_path(
+            &source,
+            &compilation.project.source_root,
+            project_root,
+            config.shape_root.as_deref(),
+            &target.reference_root,
+            &compiled_shape,
+        );
+        locations.insert(*anchor, path.clone());
+        files.entry(path).or_default().push(*anchor);
+    }
+    // Anchors keep their declaration order within their module's file.
+    for anchors in files.values_mut() {
+        anchors.sort_by_key(|anchor| compilation.store().anchor(*anchor).item);
     }
 
-    // Reference and shape documents.
-    for anchor in &documented {
-        let Some(path) = locations.get(*anchor).cloned() else {
-            continue;
-        };
-        let def = compilation.store().anchor(*anchor);
-        let links = Links {
-            from_directory: path.parent().unwrap_or(Path::new("")).to_path_buf(),
-            locations: &locations,
-        };
-        let context = markdown::Context {
-            anchors: compilation,
-            links: &links,
-        };
-        let contents = markdown::document(*anchor, &context);
-        let kind = if config.shape_root.as_ref().is_some_and(|root| {
-            shape::is_shape_source(compilation.anchor_module_path(*anchor).as_path(), root)
-        }) {
+    let mut context = TargetContext {
+        compilation,
+        target,
+        locations,
+        index: HashMap::new(),
+        misses: RefCell::new(Vec::new()),
+    };
+
+    // Headings do not depend on links, so a first rendering finds every
+    // file's headings and the second writes links that land on them.
+    let mut index = HashMap::new();
+    for (path, anchors) in &files {
+        let parts = render_documents(&context, path, anchors, false);
+        let borrowed: Vec<(AnchorId, &str)> =
+            parts.iter().map(|(a, text)| (*a, text.as_str())).collect();
+        index.insert(path.clone(), FileIndex::build(&borrowed));
+    }
+    context.index = index;
+    context.misses.borrow_mut().clear();
+
+    for (path, anchors) in &files {
+        let parts = render_documents(&context, path, anchors, true);
+        let contents = parts
+            .iter()
+            .map(|(_, text)| text.trim_end().to_string())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+            + "\n";
+        let kind = if path.starts_with(&compiled_shape) {
             OutputKind::ShapeReference
         } else {
             OutputKind::Reference
         };
-        plan.files.push(OutputFile {
-            contents,
-            path,
-            kind,
-            target: adapter.target_id,
-            origin: def.name.clone(),
-            sources: vec![compilation.anchor_module_path(*anchor)],
-        });
+        let mut sources: Vec<PathBuf> = anchors
+            .iter()
+            .map(|anchor| compilation.anchor_module_path(*anchor))
+            .collect();
+        sources.dedup();
+        plan.push(
+            OutputFile {
+                contents,
+                path: path.clone(),
+                kind,
+                target: target.id,
+                origin: anchors
+                    .iter()
+                    .map(|anchor| compilation.store().anchor(*anchor).name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                sources,
+            },
+            anchors.clone(),
+        );
     }
 
     // Constructs.
-    let mut instructions: BTreeMap<PathBuf, Vec<(String, String, PathBuf)>> = BTreeMap::new();
-    for item in constructs {
+    let mut instructions: BTreeMap<PathBuf, Vec<InstructionSection>> = BTreeMap::new();
+    for item in &emission.constructs {
         match item.kind {
-            ConstructKind::Skill => render_skill(compilation, adapter, item, &locations, plan),
-            ConstructKind::Command => render_command(compilation, adapter, item, &locations, plan),
-            ConstructKind::Agent => render_agent(compilation, adapter, item, &locations, plan),
-            ConstructKind::Instruction => collect_instruction(
-                compilation,
-                config,
-                adapter,
-                item,
-                &locations,
-                plan,
-                &mut instructions,
-            ),
+            ConstructKind::Skill => render_skill(&context, item, plan),
+            ConstructKind::Command => render_command(&context, item, plan),
+            ConstructKind::Agent => render_agent(&context, item, plan),
+            ConstructKind::Instruction => {
+                if let Some(scope) = emission.placements.get(&item.anchor) {
+                    let path = module::normalize(&scope.join(&target.instruction_file));
+                    let section = instruction_section(&context, item, &path);
+                    instructions.entry(path).or_default().push(section);
+                }
+            }
         }
     }
 
     // Guidance for one scope is combined into a single file per target, in a
-    // stable order so identical input produces identical bytes.
-    for (path, sections) in instructions {
-        let mut contents = String::new();
-        for (index, (title, body, _)) in sections.iter().enumerate() {
-            if index > 0 {
-                contents.push_str("\n");
-            }
-            contents.push_str(&format!("# {title}\n\n{}\n", body.trim_end()));
-        }
-        let origin = sections
+    // stable order -- source path, then declaration order -- so identical
+    // input produces identical bytes.
+    for (path, mut sections) in instructions {
+        sections.sort_by(|a, b| a.source.cmp(&b.source).then(a.item.cmp(&b.item)));
+        let contents = sections
             .iter()
-            .map(|(title, _, _)| title.clone())
+            .map(|section| section.text.trim_end().to_string())
             .collect::<Vec<_>>()
-            .join(", ");
-        let sources = sections
-            .iter()
-            .map(|(_, _, source)| source.clone())
-            .collect();
-        plan.files.push(OutputFile {
-            contents,
-            path,
-            kind: OutputKind::Instruction,
-            target: adapter.target_id,
-            origin,
-            sources,
-        });
+            .join("\n\n")
+            + "\n";
+        plan.push(
+            OutputFile {
+                contents,
+                path,
+                kind: OutputKind::Instruction,
+                target: target.id,
+                origin: sections
+                    .iter()
+                    .map(|s| s.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                sources: sections.iter().map(|s| s.source.clone()).collect(),
+            },
+            sections.iter().map(|s| s.anchor).collect(),
+        );
     }
 
-    let _ = project_root;
+    // A reference that found no location was reported when the closure was
+    // built; anything else would be a planning gap, and is reported here
+    // rather than rendered as a bare name.
+    let misses = std::mem::take(&mut *context.misses.borrow_mut());
+    let mut missing: BTreeSet<AnchorId> = BTreeSet::new();
+    for miss in misses {
+        if closure.unrepresentable.contains_key(&miss.anchor) || !missing.insert(miss.anchor) {
+            continue;
+        }
+        plan.diagnostics.push(
+            error_at(
+                "missing-reference-target",
+                format!(
+                    "`@{{{}}}` has no planned location for {}",
+                    miss.display(compilation),
+                    target.id
+                ),
+                anchor_site(compilation, miss.anchor),
+            )
+            .with_origin(compilation.store().anchor(miss.anchor).name.clone()),
+        );
+    }
 
     // Every file this target planned, whatever produced it, gets its location
     // markers resolved. Doing it here rather than at each construction is what
     // keeps a skill and a reference document agreeing about where `.claude` is.
-    let locations = target_locations(compilation, config, adapter);
+    let markers = target_locations(compilation, config, target);
     for file in &mut plan.files[first_file..] {
-        file.contents = resolve_location_markers(&file.contents, &locations, &file.path);
+        file.file.contents = resolve_location_markers(&file.contents, &markers, &file.path);
     }
+
+    validate::instruction_files(compilation, target, &plan.files[first_file..], &mut plan.diagnostics);
+}
+
+/// Renders each anchor of one reference file as its own document.
+fn render_documents(
+    context: &TargetContext<'_>,
+    path: &Path,
+    anchors: &[AnchorId],
+    indexed: bool,
+) -> Vec<(AnchorId, String)> {
+    let links = context.links(path, indexed);
+    let markdown = markdown::Context {
+        anchors: context.compilation,
+        links: &links,
+    };
+    let constructs = construct::ConstructAnchors::find(context.compilation);
+    anchors
+        .iter()
+        .map(|anchor| {
+            // A construct's description and prompt are optional, and a
+            // missing one is left out of the output rather than written as
+            // null.
+            if constructs.classify(context.compilation, *anchor).is_some() {
+                let mut properties = piton_core::AnchorView::properties(context.compilation, *anchor).clone();
+                for field in ["description", "prompt"] {
+                    if matches!(properties.get(field), Some(piton_core::Value::Null)) {
+                        properties.shift_remove(field);
+                    }
+                }
+                (*anchor, markdown::document_with(*anchor, &properties, &markdown))
+            } else {
+                (*anchor, markdown::document(*anchor, &markdown))
+            }
+        })
+        .collect()
 }
 
 /// The directory each location export names, relative to the project root.
@@ -414,7 +703,7 @@ fn build_target(
 fn target_locations(
     compilation: &Compilation,
     config: &BelayConfig,
-    adapter: &Adapter,
+    target: &Target,
 ) -> Vec<(&'static str, PathBuf)> {
     let project_root = &compilation.project.root;
     let under_project = |path: &Path| -> PathBuf {
@@ -424,11 +713,8 @@ fn target_locations(
     };
 
     vec![
-        (
-            prelude::BELAY_SHAPE_TOKEN,
-            PathBuf::from(adapter.shape_root()),
-        ),
-        (prelude::BELAY_AGENT_ROOT_TOKEN, PathBuf::from(adapter.root)),
+        (prelude::BELAY_SHAPE_TOKEN, PathBuf::from(target.shape_root())),
+        (prelude::BELAY_AGENT_ROOT_TOKEN, PathBuf::from(&target.root)),
         (prelude::BELAY_PROJECT_ROOT_TOKEN, PathBuf::new()),
         (
             prelude::BELAY_SHAPE_ROOT_TOKEN,
@@ -466,212 +752,208 @@ fn resolve_location_markers(
     out
 }
 
-fn context_for<'a>(
-    compilation: &'a Compilation,
-    locations: &'a Locations,
-    path: &Path,
-    links: &'a mut Option<Links<'a>>,
-) -> markdown::Context<'a> {
-    *links = Some(Links {
-        from_directory: path.parent().unwrap_or(Path::new("")).to_path_buf(),
-        locations,
-    });
-    markdown::Context {
-        anchors: compilation,
-        links: links.as_ref().expect("just set"),
+// ---------------------------------------------------------------------------
+// Constructs
+// ---------------------------------------------------------------------------
+
+/// Reports a missing description the target requires.
+fn require_description(
+    context: &TargetContext<'_>,
+    item: &Construct,
+    description: &str,
+    plan: &mut Draft,
+) {
+    if !description.trim().is_empty() || !context.target.requires_description(item.kind) {
+        return;
     }
+    plan.diagnostics.push(
+        error_at(
+            "missing-description",
+            format!(
+                "{} needs a description for the {} `{}`, and it has none",
+                context.target.anchor_name,
+                item.kind.as_str(),
+                item.name
+            ),
+            anchor_site(context.compilation, item.anchor),
+        )
+        .with_origin(format!("{}.description", item.name))
+        .with_help(format!(
+            "add `description:` to `{}`; {} discovers a {} by it",
+            item.name,
+            context.target.id,
+            item.kind.as_str()
+        )),
+    );
 }
 
-fn render_skill(
-    compilation: &Compilation,
-    adapter: &'static Adapter,
-    item: &Construct,
-    locations: &Locations,
-    plan: &mut Plan,
-) {
+fn render_skill(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft) {
+    let compilation = context.compilation;
+    let target = context.target;
     let name = kebab_case(&item.name);
-    let path = PathBuf::from(format!("{}/{name}/SKILL.md", adapter.skill_root));
-    let mut holder = None;
-    let context = context_for(compilation, locations, &path, &mut holder);
+    let path = PathBuf::from(target.skill_path(&name));
+    let links = context.links(&path, true);
+    let markdown = markdown::Context {
+        anchors: compilation,
+        links: &links,
+    };
 
-    let description = item
-        .metadata_text("description", compilation)
-        .unwrap_or_default();
-    let use_when = item
-        .metadata_text("useWhen", compilation)
-        .unwrap_or_default();
-    let prompt = item.text("prompt", &context).unwrap_or_default();
+    let description = item.metadata_text("description", compilation).unwrap_or_default();
+    let use_when = item.metadata_text("useWhen", compilation).unwrap_or_default();
+    let prompt = item.text("prompt", &markdown).unwrap_or_default();
+    require_description(context, item, &description, plan);
 
     let mut fields = Fields::new();
     fields.insert("name".into(), FieldValue::Text(name.clone()));
-    fields.insert(
-        "description".into(),
-        FieldValue::Text(render::discovery_description(&description, &use_when)),
-    );
-    let consumed = native_options(compilation, item, adapter.skill_options, &mut fields, plan);
-
-    let remainder = render::remainder(&item.remainder(&consumed), &context);
-    let contents = format!(
-        "{}\n{}",
-        render::frontmatter(&fields),
-        render::body(&prompt, &remainder)
-    );
-
-    plan.files.push(OutputFile {
-        contents,
-        path,
-        kind: OutputKind::Skill,
-        target: adapter.target_id,
-        origin: item.name.clone(),
-        sources: vec![compilation.anchor_module_path(item.anchor)],
-    });
-}
-
-fn render_command(
-    compilation: &Compilation,
-    adapter: &'static Adapter,
-    item: &Construct,
-    locations: &Locations,
-    plan: &mut Plan,
-) {
-    // The `x-` prefix distinguishes a command from a skill wherever the two
-    // share a namespace, and it survives target-name normalization.
-    let name = format!("x-{}", kebab_case(&item.name));
-    let description = item
-        .metadata_text("description", compilation)
-        .unwrap_or_default();
-
-    let path = match adapter.command_support {
-        CommandSupport::Native => PathBuf::from(format!("{}/{name}.md", adapter.command_root)),
-        _ => PathBuf::from(format!("{}/{name}/SKILL.md", adapter.command_root)),
-    };
-    let mut holder = None;
-    let context = context_for(compilation, locations, &path, &mut holder);
-    let prompt = item.text("prompt", &context).unwrap_or_default();
-
-    let mut fields = Fields::new();
-    match adapter.command_support {
-        CommandSupport::TranslatedSkill => {
-            fields.insert("name".into(), FieldValue::Text(name.clone()));
-            fields.insert("description".into(), FieldValue::Text(description.clone()));
-            // A command is invoked deliberately; turning it into an
-            // automatically selected skill would change what it means.
-            fields.insert("disable-model-invocation".into(), FieldValue::Bool(true));
-        }
-        CommandSupport::TranslatedSkillWithPolicy => {
-            fields.insert("name".into(), FieldValue::Text(name.clone()));
-            fields.insert("description".into(), FieldValue::Text(description.clone()));
-        }
-        CommandSupport::Native => {
-            // Identity comes from the filename here, so it is not repeated.
-            fields.insert("description".into(), FieldValue::Text(description.clone()));
-        }
+    let discovery = render::discovery_description(&description, &use_when);
+    if !discovery.is_empty() {
+        fields.insert("description".into(), FieldValue::Text(discovery));
     }
-    let consumed = native_options(
-        compilation,
-        item,
-        adapter.command_options,
-        &mut fields,
-        plan,
-    );
+    let consumed = native_options(context, item, &mut fields, plan);
 
-    let remainder = render::remainder(&item.remainder(&consumed), &context);
+    let remainder = render::remainder(&item.remainder(&consumed), 1, &markdown);
     let contents = format!(
         "{}\n{}",
         render::frontmatter(&fields),
         render::body(&prompt, &remainder)
     );
+    validate::emitted_once(compilation, item, &path, &contents, &[&prompt], 1, plan);
 
-    plan.files.push(OutputFile {
-        contents,
-        path: path.clone(),
-        kind: OutputKind::Command,
-        target: adapter.target_id,
-        origin: item.name.clone(),
-        sources: vec![compilation.anchor_module_path(item.anchor)],
-    });
-
-    if adapter.command_support == CommandSupport::TranslatedSkillWithPolicy {
-        let policy_path = PathBuf::from(format!(
-            "{}/{name}/agents/openai.yaml",
-            adapter.command_root
-        ));
-        let mut policy = Fields::new();
-        let mut inner = indexmap::IndexMap::new();
-        inner.insert(
-            "allow_implicit_invocation".to_string(),
-            FieldValue::Bool(false),
-        );
-        policy.insert("policy".into(), FieldValue::Map(inner));
-        let mut contents = String::new();
-        render_yaml_document(&policy, &mut contents);
-        plan.files.push(OutputFile {
-            path: policy_path,
+    plan.push(
+        OutputFile {
             contents,
-            kind: OutputKind::CommandPolicy,
-            target: adapter.target_id,
+            path,
+            kind: OutputKind::Skill,
+            target: target.id,
             origin: item.name.clone(),
             sources: vec![compilation.anchor_module_path(item.anchor)],
-        });
-    }
+        },
+        vec![item.anchor],
+    );
 }
 
-fn render_yaml_document(fields: &Fields, out: &mut String) {
-    let block = render::frontmatter(fields);
-    let body = block.trim_start_matches("---\n").trim_end_matches("---\n");
-    out.push_str(body);
-}
+fn render_command(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft) {
+    let compilation = context.compilation;
+    let target = context.target;
+    // The `x-` prefix distinguishes a command from a skill wherever the two
+    // share a namespace, and it survives target-name normalization.
+    let normalized = kebab_case(&item.name);
+    let name = format!("x-{normalized}");
+    let description = item.metadata_text("description", compilation).unwrap_or_default();
+    require_description(context, item, &description, plan);
 
-fn render_agent(
-    compilation: &Compilation,
-    adapter: &'static Adapter,
-    item: &Construct,
-    locations: &Locations,
-    plan: &mut Plan,
-) {
-    let name = kebab_case(&item.name);
-    let extension = if adapter.agent_format == AgentFormat::Toml {
-        "toml"
-    } else {
-        "md"
+    let path = PathBuf::from(target.command_path(&normalized));
+    let links = context.links(&path, true);
+    let markdown = markdown::Context {
+        anchors: compilation,
+        links: &links,
     };
-    let path = PathBuf::from(format!("{}/{name}.{extension}", adapter.agent_root));
-    let mut holder = None;
-    let context = context_for(compilation, locations, &path, &mut holder);
-
-    let description = item
-        .metadata_text("description", compilation)
-        .unwrap_or_default();
-    let role = item.metadata_text("role", compilation).unwrap_or_default();
-    let prompt = item.text("prompt", &context).unwrap_or_default();
+    let prompt = item.text("prompt", &markdown).unwrap_or_default();
 
     let mut fields = Fields::new();
-    match adapter.agent_format {
-        AgentFormat::MarkdownNamed => {
-            fields.insert("name".into(), FieldValue::Text(name.clone()));
-            fields.insert("description".into(), FieldValue::Text(description.clone()));
-        }
-        AgentFormat::MarkdownFilenameIdentity => {
-            fields.insert("description".into(), FieldValue::Text(description.clone()));
-            if !item.properties.contains_key("mode") {
-                // Activation has to be explicit; a missing mode would leave the
-                // platform to guess whether this is a primary agent.
-                fields.insert("mode".into(), FieldValue::Text("subagent".into()));
-            }
-        }
-        AgentFormat::Toml => {
-            fields.insert("name".into(), FieldValue::Text(name.clone()));
-            fields.insert("description".into(), FieldValue::Text(description.clone()));
+    if target.command_support != CommandSupport::Native {
+        // Identity comes from the filename for a native command, so it is
+        // only written for the skill a command is translated into.
+        fields.insert("name".into(), FieldValue::Text(name.clone()));
+    }
+    if !description.trim().is_empty() {
+        fields.insert("description".into(), FieldValue::Text(description.trim().to_string()));
+    }
+    if target.command_support == CommandSupport::TranslatedSkill {
+        // A command is invoked deliberately; turning it into an automatically
+        // selected skill would change what it means.
+        fields.insert("disable-model-invocation".into(), FieldValue::Bool(true));
+    }
+    let consumed = native_options(context, item, &mut fields, plan);
+
+    let remainder = render::remainder(&item.remainder(&consumed), 1, &markdown);
+    let contents = format!(
+        "{}\n{}",
+        render::frontmatter(&fields),
+        render::body(&prompt, &remainder)
+    );
+    validate::emitted_once(compilation, item, &path, &contents, &[&prompt], 1, plan);
+
+    plan.push(
+        OutputFile {
+            contents,
+            path,
+            kind: OutputKind::Command,
+            target: target.id,
+            origin: item.name.clone(),
+            sources: vec![compilation.anchor_module_path(item.anchor)],
+        },
+        vec![item.anchor],
+    );
+
+    if target.command_support == CommandSupport::TranslatedSkillWithPolicy {
+        if let Some(policy_path) = target.policy_path(&normalized) {
+            let mut policy = Fields::new();
+            let mut inner = indexmap::IndexMap::new();
+            inner.insert(
+                "allow_implicit_invocation".to_string(),
+                FieldValue::Bool(false),
+            );
+            policy.insert("policy".into(), FieldValue::Map(inner));
+            plan.push(
+                OutputFile {
+                    path: PathBuf::from(policy_path),
+                    contents: render::yaml_document(&policy),
+                    kind: OutputKind::CommandPolicy,
+                    target: target.id,
+                    origin: item.name.clone(),
+                    sources: vec![compilation.anchor_module_path(item.anchor)],
+                },
+                vec![item.anchor],
+            );
         }
     }
-    let consumed = native_options(compilation, item, adapter.agent_options, &mut fields, plan);
+}
+
+fn render_agent(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft) {
+    let compilation = context.compilation;
+    let target = context.target;
+    let name = kebab_case(&item.name);
+    let path = PathBuf::from(target.agent_path(&name));
+    let links = context.links(&path, true);
+    let markdown = markdown::Context {
+        anchors: compilation,
+        links: &links,
+    };
+
+    let description = item.metadata_text("description", compilation).unwrap_or_default();
+    let role = item.text("role", &markdown).unwrap_or_default();
+    let prompt = item.text("prompt", &markdown).unwrap_or_default();
+    require_description(context, item, &description, plan);
+
+    let mut fields = Fields::new();
+    if target.agent_format != AgentFormat::MarkdownFilenameIdentity {
+        fields.insert("name".into(), FieldValue::Text(name.clone()));
+    }
+    if !description.trim().is_empty() {
+        fields.insert("description".into(), FieldValue::Text(description.trim().to_string()));
+    }
+    if target.agent_format == AgentFormat::MarkdownFilenameIdentity
+        && !item.properties.contains_key("mode")
+    {
+        if let Some(mode) = &target.default_mode {
+            // Activation has to be explicit; a missing mode would leave the
+            // platform to guess whether this is a primary agent.
+            fields.insert("mode".into(), FieldValue::Text(mode.clone()));
+        }
+    }
+    let consumed = native_options(context, item, &mut fields, plan);
 
     let introduction = render::role_introduction(&role);
-    let primary = format!("{introduction}\n\n{}", prompt.trim());
-    let remainder = render::remainder(&item.remainder(&consumed), &context);
+    let primary = if prompt.trim().is_empty() {
+        introduction
+    } else {
+        format!("{introduction}\n\n{}", prompt.trim())
+    };
+    let remainder = render::remainder(&item.remainder(&consumed), 1, &markdown);
     let assembled = render::body(&primary, &remainder);
 
-    let contents = match adapter.agent_format {
+    let contents = match target.agent_format {
         AgentFormat::Toml => {
             // The whole instruction body becomes one TOML string field.
             fields.insert(
@@ -682,113 +964,99 @@ fn render_agent(
         }
         _ => format!("{}\n{assembled}", render::frontmatter(&fields)),
     };
+    if target.agent_format != AgentFormat::Toml {
+        validate::emitted_once(compilation, item, &path, &contents, &[&prompt], 1, plan);
+    }
 
-    plan.files.push(OutputFile {
-        contents,
-        path,
-        kind: OutputKind::Agent,
-        target: adapter.target_id,
-        origin: item.name.clone(),
-        sources: vec![compilation.anchor_module_path(item.anchor)],
-    });
+    plan.push(
+        OutputFile {
+            contents,
+            path,
+            kind: OutputKind::Agent,
+            target: target.id,
+            origin: item.name.clone(),
+            sources: vec![compilation.anchor_module_path(item.anchor)],
+        },
+        vec![item.anchor],
+    );
 }
 
-#[allow(clippy::too_many_arguments)]
-fn collect_instruction(
-    compilation: &Compilation,
-    config: &BelayConfig,
-    adapter: &'static Adapter,
-    item: &Construct,
-    locations: &Locations,
-    plan: &mut Plan,
-    out: &mut BTreeMap<PathBuf, Vec<(String, String, PathBuf)>>,
-) {
-    let source = compilation.anchor_module_path(item.anchor);
-    let project_root = &compilation.project.root;
+/// One instruction's part of a scope's combined guidance file.
+struct InstructionSection {
+    anchor: AnchorId,
+    name: String,
+    source: PathBuf,
+    item: usize,
+    text: String,
+}
 
-    let scope = match config.shape_root.as_ref() {
-        Some(shape_root) if shape::is_shape_source(&source, shape_root) => {
-            let exists = |path: &Path| path.is_dir();
-            match shape::place(&source, shape_root, &config.code_root, &exists) {
-                Some(placement) => placement.scope,
-                None => {
-                    plan.diagnostics.push(
-                        Diagnostic::error(
-                            "unplaceable-instruction",
-                            format!(
-                                "`{}` has no scope to attach to; `{}` does not exist",
-                                item.name,
-                                config.code_root.display()
-                            ),
-                            source.clone(),
-                            Span::default(),
-                        )
-                        .with_origin(item.name.clone()),
-                    );
-                    return;
-                }
+/// An instruction renders as its title, then its description and prompt as
+/// body text, then its other properties one level below its title.
+fn instruction_section(
+    context: &TargetContext<'_>,
+    item: &Construct,
+    path: &Path,
+) -> InstructionSection {
+    let compilation = context.compilation;
+    let links = context.links(path, true);
+    let markdown = markdown::Context {
+        anchors: compilation,
+        links: &links,
+    };
+    let mut primary = Vec::new();
+    for key in ["description", "prompt"] {
+        if let Some(text) = item.text(key, &markdown) {
+            if !text.trim().is_empty() {
+                primary.push(text.trim().to_string());
             }
         }
-        _ => {
-            // Placement for instructions outside shapeRoot is an open question
-            // in the specification. Attaching them to the code root is the
-            // conservative reading; say so rather than deciding silently.
-            plan.diagnostics.push(
-                Diagnostic::warning(
-                    "instruction-outside-shape",
-                    format!(
-                        "`{}` is not under a configured shapeRoot; attaching it to the code root",
-                        item.name
-                    ),
-                    source.clone(),
-                    Span::default(),
-                )
-                .with_origin(item.name.clone()),
-            );
-            config.code_root.clone()
-        }
+    }
+    let remainder = render::remainder(&item.remainder(&[]), 2, &markdown);
+    let body = render::body(&primary.join("\n\n"), &remainder);
+    let title = title_case(&item.name);
+    let text = if body.is_empty() {
+        format!("# {title}\n")
+    } else {
+        format!("# {title}\n\n{body}")
     };
-
-    let relative_scope = scope
-        .strip_prefix(project_root)
-        .unwrap_or(&scope)
-        .to_path_buf();
-    let path = module::normalize(&relative_scope.join(adapter.instruction_file));
-
-    let mut holder = None;
-    let context = context_for(compilation, locations, &path, &mut holder);
-    let prompt = item.text("prompt", &context).unwrap_or_default();
-    let remainder = render::remainder(&item.remainder(&[]), &context);
-    let body = render::body(&prompt, &remainder);
-
-    out.entry(path)
-        .or_default()
-        .push((piton_core::title_case(&item.name), body, source));
+    InstructionSection {
+        anchor: item.anchor,
+        name: item.name.clone(),
+        source: compilation.anchor_module_path(item.anchor),
+        item: compilation.store().anchor(item.anchor).item,
+        text,
+    }
 }
 
-/// Copies explicitly configured native options into the target's metadata, and
-/// reports the ones this target cannot represent.
-fn native_options(
-    compilation: &Compilation,
-    item: &Construct,
-    supported: &[&str],
-    fields: &mut Fields,
-    plan: &mut Plan,
-) -> Vec<&'static str> {
-    // Names a target might carry natively, across all targets. Anything in this
-    // set is metadata rather than prose, so it never falls into the remainder.
-    const NATIVE: &[&str] = &[
-        "tools",
-        "model",
-        "allowed-tools",
-        "allowedTools",
-        "mode",
-        "permission",
-        "agent",
-        "model_reasoning_effort",
-        "sandbox_mode",
-    ];
+/// Property names a target might carry natively, across all targets. Anything
+/// in this set is metadata rather than prose, so it never falls into the
+/// serialized remainder.
+const NATIVE: &[&str] = &[
+    "tools",
+    "model",
+    "allowed-tools",
+    "allowedTools",
+    "mode",
+    "permission",
+    "agent",
+    "model_reasoning_effort",
+    "sandbox_mode",
+];
 
+/// Copies explicitly configured native options into the target's metadata.
+///
+/// An option the target cannot represent is an error, not a warning: a prompt
+/// that asks for restraint is not an enforced restriction, and claiming
+/// otherwise would be worse than refusing to build.
+fn native_options(
+    context: &TargetContext<'_>,
+    item: &Construct,
+    fields: &mut Fields,
+    plan: &mut Draft,
+) -> Vec<&'static str> {
+    let compilation = context.compilation;
+    let target = context.target;
+    let supported = target.options(item.kind);
     let mut consumed: Vec<&'static str> = Vec::new();
     for (name, value) in &item.properties {
         let Some(canonical) = NATIVE.iter().find(|candidate| *candidate == name) else {
@@ -800,313 +1068,173 @@ fn native_options(
         } else {
             canonical
         };
-        if !supported.contains(&normalized) {
-            // A prompt that asks for restraint is not an enforced restriction;
-            // claiming otherwise would be worse than refusing to emit it.
+        let site = property_site(compilation, item.anchor, name);
+        let origin = format!("{}.{name}", item.name);
+        let Some(option) = supported.iter().find(|option| option.name == normalized) else {
+            let help = if supported.is_empty() {
+                format!(
+                    "{} has no native options for a {}; remove `{name}` or build this {} only for adapters that support it",
+                    target.id,
+                    item.kind.as_str(),
+                    item.kind.as_str()
+                )
+            } else {
+                format!(
+                    "{} accepts {} for a {}",
+                    target.id,
+                    supported
+                        .iter()
+                        .map(|o| format!("`{}`", o.name))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    item.kind.as_str()
+                )
+            };
             plan.diagnostics.push(
-                Diagnostic::warning(
+                error_at(
                     "unsupported-option",
                     format!(
-                        "`{}` is not a native option for this target and will not be enforced",
-                        name
+                        "`{name}` on the {} `{}` cannot be represented by {}: it has no native `{normalized}` option, so it would not be enforced",
+                        item.kind.as_str(),
+                        item.name,
+                        target.anchor_name
                     ),
-                    compilation.anchor_module_path(item.anchor),
-                    Span::default(),
+                    site,
                 )
-                .with_origin(format!("{}.{name}", item.name)),
+                .with_origin(origin)
+                .with_help(help),
             );
             continue;
-        }
-        match FieldValue::from_value(value, compilation) {
-            Some(field) => {
+        };
+        match native_value(option, value, compilation) {
+            Ok(field) => {
                 fields.insert(normalized.to_string(), field);
             }
-            None => plan.diagnostics.push(
-                Diagnostic::error(
+            Err(problem) => plan.diagnostics.push(
+                error_at(
                     "invalid-option",
-                    format!("`{name}` cannot be represented as target metadata"),
-                    compilation.anchor_module_path(item.anchor),
-                    Span::default(),
+                    format!(
+                        "`{name}` on `{}` is not a valid {} value: {problem}",
+                        item.name, target.id
+                    ),
+                    site,
                 )
-                .with_origin(format!("{}.{name}", item.name)),
+                .with_origin(origin),
             ),
         }
     }
     consumed
 }
 
+/// Checks a native option's value against the target's rule and converts it.
+fn native_value(
+    option: &NativeOption,
+    value: &Value,
+    compilation: &Compilation,
+) -> Result<FieldValue, String> {
+    let text = |value: &Value| -> Option<String> {
+        match value {
+            Value::Str(text) if text.is_plain() => Some(text.render_plain(compilation).trim().to_string()),
+            _ => None,
+        }
+    };
+    const DECISIONS: &[&str] = &["allow", "ask", "deny"];
+    match option.rule {
+        OptionRule::Text => text(value).ok_or_else(|| "expected text".to_string()).map(FieldValue::Text),
+        OptionRule::TextOrList => match value {
+            Value::List(_) => match FieldValue::from_value(value, compilation) {
+                Some(field @ FieldValue::List(_)) => Ok(field),
+                _ => Err("expected a list of names".to_string()),
+            },
+            other => text(other)
+                .map(FieldValue::Text)
+                .ok_or_else(|| "expected a name or a list of names".to_string()),
+        },
+        OptionRule::OneOf(allowed) => match text(value) {
+            Some(choice) if allowed.contains(&choice.as_str()) => Ok(FieldValue::Text(choice)),
+            _ => Err(format!("expected one of {}", allowed.join(", "))),
+        },
+        OptionRule::ProviderModel => match text(value) {
+            Some(model)
+                if model
+                    .split_once('/')
+                    .is_some_and(|(provider, id)| !provider.is_empty() && !id.is_empty())
+                    && !model.contains(char::is_whitespace) =>
+            {
+                Ok(FieldValue::Text(model))
+            }
+            _ => Err("expected a provider-qualified model such as `anthropic/claude-sonnet-4-5`".to_string()),
+        },
+        OptionRule::PermissionMap => {
+            let entries: Vec<(String, Value)> = match value {
+                Value::Dict(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                Value::Mixed(mixed) if mixed.entries().count() == mixed.items.len() => mixed
+                    .entries()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+                _ => return Err("expected a map of tool names to allow, ask or deny".to_string()),
+            };
+            let mut out = indexmap::IndexMap::new();
+            for (tool, decision) in entries {
+                match &decision {
+                    Value::Dict(patterns) => {
+                        let mut inner = indexmap::IndexMap::new();
+                        for (pattern, choice) in patterns {
+                            match text(choice) {
+                                Some(c) if DECISIONS.contains(&c.as_str()) => {
+                                    inner.insert(pattern.clone(), FieldValue::Text(c));
+                                }
+                                _ => {
+                                    return Err(format!(
+                                        "`{tool}.{pattern}` must be allow, ask or deny"
+                                    ))
+                                }
+                            }
+                        }
+                        out.insert(tool, FieldValue::Map(inner));
+                    }
+                    other => match text(other) {
+                        Some(c) if DECISIONS.contains(&c.as_str()) => {
+                            out.insert(tool, FieldValue::Text(c));
+                        }
+                        _ => return Err(format!("`{tool}` must be allow, ask or deny, or a map of patterns to those")),
+                    },
+                }
+            }
+            Ok(FieldValue::Map(out))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Validation
+// Writing
 // ---------------------------------------------------------------------------
-
-fn validate(compilation: &Compilation, adapters: &[&'static Adapter], plan: &mut Plan) {
-    let config_path = compilation
-        .project
-        .config_path
-        .clone()
-        .unwrap_or_else(|| compilation.project.root.clone());
-
-    // Two artifacts at one path are only acceptable when they are identical.
-    let mut by_path: HashMap<PathBuf, Vec<usize>> = HashMap::new();
-    for (index, file) in plan.files.iter().enumerate() {
-        by_path.entry(file.path.clone()).or_default().push(index);
-    }
-    let mut collisions: Vec<(PathBuf, String)> = Vec::new();
-    for (path, indices) in &by_path {
-        if indices.len() < 2 {
-            continue;
-        }
-        let first = &plan.files[indices[0]];
-        let identical = indices
-            .iter()
-            .all(|index| plan.files[*index].contents == first.contents);
-        if !identical {
-            let origins: Vec<String> = indices
-                .iter()
-                .map(|index| {
-                    format!(
-                        "{} ({})",
-                        plan.files[*index].origin, plan.files[*index].target
-                    )
-                })
-                .collect();
-            collisions.push((path.clone(), origins.join(", ")));
-        }
-    }
-    collisions.sort();
-    for (path, origins) in collisions {
-        plan.diagnostics.push(
-            Diagnostic::error(
-                "output-collision",
-                format!(
-                    "`{}` would be written with different content by: {origins}",
-                    path.display()
-                ),
-                config_path.clone(),
-                Span::default(),
-            )
-            .with_help(
-                "shared output is only coalesced when the artifacts are identical in content, reference resolution, and activation behaviour"
-                    .to_string(),
-            ),
-        );
-    }
-    // Identical shared guidance is written once.
-    let mut seen_paths = HashSet::new();
-    plan.files
-        .retain(|file| seen_paths.insert(file.path.clone()));
-
-    // Generated names must satisfy the identity rules every target shares.
-    for file in &plan.files {
-        let Some(name) = artifact_name(file) else {
-            continue;
-        };
-        if !is_valid_artifact_name(&name) {
-            plan.diagnostics.push(
-                Diagnostic::error(
-                    "invalid-artifact-name",
-                    format!(
-                        "`{name}` is not a valid {} name; use 1 to 64 lowercase alphanumerics with single hyphen separators",
-                        file.kind.as_str()
-                    ),
-                    config_path.clone(),
-                    Span::default(),
-                )
-                .with_origin(file.origin.clone()),
-            );
-        }
-        if file.kind == OutputKind::Command && !name.starts_with("x-") {
-            plan.diagnostics.push(Diagnostic::error(
-                "missing-command-prefix",
-                format!("command `{name}` lost its `x-` prefix during normalization"),
-                config_path.clone(),
-                Span::default(),
-            ));
-        }
-    }
-
-    // Every relative link must point at a file this plan will write.
-    let planned: HashSet<String> = plan
-        .files
-        .iter()
-        .map(|file| file.path.to_string_lossy().replace('\\', "/"))
-        .collect();
-    let mut broken: Vec<(String, String, String)> = Vec::new();
-    for file in &plan.files {
-        let directory = file.path.parent().unwrap_or(Path::new(""));
-        for target in markdown_links(&file.contents) {
-            if target.starts_with("http://") || target.starts_with("https://") {
-                continue;
-            }
-            let resolved = module::normalize(&directory.join(&target));
-            let key = resolved.to_string_lossy().replace('\\', "/");
-            if !planned.contains(&key) {
-                broken.push((
-                    file.path.to_string_lossy().to_string(),
-                    target,
-                    file.origin.clone(),
-                ));
-            }
-        }
-    }
-    broken.sort();
-    broken.dedup();
-    for (file, target, origin) in broken {
-        plan.diagnostics.push(
-            Diagnostic::error(
-                "broken-reference-link",
-                format!("`{file}` links to `{target}`, which is not a generated file"),
-                config_path.clone(),
-                Span::default(),
-            )
-            .with_origin(origin),
-        );
-    }
-
-    // Descriptions have to fit the discovery metadata every target accepts.
-    for file in &plan.files {
-        if !matches!(file.kind, OutputKind::Skill | OutputKind::Command) {
-            continue;
-        }
-        if let Some(description) = frontmatter_field(&file.contents, "description") {
-            if description.chars().count() > 1024 {
-                plan.diagnostics.push(
-                    Diagnostic::error(
-                        "description-too-long",
-                        format!(
-                            "`{}` has a {}-character description; the supported range is 1 to 1024",
-                            file.path.display(),
-                            description.chars().count()
-                        ),
-                        config_path.clone(),
-                        Span::default(),
-                    )
-                    .with_origin(file.origin.clone()),
-                );
-            }
-        }
-    }
-
-    // File separation alone does not guarantee target isolation: OpenCode also
-    // discovers the other adapters' skill directories.
-    if adapters.iter().any(|a| a.discovers_foreign_skills) && adapters.len() > 1 {
-        let mut identities: HashMap<String, BTreeSet<&'static str>> = HashMap::new();
-        for file in &plan.files {
-            if !matches!(file.kind, OutputKind::Skill | OutputKind::Command) {
-                continue;
-            }
-            if let Some(name) = artifact_name(file) {
-                identities.entry(name).or_default().insert(file.target);
-            }
-        }
-        let mut duplicates: Vec<(String, Vec<&str>)> = identities
-            .into_iter()
-            .filter(|(_, targets)| targets.len() > 1)
-            .map(|(name, targets)| (name, targets.into_iter().collect()))
-            .collect();
-        duplicates.sort();
-        for (name, targets) in duplicates {
-            plan.diagnostics.push(
-                Diagnostic::warning(
-                    "cross-target-discovery",
-                    format!(
-                        "skill `{name}` is generated for {}, and OpenCode discovers the other adapters' skill directories",
-                        targets.join(" and ")
-                    ),
-                    config_path.clone(),
-                    Span::default(),
-                )
-                .with_help(
-                    "choose one deployment target, or accept that the same skill will be offered more than once"
-                        .to_string(),
-                ),
-            );
-        }
-    }
-
-    // Nothing may escape the project root.
-    for file in &plan.files {
-        if file.path.is_absolute() || file.path.components().any(|c| c.as_os_str() == "..") {
-            plan.diagnostics.push(Diagnostic::error(
-                "output-outside-project",
-                format!(
-                    "`{}` resolves outside the project root",
-                    file.path.display()
-                ),
-                config_path.clone(),
-                Span::default(),
-            ));
-        }
-    }
-}
-
-/// The identity a skill, command, or agent file carries.
-fn artifact_name(file: &OutputFile) -> Option<String> {
-    match file.kind {
-        OutputKind::Skill | OutputKind::Command => {
-            let path = file.path.to_string_lossy();
-            if path.ends_with("/SKILL.md") {
-                file.path
-                    .parent()?
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            } else {
-                file.path
-                    .file_stem()
-                    .map(|n| n.to_string_lossy().to_string())
-            }
-        }
-        OutputKind::Agent => file
-            .path
-            .file_stem()
-            .map(|n| n.to_string_lossy().to_string()),
-        _ => None,
-    }
-}
-
-/// Extracts a scalar field from a YAML frontmatter block.
-fn frontmatter_field(contents: &str, field: &str) -> Option<String> {
-    let rest = contents.strip_prefix("---\n")?;
-    let end = rest.find("\n---")?;
-    for line in rest[..end].lines() {
-        if let Some(value) = line.strip_prefix(&format!("{field}: ")) {
-            let value = value.trim();
-            let unquoted = value
-                .strip_prefix('"')
-                .and_then(|v| v.strip_suffix('"'))
-                .unwrap_or(value);
-            return Some(unquoted.to_string());
-        }
-    }
-    None
-}
-
-/// Finds the targets of inline Markdown links.
-fn markdown_links(contents: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let bytes: Vec<char> = contents.chars().collect();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == ']' && bytes.get(i + 1) == Some(&'(') {
-            let mut j = i + 2;
-            let mut target = String::new();
-            while j < bytes.len() && bytes[j] != ')' && bytes[j] != '\n' {
-                target.push(bytes[j]);
-                j += 1;
-            }
-            if j < bytes.len() && bytes[j] == ')' && !target.is_empty() {
-                out.push(target);
-                i = j + 1;
-                continue;
-            }
-        }
-        i += 1;
-    }
-    out
-}
 
 /// Writes a plan to disk, returning the paths written.
+///
+/// A file at a planned path that the previous build's manifest does not
+/// record belongs to someone else: nothing is written, and the error names it.
+/// [`plan`] reports the same thing as a diagnostic; this is the last guard.
+/// After writing, the manifest records the written paths alongside the ones it
+/// already held, so a later build still knows it owns them.
 pub fn write(plan: &Plan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let previous = manifest::previous(root);
+    let unowned: Vec<String> = plan
+        .files
+        .iter()
+        .map(|file| slash(&file.path))
+        .filter(|path| root.join(path).exists() && !previous.contains(path))
+        .collect();
+    if !unowned.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!(
+                "refusing to overwrite files Belay did not generate: {}",
+                unowned.join(", ")
+            ),
+        ));
+    }
+
     let mut written = Vec::new();
     for file in &plan.files {
         let destination = root.join(&file.path);
@@ -1122,22 +1250,33 @@ pub fn write(plan: &Plan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
         }
         written.push(file.path.clone());
     }
+
+    let mut owned: BTreeSet<String> = previous;
+    owned.extend(plan.manifest());
+    let owned: Vec<String> = owned.into_iter().collect();
+    let manifest_path = root.join(MANIFEST);
+    if let Some(parent) = manifest_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(manifest_path, manifest::document_with(&owned))?;
     Ok(written)
 }
 
 /// Removes files a previous build generated that this one no longer produces.
 ///
 /// Only paths recorded in the previous manifest are considered, so cleanup can
-/// never delete a file Belay did not write.
+/// never delete a file Belay did not write; a recorded path that would leave
+/// the project is ignored. Directories the removal leaves empty go too.
 pub fn clean_stale(previous: &[String], plan: &Plan, root: &Path) -> Vec<PathBuf> {
-    let current: HashSet<String> = plan.manifest().into_iter().collect();
+    let current: BTreeSet<String> = plan.manifest().into_iter().collect();
     let mut removed = Vec::new();
     for path in previous {
-        if current.contains(path) {
+        if current.contains(path) || !manifest::is_safe(path) {
             continue;
         }
         let target = root.join(path);
         if target.is_file() && std::fs::remove_file(&target).is_ok() {
+            manifest::prune_empty_parents(root, Path::new(path));
             removed.push(PathBuf::from(path));
         }
     }
@@ -1146,75 +1285,35 @@ pub fn clean_stale(previous: &[String], plan: &Plan, root: &Path) -> Vec<PathBuf
 
 /// A build manifest, so a later build knows what it owns.
 pub fn manifest_document(plan: &Plan) -> String {
-    let mut out = String::from("{\n  \"generated\": [\n");
-    let paths = plan.manifest();
-    for (index, path) in paths.iter().enumerate() {
-        out.push_str("    ");
-        out.push_str(&piton_emit::json::quote(path));
-        if index + 1 < paths.len() {
-            out.push(',');
-        }
-        out.push('\n');
-    }
-    out.push_str("  ]\n}\n");
-    out
+    manifest::document(plan)
 }
 
 /// Reads the paths recorded in a manifest document.
 pub fn manifest_paths(document: &str) -> Vec<String> {
-    document
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim().trim_end_matches(',');
-            let unquoted = trimmed.strip_prefix('"')?.strip_suffix('"')?;
-            Some(unquoted.to_string())
-        })
-        .collect()
+    manifest::paths(document)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn markdown_links_are_found() {
-        let links = markdown_links("see [A](a/b.md) and [B](../c.md) plus [C](https://x)");
-        assert_eq!(links, vec!["a/b.md", "../c.md", "https://x"]);
-    }
-
-    #[test]
-    fn frontmatter_fields_are_readable() {
-        let contents = "---\nname: x-thing\ndescription: \"a: b\"\n---\n\nbody";
-        assert_eq!(
-            frontmatter_field(contents, "description"),
-            Some("a: b".to_string())
-        );
-        assert_eq!(
-            frontmatter_field(contents, "name"),
-            Some("x-thing".to_string())
-        );
+    fn file(path: &str, kind: OutputKind, target: &'static str, origin: &str) -> OutputFile {
+        OutputFile {
+            path: PathBuf::from(path),
+            contents: String::new(),
+            kind,
+            target,
+            origin: origin.into(),
+            sources: Vec::new(),
+        }
     }
 
     #[test]
     fn manifests_round_trip() {
         let plan = Plan {
             files: vec![
-                OutputFile {
-                    path: PathBuf::from("b.md"),
-                    contents: String::new(),
-                    kind: OutputKind::Reference,
-                    target: "claude-code",
-                    origin: "B".into(),
-                    sources: Vec::new(),
-                },
-                OutputFile {
-                    path: PathBuf::from("a.md"),
-                    contents: String::new(),
-                    kind: OutputKind::Reference,
-                    target: "claude-code",
-                    origin: "A".into(),
-                    sources: Vec::new(),
-                },
+                file("b.md", OutputKind::Reference, "claude-code", "B"),
+                file("a.md", OutputKind::Reference, "claude-code", "A"),
             ],
             diagnostics: Vec::new(),
         };
@@ -1224,24 +1323,19 @@ mod tests {
 
     #[test]
     fn artifact_names_come_from_the_path() {
-        let skill = OutputFile {
-            path: PathBuf::from(".claude/skills/build-tooling/SKILL.md"),
-            contents: String::new(),
-            kind: OutputKind::Skill,
-            target: "claude-code",
-            origin: "BuildTooling".into(),
-            sources: Vec::new(),
-        };
-        assert_eq!(artifact_name(&skill).as_deref(), Some("build-tooling"));
-
-        let command = OutputFile {
-            path: PathBuf::from(".opencode/commands/x-release.md"),
-            contents: String::new(),
-            kind: OutputKind::Command,
-            target: "opencode",
-            origin: "Release".into(),
-            sources: Vec::new(),
-        };
-        assert_eq!(artifact_name(&command).as_deref(), Some("x-release"));
+        let skill = file(
+            ".claude/skills/build-tooling/SKILL.md",
+            OutputKind::Skill,
+            "claude-code",
+            "BuildTooling",
+        );
+        assert_eq!(validate::artifact_name(&skill).as_deref(), Some("build-tooling"));
+        let command = file(
+            ".opencode/commands/x-release.md",
+            OutputKind::Command,
+            "opencode",
+            "Release",
+        );
+        assert_eq!(validate::artifact_name(&command).as_deref(), Some("x-release"));
     }
 }

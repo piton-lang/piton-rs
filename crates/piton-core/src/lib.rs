@@ -9,6 +9,6 @@ pub use diagnostics::{Diagnostic, DiagnosticSink, Label, LineIndex, Severity, Sp
 pub use names::{is_valid_artifact_name, is_valid_keyword, kebab_case, split_words, title_case};
 pub use text::{Segment, Text};
 pub use value::{
-    format_number, AnchorId, AnchorView, EmptyAnchors, Mixed, MixedItem, Properties, Value,
+    format_number, AnchorId, AnchorView, EmptyAnchors, Mixed, MixedItem, Properties, Ref, Value,
     ValueKind,
 };

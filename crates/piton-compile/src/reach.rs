@@ -75,12 +75,73 @@ impl Reachability {
     }
 }
 
-/// Computes reachability from a set of root anchors.
+/// Computes reachability from a set of root anchors, following references,
+/// inheritance, and composition.
+///
+/// This is what a build compiles: an anchor a module merely imports, without
+/// anything using it, is not part of the output.
 pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability {
+    traverse(compilation, roots, &[])
+}
+
+/// Computes reachability from root anchors and root modules, following
+/// imports as well as references, inheritance, and composition.
+///
+/// `piton reach` asks a wider question than a build does: which parts of the
+/// specbase a starting point can see. A module that imports an anchor can see
+/// it whether or not anything uses it, so every anchor a root module imports
+/// or re-exports is reached, one edge from the module, via imports. Such an
+/// anchor is only reported via imports when nothing else reaches it, so the
+/// more specific edge wins when there is one.
+pub fn from_roots_with_imports(
+    compilation: &Compilation,
+    roots: &[AnchorId],
+    modules: &[ModuleId],
+) -> Reachability {
+    traverse(compilation, roots, modules)
+}
+
+/// Computes reachability from the entry, following imports: its exports are
+/// the roots, and whatever the entry module imports is reached through it.
+pub fn from_entry_with_imports(compilation: &Compilation) -> Reachability {
+    let roots = compilation.entry_exports();
+    let mut result = traverse(compilation, &roots, &[compilation.resolution.entry]);
+    result.unloaded_modules = unloaded_sources(compilation);
+    result
+}
+
+/// Every anchor a module brings in from elsewhere: what it imports, and what
+/// it re-exports without declaring.
+fn imported_anchors(compilation: &Compilation, module: ModuleId) -> Vec<AnchorId> {
+    let resolution = &compilation.resolution;
+    let declared = &resolution.scope(module).declarations;
+    let mut out: Vec<AnchorId> = Vec::new();
+    for (name, symbol) in resolution.visible_names(module) {
+        if let (false, Symbol::Anchor(anchor)) = (declared.contains_key(&name), symbol) {
+            out.push(anchor);
+        }
+    }
+    for name in resolution.exported_names(module) {
+        if declared.contains_key(&name) {
+            continue;
+        }
+        if let Some(Symbol::Anchor(anchor)) =
+            resolution.lookup_export(module, &name, &mut HashSet::new())
+        {
+            out.push(anchor);
+        }
+    }
+    let mut seen = HashSet::new();
+    out.retain(|anchor| seen.insert(*anchor));
+    out
+}
+
+type Pending = (AnchorId, usize, Vec<String>, Option<EdgeKind>);
+
+fn traverse(compilation: &Compilation, roots: &[AnchorId], modules: &[ModuleId]) -> Reachability {
     let mut result = Reachability::default();
     let mut seen: HashMap<AnchorId, usize> = HashMap::new();
-    let mut queue: std::collections::VecDeque<(AnchorId, usize, Vec<String>, Option<EdgeKind>)> =
-        Default::default();
+    let mut queue: std::collections::VecDeque<Pending> = Default::default();
 
     for root in roots {
         if seen.contains_key(root) {
@@ -90,7 +151,40 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
         let name = compilation.resolution.store.anchor(*root).name.clone();
         queue.push_back((*root, 0, vec![name], None));
     }
+    walk(compilation, &mut queue, &mut seen, &mut result);
 
+    // Imports are followed last, so an anchor something also references,
+    // extends, or composes is reported through that edge instead.
+    for module in modules {
+        result.modules.insert(*module);
+        let label = compilation
+            .resolution
+            .graph
+            .get(*module)
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        for anchor in imported_anchors(compilation, *module) {
+            if seen.contains_key(&anchor) {
+                continue;
+            }
+            seen.insert(anchor, 1);
+            let name = compilation.resolution.store.anchor(anchor).name.clone();
+            queue.push_back((anchor, 1, vec![label.clone(), name], Some(EdgeKind::Import)));
+        }
+    }
+    walk(compilation, &mut queue, &mut seen, &mut result);
+    finish(compilation, seen, result)
+}
+
+/// Breadth-first from whatever is queued, recording each anchor once.
+fn walk(
+    compilation: &Compilation,
+    queue: &mut std::collections::VecDeque<Pending>,
+    seen: &mut HashMap<AnchorId, usize>,
+    result: &mut Reachability,
+) {
     while let Some((anchor, depth, path, via)) = queue.pop_front() {
         result.reached.push(Reached {
             anchor,
@@ -119,6 +213,14 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
             queue.push_back((next, depth + 1, next_path, Some(kind)));
         }
     }
+}
+
+/// Everything the walk did not reach, and the module-level tallies.
+fn finish(
+    compilation: &Compilation,
+    seen: HashMap<AnchorId, usize>,
+    mut result: Reachability,
+) -> Reachability {
 
     let embedded = embedded_modules(compilation);
 
@@ -248,7 +350,7 @@ pub fn from_module(compilation: &Compilation, module: ModuleId) -> Reachability 
 fn collect_targets(value: &Value, out: &mut Vec<(AnchorId, EdgeKind)>) {
     match value {
         Value::Anchor(id) => out.push((*id, EdgeKind::Composition)),
-        Value::Reference(id) => out.push((*id, EdgeKind::Reference)),
+        Value::Reference(target) => out.push((target.anchor, EdgeKind::Reference)),
         Value::Str(text) => {
             for id in text.references() {
                 out.push((id, EdgeKind::Reference));
@@ -277,7 +379,9 @@ fn collect_targets(value: &Value, out: &mut Vec<(AnchorId, EdgeKind)>) {
                             collect_targets(item, out);
                         }
                     }
-                    MixedItem::Entry(_, value) => collect_targets(value, out),
+                    MixedItem::Entry(_, value) | MixedItem::Value(value) => {
+                        collect_targets(value, out)
+                    }
                 }
             }
         }
