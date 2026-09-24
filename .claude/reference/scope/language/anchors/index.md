@@ -303,7 +303,7 @@ this and self always mean an anchor, never a dictionary. Even inside a nested di
 
 #### Description
 
-Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties.
+Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties. If nothing implements an abstract, you get a warning, unless it's exported, since another file or project may implement it.
 ```piton
 abstract anchor Skill:
     description:: string

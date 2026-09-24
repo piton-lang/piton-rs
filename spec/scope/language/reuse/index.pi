@@ -1,8 +1,8 @@
-from ./ImportExport import ImportExport
 from ./CircularImports import CircularImports
-from ./Use import Use
-from ./Modules import Modules
+from ./ImportExport import ImportExport
 from ./ImportLineBreaks import ImportLineBreaks
+from ./Modules import Modules
+from ./Use import Use
 
 export anchor Reuse:
     description:

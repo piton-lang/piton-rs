@@ -1,10 +1,10 @@
 from ../lib/Operator import Operator
 from ./EqOperator import EqOperator
-from ./NeqOperator import NeqOperator
-from ./LtOperator import LtOperator
-from ./LtEqOperator import LtEqOperator
-from ./GtOperator import GtOperator
 from ./GtEqOperator import GtEqOperator
+from ./GtOperator import GtOperator
+from ./LtEqOperator import LtEqOperator
+from ./LtOperator import LtOperator
+from ./NeqOperator import NeqOperator
 
 export anchor ComparisonOperators:
     description: Compares two values and gives you a boolean.

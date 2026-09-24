@@ -97,11 +97,13 @@ The language is a whitespace-based language. Like Python, you can use tabs or an
 
 ##### Comments
 
-Comments are line-only. There are no block comments. Comments are created with "//".
+Comments are line-only. There are no block comments. Comments are created with "//", and a comment has to be on its own line. You can't put one at the end of a line of code; there, "//" is just text.
 ```piton
 // This is a comment
-myVariable: 42 // This is also a comment
+myVariable: 42
+url: https://example.com // not a comment
 ```
+Here url is the string “https://example.com // not a comment”.
 `piton format` will always put a space between the "//" and the comment text, so you might as well get used to doing it yourself. It won't touch anything else in the comment though, so commented-out code stays as it is.
 
 #### Keywords
@@ -234,6 +236,7 @@ There is a single number type in all of Piton; type-wise there’s no difference
 
 Under the hood, numbers are 64-bit floats (IEEE 754).
 Negative numbers are written with a minus, like `-5`. List items always have a space after the dash, so `-5` is a number and `- 5` is a list item.
+The minus is only part of a number. There's no minus in front of an expression, so `{-price}` is a compiler error. Write `{0 - price}` instead.
 There's no exponent notation, so no `1e3`.
 When compiled, numbers are written in their shortest form, so `1_200_000.00` becomes `1200000` and `0.50` becomes `0.5`.
 
@@ -621,7 +624,7 @@ Unless specifically constrained to a type, a variable or property can hold any t
 | `null`                  | `null`                                                             |
 | `"false"`               | `string` (the quotes are part of it)                               |
 | `\ // \ Just Text`      | `string` (the `//` is escaped, so it's not a comment)               |
-| `${}`                   | `string`                                                           |
+| `${a + b}`              | `string` (always, whatever a and b are)                            |
 ```
 
 #### Reference
@@ -649,9 +652,7 @@ A reference comes from a [ReferenceExpression](./scope/language/expressions/Refe
 ##### Renderers
 
 ```
-json: By default a reference becomes a string: the path to the other file (relative to this one), a colon, and the dot path to the value. So `../file.json:Anchor.property`.
-  If there's no dot path to it, you get whatever the property turned into instead, like `../file.txt:Something`. And if that doesn't work either, you get the line number, like `../file.json:42`.
-  You can change this with a renderer option.
+json: A reference becomes a string: the path to the other file (relative to this one), a colon, and the dot path to the value. So `../file.json:Anchor.property`.
 yaml: Same as json, with the yaml output file.
 markdown: A relative Markdown link to wherever the anchor was rendered, with the anchor's name as the link text. So a reference to Button from a file next to it links Button to ./Button.md#button. A reference to a property links Button.color to ./Button.md#color.
 ```
@@ -1487,7 +1488,7 @@ this and self always mean an anchor, never a dictionary. Even inside a nested di
 
 ###### Description
 
-Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties.
+Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties. If nothing implements an abstract, you get a warning, unless it's exported, since another file or project may implement it.
 ```piton
 abstract anchor Skill:
     description:: string
@@ -1645,7 +1646,7 @@ from ./file import
     SecondThing,
     ThirdThing
 ```
-piton format will automatically add linebreaks to imports/exports if there are greater than 2 items or if the line exceeds 80 columns, and it will sort the imports.
+piton format will automatically add linebreaks to imports/exports if there are greater than 2 items or if the line exceeds 80 columns, and it will sort the imports. The use lines come first, then the from lines, each sorted by path, and the names in each line are sorted too.
 
 #### Modules
 
@@ -1729,7 +1730,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 
 #### Commands
 
-- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](./agent/skills/GenerateFluencyPrompt.md#generate-fluency-prompt) skill, which is FLUENCY_PROMPT.md in the project root.
+- description: Launches the specified agent with Piton fluency using the output of the [GenerateFluencyPrompt](../skills/generate-fluency-prompt/SKILL.md) skill, which is FLUENCY_PROMPT.md in the project root.
   commandName: agent
   positionalArguments:
     agent: Which agent to run [ claude ]
@@ -1746,9 +1747,11 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
   manifest: In a .piton directory that lives alongside the piton.config.pi file, a manifest.json file will be written with the build output.
     ```
     {
-        "generated": [ pathToGeneratedFiles ]
+        "generated": [ pathToGeneratedFiles ],
+        "targets": { targetId: documentationChecked }
     }
     ```
+    targets records, for each framework target, the date its documentation was last checked, which is the version the generated files were validated against.
 - description: Checks specific files or the project and reports errors
   commandName: check
   positionalArguments:
@@ -2605,8 +2608,8 @@ and in piton.config.pi
 packages:
     - {MyPackage}
 ```
-Note here that a project can define multiple packages with different roots and their own different dependencies.
-packages is what your repository offers to other projects. A project never installs its own packages. When another project tethers your repository, it gets every package listed here, unless it filters them, each in its own directory under tethers/.
+Note here that a project can define multiple packages with different roots and their own different dependencies. A package's root is relative to the piton.config.pi file, like the project's own root.
+packages is what your repository offers to other projects. A project never installs its own packages. When another project tethers your repository, it gets every package listed here, each in its own directory under tethers/. It can pick just some of them with packages: (see Dependencies).
 
 #### Dependencies
 
@@ -2630,6 +2633,13 @@ dependencies:
     - https://github.com/piton-lang/other
 ```
 @piton/config types commit, tag, and branch as strings, so `tag: 1.0` stays “1.0” instead of becoming the number 1.
+A repository can offer more than one package. You get all of them unless you list the ones you want with packages:
+```piton
+dependencies:
+    - https://github.com/acme/kits
+        tag: v2
+        packages: [ui-kit]
+```
 Project dependencies and package dependencies are separate. The project's only apply to the project, and each package has its own.
 
 ### Importing And Using

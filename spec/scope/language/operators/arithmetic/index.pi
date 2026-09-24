@@ -1,8 +1,8 @@
 from ./AdditionOperator import AdditionOperator
-from ./SubtractionOperator import SubtractionOperator
-from ./MultiplicationOperator import MultiplicationOperator
 from ./DivisionOperator import DivisionOperator
 from ./ModuloOperator import ModuloOperator
+from ./MultiplicationOperator import MultiplicationOperator
+from ./SubtractionOperator import SubtractionOperator
 from ./lib/ArithmeticOperator import ArithmeticOperator
 
 export anchor ArithmeticOperators:

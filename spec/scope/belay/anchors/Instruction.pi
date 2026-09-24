@@ -1,5 +1,5 @@
-from ./Construct import Construct
 from ../Framework import FrameworkSpecification
+from ./Construct import Construct
 
 export abstract anchor Instruction extends Construct as instruction:
     pass

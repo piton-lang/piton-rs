@@ -1,6 +1,6 @@
-from ./Introduction import Introduction
-from ./CncComparison import CncComparison
 from ./AgentAsCompiler import AgentAsCompiler
+from ./CncComparison import CncComparison
+from ./Introduction import Introduction
 from ./TheProblem import TheProblem
 
 export anchor FoundingThesis:

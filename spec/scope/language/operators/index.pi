@@ -1,10 +1,10 @@
 from ./ControlFlow import ControlFlow
+from ./access import ACCESS_OPERATORS, AccessOperators
 from ./arithmetic import ARITHMETIC_OPERATORS, ArithmeticOperators
 from ./comparison import COMPARISON_OPERATORS, ComparisonOperators
-from ./logical import LOGICAL_OPERATORS, LogicalOperators
-from ./access import ACCESS_OPERATORS, AccessOperators
 from ./concatenation import CONCATENATION_OPERATORS, ConcatenationOperators
 from ./conditional import CONDITIONAL_OPERATORS, ConditionalOperators
+from ./logical import LOGICAL_OPERATORS, LogicalOperators
 
 export anchor Operators:
     ControlFlow: {ControlFlow}

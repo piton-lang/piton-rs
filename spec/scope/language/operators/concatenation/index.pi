@@ -1,8 +1,8 @@
+from ../arithmetic/AdditionOperator import AdditionOperator
 from ../lib/Operator import Operator
 from ./ConcatenationOperator import ConcatenationOperator
-from ./MergeOperator import MergeOperator
 from ./DupMergeOperator import DupMergeOperator
-from ../arithmetic/AdditionOperator import AdditionOperator
+from ./MergeOperator import MergeOperator
 
 export anchor ConcatenationOperators:
     description: Operators that join strings, lists, and dictionaries.

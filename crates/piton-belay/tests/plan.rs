@@ -488,19 +488,6 @@ fn cleanup_only_removes_recorded_files() {
 }
 
 #[test]
-fn a_referenced_skill_is_reported_as_unspecified() {
-    let sandbox = Sandbox::new("identity");
-    sandbox.configure(CLAUDE, "").write(
-        "spec/index.pi",
-        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n\nexport anchor Notes:\n    see: Use @{Tidy}.\n",
-    );
-    let built = sandbox.plan();
-    let diagnostic = built.diagnostic("reference-identity-unspecified");
-    assert!(!diagnostic.is_error());
-    assert!(built.file(".claude/reference/index.md").contains("# Tidy"));
-}
-
-#[test]
 fn references_in_metadata_are_errors() {
     let sandbox = Sandbox::new("metadata-ref");
     sandbox.configure(CLAUDE, "").write(
@@ -509,4 +496,21 @@ fn references_in_metadata_are_errors() {
     );
     let built = sandbox.plan();
     assert!(built.diagnostic("unrepresentable-reference").is_error());
+}
+
+#[test]
+fn a_reference_to_a_construct_links_to_its_own_output() {
+    let sandbox = Sandbox::new("construct-link");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n\nexport skill Review:\n    useWhen: reviewing\n    prompt: Run @{Tidy} first.\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let review = built.file(".claude/skills/review/SKILL.md");
+    assert!(review.contains("[Tidy](../tidy/SKILL.md)"), "{review}");
+    assert!(
+        !built.has(".claude/reference/index.md"),
+        "a construct is not copied into the reference directory"
+    );
 }

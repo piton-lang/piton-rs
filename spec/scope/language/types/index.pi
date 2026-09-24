@@ -1,14 +1,14 @@
-from ./Overview import TypesOverview
-from ./Numbers import Numbers
-from ./Strings import Strings
-from ./Collections import Collections
 from ./Anchors import AnchorType
-from ./Inference import Inference
 from ./Booleans import Booleans
+from ./Collections import Collections
+from ./ComplexTypes import ComplexTypes
+from ./Inference import Inference
 from ./Null import Null
+from ./Numbers import Numbers
+from ./Overview import TypesOverview
 from ./Reference import Reference
 from ./SimpleTypes import SimpleTypes
-from ./ComplexTypes import ComplexTypes
+from ./Strings import Strings
 
 export anchor Types:
     overview: {TypesOverview}

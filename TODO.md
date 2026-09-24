@@ -1,41 +1,12 @@
 # TODO — Piton spec vs. implementation gaps
 
 What still differs between the implementation (`crates/`, `editors/`,
-`packages/`, `xtask`) and the spec in `spec/`. First written 2026-09-22;
-rewritten 2026-09-23 after that day's work. Each open item was checked against
-the code or by running `piton`.
-
-## Open — compiler and language
-
-- [ ] **Invalid braces are text, not errors.** `{1 +}`, `{l[0]}` and an empty
-  `${}` compile to literal text with a `braces-as-text` warning. The spec says
-  an invalid expression is an error (`StandardExpression.pi`). Decide which
-  way, and settle what `${}` means (the Inference table only says "string").
-- [ ] **Unimplemented abstracts.** An abstract nothing extends compiles
-  without complaint. The spec's "it must be extended by a non-abstract anchor"
-  (`Abstract.pi`) could mean an error; today it only means "no output".
-- [ ] **Unary minus on expressions** (`{-y}`) works but isn't in the operator
-  or precedence tables.
-- [ ] **Comment rule.** `//` only starts a comment at line start or after
-  whitespace, so `foo//bar` and URLs are text. Sensible, but not in the spec.
-- [ ] **Import sorting.** `piton format` sorts names inside a declaration but
-  never reorders import statements. The spec's "it will sort the imports" is
-  ambiguous.
-
-## Open — renderers and build output
-
-- [ ] **Reference renderer option.** `Reference.pi` says "You can change this
-  with a renderer option". Not implemented.
-- [ ] **JSON/YAML reference fallbacks.** When there is no dot path, the spec
-  wants `../file.txt:Something`, then a line number (`../file.json:42`). Only
-  the dot-path form exists.
+`packages/`, `xtask`) and the spec in `spec/`. First written 2026-09-22,
+rewritten 2026-09-23, and updated 2026-09-24. Each open item was checked
+against the code or by running `piton`.
 
 ## Open — Belay
 
-- [ ] **Reference identity** is an open decision in `Decisions.pi`, so a
-  construct that is also referenced gets a `reference-identity-unspecified`
-  warning and a link to its reference-tree copy. Revisit once the spec
-  decides.
 - [ ] **Per-target output boundaries.** Only "inside the project root" is
   checked, not each target's own roots (`BuildGuarantees`).
 - [ ] **Golden tests cover claude-code only.** Nothing snapshots the Codex or
@@ -71,6 +42,13 @@ the code or by running `piton`.
 
 ## Done since 2026-09-22
 
+- 2026-09-24: invalid braces and an empty `${}` are errors; no minus in front
+  of an expression; a comment must be on its own line; `piton format` sorts
+  import lines; an abstract nothing implements warns unless exported; a
+  reference to a construct links to its own output; the manifest records the
+  target dates; `packages:` under a dependency picks which packages to take;
+  the reference fallbacks and renderer option were dropped from the spec.
+
 Checked and closed, or made moot by spec changes:
 
 - Language: conflicting abstract constraints error (`conflicting-abstracts`);
@@ -96,7 +74,7 @@ Checked and closed, or made moot by spec changes:
   validated; unsupported options are errors; description range 1–1024;
   per-adapter required descriptions; literal "You are a" and "Use when";
   `crossDiscovery` required when discovery changes activation;
-  `.piton/targets.json` records the target versions; duplicated content check;
+  the manifest records the target versions; duplicated content check;
   reference tree is one file per module with `#fragment` links.
 - LSP: import organization, composition resolution, conflict detection,
   source-to-output mapping, unused and redundant definitions, ambiguous
