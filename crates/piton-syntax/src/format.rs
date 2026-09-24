@@ -80,7 +80,6 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
 
     let mut out = String::new();
     let mut stack: Vec<usize> = Vec::new();
-    let mut fence: Option<(usize, usize, usize)> = None; // (ticks, base indent, depth)
     let mut escape: Option<(usize, usize, usize)> = None; // (run, base indent, depth)
     let mut offset = 0usize;
 
@@ -116,17 +115,6 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
             continue;
         }
 
-        if let Some((ticks, base, depth)) = fence {
-            let closing = trimmed.chars().take_while(|c| *c == '`').count() >= ticks
-                && trimmed.chars().all(|c| c == '`');
-            let relative = indent.saturating_sub(base);
-            push_line(&mut out, depth, relative, trimmed);
-            if closing {
-                fence = None;
-            }
-            continue;
-        }
-
         if trimmed.is_empty() {
             out.push('\n');
             continue;
@@ -137,8 +125,8 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
         // Save-formatting must not move someone's comments. The comment still
         // feeds the indentation stack above so the surrounding code lands where
         // `piton format` would put it; only the comment's own output differs.
-        // This runs outside any fence or escape block, where a leading `//` is
-        // literal text and is handled above.
+        // This runs outside any escape block, where a leading `//` is literal
+        // text and is handled above.
         let depth = depth_for(&mut stack, indent);
 
         if preserve_comments && trimmed.starts_with("//") {
@@ -150,13 +138,6 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
 
         if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\\') {
             escape = Some((trimmed.chars().count(), indent, depth));
-            push_line(&mut out, depth, 0, trimmed);
-            continue;
-        }
-
-        let opening = trimmed.chars().take_while(|c| *c == '`').count();
-        if opening >= 3 {
-            fence = Some((opening, indent, depth));
             push_line(&mut out, depth, 0, trimmed);
             continue;
         }
@@ -565,11 +546,13 @@ mod tests {
     }
 
     #[test]
-    fn fenced_content_keeps_its_relative_indentation() {
+    fn a_code_fence_is_formatted_like_any_other_text() {
+        // Code blocks are just text to Piton, so their lines are structure like
+        // anything else. An escape block inside the fence keeps them literal.
         let source = "anchor A:\n  body:\n    ```piton\n    key: value\n      nested: 2\n    ```\n";
         assert_eq!(
             fmt(source),
-            "anchor A:\n    body:\n        ```piton\n        key: value\n          nested: 2\n        ```\n"
+            "anchor A:\n    body:\n        ```piton\n        key: value\n            nested: 2\n        ```\n"
         );
     }
 

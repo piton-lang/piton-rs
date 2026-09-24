@@ -691,37 +691,6 @@ export piton-config App:
 }
 
 #[test]
-fn an_old_lock_file_is_migrated() {
-    let Some(sandbox) = fixture("migrate") else {
-        return;
-    };
-    assert_eq!(sandbox.piton(&["tether", &sandbox.source()]).2, 0);
-    // Put the lock file back where earlier versions kept it.
-    let lock = sandbox.read("app/.piton/tether.lock");
-    std::fs::remove_file(sandbox.dir.join("app/.piton/tether.lock")).expect("remove");
-    sandbox.write("app/.piton/packages.lock.json", &lock);
-
-    // It is still read -- an edited package is still caught -- ...
-    sandbox.write(
-        "app/tethers/dep-lib/Anchors.pi",
-        "export anchor Button as button:\n    label: Edited\n",
-    );
-    let (_, stderr, code) = sandbox.piton(&["update"]);
-    assert_eq!(code, 1, "{stderr}");
-    assert!(stderr.contains("has been modified"), "{stderr}");
-
-    // ... and the next write moves it to .piton/tether.lock.
-    sandbox.write(
-        "app/tethers/dep-lib/Anchors.pi",
-        "export anchor Button as button:\n    label: Save\n",
-    );
-    let (_, stderr, code) = sandbox.piton(&["update"]);
-    assert_eq!(code, 0, "{stderr}");
-    assert!(sandbox.exists("app/.piton/tether.lock"));
-    assert!(!sandbox.exists("app/.piton/packages.lock.json"));
-}
-
-#[test]
 fn a_package_without_an_index_is_imported_through_its_files() {
     let Some(sandbox) = fixture("no-index") else {
         return;

@@ -338,20 +338,6 @@ fn names_directory(text: &str) -> bool {
     matches!(last, "." | "..") || (trimmed.is_empty() && !text.is_empty())
 }
 
-/// Every module path a project can import by name: the bundled packages, and
-/// whatever is installed in `tethers/`.
-///
-/// Completion and diagnostics both need the same list, so neither can offer a
-/// package the other would reject.
-pub fn importable_packages(project_root: &Path) -> Vec<String> {
-    let mut names: Vec<String> = prelude::PACKAGE_ROOTS
-        .iter()
-        .map(|name| name.to_string())
-        .collect();
-    names.extend(packages::installed_names(project_root));
-    names
-}
-
 #[derive(Debug)]
 pub enum ResolveError {
     UnknownPackage(String),

@@ -747,12 +747,6 @@ fn a_string_and_a_sentence_have_nothing_to_complete() {
 
 #[test]
 fn a_verbatim_block_has_nothing_to_complete() {
-    let fenced = Buffer::over(
-        NULL,
-        "export type N:\n    a:\n        ```json\n        { <|>\n        ```\n",
-    );
-    assert!(fenced.labels().is_empty(), "{:?}", fenced.labels());
-
     let escaped = Buffer::over(
         NULL,
         "export type N:\n    a:\n\\\\\\\\\nliteral {<|>}\n\\\\\\\\\n",
@@ -980,12 +974,12 @@ fn enter_when_the_client_already_indented_changes_nothing() {
 }
 
 #[test]
-fn enter_inside_a_fenced_block_changes_nothing() {
-    // The contents of a fence are verbatim, so reindenting them would change
-    // what the block says.
+fn enter_inside_an_escape_block_changes_nothing() {
+    // The contents of an escape block are verbatim, so reindenting them would
+    // change what the block says.
     let buffer = Buffer::over(
         NULL,
-        "export type N:\n    a:\n        ```json\n        {\n<|>",
+        "export type N:\n    a:\n        \\\\\\\n        key:\n<|>",
     );
     let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");

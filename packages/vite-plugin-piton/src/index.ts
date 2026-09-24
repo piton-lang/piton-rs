@@ -31,8 +31,6 @@ export interface PitonPluginOptions {
    * `vite-plugin-piton/renderers`, to render something another way.
    */
   renderer?: Renderer;
-  /** @deprecated Renamed to `renderer`. */
-  adapter?: Renderer;
   /** Path to the `piton` binary, when it is not on `PATH`. */
   binary?: string;
 }
@@ -128,7 +126,7 @@ export function moduleFor(rendered: Rendered, renderer: Renderer): string {
 }
 
 export default function piton(options: PitonPluginOptions = {}) {
-  const renderer: Renderer = options.renderer ?? options.adapter ?? 'json';
+  const renderer: Renderer = options.renderer ?? 'json';
   if (!isRenderer(renderer)) {
     throw new Error(
       `vite-plugin-piton: \`${String(renderer)}\` is not a renderer. Use json, yaml or markdown.`,

@@ -52,10 +52,6 @@ impl Text {
         &self.segments
     }
 
-    pub fn into_segments(self) -> Vec<Segment> {
-        self.segments
-    }
-
     pub fn is_empty(&self) -> bool {
         self.segments.iter().all(|segment| match segment {
             Segment::Literal(text) => text.is_empty(),
@@ -148,20 +144,6 @@ impl Text {
             }
         }
         out
-    }
-
-    /// Applies `f` to every literal run, leaving references untouched.
-    pub fn map_literals(&self, mut f: impl FnMut(&str) -> String) -> Text {
-        Text {
-            segments: self
-                .segments
-                .iter()
-                .map(|segment| match segment {
-                    Segment::Literal(text) => Segment::Literal(f(text)),
-                    Segment::Reference(target) => Segment::Reference(target.clone()),
-                })
-                .collect(),
-        }
     }
 
     /// Drops leading and trailing whitespace from the outermost literal runs.

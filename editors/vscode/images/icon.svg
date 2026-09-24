@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="48" fill="#1e2a38"/>
+  <!-- A piton: a spike driven into rock, with its eye for the carabiner. -->
+  <path d="M60 196 L163 93" stroke="#f2b544" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="186" cy="70" r="30" fill="none" stroke="#f2b544" stroke-width="16"/>
+  <path d="M40 216 L92 164" stroke="#8fb3d9" stroke-width="10" stroke-linecap="round"/>
+</svg>

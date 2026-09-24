@@ -54,7 +54,6 @@ is typed `any`.
 | --- | --- | --- |
 | `renderer` | `'json'` | What a bare import renders through: `json`, `yaml` or `markdown`. |
 | `binary` | `'piton'` | Path to the compiler. |
-| `adapter` | | Deprecated name for `renderer`. |
 
 With `json` the default export is the compiled object and each named export is
 that export's value. With `yaml` or `markdown` the default export is the whole

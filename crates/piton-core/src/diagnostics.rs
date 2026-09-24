@@ -216,10 +216,6 @@ impl DiagnosticSink {
             .count()
     }
 
-    pub fn into_vec(self) -> Vec<Diagnostic> {
-        self.items
-    }
-
     pub fn as_slice(&self) -> &[Diagnostic] {
         &self.items
     }
@@ -281,10 +277,6 @@ impl LineIndex {
 
     pub fn line_start(&self, line: usize) -> Option<usize> {
         self.line_starts.get(line).copied()
-    }
-
-    pub fn line_count(&self) -> usize {
-        self.line_starts.len()
     }
 
     pub fn offset(&self, line: usize, col: usize) -> usize {

@@ -1,0 +1,7 @@
+# Only the manifest, client, grammar, language configuration, icon, and docs
+# ship; `vsce` adds the production dependencies from node_modules itself.
+.vscode/**
+scripts/**
+images/*.svg
+*.vsix
+package-lock.json

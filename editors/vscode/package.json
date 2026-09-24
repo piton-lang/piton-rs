@@ -1,19 +1,40 @@
 {
-  "name": "piton",
-  "displayName": "Piton",
-  "description": "Syntax highlighting and language support for Piton",
-  "version": "0.1.0",
-  "publisher": "piton",
+  "name": "piton-lang",
+  "displayName": "Piton Language",
+  "description": "Piton language support: highlighting, diagnostics, completion, navigation, and formatting through the Piton language server",
+  "version": "0.1.41",
+  "publisher": "piton-lang",
   "license": "MIT OR Apache-2.0",
+  "icon": "images/icon.png",
+  "homepage": "https://github.com/piton-lang/piton-rs/tree/main/editors/vscode#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piton-lang/piton-rs.git",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/piton-lang/piton-rs/issues"
+  },
+  "keywords": [
+    "piton",
+    "belay",
+    "language server",
+    "lsp",
+    "agent guidance"
+  ],
+  "galleryBanner": {
+    "color": "#1e2a38",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Formatters"
   ],
   "activationEvents": [
-    "onLanguage:piton",
-    "onCommand:piton.outputToSource"
+    "onLanguage:piton"
   ],
   "main": "./client.js",
   "contributes": {
@@ -96,5 +117,10 @@
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
+  },
+  "scripts": {
+    "version:sync": "node scripts/sync-version.js",
+    "package": "npx @vscode/vsce package",
+    "publish": "npx @vscode/vsce publish"
   }
 }

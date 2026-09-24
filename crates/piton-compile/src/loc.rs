@@ -42,18 +42,15 @@ impl Report {
 
 /// Counts the lines in one source text.
 ///
-/// Fenced blocks inside prose are content, so their lines count as code even
-/// when they look like comments.
+/// A multi-line escape block is content, so its lines count as code even when
+/// they look like comments.
 pub fn count(source: &str) -> Counts {
     let mut counts = Counts::default();
-    let mut in_fence = false;
-    let mut fence_ticks = 0usize;
     let mut escape_run: Option<usize> = None;
 
     for line in source.lines() {
         counts.total += 1;
         let trimmed = line.trim();
-        let ticks = trimmed.chars().take_while(|c| *c == '`').count();
         let backslashes = (!trimmed.is_empty() && trimmed.chars().all(|c| c == '\\'))
             .then(|| trimmed.chars().count());
 
@@ -71,19 +68,6 @@ pub fn count(source: &str) -> Counts {
             continue;
         }
 
-        if in_fence {
-            counts.code += 1;
-            if ticks >= fence_ticks && trimmed.chars().all(|c| c == '`') {
-                in_fence = false;
-            }
-            continue;
-        }
-        if ticks >= 3 {
-            in_fence = true;
-            fence_ticks = ticks;
-            counts.code += 1;
-            continue;
-        }
         if trimmed.is_empty() {
             counts.blank += 1;
             continue;
@@ -136,11 +120,18 @@ mod tests {
     }
 
     #[test]
-    fn fenced_content_counts_as_code() {
-        let source = "anchor A:\n    body:\n        ```\n        // not a comment\n\n        ```\n";
+    fn escape_block_content_counts_as_code() {
+        let source = "anchor A:\n    body:\n        \\\\\\\n        // not a comment\n\n        \\\\\\\n";
         let counts = count(source);
         assert_eq!(counts.comments, 0);
         assert_eq!(counts.blank, 0);
         assert_eq!(counts.total, 6);
+    }
+
+    #[test]
+    fn a_code_fence_is_just_text() {
+        // Code blocks aren't special, so a comment line inside one is a comment.
+        let source = "anchor A:\n    body:\n        ```\n        // a comment\n        ```\n";
+        assert_eq!(count(source).comments, 1);
     }
 }

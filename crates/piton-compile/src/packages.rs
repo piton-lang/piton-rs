@@ -31,11 +31,6 @@ pub const UNTETHERED: &str = "untethered";
 /// `piton.config.pi`).
 pub const LOCK_FILE: &str = ".piton/tether.lock";
 
-/// Where earlier versions of the tooling kept the lock file. It is still read
-/// when the current one is missing, and removed the next time the lock file is
-/// saved, so an existing project migrates without anyone doing anything.
-pub const LEGACY_LOCK_FILE: &str = ".piton/packages.lock.json";
-
 /// How a dependency's version is selected.
 ///
 /// A dependency with no specifier tracks the default branch, which is the only
@@ -251,9 +246,7 @@ impl Lock {
     /// one, and the commands that need it say so themselves with a message
     /// about the package they were asked about.
     pub fn load(project_root: &Path) -> Lock {
-        let text = std::fs::read_to_string(project_root.join(LOCK_FILE))
-            .or_else(|_| std::fs::read_to_string(project_root.join(LEGACY_LOCK_FILE)));
-        let Ok(text) = text else {
+        let Ok(text) = std::fs::read_to_string(project_root.join(LOCK_FILE)) else {
             return Lock::default();
         };
         parse_lock(&text).unwrap_or_default()
@@ -264,14 +257,7 @@ impl Lock {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, self.to_json())?;
-        // The old location is migrated rather than kept in step: two lock
-        // files would sooner or later disagree about what is installed.
-        let legacy = project_root.join(LEGACY_LOCK_FILE);
-        if legacy.is_file() {
-            let _ = std::fs::remove_file(legacy);
-        }
-        Ok(())
+        std::fs::write(path, self.to_json())
     }
 
     /// Serializes the lock file.
@@ -1002,22 +988,13 @@ mod tests {
     }
 
     #[test]
-    fn the_lock_file_is_tether_lock_and_the_old_one_migrates() {
+    fn the_lock_file_is_tether_lock() {
         let root = scratch("lock");
-        let mut old = Lock::default();
-        old.insert(entry("alpha"));
-        std::fs::create_dir_all(root.join(".piton")).expect("dirs");
-        std::fs::write(root.join(LEGACY_LOCK_FILE), old.to_json()).expect("write");
-
-        // Read from the old location when that is all there is.
-        let loaded = Lock::load(&root);
-        assert_eq!(loaded, old);
-
-        // Saved to the new one, and the old one goes away.
-        loaded.save(&root).expect("save");
+        let mut lock = Lock::default();
+        lock.insert(entry("alpha"));
+        lock.save(&root).expect("save");
         assert!(root.join(".piton/tether.lock").is_file());
-        assert!(!root.join(LEGACY_LOCK_FILE).exists());
-        assert_eq!(Lock::load(&root), old);
+        assert_eq!(Lock::load(&root), lock);
         let _ = std::fs::remove_dir_all(&root);
     }
 

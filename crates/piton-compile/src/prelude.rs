@@ -155,11 +155,6 @@ from ./adapters/OpenCode export OpenCodeAdapter
 
 from ./adapters/ClaudeCode import ClaudeCodeAdapter
 
-// Deprecated: the earlier name of ClaudeCodeAdapter, kept so existing
-// configurations still build. Use ClaudeCodeAdapter.
-export anchor ClaudeAdapter extends ClaudeCodeAdapter:
-    pass
-
 // Resolved during compilation, separately for each adapter and each output
 // location. Never resolved at agent runtime.
 export BELAY_COMPILED_SHAPE: __BELAY_SHAPE_MARKER__

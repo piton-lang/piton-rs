@@ -142,7 +142,7 @@ test('the renderer option picks what a bare import renders through', async () =>
   const root = await project();
   const entry = path.join(root, 'spec', 'app.pi');
 
-  for (const options of [{ renderer: 'yaml' }, { adapter: 'yaml' }]) {
+  for (const options of [{ renderer: 'yaml' }]) {
     const plugin = piton(options);
     plugin.configResolved({ root });
     const module = await evaluate(await plugin.load.call(context(), entry));
@@ -209,7 +209,7 @@ test('files can be rendered through the compiler by path', async () => {
   const spec = await files.json(path.join(root, 'spec', 'app.pi'), { cwd: root });
   assert.equal(spec.SaveButton.color, 'blue');
   const text = await files.yaml(path.join(root, 'spec', 'app.pi'), { cwd: root });
-  const direct = execFileSync('piton', ['compile', '--adapter', 'yaml', path.join(root, 'spec', 'app.pi')], {
+  const direct = execFileSync('piton', ['compile', '--renderer', 'yaml', path.join(root, 'spec', 'app.pi')], {
     cwd: root,
     encoding: 'utf8',
   });

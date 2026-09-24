@@ -5,20 +5,46 @@ language server.
 
 ## Installing
 
-The extension needs the `piton` binary on `PATH`:
+The extension needs the `piton` binary on `PATH`. On macOS or Linux:
 
 ```
-cargo xtask install
+curl -fsSL https://github.com/piton-lang/piton-rs/releases/latest/download/install.sh | sh
 ```
 
-Then, from this directory:
+On Windows, in PowerShell:
+
+```
+irm https://github.com/piton-lang/piton-rs/releases/latest/download/install.ps1 | iex
+```
+
+Or build it from a checkout of the repository with `cargo xtask install`.
+
+Then install **Piton Language** from the Extensions view.
+
+### From a checkout
+
+From this directory:
 
 ```
 npm install
-code --install-extension .
+npm run package
+code --install-extension piton-lang-*.vsix
 ```
 
-Or symlink it into `~/.vscode/extensions/piton` for development.
+Or symlink this directory into `~/.vscode/extensions/piton` for development.
+
+### Versions
+
+The extension's version is the Piton release it goes with: extension 0.1.41
+is for Piton 0.1.41. To publish for a new release:
+
+```
+npm run version:sync -- 0.1.42
+npm run publish
+```
+
+With no argument, `version:sync` works out the Piton version from
+`Cargo.toml` and the commit count, as the edge release does.
 
 ## What comes from where
 

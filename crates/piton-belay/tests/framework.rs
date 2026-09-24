@@ -271,7 +271,7 @@ fn the_adapters_are_served_from_the_specification_files() {
     let entry = sandbox.dir.join("main.pi");
     std::fs::write(
         &entry,
-        "from @piton/belay import ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter, ClaudeAdapter\n",
+        "from @piton/belay import ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter\n",
     )
     .expect("write");
     let mut project = Project::for_file(&entry);

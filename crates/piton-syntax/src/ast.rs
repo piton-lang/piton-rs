@@ -83,10 +83,6 @@ impl ModulePath {
         self.text.starts_with('@')
     }
 
-    pub fn is_relative(&self) -> bool {
-        self.text.starts_with('.')
-    }
-
     pub fn is_absolute(&self) -> bool {
         self.text.starts_with('/')
     }
@@ -287,9 +283,6 @@ pub enum BlockItem {
     Merge(MergeItem),
     /// A run of prose lines terminated by a blank line or a structural line.
     Prose(Paragraph),
-    /// A fenced code block. Its contents are verbatim: no comments, no escapes,
-    /// and no expression interpolation.
-    Fence(Fence),
     /// A multi-line escape block. Its contents are literal and its delimiters
     /// are consumed.
     Escape(EscapeBlock),
@@ -304,7 +297,6 @@ impl BlockItem {
             BlockItem::ListItem(item) => item.span,
             BlockItem::Merge(merge) => merge.span,
             BlockItem::Prose(paragraph) => paragraph.span,
-            BlockItem::Fence(fence) => fence.span,
             BlockItem::Escape(block) => block.span,
             BlockItem::Pass(span) => *span,
         }
@@ -432,17 +424,6 @@ pub struct EscapeBlock {
     pub run: usize,
 }
 
-#[derive(Debug, Clone)]
-pub struct Fence {
-    pub span: Span,
-    /// The language tag written after the opening backticks.
-    pub info: String,
-    /// Content lines with the block's base indentation removed.
-    pub lines: Vec<String>,
-    /// The number of backticks used, so the closing fence can be reproduced.
-    pub ticks: usize,
-}
-
 /// An expression inside an interpolation or an inline list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
@@ -482,7 +463,6 @@ pub enum ExprKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     Not,
-    Negate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

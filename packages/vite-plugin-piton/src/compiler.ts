@@ -57,27 +57,15 @@ export class PitonError extends Error {
   }
 }
 
-/**
- * Compilers that predate `--renderer` and only know it as `--adapter`, by
- * binary path, so the retry below happens once per binary rather than once per
- * file.
- */
-const legacyFlag = new Set<string>();
-
-function rejectsRendererFlag(stderr: string): boolean {
-  return /--renderer/.test(stderr) && /unexpected|unrecognized|unknown|wasn't expected/i.test(stderr);
-}
-
 async function invoke(
   file: string,
   renderer: Renderer,
   options: CompilerOptions,
 ): Promise<string> {
-  const flag = legacyFlag.has(options.binary) ? '--adapter' : '--renderer';
   try {
     const result = await run(
       options.binary,
-      ['compile', flag, renderer, '--dependencies', file],
+      ['compile', '--renderer', renderer, '--dependencies', file],
       { cwd: options.cwd, maxBuffer: 64 * 1024 * 1024 },
     );
     return result.stdout;
@@ -89,10 +77,6 @@ async function invoke(
         `cannot run \`${options.binary}\`. Install the Piton compiler, or set ` +
           `the \`binary\` option to its path.`,
       );
-    }
-    if (flag === '--renderer' && rejectsRendererFlag(failure.stderr ?? '')) {
-      legacyFlag.add(options.binary);
-      return invoke(file, renderer, options);
     }
     throw new PitonError(file, failure.stderr || failure.stdout || String(error));
   }

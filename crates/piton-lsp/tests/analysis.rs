@@ -485,7 +485,7 @@ fn belay_plan_checks_reach_the_editor() {
     let long = "x".repeat(1100);
     fixture.write(
         "piton.config.pi",
-        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n    frameworks:\n        - {BelayConfiguration}\n\nbelay-config BelayConfiguration:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeAdapter}\n",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n    frameworks:\n        - {BelayConfiguration}\n\nbelay-config BelayConfiguration:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeCodeAdapter}\n",
     );
     fixture.write(
         "spec/index.pi",
