@@ -1,0 +1,121 @@
+# Publishes a Linux build of `piton` every time something lands on `release`.
+#
+# A merge into `release` is a push to it, so that is the trigger. The tests run
+# first; only a green build is published. Each publish is its own GitHub
+# release, tagged with the workspace version and the run number, so every
+# merge gets a download and none overwrites another.
+
+name: Release
+
+on:
+  push:
+    branches: [release]
+  # Lets you re-run a publish by hand from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two merges in quick succession publish in order rather than racing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-unknown-linux-musl
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The package-management tests create and clone git repositories.
+      - name: Configure git
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # musl gives a static binary that runs on any Linux distribution.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      # `psm` (through chumsky) compiles a little C, so the musl target needs
+      # a musl C compiler.
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ env.TARGET }}
+
+      - name: Build
+        run: cargo build --release --locked --package piton-cli --target "$TARGET"
+
+      - name: Package
+        id: package
+        run: |
+          version=$(cargo pkgid --package piton-cli | sed 's/.*[#@]//')
+          tag="v${version}-build.${GITHUB_RUN_NUMBER}"
+          name="piton-${tag}-${TARGET}"
+
+          mkdir -p "dist/${name}"
+          cp "target/${TARGET}/release/piton" "dist/${name}/"
+          strip "dist/${name}/piton"
+          cp README.md "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "archive=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piton-linux
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          if-no-files-found: error
+
+    outputs:
+      tag: ${{ steps.package.outputs.tag }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating a release and its tag.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: piton-linux
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "piton $TAG" \
+            --notes "Linux build of ${GITHUB_SHA::12} from the \`release\` branch." \
+            --latest
