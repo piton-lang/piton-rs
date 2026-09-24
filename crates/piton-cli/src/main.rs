@@ -16,10 +16,20 @@ use clap::{Parser, Subcommand};
 pub const EXIT_SUCCESS: u8 = 0;
 pub const EXIT_ERRORS: u8 = 1;
 
+/// The version `piton --version` reports.
+///
+/// A release build sets `PITON_VERSION` when it compiles, to the version it is
+/// published as, like `0.1.562`. A local build falls back to the crate
+/// version.
+const VERSION: &str = match option_env!("PITON_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 #[derive(Parser)]
 #[command(
     name = "piton",
-    version,
+    version = VERSION,
     about = "Compile Piton sources into agent guidance and structured data",
     long_about = "The Piton compiler turns declarative Piton sources into JSON, YAML, or \
 Markdown, and compiles Belay projects into the artifacts agentic coding tools read."
