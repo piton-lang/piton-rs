@@ -93,21 +93,12 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                             expr::parse(inner, base + inner_start, file);
 
                         if expr_diagnostics.iter().any(Diagnostic::is_error) {
-                            // Braces that do not contain an expression are
-                            // ordinary text. This keeps prose able to talk about
-                            // the syntax -- `{...}`, `${}` -- without escaping,
-                            // and it does not reintroduce string fallback for
-                            // unrecognized symbols: a bare name still parses as
-                            // an expression and still fails during resolution.
-                            diagnostics.push(Diagnostic::warning(
-                                "braces-as-text",
-                                format!(
-                                    "`{}` does not contain a valid expression and is treated as text",
-                                    &text[bytes[i].0..bytes[close].0 + 1]
-                                ),
-                                file,
-                                span,
-                            ));
+                            // Braces that don't hold a valid expression are an
+                            // error. Prose that talks about the syntax escapes
+                            // it with `\ ... \`. The text is kept so the rest
+                            // of the line still reads, but the file won't
+                            // compile.
+                            diagnostics.extend(expr_diagnostics);
                             buffer.push_str(&text[bytes[i].0..bytes[close].0 + 1]);
                             i = close + 1;
                             continue;
@@ -202,54 +193,18 @@ fn matching_brace(bytes: &[(usize, char)], open: usize) -> Option<usize> {
     None
 }
 
-/// Splits a source line into code and an optional trailing comment.
+/// Splits a source line into code and a comment.
 ///
-/// `//` opens a comment only when it follows whitespace or starts the line, is
-/// not escaped by a backslash, and is not inside a double-quoted run. That last
-/// rule is what keeps prose such as `Comments are created with "//".` intact.
+/// A comment has to be on its own line: a line is a comment when its first
+/// non-whitespace characters are `//`. Anywhere else `//` is just text, so
+/// `url: https://example.com // note` keeps all of it as the value.
 pub fn split_comment(line: &str) -> (&str, Option<&str>) {
-    let bytes: Vec<(usize, char)> = line.char_indices().collect();
-    let mut quoted = false;
-    // Inside `\ ... \` everything is literal, `//` included, so `\ // \`
-    // writes two slashes instead of starting a comment.
-    let mut literal = false;
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let (offset, ch) = bytes[i];
-        match ch {
-            '\\' => {
-                let mut run = 0;
-                while i + run < bytes.len() && bytes[i + run].1 == '\\' {
-                    run += 1;
-                }
-                if run == 1 {
-                    let opens = !literal && bytes.get(i + 1).is_some_and(|(_, c)| *c == ' ');
-                    let closes = literal && i > 0 && bytes[i - 1].1 == ' ';
-                    if opens || closes {
-                        literal = !literal;
-                    }
-                    i += 1;
-                } else {
-                    // A stacked run escapes whatever follows it.
-                    i += run + usize::from(run % 2 == 1);
-                }
-            }
-            _ if literal => i += 1,
-            '"' => {
-                quoted = !quoted;
-                i += 1;
-            }
-            '/' if !quoted && bytes.get(i + 1).map(|(_, c)| *c) == Some('/') => {
-                let preceded_ok = i == 0 || bytes[i - 1].1.is_whitespace();
-                if preceded_ok {
-                    return (&line[..offset], Some(&line[offset..]));
-                }
-                i += 2;
-            }
-            _ => i += 1,
-        }
+    let offset = line.len() - line.trim_start().len();
+    if line[offset..].starts_with("//") {
+        (&line[..offset], Some(&line[offset..]))
+    } else {
+        (line, None)
     }
-    (line, None)
 }
 
 #[cfg(test)]
@@ -327,19 +282,15 @@ mod tests {
     }
 
     #[test]
-    fn comments_split_off_the_end() {
-        assert_eq!(
-            split_comment("myVariable: 42 // This is also a comment"),
-            ("myVariable: 42 ", Some("// This is also a comment"))
-        );
-        assert_eq!(split_comment("// whole line").0, "");
+    fn a_comment_is_a_whole_line() {
+        assert_eq!(split_comment("// whole line"), ("", Some("// whole line")));
+        assert_eq!(split_comment("    // indented"), ("    ", Some("// indented")));
     }
 
     #[test]
-    fn quoted_and_escaped_slashes_are_not_comments() {
+    fn slashes_after_code_are_text() {
+        assert_eq!(split_comment("myVariable: 42 // not a comment").1, None);
+        assert_eq!(split_comment("url: https://example.com // note").1, None);
         assert_eq!(split_comment(r#"created with "//"."#).1, None);
-        assert_eq!(split_comment(r"\ // \ Just Text").1, None);
-        assert_eq!(split_comment(r"a: \ x \ // real").1, Some("// real"));
-        assert_eq!(split_comment("https://example.com/a").1, None);
     }
 }

@@ -13,12 +13,13 @@ use crate::Plan;
 /// directory beside `piton.config.pi`.
 pub const MANIFEST: &str = ".piton/manifest.json";
 
-/// The manifest document for a plan: `{"generated": [paths]}`.
+/// The manifest document for a plan: `{"generated": [paths], "targets":
+/// {targetId: documentationChecked}}`.
 pub fn document(plan: &Plan) -> String {
-    document_with(&plan.manifest())
+    document_with(&plan.manifest(), &plan.targets)
 }
 
-pub(crate) fn document_with(paths: &[String]) -> String {
+pub(crate) fn document_with(paths: &[String], targets: &[(String, String)]) -> String {
     let mut out = String::from("{\n  \"generated\": [\n");
     for (index, path) in paths.iter().enumerate() {
         out.push_str("    ");
@@ -28,7 +29,22 @@ pub(crate) fn document_with(paths: &[String]) -> String {
         }
         out.push('\n');
     }
-    out.push_str("  ]\n}\n");
+    out.push_str("  ]");
+    if !targets.is_empty() {
+        out.push_str(",\n  \"targets\": {\n");
+        for (index, (id, checked)) in targets.iter().enumerate() {
+            out.push_str("    ");
+            out.push_str(&piton_emit::json::quote(id));
+            out.push_str(": ");
+            out.push_str(&piton_emit::json::quote(checked));
+            if index + 1 < targets.len() {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("  }");
+    }
+    out.push_str("\n}\n");
     out
 }
 

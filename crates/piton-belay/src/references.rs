@@ -329,11 +329,16 @@ impl markdown::LinkResolver for Links<'_> {
             return None;
         };
         let file = relative_file(&self.from_directory, location);
-        let fragment = self
-            .index
-            .and_then(|index| index.get(location))
-            .and_then(|file| file.fragment(target, self.anchors))
-            .unwrap_or_else(|| piton_emit::reference_fragment(self.anchors, target));
+        let fragment = match self.index {
+            // A construct's own output, like a SKILL.md, is not a reference
+            // document with headings to land on, so the link is to the file.
+            Some(index) => match index.get(location) {
+                Some(headings) => headings.fragment(target, self.anchors),
+                None => return Some(file),
+            },
+            None => None,
+        }
+        .unwrap_or_else(|| piton_emit::reference_fragment(self.anchors, target));
         Some(format!("{file}#{fragment}"))
     }
 }

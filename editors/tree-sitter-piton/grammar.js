@@ -64,8 +64,12 @@ module.exports = grammar({
 
     _newline: () => /\r?\n/,
 
-    // A comment runs to the end of the line and has no block form. It only
-    // begins after whitespace, so `https://x` is not one.
+    // A comment runs to the end of the line and has no block form, and it has
+    // to be on its own line: it is a statement, so it can only begin where a
+    // line does (after the indentation, which is an extra). At the end of a
+    // line of code `//` is just text -- `url: https://example.com // note` is
+    // the string `https://example.com // note` -- because no rule inside a
+    // line admits a comment, and `text` runs straight through the slashes.
     comment: () => token(seq("//", /[^\n]*/)),
 
     // Fenced content is verbatim: nothing inside is scanned.

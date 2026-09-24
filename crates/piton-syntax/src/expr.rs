@@ -87,7 +87,34 @@ pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>
             continue;
         }
         let start = i;
+        // A minus is only ever part of a number: `-5` where a value is
+        // expected is a negative literal. There is no minus in front of an
+        // expression, so `-price` is a `-` with nothing on its left.
+        let expects_value = tokens.last().is_none_or(|(token, _): &(ExprToken, _)| {
+            !matches!(
+                token.kind,
+                ExprTokenKind::Ident
+                    | ExprTokenKind::Number
+                    | ExprTokenKind::Quoted
+                    | ExprTokenKind::RParen
+                    | ExprTokenKind::RBracket
+                    | ExprTokenKind::RBrace
+            )
+        });
+        let negative = ch == '-' && expects_value && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit());
         let (kind, len) = match ch {
+            '-' if negative => {
+                let mut j = i + 1;
+                while j < chars.len()
+                    && (chars[j].is_ascii_digit() || chars[j] == '_' || chars[j] == '.')
+                {
+                    if chars[j] == '.' && !chars.get(j + 1).is_some_and(|c| c.is_ascii_digit()) {
+                        break;
+                    }
+                    j += 1;
+                }
+                (ExprTokenKind::Number, j - i)
+            }
             '0'..='9' => {
                 let mut j = i;
                 while j < chars.len()
@@ -334,19 +361,14 @@ pub fn parser() -> impl Parser<ExprToken, Expr, Error = Simple<ExprToken>> + Clo
                 }
             });
 
-        let unary = filter(|t: &ExprToken| {
-            matches!(t.kind, ExprTokenKind::Bang | ExprTokenKind::Minus)
-        })
+        let unary = filter(|t: &ExprToken| t.kind == ExprTokenKind::Bang)
         .map_with_span(|t: ExprToken, span: std::ops::Range<usize>| (t, Span::from(span)))
         .repeated()
         .then(access)
         .foldr(|(op, op_span), operand| {
             let span = Span::new(op_span.start, operand.span.end);
-            let op = if op.kind == ExprTokenKind::Bang {
-                UnaryOp::Not
-            } else {
-                UnaryOp::Negate
-            };
+            let _ = op;
+            let op = UnaryOp::Not;
             Expr {
                 span,
                 kind: ExprKind::Unary(op, Box::new(operand)),
@@ -560,6 +582,15 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
         assert!(matches!(parse_ok("\"a\" + ${true}").kind, ExprKind::Binary(..)));
+    }
+
+    #[test]
+    fn a_minus_is_only_part_of_a_number() {
+        assert_eq!(parse_ok("-5").kind, ExprKind::Number(-5.0));
+        assert!(matches!(parse_ok("2 - -1").kind, ExprKind::Binary(BinaryOp::Subtract, _, _)));
+        assert!(matches!(parse_ok("2 -1").kind, ExprKind::Binary(BinaryOp::Subtract, _, _)));
+        let (_, diagnostics) = parse("-price", 0, Path::new("test.pi"));
+        assert!(!diagnostics.is_empty(), "there is no minus in front of an expression");
     }
 
     #[test]

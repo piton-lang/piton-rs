@@ -34,7 +34,12 @@ export cli-command Build:
         ```
         \\\
         {
-            "generated": [ pathToGeneratedFiles ]
+            "generated": [ pathToGeneratedFiles ],
+            "targets": { targetId: documentationChecked }
         }
         \\\
         ```
+
+        targets records, for each framework target, the date its
+        documentation was last checked, which is the version the generated
+        files were validated against.

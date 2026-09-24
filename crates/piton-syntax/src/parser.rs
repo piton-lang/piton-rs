@@ -1998,14 +1998,15 @@ mod tests {
 
     #[test]
     fn comments_do_not_reach_the_ast() {
-        let parse = parse_str("anchor A:\n    // TODO: not content\n    text: value // trailing\n");
+        let parse = parse_str("anchor A:\n    // TODO: not content\n    text: value // not a comment\n");
         assert_clean(&parse);
         let anchor = parse.file.anchors().next().expect("anchor");
         let property = anchor.body.properties().next().expect("property");
         let inline = property.value.inline.as_ref().expect("inline");
+        // A comment has to be on its own line; after code, `//` is text.
         assert_eq!(
             inline.segments,
-            vec![ProseSegment::Text("value".to_string())]
+            vec![ProseSegment::Text("value // not a comment".to_string())]
         );
         assert_eq!(anchor.body.items.len(), 1);
     }

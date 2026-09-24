@@ -14,10 +14,6 @@ syn region pitonFence matchgroup=pitonFenceDelim start="^\s*```\+" end="^\s*```\
 syn match pitonEscapeDelim "^\s*\\\+\s*$" contained
 syn region pitonEscape matchgroup=pitonEscapeDelim start="^\s*\z(\\\+\)\s*$" end="^\s*\z1\s*$" keepend
 
-" A comment opens only after whitespace, so `https://x` is not one.
-syn match pitonComment "\%(^\|\s\)//.*$" contains=pitonTodo
-syn keyword pitonTodo TODO FIXME NOTE XXX contained
-
 " Imports
 syn match pitonImport "^\s*\<use\>" nextgroup=pitonPath skipwhite
 syn match pitonImport "^\s*\<from\>" nextgroup=pitonPath skipwhite
@@ -57,6 +53,14 @@ syn match pitonNumber "\<\d[0-9_]*\%(\.[0-9_]\+\)\?\>" contained
 syn region pitonString start=+"+ skip=+\\.+ end=+"+ contained
 syn match pitonOperator "++\|==\|!=\|<=\|>=\|&&\|||\|[-+*/%<>!?:.]" contained
 syn match pitonAnchorRef "\<[A-Z][A-Za-z0-9_]*\>" contained
+
+" A comment has to be on its own line. At the end of a line of code `//` is
+" just text, so `url: https://example.com // note` is all value. Defined last
+" so that it wins over a key or a declaration starting at the same column:
+" `//note: x` is a comment, not the key `//note`. Escape blocks and fences are
+" regions that contain no comment, so a `//` line inside one stays literal.
+syn match pitonComment "^\s*//.*$" contains=pitonTodo
+syn keyword pitonTodo TODO FIXME NOTE XXX contained
 
 hi def link pitonComment      Comment
 hi def link pitonTodo         Todo

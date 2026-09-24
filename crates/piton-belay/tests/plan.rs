@@ -399,10 +399,11 @@ fn the_target_versions_are_recorded() {
         "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n",
     );
     let built = sandbox.plan();
-    let record = built.file(piton_belay::TARGET_RECORD);
-    assert!(record.contains("\"claude-code\""), "{record}");
-    assert!(record.contains("\"adapter\": \"ClaudeCodeAdapter\""), "{record}");
-    assert!(record.contains("\"documentationChecked\": \"2026-09-21\""), "{record}");
+    // The manifest records, for each target, when its documentation was
+    // last checked.
+    let manifest = piton_belay::manifest_document(&built.plan);
+    assert!(manifest.contains("\"targets\""), "{manifest}");
+    assert!(manifest.contains("\"claude-code\": \"2026-09-21\""), "{manifest}");
 }
 
 #[test]
@@ -460,7 +461,7 @@ fn existing_files_the_build_does_not_own_are_not_overwritten() {
     built.assert_clean();
     piton_belay::write(&built.plan, &sandbox.dir).expect("owned files are written");
     let manifest = std::fs::read_to_string(sandbox.dir.join(piton_belay::MANIFEST)).unwrap();
-    assert!(manifest.contains(piton_belay::TARGET_RECORD), "{manifest}");
+    assert!(manifest.contains("\"targets\""), "{manifest}");
 }
 
 #[test]

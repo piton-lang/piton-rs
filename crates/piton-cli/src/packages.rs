@@ -397,7 +397,23 @@ impl<'a> Installer<'a> {
                 }
             };
 
-            let published = published(&checkout.directory, &dependency.default_name());
+            let mut published = published(&checkout.directory, &dependency.default_name());
+            // `packages:` under the dependency picks which of the repository's
+            // packages to take.
+            if let Some(wanted) = &dependency.packages {
+                for name in wanted {
+                    if !published.iter().any(|package| &package.name == name) {
+                        let offered: Vec<&str> =
+                            published.iter().map(|package| package.name.as_str()).collect();
+                        return Err(Failure::new(format!(
+                            "`{}` does not offer a package named `{name}`",
+                            dependency.source
+                        ))
+                        .with_help(format!("it offers: {}", offered.join(", "))));
+                    }
+                }
+                published.retain(|package| wanted.contains(&package.name));
+            }
 
             let published = match (rename, published.len()) {
                 (Some(name), 1) => {

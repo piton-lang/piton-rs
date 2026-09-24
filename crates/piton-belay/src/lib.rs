@@ -47,9 +47,6 @@ pub enum OutputKind {
     Agent,
     Reference,
     ShapeReference,
-    /// The record of which target versions the artifacts were validated
-    /// against.
-    TargetRecord,
 }
 
 impl OutputKind {
@@ -62,7 +59,6 @@ impl OutputKind {
             OutputKind::Agent => "agent",
             OutputKind::Reference => "reference",
             OutputKind::ShapeReference => "shape reference",
-            OutputKind::TargetRecord => "target record",
         }
     }
 }
@@ -88,6 +84,10 @@ pub struct OutputFile {
 pub struct Plan {
     pub files: Vec<OutputFile>,
     pub diagnostics: Vec<Diagnostic>,
+    /// For each target, the date its documentation was last checked: the
+    /// version the generated files were validated against. The manifest
+    /// records it.
+    pub targets: Vec<(String, String)>,
 }
 
 /// A planned file with the anchors whose content it carries, in order, so a
@@ -124,13 +124,6 @@ impl Draft {
     }
 }
 
-/// Where the target record is written, relative to the project root.
-///
-/// It records, per target, the adapter that produced the artifacts and the
-/// platform documentation date its mappings were validated against, beside
-/// the build manifest.
-pub const TARGET_RECORD: &str = ".piton/targets.json";
-
 impl Plan {
     pub fn has_errors(&self) -> bool {
         self.diagnostics.iter().any(Diagnostic::is_error)
@@ -159,6 +152,7 @@ pub fn plan_with(compilation: &Compilation, config: &BelayConfig, options: &Opti
         return Plan {
             files: Vec::new(),
             diagnostics: plan.diagnostics,
+            targets: Vec::new(),
         };
     }
 
@@ -169,7 +163,6 @@ pub fn plan_with(compilation: &Compilation, config: &BelayConfig, options: &Opti
     for target in &options.targets {
         build_target(compilation, config, target, &emission, &closure, &mut plan);
     }
-    plan.push(target_record(options), Vec::new());
 
     validate::validate(compilation, options, &mut plan);
     validate::ownership(compilation, options, &mut plan);
@@ -178,37 +171,11 @@ pub fn plan_with(compilation: &Compilation, config: &BelayConfig, options: &Opti
     Plan {
         files: plan.files.into_iter().map(|planned| planned.file).collect(),
         diagnostics: plan.diagnostics,
-    }
-}
-
-/// Records the adapter and documentation date each target was validated
-/// against.
-fn target_record(options: &Options) -> OutputFile {
-    let quote = piton_emit::json::quote;
-    let entries: Vec<String> = options
-        .targets
-        .iter()
-        .map(|target| {
-            format!(
-                "  {}: {{\n    \"adapter\": {},\n    \"documentationChecked\": {}\n  }}",
-                quote(target.id),
-                quote(&target.anchor_name),
-                quote(&target.documentation_checked)
-            )
-        })
-        .collect();
-    OutputFile {
-        path: PathBuf::from(TARGET_RECORD),
-        contents: format!("{{\n{}\n}}\n", entries.join(",\n")),
-        kind: OutputKind::TargetRecord,
-        target: "belay",
-        origin: options
+        targets: options
             .targets
             .iter()
-            .map(|t| t.anchor_name.clone())
-            .collect::<Vec<_>>()
-            .join(", "),
-        sources: Vec::new(),
+            .map(|target| (target.id.to_string(), target.documentation_checked.clone()))
+            .collect(),
     }
 }
 
@@ -367,9 +334,6 @@ impl Emission {
             .collect()
     }
 
-    fn is_construct(&self, anchor: AnchorId) -> bool {
-        self.constructs.iter().any(|c| c.anchor == anchor)
-    }
 }
 
 /// Reports references that cannot be compiled, references in metadata, and
@@ -415,25 +379,6 @@ fn report_references(
                 )
                 .with_origin(origin)
                 .with_help("reference a concrete anchor of this project, or write the name as text".to_string()),
-            );
-        } else if emission.is_construct(target.anchor) {
-            plan.diagnostics.push(
-                warning_at(
-                    "reference-identity-unspecified",
-                    format!(
-                        "`{}` is emitted as a {} and also referenced by `@{{{shown}}}`; what one anchor compiling to several outputs means is not specified, so the reference links to a copy in the reference tree",
-                        compilation.store().anchor(target.anchor).name,
-                        emission
-                            .constructs
-                            .iter()
-                            .find(|c| c.anchor == target.anchor)
-                            .map(|c| c.kind.as_str())
-                            .unwrap_or("construct")
-                    ),
-                    site,
-                )
-                .with_origin(origin)
-                .with_help("see OpenDecisions.referenceIdentity".to_string()),
             );
         }
     }
@@ -501,8 +446,23 @@ fn build_target(
 
     // Reference destinations are needed before anything renders, because a
     // reference link has to point at a planned output.
+    //
+    // A reference to a skill, command, or agent links to that construct's own
+    // output, so those are not copied into the reference directory.
+    let mut natives: HashMap<AnchorId, PathBuf> = HashMap::new();
+    for item in &emission.constructs {
+        let name = kebab_case(&item.name);
+        let path = match item.kind {
+            ConstructKind::Skill => target.skill_path(&name),
+            ConstructKind::Command => target.command_path(&name),
+            ConstructKind::Agent => target.agent_path(&name),
+            ConstructKind::Instruction => continue,
+        };
+        natives.insert(item.anchor, PathBuf::from(path));
+    }
     let mut documented = emission.documented();
     documented.extend(closure.referenced.iter().copied());
+    documented.retain(|anchor| !natives.contains_key(anchor));
     let compiled_shape = target.shape_root();
     let mut files: BTreeMap<PathBuf, Vec<AnchorId>> = BTreeMap::new();
     let mut locations = HashMap::new();
@@ -526,6 +486,7 @@ fn build_target(
     for anchors in files.values_mut() {
         anchors.sort_by_key(|anchor| compilation.store().anchor(*anchor).item);
     }
+    locations.extend(natives);
 
     let mut context = TargetContext {
         compilation,
@@ -1258,7 +1219,7 @@ pub fn write(plan: &Plan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
     if let Some(parent) = manifest_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(manifest_path, manifest::document_with(&owned))?;
+    std::fs::write(manifest_path, manifest::document_with(&owned, &plan.targets))?;
     Ok(written)
 }
 
@@ -1316,6 +1277,7 @@ mod tests {
                 file("a.md", OutputKind::Reference, "claude-code", "A"),
             ],
             diagnostics: Vec::new(),
+            targets: vec![("claude-code".into(), "2026-09-21".into())],
         };
         let document = manifest_document(&plan);
         assert_eq!(manifest_paths(&document), vec!["a.md", "b.md"]);
