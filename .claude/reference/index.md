@@ -2251,6 +2251,7 @@ ${Anchor} gives you the anchor's name as written in the source. It isn't turned 
     - Render referential interpolation as a Markdown link to the compiled artifact.
     - Keep referential links distinct from inline value serialization.
     - Do not replace lazy Markdown links with Claude-specific eager import syntax.
+    - Link a reference to a construct to the construct's own output, like its SKILL.md, and don't copy it into the reference directory.
   representation: Belay uses the Markdown renderer's references: a relative link from the generated file to wherever the other anchor was compiled.
 
 ### Adapters
@@ -2565,10 +2566,6 @@ Things that aren't decided yet. Tooling shouldn't guess here; it should say it's
 #### Instruction Scope
 
 Define placement for instructions outside shapeRoot.
-
-#### Reference Identity
-
-Decide what happens when one anchor turns into more than one output, like a skill that's also referenced somewhere.
 
 #### Metadata Types
 

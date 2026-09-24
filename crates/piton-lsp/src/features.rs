@@ -2206,7 +2206,11 @@ pub fn on_type_formatting(
         return None;
     }
 
-    let indent = wanted_indent(previous);
+    let indent = if previous.is_empty() {
+        indent_after_emptied_lines(&text, line_start)
+    } else {
+        wanted_indent(previous)
+    };
 
     // The line may already carry indentation: some editors copy the one above
     // across, some compute their own, and the cursor may sit anywhere inside
@@ -2230,6 +2234,32 @@ pub fn on_type_formatting(
         },
         new_text: indent,
     }])
+}
+
+/// The indentation after a line that is completely empty.
+///
+/// Some editors, Zed among them, strip the whitespace from a blank line as
+/// Enter leaves it, so an indented blank line reaches the server as an empty
+/// one and looks like it sits at the margin. So an empty line is measured from
+/// the last line with content above it: the depth that line leads into, less
+/// one level for each empty line since, which is how deep the blank lines
+/// would have been had they kept their indentation.
+fn indent_after_emptied_lines(text: &str, line_start: usize) -> String {
+    let mut end = line_start - 1;
+    let mut blank = 0usize;
+    loop {
+        let start = text[..end].rfind('\n').map(|index| index + 1).unwrap_or(0);
+        let line = text[start..end].trim_end_matches('\r');
+        if !line.trim().is_empty() {
+            let base = wanted_indent(line).len();
+            return " ".repeat(base.saturating_sub(blank * format::INDENT));
+        }
+        blank += 1;
+        if start == 0 {
+            return String::new();
+        }
+        end = start - 1;
+    }
 }
 
 /// The line above the one starting at `line_start`, without its newline.

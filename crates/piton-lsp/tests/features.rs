@@ -1016,6 +1016,21 @@ fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
 }
 
 #[test]
+fn enter_on_a_blank_line_the_editor_emptied_dedents_by_one_level() {
+    // Zed strips the whitespace from a blank line as Enter leaves it, so the
+    // blank line arrives empty. It still backs out one level, not to the
+    // margin.
+    let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n<|>");
+    assert!(
+        text.ends_with("        inner: 1\n\n    "),
+        "expected one level out, not all the way: {text:?}"
+    );
+    // A second Enter on another emptied blank line backs out one more.
+    let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n\n<|>");
+    assert!(text.ends_with("        inner: 1\n\n\n"), "{text:?}");
+}
+
+#[test]
 fn enter_on_a_blank_line_at_the_margin_stays_there() {
     // A blank line already at the margin has nothing to dedent out of, so it is
     // a no-op rather than wrapping to a negative depth. Here the line above the

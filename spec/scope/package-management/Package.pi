@@ -36,8 +36,9 @@ export anchor Package:
 
         packages is what your repository offers to other projects. A project
         never installs its own packages. When another project tethers your
-        repository, it gets every package listed here, unless it filters them,
-        each in its own directory under tethers/.
+        repository, it gets every package listed here, each in its own
+        directory under tethers/. It can pick just some of them with packages:
+        (see Dependencies).
 
     dependencies:
         If dependencies are specified at a project level, they only apply to the
