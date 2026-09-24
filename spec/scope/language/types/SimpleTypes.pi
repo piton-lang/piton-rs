@@ -1,7 +1,7 @@
-from ./Numbers import Numbers
-from ./Strings import Strings
 from ./Booleans import Booleans
 from ./Null import Null
+from ./Numbers import Numbers
+from ./Strings import Strings
 
 export anchor SimpleTypes:
     listOfSimpleTypes:

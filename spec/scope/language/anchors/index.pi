@@ -1,10 +1,10 @@
+from ../types/Anchors import AnchorType
+from ./Abstract import Abstract
+from ./Keywords import UserDefinedKeywords
+from ./SelfReference import SelfReference
 from ./StructuralInheritance import StructuralInheritance
 from ./Super import Super
 from ./SuperOnLists import SuperOnLists
-from ./SelfReference import SelfReference
-from ./Abstract import Abstract
-from ./Keywords import UserDefinedKeywords
-from ../types/Anchors import AnchorType
 
 export anchor Anchors:
     typeReference: @{AnchorType}

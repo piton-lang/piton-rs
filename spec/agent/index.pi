@@ -1,5 +1,5 @@
-from ./skills/InspectSpec export *
 from ./skills/BuildTooling export *
 from ./skills/GenerateFluencyPrompt export *
+from ./skills/InspectSpec export *
 
 from ./commands/CheckSpecForProblems export *

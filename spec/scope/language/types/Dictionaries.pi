@@ -1,10 +1,10 @@
 use ./lib/Type
 
-from ../operators/concatenation/MergeOperator import MergeOperator
-from ../operators/concatenation/DupMergeOperator import DupMergeOperator
+from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
 from ../operators/comparison/EqOperator import EqOperator
 from ../operators/comparison/NeqOperator import NeqOperator
-from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
+from ../operators/concatenation/DupMergeOperator import DupMergeOperator
+from ../operators/concatenation/MergeOperator import MergeOperator
 
 export type Dictionaries:
     description:

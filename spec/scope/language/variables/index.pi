@@ -1,11 +1,11 @@
-from ./Overview import VariablesOverview
-from ./TypeConstraints import TypeConstraints
 from ./ListTypeConstraints import ListTypeConstraints
+from ./Mutability import Mutability
 from ./NestedTypeConstraints import NestedTypeConstraints
+from ./Overview import VariablesOverview
+from ./Scope import Scope
 from ./SpecialTypeConstraints import SpecialTypeConstraints
 from ./TypeCoercion import TypeCoercion
-from ./Mutability import Mutability
-from ./Scope import Scope
+from ./TypeConstraints import TypeConstraints
 
 export anchor Variables:
     overview: {VariablesOverview}

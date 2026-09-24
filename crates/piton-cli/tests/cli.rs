@@ -440,7 +440,7 @@ fn format_normalizes_and_check_reports() {
     let formatted = fixture.read("messy.pi");
     assert_eq!(
         formatted,
-        "from ./x import\n    A,\n    B,\n    C\nanchor A:\n    value: 1 // tight\n"
+        "from ./x import\n    A,\n    B,\n    C\nanchor A:\n    value: 1 //tight\n"
     );
 
     let (_, _, code) = fixture.run(&["format", "messy.pi", "--check"]);
@@ -690,7 +690,7 @@ fn format_reads_stdin_when_given_a_dash() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "from ./x import A, B\nanchor A:\n    value: 1 // tight\n"
+        "from ./x import A, B\nanchor A:\n    value: 1 //tight\n"
     );
 
     let mut child = Command::new(binary())

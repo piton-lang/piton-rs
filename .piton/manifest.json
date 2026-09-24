@@ -1,6 +1,5 @@
 {
   "generated": [
-    ".claude/reference/agent/skills/GenerateFluencyPrompt.md",
     ".claude/reference/index.md",
     ".claude/reference/scope/language/anchors/Keywords.md",
     ".claude/reference/scope/language/anchors/index.md",
@@ -28,7 +27,6 @@
     ".claude/skills/generate-fluency-prompt/SKILL.md",
     ".claude/skills/inspect-spec/SKILL.md",
     ".claude/skills/x-check-spec-for-problems/SKILL.md",
-    ".piton/targets.json",
     "dist/agent/commands/CheckSpecForProblems.json",
     "dist/agent/skills/BuildTooling.json",
     "dist/agent/skills/GenerateFluencyPrompt.json",
@@ -163,5 +161,8 @@
     "dist/scope/tooling/index.json",
     "dist/scope/tooling/project-config/index.json",
     "dist/scope/tooling/vite/index.json"
-  ]
+  ],
+  "targets": {
+    "claude-code": "2026-09-21"
+  }
 }

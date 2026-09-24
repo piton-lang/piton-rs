@@ -1,7 +1,7 @@
 use ./lib/Type
-from ../operators/logical import LOGICAL_OPERATORS
 from ../operators/comparison/EqOperator import EqOperator
 from ../operators/comparison/NeqOperator import NeqOperator
+from ../operators/logical import LOGICAL_OPERATORS
 
 export type Booleans:
     description:

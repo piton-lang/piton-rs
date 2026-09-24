@@ -1,11 +1,11 @@
-from ./Compile import Compile
-from ./Check import Check
 from ./Agent import AgentCli
 from ./Build import Build
+from ./Check import Check
+from ./Compile import Compile
 from ./Format import Format
+from ./Loc import Loc
 from ./Lsp import Lsp
 from ./Reach import Reach
-from ./Loc import Loc
 from ./package-management import
     Remove,
     Tether,

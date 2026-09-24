@@ -1,6 +1,6 @@
-from ./Lists import Lists
-from ./Dictionaries import Dictionaries
 from ./Anchors import AnchorType
+from ./Dictionaries import Dictionaries
+from ./Lists import Lists
 
 export anchor ComplexTypes:
     listOfComplexTypes:

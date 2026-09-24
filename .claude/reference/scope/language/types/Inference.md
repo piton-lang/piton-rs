@@ -18,5 +18,5 @@ Unless specifically constrained to a type, a variable or property can hold any t
 | `null`                  | `null`                                                             |
 | `"false"`               | `string` (the quotes are part of it)                               |
 | `\ // \ Just Text`      | `string` (the `//` is escaped, so it's not a comment)               |
-| `${}`                   | `string`                                                           |
+| `${a + b}`              | `string` (always, whatever a and b are)                            |
 ```
