@@ -167,7 +167,62 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
     if !out.ends_with('\n') && !out.is_empty() {
         out.push('\n');
     }
+    sort_import_lines(&out)
+}
+
+/// Sorts each run of import lines: the `use` lines first, then the `from`
+/// lines, each sorted by path. A run is a group of top-level `use` and `from`
+/// statements with nothing between them, so a blank line keeps two groups
+/// apart. A run with a comment in it is left alone, because moving the lines
+/// would separate the comment from what it describes.
+fn sort_import_lines(text: &str) -> String {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let is_import = |line: &str| line.starts_with("use ") || line.starts_with("from ");
+    let is_continuation = |line: &str| {
+        line.starts_with([' ', '\t']) && !line.trim().is_empty() && !line.trim_start().starts_with("//")
+    };
+
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if !is_import(lines[i]) {
+            out.push_str(lines[i]);
+            i += 1;
+            continue;
+        }
+        // Collect the run: each statement is its line plus any wrapped lines.
+        let mut statements: Vec<String> = Vec::new();
+        let mut commented = false;
+        while i < lines.len() && is_import(lines[i]) {
+            let mut statement = lines[i].to_string();
+            i += 1;
+            while i < lines.len() && is_continuation(lines[i]) {
+                statement.push_str(lines[i]);
+                i += 1;
+            }
+            statements.push(statement);
+            if i < lines.len() && lines[i].trim_start().starts_with("//") && i + 1 < lines.len() && is_import(lines[i + 1]) {
+                commented = true;
+                statement = lines[i].to_string();
+                i += 1;
+                statements.push(statement);
+            }
+        }
+        if !commented {
+            statements.sort_by(|a, b| import_key(a).cmp(&import_key(b)));
+        }
+        for statement in statements {
+            out.push_str(&statement);
+        }
+    }
     out
+}
+
+/// `use` before `from`, then by path.
+fn import_key(statement: &str) -> (u8, String) {
+    let mut words = statement.split_whitespace();
+    let group = u8::from(words.next() != Some("use"));
+    (group, words.next().unwrap_or_default().to_string())
 }
 
 /// True when the file is already canonically formatted.
@@ -376,7 +431,8 @@ mod tests {
     #[test]
     fn comments_gain_a_space() {
         assert_eq!(fmt("//no space\n"), "// no space\n");
-        assert_eq!(fmt("value: 1 //tight\n"), "value: 1 // tight\n");
+        // After code, `//` is text rather than a comment, so it is left alone.
+        assert_eq!(fmt("value: 1 //tight\n"), "value: 1 //tight\n");
         assert_eq!(fmt("//\n"), "//\n");
     }
 
@@ -387,7 +443,7 @@ mod tests {
         assert_eq!(fmt("//     nested: 2\n"), "//     nested: 2\n");
         assert_eq!(fmt("///triple\n"), "// /triple\n");
         assert_eq!(fmt("// already spaced\n"), "// already spaced\n");
-        assert_eq!(fmt("value: 1   //  two spaces\n"), "value: 1 //  two spaces\n");
+        assert_eq!(fmt("//  two spaces\n"), "//  two spaces\n");
     }
 
     fn auto(source: &str) -> String {
@@ -411,14 +467,32 @@ mod tests {
     #[test]
     fn autoformat_still_formats_the_code_around_comments() {
         assert_eq!(
-            auto("anchor A:\n  value: 1 //tight\n"),
-            "anchor A:\n    value: 1 // tight\n"
+            auto("anchor A:\n  value: 1\n  //tight\n"),
+            "anchor A:\n    value: 1\n  // tight\n"
         );
         // An ordinary comment line still gets its code neighbours formatted
         // while it stays put.
         assert_eq!(
             auto("anchor A:\n  value: 1\n//note\n  other: 2\n"),
             "anchor A:\n    value: 1\n// note\n    other: 2\n"
+        );
+    }
+
+    #[test]
+    fn import_lines_are_sorted_use_first_then_by_path() {
+        assert_eq!(
+            fmt("from ./b import Zed, Alpha\nuse ./kw\nfrom ./a import Beta\n"),
+            "use ./kw\nfrom ./a import Beta\nfrom ./b import Alpha, Zed\n"
+        );
+        // A blank line keeps two groups apart.
+        assert_eq!(
+            fmt("from ./b import B\n\nfrom ./a import A\n"),
+            "from ./b import B\n\nfrom ./a import A\n"
+        );
+        // Wrapped imports move with their lines.
+        assert_eq!(
+            fmt("from ./z import\n    A,\n    B,\n    C\nfrom ./a import D\n"),
+            "from ./a import D\nfrom ./z import\n    A,\n    B,\n    C\n"
         );
     }
 
@@ -430,10 +504,6 @@ mod tests {
         );
         assert_eq!(fmt("from ../x.pi export *\n"), "from ../x export *\n");
         assert_eq!(fmt("use ./Keywords.pi\n"), "use ./Keywords\n");
-        assert_eq!(
-            fmt("use ./Keywords.pi //the words\n"),
-            "use ./Keywords // the words\n"
-        );
         // Already canonical paths are left as they are.
         assert_eq!(fmt("use ./Keywords\n"), "use ./Keywords\n");
         assert_eq!(fmt("use my-package\n"), "use my-package\n");

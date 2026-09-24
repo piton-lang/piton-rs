@@ -32,7 +32,8 @@ export anchor Package:
         ```
 
         Note here that a project can define multiple packages with different
-        roots and their own different dependencies.
+        roots and their own different dependencies. A package's root is
+        relative to the piton.config.pi file, like the project's own root.
 
         packages is what your repository offers to other projects. A project
         never installs its own packages. When another project tethers your

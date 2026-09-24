@@ -50,9 +50,10 @@ contexts:
             0: punctuation.definition.raw.end.piton
           pop: true
 
-  # A comment opens only after whitespace, so `https://x` is not one.
+  # A comment has to be on its own line. At the end of a line of code `//` is
+  # just text, so `url: https://example.com // note` is all value.
   comment:
-    - match: '(?<=^|\s)(//)'
+    - match: '^\s*(//)'
       captures:
         1: punctuation.definition.comment.piton
       push:

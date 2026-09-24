@@ -76,9 +76,15 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
         .find(|dependency| dependency.source == source)
         .map(|dependency| dependency.pin.clone())
         .unwrap_or(Pin::Default);
+    let packages = configured
+        .dependencies
+        .iter()
+        .find(|dependency| dependency.source == source)
+        .and_then(|dependency| dependency.packages.clone());
     let dependency = Dependency {
         source: source.to_string(),
         pin,
+        packages,
     };
     install(&configured, &[dependency], rename)
 }

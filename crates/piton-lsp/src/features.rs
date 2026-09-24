@@ -11,7 +11,6 @@ use piton_compile::{reach, Compilation, Project, Symbol};
 use piton_core::{AnchorId, Diagnostic, Severity, Span};
 use piton_emit::markdown;
 use piton_syntax::ast::{self, Expr, ExprKind, Item};
-use piton_syntax::language::COMMENT_PREFIX;
 use piton_syntax::{format, SyntaxKind};
 use tower_lsp::lsp_types::*;
 
@@ -2333,22 +2332,11 @@ fn opens_a_block(line: &str) -> bool {
     }
 }
 
-/// The line with its comment removed: everything from a `//` that begins one.
-///
-/// A comment only begins at the line's start or after whitespace, which is
-/// what keeps the `//` in a URL written in prose from swallowing the rest of
-/// the line.
+/// The line with its comment removed. A comment is a whole line, so this is
+/// either the line or nothing but its indentation.
 fn strip_comment(line: &str) -> &str {
-    for (index, _) in line.match_indices(COMMENT_PREFIX) {
-        if line[..index]
-            .chars()
-            .next_back()
-            .is_none_or(char::is_whitespace)
-        {
-            return &line[..index];
-        }
-    }
-    line
+    // A comment has to be on its own line; after code, `//` is just text.
+    piton_syntax::prose::split_comment(line).0
 }
 
 /// How many bytes `chars` characters of leading whitespace occupy.

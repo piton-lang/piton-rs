@@ -39,8 +39,8 @@
   ],
   "repository": {
     "comment": {
-      "comments": "A comment runs to the end of the line. There is no block form.",
-      "match": "(?<=^|\\s)(//).*$",
+      "comments": "A comment runs to the end of the line and has to be on its own line: at the end of a line of code, `//` is just text. There is no block form.",
+      "match": "^\\s*(//).*$",
       "captures": {
         "0": {
           "name": "comment.line.double-slash.piton"

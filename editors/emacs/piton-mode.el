@@ -64,8 +64,7 @@ else that is commented."
 
 (defvar piton-font-lock-keywords
   `(
-    ;; A comment opens only after whitespace, so `https://x' is not one.
-    ("\\(?:^\\|[ \t]\\)\\(//.*\\)$" 1 font-lock-comment-face)
+    ;; Comments are syntactic: see `piton--syntax-propertize'.
 
     ;; Declarations: `[export] [abstract] <keyword> Name [as kw] [extends ...]:'
     ("^[ \t]*\\(?:\\(export\\)[ \t]+\\)?\\(?:\\(abstract\\)[ \t]+\\)?\\([a-z][a-z0-9-]*\\)[ \t]+\\([A-Za-z_][A-Za-z0-9_]*\\)"
@@ -112,13 +111,73 @@ else that is commented."
 
 (defvar piton-mode-syntax-table
   (let ((table (make-syntax-table)))
-    (modify-syntax-entry ?/ ". 12" table)
+    ;; A slash is punctuation: `//' only opens a comment at the start of a
+    ;; line, which the syntax table cannot say, so `piton--syntax-propertize'
+    ;; marks those.  The newline ends the comment.
+    (modify-syntax-entry ?/ "." table)
     (modify-syntax-entry ?\n ">" table)
     (modify-syntax-entry ?_ "w" table)
     (modify-syntax-entry ?- "_" table)
     (modify-syntax-entry ?\" "\"" table)
     table)
   "Syntax table for `piton-mode'.")
+
+;;;; Comments
+
+;; A comment has to be on its own line: a line whose first non-blank
+;; characters are `//'.  At the end of a line of code `//' is just text, so
+;; `url: https://example.com // note' is the string
+;; `https://example.com // note'.  The lines of an escape block (between two
+;; lines of the same run of backslashes) and of a fence are literal, so a `//'
+;; line inside one is not a comment either.
+
+(defconst piton--escape-open-regexp "[ \t]*\\(\\\\+\\)[ \t]*$"
+  "A line of backslashes, which opens or closes an escape block.")
+
+(defconst piton--fence-open-regexp "[ \t]*```+[ \t]*[A-Za-z0-9_+-]*[ \t]*$"
+  "A line that opens a fence.")
+
+(defconst piton--fence-close-regexp "[ \t]*```+[ \t]*$"
+  "A line that closes a fence.")
+
+(defun piton--verbatim-step (close)
+  "The literal-block state after the line at point.
+CLOSE is the regexp for the line that ends the escape block or fence the
+line at point is in, or nil when it is in neither.  Return the same for
+the next line."
+  (cond
+   (close (if (looking-at close) nil close))
+   ((looking-at piton--escape-open-regexp)
+    (concat "[ \t]*" (regexp-quote (match-string 1)) "[ \t]*$"))
+   ((looking-at piton--fence-open-regexp) piton--fence-close-regexp)
+   (t nil)))
+
+(defun piton--verbatim-state-at (pos)
+  "The literal-block state at the start of the line holding POS.
+See `piton--verbatim-step'."
+  (save-excursion
+    (let ((limit (progn (goto-char pos) (line-beginning-position)))
+          (close nil))
+      (goto-char (point-min))
+      (while (< (point) limit)
+        (setq close (piton--verbatim-step close))
+        (forward-line 1))
+      close)))
+
+(defun piton--syntax-propertize (start end)
+  "Mark the whole-line comments between START and END.
+The first slash of a line's leading `//' gets comment-start syntax,
+unless the line is inside an escape block or a fence."
+  (goto-char start)
+  (beginning-of-line)
+  (let ((close (piton--verbatim-state-at (point))))
+    (while (< (point) end)
+      (when (and (not close) (looking-at "[ \t]*\\(/\\)/"))
+        (put-text-property (match-beginning 1) (match-end 1)
+                           'syntax-table (string-to-syntax "<")))
+      (setq close (piton--verbatim-step close))
+      (unless (zerop (forward-line 1))
+        (goto-char (point-max))))))
 
 ;;;; Indentation
 
@@ -148,7 +207,9 @@ language server's `on_type_formatting'.")
 
 A list item is never a key, even with a colon at the end: `- Settings:'
 is just the string `Settings:'.  A merge line (`+ ...', `++ ...') adds a
-list item the same way, and a comment is not code.  None of them opens a
+list item the same way, and a comment is not code.  A comment is a whole
+line: at the end of a line of code `//' is text, so `key: // note:' is a
+key with a value, and opens nothing.  None of them opens a
 block.  Prose inside a string that happens to be a single word ending in
 a colon cannot be told apart from a key without the parser, and is
 treated as one."
@@ -266,6 +327,7 @@ after `//' and touches nothing else that is commented."
   "Major mode for editing Piton sources."
   :syntax-table piton-mode-syntax-table
   (setq-local font-lock-defaults '(piton-font-lock-keywords))
+  (setq-local syntax-propertize-function #'piton--syntax-propertize)
   (setq-local comment-start "// ")
   (setq-local comment-start-skip "//+[ \t]*")
   (setq-local comment-end "")

@@ -53,6 +53,7 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
     let mut plan = Plan {
         files: rendered_files(&compilation, renderer),
         diagnostics: Vec::new(),
+        targets: Vec::new(),
     };
 
     let belay = compilation
@@ -65,6 +66,7 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
     if let Some(config) = &belay {
         let framework = piton_belay::plan(&compilation, config);
         plan.files.extend(framework.files);
+        plan.targets.extend(framework.targets);
         diagnostics.extend(framework.diagnostics.iter().cloned());
     }
 

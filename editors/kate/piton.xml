@@ -58,8 +58,9 @@
         <RegExpr String="^\s*\\+\s*$" attribute="Marker" context="EscapeBlock"/>
         <!-- Fenced content is verbatim. -->
         <RegExpr String="^\s*`{3,}.*$" attribute="Marker" context="Fence"/>
-        <!-- A comment opens only after whitespace. -->
-        <RegExpr String="(^|\s)//.*$" attribute="Comment"/>
+        <!-- A comment has to be on its own line: at the end of a line of
+             code, `//` is just text. -->
+        <RegExpr String="//.*$" attribute="Comment" firstNonSpace="true"/>
 
         <RegExpr String="^\s*(use|from)\s+" attribute="Keyword" context="ImportPath"/>
         <keyword String="declaration" attribute="Keyword"/>

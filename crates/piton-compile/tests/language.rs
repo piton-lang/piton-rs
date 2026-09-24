@@ -1422,3 +1422,58 @@ fn wrapping_is_the_only_way_to_escape() {
     assert_eq!(text_of(&property(source, "A", "wrapped")), "Similarly:");
     assert_eq!(text_of(&property(source, "A", "bare")), "back\\slash");
 }
+
+#[test]
+fn an_abstract_nothing_implements_warns_unless_exported() {
+    let sandbox = Sandbox::new("lone-abstract");
+    sandbox.file("main.pi", "abstract anchor Card:\n    title:: string\n\nexport abstract anchor Shape:\n    a:: string\n");
+    let compilation = sandbox.compile("main.pi");
+    let lone: Vec<&str> = compilation
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "unimplemented-abstract")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(lone, vec!["nothing implements `Card`"]);
+}
+
+#[test]
+fn a_minus_in_front_of_an_expression_is_an_error() {
+    let codes = error_codes("price: 5\nexport a: {-price}\n");
+    assert!(codes.contains(&"invalid-expression".to_string()), "{codes:?}");
+    let source = "price: 5\nexport anchor A:\n    a: {0 - price}\n    b: {-5}\n";
+    assert_eq!(property(source, "A", "a"), Value::Number(-5.0));
+    assert_eq!(property(source, "A", "b"), Value::Number(-5.0));
+}
+
+#[test]
+fn braces_that_are_not_an_expression_are_an_error() {
+    assert!(error_codes("export a: {1 +}\n").contains(&"invalid-expression".to_string()));
+    assert!(error_codes("export a: ${}\n").contains(&"empty-expression".to_string()));
+    let source = "export anchor A:\n    a: Use the \\ {} \\ syntax\n";
+    assert_eq!(text_of(&property(source, "A", "a")), "Use the {} syntax");
+}
+
+#[test]
+fn a_comment_has_to_be_on_its_own_line() {
+    let source = "export anchor A:\n    // a comment\n    url: https://example.com // not a comment\n";
+    assert_eq!(
+        text_of(&property(source, "A", "url")),
+        "https://example.com // not a comment"
+    );
+}
+
+#[test]
+fn a_dependency_can_pick_which_packages_to_take() {
+    let sandbox = Sandbox::new("dependency-packages");
+    sandbox.file(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: .\n    entry: ./index.pi\n\n    dependencies:\n        - https://github.com/acme/kits\n            tag: v2\n            packages: [ui-kit]\n        - https://github.com/acme/other\n",
+    );
+    sandbox.file("index.pi", "export anchor A:\n    a: 1\n");
+    let (project, diagnostics) = piton_compile::config::load(&sandbox.dir, None);
+    assert!(!diagnostics.has_errors(), "{:?}", diagnostics.as_slice());
+    assert_eq!(project.dependencies.len(), 2);
+    assert_eq!(project.dependencies[0].packages, Some(vec!["ui-kit".to_string()]));
+    assert_eq!(project.dependencies[1].packages, None);
+}

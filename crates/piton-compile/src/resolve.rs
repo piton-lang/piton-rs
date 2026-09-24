@@ -443,7 +443,41 @@ pub fn resolve_from_roots(
     populate_keywords(&mut resolution, &module_ids);
     resolve_inheritance(&mut resolution, &module_ids);
     build_slots(&mut resolution);
+    report_unimplemented_abstracts(&mut resolution);
     resolution
+}
+
+/// Warns about an abstract anchor nothing implements. An exported one is left
+/// alone, since another file or project may implement it, and so is anything
+/// from a bundled package.
+fn report_unimplemented_abstracts(resolution: &mut Resolution) {
+    let store = &resolution.store;
+    let mut diagnostics = Vec::new();
+    for def in &store.anchors {
+        if !def.is_abstract || def.exported {
+            continue;
+        }
+        let module = resolution.graph.get(def.module);
+        if module.is_package() {
+            continue;
+        }
+        let implemented = store
+            .anchors
+            .iter()
+            .any(|other| !other.is_abstract && other.id != def.id && store.inherits_from(other.id, def.id));
+        if !implemented {
+            diagnostics.push(
+                Diagnostic::warning(
+                    "unimplemented-abstract",
+                    format!("nothing implements `{}`", def.name),
+                    &module.path,
+                    def.name_span,
+                )
+                .with_help("extend it with a concrete anchor, or export it if another file or project implements it"),
+            );
+        }
+    }
+    resolution.diagnostics.extend(diagnostics);
 }
 
 fn declare(

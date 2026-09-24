@@ -96,6 +96,9 @@ pub struct Dependency {
     /// A git repository: a URL, or a path to one on disk.
     pub source: String,
     pub pin: Pin,
+    /// The packages to take from the repository, when it offers several and
+    /// only some are wanted. `None` takes all of them.
+    pub packages: Option<Vec<String>>,
 }
 
 impl Dependency {
@@ -103,6 +106,7 @@ impl Dependency {
         Dependency {
             source: source.into(),
             pin: Pin::Default,
+            packages: None,
         }
     }
 
@@ -617,6 +621,20 @@ pub fn read_dependencies(
                     continue;
                 };
                 for (key, pinned) in map {
+                    if key == "packages" {
+                        // Which of the repository's packages to take.
+                        let names: Vec<String> = pinned
+                            .as_list_items()
+                            .iter()
+                            .filter_map(|item| match item {
+                                Value::Str(text) => text.as_plain().map(|t| t.trim().to_string()),
+                                _ => None,
+                            })
+                            .filter(|name| !name.is_empty())
+                            .collect();
+                        last.packages = Some(names);
+                        continue;
+                    }
                     if !PIN_KEYS.contains(&key.as_str()) {
                         diagnostics.push(
                             Diagnostic::warning(
@@ -626,7 +644,7 @@ pub fn read_dependencies(
                                 span,
                             )
                             .with_help(
-                                "the specifiers are `commit`, `tag`, and `branch`".to_string(),
+                                "the specifiers are `commit`, `tag`, and `branch`, and `packages` picks which packages to take".to_string(),
                             ),
                         );
                         continue;

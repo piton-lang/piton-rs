@@ -73,7 +73,12 @@ endfunction
 
 " Whether the line ends by opening a block for the lines beneath it.
 function! s:opens_block(line) abort
-  let l:code = s:strip_comment(a:line)
+  " A comment is not code, whatever it ends with.
+  if s:is_comment(a:line)
+    return 0
+  endif
+
+  let l:code = a:line
   if l:code !~ ':\s*$'
     return 0
   endif
@@ -122,10 +127,9 @@ function! s:has_value(after) abort
   return 0
 endfunction
 
-" The line without its comment: a `//` begins one at the line's start or after
-" whitespace, which is what keeps the `//` in a URL written in prose from
-" swallowing the rest of the line.
-function! s:strip_comment(line) abort
-  let l:at = match(a:line, '\%(^\|\s\)\zs//')
-  return l:at < 0 ? a:line : strpart(a:line, 0, l:at)
+" Whether the line is a comment. A comment has to be on its own line: at the
+" end of a line of code `//` is just text, so `key: // note:` is a key with a
+" value and opens nothing, the same as `key: note:`.
+function! s:is_comment(line) abort
+  return a:line =~# '^\s*//'
 endfunction
