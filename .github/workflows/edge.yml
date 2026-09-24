@@ -8,16 +8,20 @@
 # failed build leaves no gap. To move to 0.2, change the version in
 # `Cargo.toml`; the patch keeps counting.
 #
-# Each build is its own release, `v0.1.N`, marked latest, with the same file
-# names every time. So this link always gets the newest one:
+# Each build is its own release, `v0.1.N`, marked latest. It carries one
+# archive per platform, named with the version, holding a binary called
+# `piton` (`piton.exe` on Windows):
 #
-#   https://github.com/<owner>/<repo>/releases/latest/download/piton-edge-linux-x86_64
+#   piton-edge-linux-x86_64-0.1.N.tar.gz
+#   piton-edge-macos-aarch64-0.1.N.zip
+#   piton-edge-macos-x86_64-0.1.N.zip
+#   piton-edge-windows-x86_64-0.1.N.zip
 #
 # `piton --version` prints the version it was released as. The tests run
 # first; nothing is published unless they pass.
 #
 # The macOS binaries are not signed or notarized yet. Clear the quarantine
-# flag after downloading: `xattr -d com.apple.quarantine piton-edge-macos-*`.
+# flag after unzipping: `xattr -d com.apple.quarantine piton`.
 
 name: Edge
 
@@ -87,15 +91,19 @@ jobs:
           - name: piton-edge-linux-x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            archive: tar.gz
           - name: piton-edge-macos-aarch64
             os: macos-latest
             target: aarch64-apple-darwin
+            archive: zip
           - name: piton-edge-macos-x86_64
             os: macos-latest
             target: x86_64-apple-darwin
-          - name: piton-edge-windows-x86_64.exe
+            archive: zip
+          - name: piton-edge-windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            archive: zip
     runs-on: ${{ matrix.os }}
     env:
       # Compiled into the binary, so `piton --version` reports it.
@@ -124,19 +132,30 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          mkdir -p dist
-          binary="target/${{ matrix.target }}/release/piton"
+          archive="${{ matrix.name }}-${PITON_VERSION}.${{ matrix.archive }}"
+          mkdir -p stage dist
           if [[ "${{ matrix.target }}" == *windows* ]]; then
-            binary="${binary}.exe"
+            cp "target/${{ matrix.target }}/release/piton.exe" stage/piton.exe
           else
-            strip "$binary"
+            cp "target/${{ matrix.target }}/release/piton" stage/piton
+            strip stage/piton
           fi
-          cp "$binary" "dist/${{ matrix.name }}"
-          cd dist
+          cd stage
+          case "${{ matrix.archive }}" in
+            tar.gz) tar -czf "../dist/${archive}" piton ;;
+            zip)
+              if [[ "${{ matrix.target }}" == *windows* ]]; then
+                7z a -tzip "../dist/${archive}" piton.exe >/dev/null
+              else
+                zip -q "../dist/${archive}" piton
+              fi
+              ;;
+          esac
+          cd ../dist
           if command -v sha256sum >/dev/null; then
-            sha256sum "${{ matrix.name }}" > "${{ matrix.name }}.sha256"
+            sha256sum "${archive}" > "${archive}.sha256"
           else
-            shasum -a 256 "${{ matrix.name }}" > "${{ matrix.name }}.sha256"
+            shasum -a 256 "${archive}" > "${archive}.sha256"
           fi
 
       - uses: actions/upload-artifact@v4
@@ -165,8 +184,8 @@ jobs:
           notes=$(cat <<EOF
           Build of \`main\` at ${GITHUB_SHA::7}.
 
-          The macOS binaries are not signed yet. After downloading, clear the
-          quarantine flag: \`xattr -d com.apple.quarantine piton-edge-macos-*\`
+          The macOS binaries are not signed yet. After unzipping, clear the
+          quarantine flag: \`xattr -d com.apple.quarantine piton\`
           EOF
           )
           gh release create "v${VERSION}" dist/* \
