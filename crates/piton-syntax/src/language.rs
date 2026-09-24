@@ -9,9 +9,6 @@
 /// The file extension Piton sources carry.
 pub const EXTENSION: &str = "pi";
 
-/// The filename that makes a directory a module.
-pub const MODULE_FILE: &str = "index.pi";
-
 /// The project configuration filename.
 pub const CONFIG_FILE: &str = "piton.config.pi";
 
@@ -40,15 +37,6 @@ pub const TYPE_NAMES: &[&str] = &[
     "any",
     "simple",
     "complex",
-];
-
-/// The interpolation sigils, longest first so a matcher tries `${` before `{`.
-pub const SIGILS: &[&str] = &["${", "#{", "@{", "{"];
-
-/// Operators, longest first.
-pub const OPERATORS: &[&str] = &[
-    "++", "==", "!=", "<=", ">=", "&&", "||", "::", "+", "-", "*", "/", "%", "<", ">", "!", "?",
-    ":", ".",
 ];
 
 /// How a comment begins. There is no block form.
@@ -104,16 +92,5 @@ mod tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(all, sorted);
-    }
-
-    #[test]
-    fn sigils_are_ordered_longest_first() {
-        // A matcher that tried `{` first would never see `${`.
-        for pair in SIGILS.windows(2) {
-            assert!(pair[0].len() >= pair[1].len(), "{pair:?}");
-        }
-        for pair in OPERATORS.windows(2) {
-            assert!(pair[0].len() >= pair[1].len(), "{pair:?}");
-        }
     }
 }

@@ -20,10 +20,6 @@ pub enum SyntaxKind {
     PROSE,
     /// A backslash used as an escape delimiter.
     BACKSLASH,
-    /// The literal backtick run that opens or closes a fenced block.
-    FENCE_MARK,
-    /// Verbatim content inside a fenced block.
-    FENCE_TEXT,
     /// A backslash run that delimits a multi-line escape block.
     ESCAPE_MARK,
     /// Literal content inside a multi-line escape block.
@@ -95,7 +91,6 @@ pub enum SyntaxKind {
     LIST_ITEM,
     MERGE_ITEM,
     PROSE_LINE,
-    FENCE,
     ESCAPE_BLOCK,
     TYPE_CONSTRAINT,
     VALUE,
@@ -115,13 +110,6 @@ pub enum SyntaxKind {
 }
 
 impl SyntaxKind {
-    pub fn is_trivia(self) -> bool {
-        matches!(
-            self,
-            SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE | SyntaxKind::COMMENT
-        )
-    }
-
     pub fn is_keyword(self) -> bool {
         matches!(
             self,

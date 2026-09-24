@@ -80,7 +80,7 @@ enum Command {
         /// File or glob
         path: String,
         /// Renderer: json, yaml, or markdown
-        #[arg(long, default_value = "json", alias = "adapter")]
+        #[arg(long, default_value = "json")]
         renderer: String,
         /// Write each result next to its input with the renderer's extension
         #[arg(long)]

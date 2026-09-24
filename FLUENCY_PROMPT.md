@@ -1511,8 +1511,8 @@ Astro integration that wraps the Vite plugin.
    reaches it, so export it through an index or reference it.
 5. **Validate.**
    - Run `piton check`.
-   - `piton check` does **not** compile code inside fenced blocks (they are
-     escaped). When you edit spec examples, extract each ` ```piton ` block,
+   - `piton check` does **not** compile the examples inside escape blocks
+     (they are literal text). When you edit spec examples, extract each ` ```piton ` block,
      run `piton compile` on it, and compare with any ` ```json ` block that
      follows. Remember that compile output has only exported names.
    - Run `piton build`, then look at the diff of the generated files.
@@ -1531,8 +1531,6 @@ Astro integration that wraps the Vite plugin.
 
 Checked with `piton compile` and `piton build`:
 
-- `@piton/belay` still exports `ClaudeAdapter`, a deprecated alias of
-  `ClaudeCodeAdapter`. Use `ClaudeCodeAdapter`.
 - The CLI has a few things the spec doesn't name: `build --dry-run`,
   `tether --as`, agent argument passthrough, the `reach` flags, and
   `format` with no path or `-`.

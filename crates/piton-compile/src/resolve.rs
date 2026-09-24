@@ -1082,14 +1082,10 @@ fn invalid_key(item: &ast::BlockItem) -> Option<String> {
 /// Explains why one line of an anchor body is not a property.
 ///
 /// The causes are different enough that one shared message helps nobody: a
-/// reserved word needs renaming, while a stray code fence needs indenting under
-/// a property.
+/// stray list item needs a property to hang from, while a line of prose needs
+/// a key.
 fn describe_non_property(item: &ast::BlockItem, anchor: &str) -> (String, String) {
     match item {
-        ast::BlockItem::Fence(_) => (
-            format!("a code fence in the body of `{anchor}` has no property to attach to, so it will not be emitted"),
-            "indent it under a property, so it becomes that property's value".to_string(),
-        ),
         ast::BlockItem::ListItem(_) | ast::BlockItem::Merge(_) => (
             format!("a list item in the body of `{anchor}` has no property to attach to, so it will not be emitted"),
             "an anchor body holds `key: value` properties; put the list under one".to_string(),

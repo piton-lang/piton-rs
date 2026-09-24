@@ -547,11 +547,6 @@ fn read_framework(
                         }
                     }
                 }
-                Value::Str(text) => {
-                    if let Some(name) = text.as_plain() {
-                        adapters.push(name.to_string());
-                    }
-                }
                 _ => {}
             }
         }

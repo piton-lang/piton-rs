@@ -67,12 +67,6 @@ impl Reachability {
         self.reached.iter().any(|entry| entry.anchor == anchor)
     }
 
-    pub fn depth_of(&self, anchor: AnchorId) -> Option<usize> {
-        self.reached
-            .iter()
-            .find(|entry| entry.anchor == anchor)
-            .map(|entry| entry.depth)
-    }
 }
 
 /// Computes reachability from a set of root anchors, following references,
@@ -328,21 +322,6 @@ pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
         .into_iter()
         .filter(|path| compilation.graph().id_for(path).is_none())
         .collect()
-}
-
-/// Computes reachability from every anchor a module declares.
-pub fn from_module(compilation: &Compilation, module: ModuleId) -> Reachability {
-    let roots: Vec<AnchorId> = compilation
-        .resolution
-        .scope(module)
-        .declarations
-        .values()
-        .filter_map(|symbol| match symbol {
-            Symbol::Anchor(anchor) => Some(*anchor),
-            _ => None,
-        })
-        .collect();
-    from_roots(compilation, &roots)
 }
 
 /// Collects the anchors a value depends on. A value that embeds an anchor is a

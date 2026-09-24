@@ -872,10 +872,9 @@ fn compile_can_report_what_it_read() {
         "from ./base import Base\n\nexport anchor Thing:\n    uses: {Base}\n",
     );
 
-    // `--adapter` is the old spelling of `--renderer`, still accepted.
     let (stdout, stderr, code) = fixture.run(&[
         "compile",
-        "--adapter",
+        "--renderer",
         "json",
         "--dependencies",
         "spec/index.pi",

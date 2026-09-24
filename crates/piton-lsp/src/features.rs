@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use piton_compile::{reach, Compilation, Project, Symbol};
+use piton_compile::{Compilation, Project, Symbol};
 use piton_core::{AnchorId, Diagnostic, Severity, Span};
 use piton_emit::markdown;
 use piton_syntax::ast::{self, Expr, ExprKind, Item};
@@ -1049,32 +1049,16 @@ fn target_from_data(data: &serde_json::Value) -> Option<Target> {
 
 // --- Classifying the line ---------------------------------------------------
 
-/// Whether the line beginning at `line_start` sits inside a fenced block or an
-/// escape block.
+/// Whether the line beginning at `line_start` sits inside an escape block.
 ///
-/// Both are verbatim: their contents are not Piton, so a `{` inside one opens
-/// nothing and a `//` starts no comment. Both are opened and closed by a line
-/// of their own, so counting the delimiters above the cursor answers it.
+/// An escape block is verbatim: its contents are not Piton, so a `{` inside
+/// one opens nothing and a `//` starts no comment. It is opened and closed by
+/// a line of its own, so counting the delimiters above the cursor answers it.
+/// A code fence is just text, so it isn't verbatim.
 fn verbatim_at(text: &str, line_start: usize) -> bool {
-    let mut fence: Option<usize> = None;
     let mut escape: Option<usize> = None;
     for line in text[..line_start].lines() {
         let trimmed = line.trim();
-        if escape.is_none() {
-            let backticks = trimmed.chars().take_while(|c| *c == '`').count();
-            if backticks >= 3 {
-                // Any run of three or more opens a fence; it closes on a run at
-                // least as long.
-                fence = match fence {
-                    Some(open) if backticks >= open => None,
-                    other => other.or(Some(backticks)),
-                };
-                continue;
-            }
-        }
-        if fence.is_some() {
-            continue;
-        }
         if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\\') {
             // An escape block closes on a run of the same length as the one
             // that opened it, which is what lets a block contain a shorter run.
@@ -1084,7 +1068,7 @@ fn verbatim_at(text: &str, line_start: usize) -> bool {
             };
         }
     }
-    fence.is_some() || escape.is_some()
+    escape.is_some()
 }
 
 /// Classifies the line up to the cursor.
@@ -3233,7 +3217,7 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
             token::KEYWORD
         } else if kind == SyntaxKind::NUMBER {
             token::NUMBER
-        } else if kind == SyntaxKind::FENCE_TEXT || kind == SyntaxKind::FENCE_MARK {
+        } else if kind == SyntaxKind::ESCAPE_TEXT {
             token::STRING
         } else {
             continue;
@@ -3635,20 +3619,6 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
         || left.to_string_lossy().replace('\\', "/") == right.to_string_lossy().replace('\\', "/")
 }
 
-/// Exposed for tests: the anchors nothing reaches from the entry point.
-pub fn unreachable_anchors(compilation: &Compilation) -> Vec<String> {
-    reach::from_entry(compilation)
-        .unreachable
-        .into_iter()
-        .map(|anchor| compilation.store().anchor(anchor).name.clone())
-        .collect()
-}
-
-/// Exposed for tests: the AST item at an offset, for structural queries.
-pub fn item_at(ast: &ast::SourceFile, offset: usize) -> Option<&Item> {
-    ast.items.iter().find(|item| item.span().contains(offset))
-}
-
 #[cfg(test)]
 mod completion_tests {
     use super::*;
@@ -3820,11 +3790,10 @@ mod completion_tests {
     }
 
     #[test]
-    fn verbatim_blocks_are_not_piton() {
+    fn escape_blocks_are_not_piton() {
+        // A code fence is just text, so it isn't verbatim.
         let fenced = "a:\n    ```json\n    { \"k\": 1 }\n";
-        assert!(verbatim_at(fenced, fenced.len()));
-        let closed = "a:\n    ```json\n    {}\n    ```\n";
-        assert!(!verbatim_at(closed, closed.len()));
+        assert!(!verbatim_at(fenced, fenced.len()));
 
         let escaped = "a:\n\\\\\\\\\nliteral {text}\n";
         assert!(verbatim_at(escaped, escaped.len()));

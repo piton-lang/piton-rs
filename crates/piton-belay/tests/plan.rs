@@ -407,18 +407,6 @@ fn the_target_versions_are_recorded() {
 }
 
 #[test]
-fn the_deprecated_adapter_name_still_builds() {
-    let sandbox = Sandbox::new("alias");
-    sandbox.configure(&["ClaudeAdapter"], "").write(
-        "spec/index.pi",
-        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n",
-    );
-    let built = sandbox.plan();
-    built.assert_clean();
-    assert!(built.has(".claude/skills/tidy/SKILL.md"));
-}
-
-#[test]
 fn an_adapter_anchor_can_move_the_reference_root() {
     let sandbox = Sandbox::new("custom-adapter");
     sandbox

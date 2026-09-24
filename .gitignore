@@ -6,3 +6,6 @@ editors/zed/grammars/
 
 # `piton build` renderer output
 /dist/
+
+# Packaged VS Code extensions
+*.vsix

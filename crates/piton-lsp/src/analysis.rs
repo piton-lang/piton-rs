@@ -100,16 +100,6 @@ impl Analysis {
             .collect()
     }
 
-    /// The tightest mapping whose source span covers `offset`.
-    pub fn at_source(&self, file: &Path, offset: usize) -> Option<&Mapping> {
-        self.mappings
-            .iter()
-            .filter(|mapping| {
-                paths_match(&mapping.source_file, file) && mapping.source_span.contains(offset)
-            })
-            .min_by_key(|mapping| mapping.source_span.len())
-    }
-
     /// Every mapping for the construct at `offset`, widest last.
     pub fn mappings_at(&self, file: &Path, offset: usize) -> Vec<&Mapping> {
         let mut found: Vec<&Mapping> = self
@@ -1557,9 +1547,7 @@ fn map_markdown(
     declarations: &piton_core::Properties,
     mappings: &mut Vec<Mapping>,
 ) {
-    let end = rendered
-        .find(markdown::LINK_FOOTER)
-        .unwrap_or(rendered.len());
+    let end = rendered.len();
     let mut cursor = 0usize;
     for (name, value) in declarations {
         let heading = format!("# {}", title_case(name));

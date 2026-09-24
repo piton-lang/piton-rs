@@ -19,12 +19,6 @@ use piton_core::{
 /// Markdown allows six heading levels; past that Belay uses a bold label.
 const MAX_HEADING_LEVEL: usize = 6;
 
-/// Formerly appended to any document that contained reference links. The
-/// specification asks for no such footer, so nothing appends it any more; the
-/// constant remains only so existing callers that search for it still build.
-pub const LINK_FOOTER: &str =
-    "Links in this document point at reference files. Read one when the work touches what it describes.";
-
 /// Resolves a reference to a link target relative to the file being written.
 pub trait LinkResolver {
     /// The link target for a reference, or `None` when the target has no

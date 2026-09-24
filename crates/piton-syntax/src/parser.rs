@@ -57,18 +57,6 @@ pub fn parse(source: &str, path: &Path) -> Parse {
 // Line scanning
 // ---------------------------------------------------------------------------
 
-/// What a line is doing with respect to fenced code blocks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FenceRole {
-    None,
-    /// The opening ``` line, carrying the number of backticks.
-    Open(usize),
-    /// Verbatim content.
-    Body,
-    /// The closing ``` line.
-    Close,
-}
-
 /// What a line is doing with respect to multi-line escape blocks.
 ///
 /// A line whose entire content is a run of backslashes delimits a block whose
@@ -99,15 +87,7 @@ struct Line {
     /// Span of `code` within the file.
     code_span: Span,
     blank: bool,
-    fence: FenceRole,
     escape: EscapeRole,
-}
-
-impl Line {
-    /// True when the line delimits an escape block and produces no content.
-    fn is_escape_delimiter(&self) -> bool {
-        matches!(self.escape, EscapeRole::Open(_) | EscapeRole::Close)
-    }
 }
 
 impl Line {
@@ -120,11 +100,6 @@ struct ScannedLines {
     lines: Vec<Line>,
     diagnostics: Vec<Diagnostic>,
 }
-
-/// The specification treats a Markdown code fence as plain text. The fence
-/// machinery is kept behind this switch rather than deleted, because the
-/// verbatim reading is what an editor wants when it highlights an example.
-const CODE_BLOCKS_ARE_TEXT: bool = true;
 
 fn scan_lines(source: &str, path: &Path) -> ScannedLines {
     let mut lines = Vec::new();
@@ -141,26 +116,18 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
         raw.push((0, ""));
     }
 
-    // Pass one: find the regions whose contents are never treated as structure.
+    // Pass one: find multi-line escape blocks. One opens and closes on a line
+    // whose only content is a backslash run; its contents are literal, and the
+    // delimiters are consumed rather than emitted.
     //
-    // Two kinds nest here. A code fence closes on a line whose only content is
-    // a backtick run at least as long as the opener. A multi-line escape block
-    // opens and closes on a line whose only content is a backslash run, and its
-    // contents are literal -- so a fence marker inside an escape block does not
-    // close the fence, and the escape delimiters are consumed rather than
-    // emitted.
-    let mut fence_roles = vec![FenceRole::None; raw.len()];
+    // Code fences are not special. To Piton they're just text, so anything
+    // inside them still gets parsed; an example puts an escape block inside
+    // its fence to keep it literal.
     let mut escape_roles = vec![EscapeRole::None; raw.len()];
-    let mut open: Option<(usize, usize, usize)> = None; // (line, ticks, indent)
     let mut escape: Option<(usize, usize)> = None; // (line, run length)
 
     for (index, (_, text)) in raw.iter().enumerate() {
-        let indent = text.len() - text.trim_start().len();
-        let trimmed = text.trim();
-        let run = backslash_run(trimmed);
-
-        // An open escape block swallows everything until its matching run, so
-        // it is checked before anything else.
+        let run = backslash_run(text.trim());
         if let Some((_, opener_run)) = escape {
             if run == Some(opener_run) {
                 escape_roles[index] = EscapeRole::Close;
@@ -168,68 +135,12 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
             } else {
                 escape_roles[index] = EscapeRole::Body;
             }
-            if open.is_some() {
-                fence_roles[index] = FenceRole::Body;
-            }
             continue;
         }
         if let Some(length) = run {
             escape_roles[index] = EscapeRole::Open(length);
             escape = Some((index, length));
-            if open.is_some() {
-                fence_roles[index] = FenceRole::Body;
-            }
-            continue;
         }
-
-        // Code blocks are not escaped. To Piton they're just text, so anything
-        // inside them still gets parsed: expressions, comments, lists, all of
-        // it. That is why a code example puts an escape block inside its
-        // fence. So a fence line is ordinary prose and no region is opened.
-        let ticks = if CODE_BLOCKS_ARE_TEXT {
-            0
-        } else {
-            trimmed.chars().take_while(|c| *c == '`').count()
-        };
-        match open {
-            None => {
-                if ticks >= 3 {
-                    fence_roles[index] = FenceRole::Open(ticks);
-                    open = Some((index, ticks, indent));
-                }
-            }
-            Some((start, opener_ticks, fence_indent)) => {
-                let closes = ticks >= opener_ticks && trimmed.chars().all(|c| c == '`');
-                if closes {
-                    fence_roles[index] = FenceRole::Close;
-                    open = None;
-                } else if !trimmed.is_empty() && indent < fence_indent {
-                    // A line dedented past the fence cannot belong to it. Treat
-                    // the fence as unterminated and re-examine this line.
-                    diagnostics.push(Diagnostic::warning(
-                        "unterminated-fence",
-                        "code fence is never closed",
-                        path,
-                        Span::new(raw[start].0, raw[start].0 + raw[start].1.len()),
-                    ));
-                    open = None;
-                    if ticks >= 3 {
-                        fence_roles[index] = FenceRole::Open(ticks);
-                        open = Some((index, ticks, indent));
-                    }
-                } else {
-                    fence_roles[index] = FenceRole::Body;
-                }
-            }
-        }
-    }
-    if let Some((start, ..)) = open {
-        diagnostics.push(Diagnostic::warning(
-            "unterminated-fence",
-            "code fence is never closed",
-            path,
-            Span::new(raw[start].0, raw[start].0 + raw[start].1.len()),
-        ));
     }
     if let Some((start, length)) = escape {
         diagnostics.push(Diagnostic::warning(
@@ -250,9 +161,8 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
         let indent = indent_text.chars().count();
         let content_start = start + indent_text.len();
         let body = &text[indent_text.len()..];
-        let fence = fence_roles[index];
         let escape = escape_roles[index];
-        let verbatim = fence != FenceRole::None || escape != EscapeRole::None;
+        let verbatim = escape != EscapeRole::None;
 
         if !verbatim && !body.trim().is_empty() {
             if let Some(first) = indent_text.chars().next() {
@@ -292,7 +202,6 @@ fn scan_lines(source: &str, path: &Path) -> ScannedLines {
             code: code_trimmed.to_string(),
             code_span: Span::new(content_start, content_start + code_trimmed.len()),
             blank: code_trimmed.trim().is_empty() && !verbatim,
-            fence,
             escape,
         });
     }
@@ -791,14 +700,6 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if let FenceRole::Open(ticks) = line.fence {
-                flush!();
-                let fence = self.parse_fence(&line, ticks);
-                end = fence.span.end;
-                items.push(BlockItem::Fence(fence));
-                continue;
-            }
-
             let code = line.code.trim_start();
             if code == "pass" {
                 flush!();
@@ -885,56 +786,6 @@ impl<'a> Parser<'a> {
         Block {
             span: Span::new(start.min(end), end),
             items,
-        }
-    }
-
-    fn parse_fence(&mut self, open: &Line, ticks: usize) -> Fence {
-        let start = open.start;
-        let base_indent = open.indent;
-        let info = open.code.trim().trim_start_matches('`').trim().to_string();
-        self.enter(SyntaxKind::FENCE, start);
-        self.token(SyntaxKind::FENCE_MARK, open.code_span);
-        self.pos += 1;
-        let mut lines = Vec::new();
-        let mut end = open.end;
-        while let Some(line) = self.peek().cloned() {
-            // An escape block inside a fence contributes its contents and not
-            // its delimiters, which is how a code example can quote syntax the
-            // compiler would otherwise read.
-            if line.is_escape_delimiter() {
-                self.pos += 1;
-                self.token(SyntaxKind::ESCAPE_MARK, line.code_span);
-                end = line.end;
-                continue;
-            }
-            match line.fence {
-                FenceRole::Body => {
-                    self.pos += 1;
-                    let text = &self.source[line.start..line.end];
-                    lines.push(strip_indent(text, base_indent));
-                    let kind = if line.escape == EscapeRole::Body {
-                        SyntaxKind::ESCAPE_TEXT
-                    } else {
-                        SyntaxKind::FENCE_TEXT
-                    };
-                    self.token(kind, Span::new(line.start, line.end));
-                    end = line.end;
-                }
-                FenceRole::Close => {
-                    self.pos += 1;
-                    self.token(SyntaxKind::FENCE_MARK, line.code_span);
-                    end = line.end;
-                    break;
-                }
-                _ => break,
-            }
-        }
-        self.leave(end);
-        Fence {
-            span: Span::new(start, end),
-            info,
-            lines,
-            ticks,
         }
     }
 
@@ -1812,7 +1663,6 @@ mod tests {
         let block = body.block.as_ref().expect("block");
         assert!(block.items.iter().any(|item| matches!(item, BlockItem::Property(p) if p.name == "key")));
         assert!(block.items.iter().any(|item| matches!(item, BlockItem::ListItem(_))));
-        assert!(!block.items.iter().any(|item| matches!(item, BlockItem::Fence(_))));
     }
 
     #[test]

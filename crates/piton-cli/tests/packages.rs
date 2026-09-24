@@ -39,7 +39,7 @@ fn binary() -> PathBuf {
 #[test]
 fn the_plugin_spawns_a_command_the_compiler_accepts() {
     let source = read("packages/vite-plugin-piton/src/compiler.ts");
-    for flag in ["'compile'", "'--adapter'", "'--dependencies'"] {
+    for flag in ["'compile'", "'--renderer'", "'--dependencies'"] {
         assert!(
             source.contains(flag),
             "the plugin no longer passes {flag}; the compiler contract changed"
@@ -47,9 +47,7 @@ fn the_plugin_spawns_a_command_the_compiler_accepts() {
     }
 
     // And the compiler still takes them. A renamed flag fails here rather than
-    // in a project that installed the plugin. `--adapter` is the old name of
-    // `--renderer`, kept as a hidden alias, so it is run rather than looked
-    // for in the help.
+    // in a project that installed the plugin.
     let help = Command::new(binary())
         .args(["compile", "--help"])
         .output()
@@ -63,10 +61,10 @@ fn the_plugin_spawns_a_command_the_compiler_accepts() {
     std::fs::create_dir_all(&directory).expect("temp dir");
     std::fs::write(directory.join("a.pi"), "export anchor A:\n    x: 1\n").expect("write");
     let output = Command::new(binary())
-        .args(["compile", "--adapter", "json", "--dependencies", "a.pi"])
+        .args(["compile", "--renderer", "json", "--dependencies", "a.pi"])
         .current_dir(&directory)
         .output()
-        .expect("piton compile --adapter");
+        .expect("piton compile --renderer");
     let _ = std::fs::remove_dir_all(&directory);
     assert!(
         output.status.success(),
@@ -155,6 +153,6 @@ fn the_plugin_covers_every_feature_the_specification_lists() {
     assert!(plugin.contains("addWatchFile"), "{plugin}");
     // virtual modules
     assert!(plugin.contains("virtual:piton/"), "{plugin}");
-    // and the configurable default adapter the `renderers` property describes
-    assert!(plugin.contains("options.adapter"), "{plugin}");
+    // and the configurable default renderer the `renderers` property describes
+    assert!(plugin.contains("options.renderer"), "{plugin}");
 }

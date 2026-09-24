@@ -28,9 +28,6 @@ pub struct Compilation {
     pub resolution: Resolution,
     pub values: HashMap<AnchorId, Properties>,
     pub variables: HashMap<VariableId, Value>,
-    /// Text each anchor quoted rather than asserted. See
-    /// [`eval::Outcome::mentioned`].
-    pub mentioned: HashMap<AnchorId, Vec<String>>,
     pub diagnostics: DiagnosticSink,
 }
 
@@ -38,17 +35,6 @@ impl Compilation {
     /// Compiles a project from its entry point.
     pub fn build(project: Project) -> Compilation {
         let resolution = resolve::resolve(&project.entry, project.roots());
-        Compilation::from_resolution(project, resolution)
-    }
-
-    /// Compiles a project while reading the given buffers in place of the files
-    /// they shadow, so an editor sees unsaved work.
-    pub fn build_with_overrides(
-        project: Project,
-        overrides: std::collections::HashMap<PathBuf, String>,
-    ) -> Compilation {
-        let graph = ModuleGraph::with_overrides(overrides);
-        let resolution = resolve::resolve_with(&project.entry, project.roots(), graph);
         Compilation::from_resolution(project, resolution)
     }
 
@@ -106,7 +92,6 @@ impl Compilation {
             resolution,
             values: outcome.anchors,
             variables: outcome.variables,
-            mentioned: outcome.mentioned,
             diagnostics,
         }
     }
@@ -196,16 +181,6 @@ impl Compilation {
             .iter()
             .find(|def| def.name == name)
             .map(|def| def.id)
-    }
-
-    /// True when `text` was quoted rather than asserted by `anchor`.
-    ///
-    /// Quoting a statement is describing it, not making it.
-    pub fn is_mentioned(&self, anchor: AnchorId, text: &str) -> bool {
-        let trimmed = text.trim();
-        self.mentioned
-            .get(&anchor)
-            .is_some_and(|quoted| quoted.iter().any(|entry| entry.contains(trimmed)))
     }
 
     /// The path of the module an anchor was declared in.

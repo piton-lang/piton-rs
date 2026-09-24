@@ -301,8 +301,7 @@ Those files also hold the prose that documents each construct, so the package
 index re-exports the constructs and adapters by name rather than re-exporting
 the files wholesale: `from @piton/belay import Skill` works,
 `import SkillBehavior` does not. The index adds what has no spec file of its
-own: the `belay-config` anchor and the special imports. `ClaudeAdapter` is
-still exported as a deprecated alias of `ClaudeCodeAdapter`.
+own: the `belay-config` anchor and the special imports.
 
 A project picks targets by listing adapter anchors in its `belay-config`:
 

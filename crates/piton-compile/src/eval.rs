@@ -80,15 +80,6 @@ pub struct Outcome {
     pub anchors: HashMap<AnchorId, Properties>,
     pub variables: HashMap<VariableId, Value>,
     pub diagnostics: Vec<Diagnostic>,
-    /// Text an anchor quoted rather than asserted, keyed by the anchor it was
-    /// written in.
-    ///
-    /// Quotation marks around a whole paragraph are syntax: they mark the text
-    /// as *mentioned*. Evaluation strips them, because the quotes are not part
-    /// of the value, and that would otherwise leave a quoted example
-    /// indistinguishable from a statement the document makes. Recording it here
-    /// keeps the distinction available to anything that reads the prose back.
-    pub mentioned: HashMap<AnchorId, Vec<String>>,
 }
 
 /// Evaluates every anchor and variable in the resolution.
@@ -100,7 +91,6 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
         variables: HashMap::new(),
         variable_stack: Vec::new(),
         anchors: HashMap::new(),
-        mentioned: HashMap::new(),
         diagnostics: Vec::new(),
     };
 
@@ -117,7 +107,6 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
         anchors: evaluator.anchors,
         variables: evaluator.variables,
         diagnostics: evaluator.diagnostics,
-        mentioned: evaluator.mentioned,
     }
 }
 
@@ -130,7 +119,6 @@ struct Evaluator<'a> {
     variables: HashMap<VariableId, Value>,
     variable_stack: Vec<VariableId>,
     anchors: HashMap<AnchorId, Properties>,
-    mentioned: HashMap<AnchorId, Vec<String>>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -432,7 +420,7 @@ impl<'a> Evaluator<'a> {
         }
         let has_prose = pieces
             .iter()
-            .any(|p| matches!(p, Piece::Prose(_) | Piece::Fence(_) | Piece::Escape(_)));
+            .any(|p| matches!(p, Piece::Prose(_) | Piece::Escape(_)));
         let has_list = pieces.iter().any(|p| matches!(p, Piece::ListItem(_)));
         let has_property = pieces.iter().any(|p| matches!(p, Piece::Property(_)));
 
@@ -485,7 +473,7 @@ impl<'a> Evaluator<'a> {
 
                 for piece in pieces {
                     match piece {
-                        Piece::Prose(_) | Piece::Fence(_) | Piece::Escape(_) => {
+                        Piece::Prose(_) | Piece::Escape(_) => {
                             flush_list!();
                             run.push(piece.clone());
                         }
@@ -632,28 +620,7 @@ impl<'a> Evaluator<'a> {
                         paragraphs.push(parts);
                         continue;
                     }
-                    let trimmed = parts_text(parts).trim();
-                    // Quotes are ordinary characters and stay in the value, but
-                    // a paragraph written entirely in quotes is being quoted
-                    // rather than asserted, so it is noted for whatever reads
-                    // the prose back.
-                    if let (Some(anchor), Some(inner)) = (context.derived, quoted_inner(&trimmed)) {
-                        if !inner.trim().is_empty() {
-                            self.mentioned.entry(anchor).or_default().push(inner);
-                        }
-                    }
-                    paragraphs.push(vec![Part::Text(trimmed)]);
-                }
-                Piece::Fence(fence) => {
-                    let mut text = Text::empty();
-                    let ticks = "`".repeat(fence.ticks.max(3));
-                    text.push_literal(format!("{ticks}{}\n", fence.info));
-                    for line in &fence.lines {
-                        text.push_literal(line);
-                        text.push_literal("\n");
-                    }
-                    text.push_literal(ticks);
-                    paragraphs.push(vec![Part::Text(text)]);
+                    paragraphs.push(vec![Part::Text(parts_text(parts).trim())]);
                 }
                 Piece::Escape(block) => {
                     // The delimiters were consumed by the parser; what is left
@@ -987,18 +954,6 @@ impl<'a> Evaluator<'a> {
                             self.error(
                                 "invalid-operand",
                                 format!("`!` needs a boolean, found {}", other.kind()),
-                                context.module,
-                                expr.span,
-                            );
-                            Value::Null
-                        }
-                    },
-                    UnaryOp::Negate => match value {
-                        Value::Number(n) => Value::Number(-n),
-                        other => {
-                            self.error(
-                                "invalid-operand",
-                                format!("`-` needs a number, found {}", other.kind()),
                                 context.module,
                                 expr.span,
                             );
@@ -1464,7 +1419,6 @@ impl<'a> Evaluator<'a> {
 #[derive(Debug, Clone)]
 enum Piece {
     Prose(Vec<ProseLine>),
-    Fence(ast::Fence),
     Escape(ast::EscapeBlock),
     ListItem(ast::ListItem),
     Merge(MergeOp, ast::MergeItem),
@@ -1475,7 +1429,6 @@ fn collect_pieces(block: &Block, out: &mut Vec<Piece>) {
     for item in &block.items {
         match item {
             BlockItem::Prose(Paragraph { lines, .. }) => out.push(Piece::Prose(lines.clone())),
-            BlockItem::Fence(fence) => out.push(Piece::Fence(fence.clone())),
             BlockItem::Escape(block) => out.push(Piece::Escape(block.clone())),
             BlockItem::ListItem(item) => out.push(Piece::ListItem(item.clone())),
             BlockItem::Merge(merge) => out.push(Piece::Merge(merge.op, merge.clone())),
@@ -1564,13 +1517,6 @@ fn parts_text(parts: Vec<Part>) -> Text {
         }
     }
     text
-}
-
-/// The inside of a text that is entirely one double-quoted run.
-fn quoted_inner(text: &Text) -> Option<String> {
-    let plain = text.as_plain()?;
-    (plain.len() >= 2 && plain.starts_with('"') && plain.ends_with('"'))
-        .then(|| plain[1..plain.len() - 1].to_string())
 }
 
 fn is_string(value: &Value) -> bool {
@@ -1772,7 +1718,6 @@ impl<'a> Probe<'a> {
             variables: HashMap::new(),
             variable_stack: Vec::new(),
             anchors: HashMap::new(),
-            mentioned: HashMap::new(),
             diagnostics: Vec::new(),
         };
         for def in &resolution.store.anchors {
