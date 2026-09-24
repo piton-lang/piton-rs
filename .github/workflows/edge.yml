@@ -1,0 +1,177 @@
+# Publishes builds of `piton` for Linux, macOS, and Windows every time
+# something is pushed to `main`.
+#
+# Versions: every build gets the next patch number. The major and minor come
+# from `Cargo.toml` (0.1 today) and the patch is the number of commits on
+# `main`, so builds go 0.1.1, 0.1.2, ... 0.1.562. It is worked out here rather
+# than committed back, so the same commit always gets the same version and a
+# failed build leaves no gap. To move to 0.2, change the version in
+# `Cargo.toml`; the patch keeps counting.
+#
+# Each build is its own release, `v0.1.N`, marked latest, with the same file
+# names every time. So this link always gets the newest one:
+#
+#   https://github.com/<owner>/<repo>/releases/latest/download/piton-edge-linux-x86_64
+#
+# `piton --version` prints the version it was released as. The tests run
+# first; nothing is published unless they pass.
+#
+# The macOS binaries are not signed or notarized yet. Clear the quarantine
+# flag after downloading: `xattr -d com.apple.quarantine piton-edge-macos-*`.
+
+name: Edge
+
+on:
+  push:
+    branches: [main]
+  # Lets you publish by hand from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Builds publish one at a time, in order.
+concurrency:
+  group: edge
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # The whole history, so the commits can be counted.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out the version
+        id: version
+        run: |
+          base=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          major_minor="${base%.*}"
+          patch=$(git rev-list --count HEAD)
+          echo "version=${major_minor}.${patch}" >> "$GITHUB_OUTPUT"
+          echo "Building ${major_minor}.${patch}"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The package-management tests create and clone git repositories.
+      - name: Configure git
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  build:
+    needs: [version, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # musl gives a static binary that runs on any Linux distribution.
+          - name: piton-edge-linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - name: piton-edge-macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: piton-edge-macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - name: piton-edge-windows-x86_64.exe
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    env:
+      # Compiled into the binary, so `piton --version` reports it.
+      PITON_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # `psm` (through chumsky) compiles a little C, so the musl target needs
+      # a musl C compiler.
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked --package piton-cli --target "${{ matrix.target }}"
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          binary="target/${{ matrix.target }}/release/piton"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            binary="${binary}.exe"
+          else
+            strip "$binary"
+          fi
+          cp "$binary" "dist/${{ matrix.name }}"
+          cd dist
+          if command -v sha256sum >/dev/null; then
+            sha256sum "${{ matrix.name }}" > "${{ matrix.name }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.name }}" > "${{ matrix.name }}.sha256"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the release and its tag.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          notes=$(cat <<EOF
+          Build of \`main\` at ${GITHUB_SHA::7}.
+
+          The macOS binaries are not signed yet. After downloading, clear the
+          quarantine flag: \`xattr -d com.apple.quarantine piton-edge-macos-*\`
+          EOF
+          )
+          gh release create "v${VERSION}" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "piton ${VERSION}" \
+            --notes "$notes" \
+            --latest
