@@ -63,12 +63,12 @@ Core facts:
   spaces are accepted, but one file must be consistent. The canonical style is
   4 spaces. `piton format` enforces it, and it cannot be configured.
 - **Comments** are line-only and start with `//`. There are no block comments.
-  A comment may follow a value: `myVariable: 42 // note`. The formatter adds
-  one space after `//` when there is none and touches nothing else in the
-  comment, so commented-out code keeps its spacing. To write a literal `//` in
-  text, escape it: `\ // \ Just Text`. (The compiler only starts a comment at
-  the start of a line or after whitespace, so `https://x` and `foo//bar` are
-  text.)
+  **A comment has to be on its own line.** After code, `//` is just text, so
+  `url: https://example.com // note` is the string
+  `https://example.com // note`. The formatter adds one space after `//` when
+  there is none and touches nothing else in the comment, so commented-out code
+  keeps its spacing. To start a value with `//`, escape it:
+  `\ // \ Just Text`.
 - **Reserved words** have special meaning:
 
   ```
@@ -171,6 +171,8 @@ negative: -5
 - **There is no exponent notation.** `1e3` is not a number.
 - A negative number is written with a minus, like `-5`. A list item always has
   a space after its dash, so `-5` is a number and `- 5` is a list item.
+- **The minus is only part of a number.** There's no minus in front of an
+  expression: `{-price}` is an error. Write `{0 - price}`.
 - Compiled numbers take their shortest form: `1_200_000.00` becomes `1200000`
   and `0.50` becomes `0.5`.
 
@@ -522,6 +524,8 @@ to being a string.
   List literals inside braces follow the same rule: `{["A", "B"] + ["C"]}`.
 - **Keep the whole expression inside the braces.** `{this.flag && false}`
   evaluates; `{this.flag} && false` is text around an expression.
+- **Braces that don't hold a valid expression are an error**, and so is an
+  empty `{}` or `${}`. To write braces as text, escape them: `\ {1 +} \`.
 - **Forward references resolve.** Unresolved references are errors, and so are
   cyclic values: `A: {B}` together with `B: {A}` fails with `cyclic-value`.
 - Collections are copied by value:
@@ -768,9 +772,11 @@ my-custom-keyword Wow:
 
 ### 7.4 Formatting of imports
 
-`piton format` sorts the names in an import or export, breaks it across lines
-when it has more than 2 items or runs past 80 columns, and drops the `.pi`
-extension from paths.
+`piton format` sorts the imports: in each run of import lines, the `use`
+lines come first, then the `from` lines, each sorted by path, and the names in
+each line are sorted too. A blank line keeps two runs apart. It breaks an
+import across lines when it has more than 2 items or runs past 80 columns, and
+drops the `.pi` extension from paths.
 
 ## 8. Anchors
 
@@ -910,6 +916,9 @@ skill Review:
   **never compiles on its own** and produces no output. A concrete anchor that
   extends it *implements* it and must give every required property a value
   (`unimplemented-property`). A property with a default is optional (4.3).
+- If nothing implements an abstract, you get a warning
+  (`unimplemented-abstract`), unless it's exported, since another file or
+  project may implement it.
 - An abstract may extend another abstract. The implementer has to fill in the
   required properties from the whole chain.
 - **An anchor can implement more than one abstract**, even ones that share a
@@ -1218,6 +1227,8 @@ The tree under `shapeRoot` roughly mirrors the tree under `codeRoot`:
   `[Button](../../reference/components/Button.md#button)`, or
   `[Button.color](../../reference/components/Button.md#color)`. Links stay lazy
   and are never replaced with Claude's eager `@import` syntax.
+- **A reference to a skill, command or agent** links to that construct's own
+  output, like its `SKILL.md`, and it isn't copied into the reference tree.
 - **Special imports.** Each is imported explicitly from `@piton/belay` and
   resolved **at compile time, separately for each adapter and each output
   file**, as a path relative to the generated file that uses it. Interpolate
@@ -1293,8 +1304,7 @@ Rules for every adapter:
 
 Other Belay diagnostics include `invalid-artifact-name`,
 `missing-command-prefix`, `description-too-long`, `output-outside-project`,
-`unowned-output`, `duplicated-content`, `unrepresentable-reference` and
-`reference-identity-unspecified`.
+`unowned-output`, `duplicated-content` and `unrepresentable-reference`.
 
 ### 11.6 Guarantees
 
@@ -1304,8 +1314,8 @@ Other Belay diagnostics include `invalid-artifact-name`,
 - A missing reference target is reported instead of emitting a broken link.
 - Unsupported metadata is reported instead of being claimed as enforced.
 - Generated files are tracked in `.piton/manifest.json`, so cleanup never
-  deletes files users wrote. `.piton/targets.json` records which adapter and
-  documentation date each target was validated against.
+  deletes files users wrote. Its `targets` records, for each target, the
+  documentation date the generated files were validated against.
 - Failures name the source anchor and property. Output stays inside its
   configured boundaries.
 
@@ -1315,8 +1325,6 @@ Other Belay diagnostics include `invalid-artifact-name`,
 it is unspecified rather than guess:
 
 - Placement of instructions outside `shapeRoot`.
-- Reference identity: what happens when one anchor turns into more than one
-  output, such as a skill that is also referenced.
 - The types of `tools`, `allowed-tools` and `model`, and their mapping per
   adapter.
 - Naming: skill filename normalization, command name normalization before the
@@ -1353,6 +1361,9 @@ compile time.
   used. **Pins are strings**: `@piton/config` types them as strings, so
   `tag: 1.0` stays `"1.0"`. Other pin diagnostics are `dangling-pin` and
   `unknown-pin`.
+- **Picking packages.** A repository can offer several packages. You get all
+  of them unless you list the ones you want with `packages:` under the URL:
+  `packages: [ui-kit]`.
 - **Project and package dependencies are separate.** The project's apply only
   to the project, and each package declares its own.
 - **No nested dependencies.** When two packages need the same package at
@@ -1520,19 +1531,6 @@ Astro integration that wraps the Vite plugin.
 
 Checked with `piton compile` and `piton build`:
 
-- A brace group that isn't a valid expression (`{1 +}`, `{l[0]}`, an empty
-  `${}`) is kept as text with a `braces-as-text` warning. The spec says an
-  invalid expression is an error.
-- An abstract anchor that nothing implements compiles without complaint. The
-  spec's "an abstract anchor alone will never compile; it must be extended" is
-  read as "produces no output".
-- JSON and YAML references always use the dot path. The spec's fallbacks
-  (`../file.txt:Something` when there is no dot path, a line number after
-  that) and the renderer option for changing the format are not implemented.
-- Reference identity across several outputs is an open decision. When a
-  construct is also referenced, the compiler warns
-  (`reference-identity-unspecified`) and links to its copy in the reference
-  tree.
 - `@piton/belay` still exports `ClaudeAdapter`, a deprecated alias of
   `ClaudeCodeAdapter`. Use `ClaudeCodeAdapter`.
 - The CLI has a few things the spec doesn't name: `build --dry-run`,

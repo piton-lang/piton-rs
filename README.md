@@ -247,11 +247,8 @@ as described and is covered by a test.
 **Only `@{...}` produces a reference document.** A `${...}` is a string, so it
 does not create a file and nothing links to one.
 
-**Braces that do not contain a valid expression are text.** Prose can discuss
-`{...}` and `${}` without escaping them, and a warning (`braces-as-text`) says
-so. The spec says an invalid expression is an error, so this may change. It does
-not bring back string fallback for unknown symbols: a bare name still parses as
-an expression and still fails during resolution.
+**Braces that do not contain a valid expression are an error.** To write braces
+in prose, escape them: `\ {...} \`.
 
 **An anchor body that holds something other than properties** — a stray code
 fence, say — gets a warning naming what will not be emitted.
@@ -266,9 +263,9 @@ entry is indented so it stays within its item.
 their placement as undecided, so the build says so
 (`instruction-placement-unspecified`) rather than guessing.
 
-**A construct that is also referenced gets a warning.** What one anchor
-compiling to several outputs means is undecided, so `@{...}` on a skill links
-to its copy in the reference tree and warns (`reference-identity-unspecified`).
+**A reference to a construct links to its own output.** `@{...}` on a skill,
+command or agent links to its native file, like its `SKILL.md`, rather than to
+a copy in the reference tree.
 
 ## The specification is the framework
 
@@ -363,9 +360,8 @@ one path are rejected.
 Output order is stable and content is compared before writing, so identical
 source produces identical bytes. Each build records what it wrote in
 `.piton/manifest.json`, and cleanup only removes paths from that manifest — a
-file Belay did not write is never deleted. `.piton/targets.json` records which
-adapter each target was built with and the date its platform documentation was
-last checked.
+file Belay did not write is never deleted. The manifest's `targets` records the
+date each target's platform documentation was last checked.
 
 ## Testing
 

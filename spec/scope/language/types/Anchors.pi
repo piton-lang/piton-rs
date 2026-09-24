@@ -1,8 +1,8 @@
 use ./lib/Type
-from ./Dictionaries import Dictionaries
+from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
 from ../operators/comparison/EqOperator import EqOperator
 from ../operators/comparison/NeqOperator import NeqOperator
-from ../operators/access/PropertyAccessOperator import PropertyAccessOperator
+from ./Dictionaries import Dictionaries
 
 export type AnchorType:
     description:

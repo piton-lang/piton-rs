@@ -1,6 +1,6 @@
-from ./Package import Package
 from ./Dependencies import Dependencies
 from ./ImportingAndUsing import ImportingAndUsing
+from ./Package import Package
 
 from ../tooling/cli/package-management import
     Remove,

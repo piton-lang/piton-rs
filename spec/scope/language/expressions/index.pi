@@ -1,12 +1,12 @@
-from ../types/Lists import Lists
-from ../types/Dictionaries import Dictionaries
 from ../anchors import Anchors
 from ../types/ComplexTypes import ComplexTypes
+from ../types/Dictionaries import Dictionaries
+from ../types/Lists import Lists
 from ../types/Strings import Strings
-from ./ReferenceExpression import ReferenceExpression
 from ./NumericExpression import NumericExpression
-from ./StringExpression import StringExpression
+from ./ReferenceExpression import ReferenceExpression
 from ./StandardExpression import StandardExpression
+from ./StringExpression import StringExpression
 
 export anchor Expressions:
     description:

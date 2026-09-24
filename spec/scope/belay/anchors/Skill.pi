@@ -1,5 +1,5 @@
-from ./Construct import Construct
 from ../Framework import FrameworkSpecification
+from ./Construct import Construct
 
 export abstract anchor Skill extends Construct as skill:
     useWhen:: string

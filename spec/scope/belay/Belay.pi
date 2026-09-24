@@ -1,25 +1,25 @@
+from ./Compilation import Compilation
+from ./Decisions import
+    BuildGuarantees,
+    OpenDecisions,
+    PermissionBoundary
 from ./Framework import
     ConstructComposition,
     FrameworkBoundaries,
     FrameworkPurpose,
     ProjectConfiguration,
     SourceAuthority
-from ./anchors/Instruction import InstructionBehavior
-from ./anchors/Skill import SkillBehavior
-from ./anchors/Command import CommandBehavior
-from ./anchors/Agent import AgentBehavior
 from ./Scope import
     AnchorReferences,
     ShapeMapping,
     ShapeRootReference
-from ./Compilation import Compilation
 from ./adapters/ClaudeCode import ClaudeCodeAdapter
 from ./adapters/Codex import CodexAdapter
 from ./adapters/OpenCode import OpenCodeAdapter
-from ./Decisions import
-    BuildGuarantees,
-    OpenDecisions,
-    PermissionBoundary
+from ./anchors/Agent import AgentBehavior
+from ./anchors/Command import CommandBehavior
+from ./anchors/Instruction import InstructionBehavior
+from ./anchors/Skill import SkillBehavior
 
 export anchor Belay:
     description:

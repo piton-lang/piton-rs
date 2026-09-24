@@ -1,6 +1,4 @@
 from ./cli import Cli
-from ./project-config import ProjectConfig
-from ./frameworks import Frameworks
 from ./editors import
     Emacs,
     Helix,
@@ -11,9 +9,11 @@ from ./editors import
     Vim,
     VsCode,
     Zed
+from ./frameworks import Frameworks
+from ./project-config import ProjectConfig
 
-from ./vite import VitePlugin
 from ./astro import AstroPlugin
+from ./vite import VitePlugin
 
 export anchor Tooling:
     cli: {Cli}
