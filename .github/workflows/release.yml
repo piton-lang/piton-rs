@@ -75,6 +75,7 @@ jobs:
 
           mkdir -p "dist/${name}"
           cp "target/${TARGET}/release/piton" "dist/${name}/"
+          strip "dist/${name}/piton"
           cp README.md "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
           (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
