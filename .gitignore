@@ -9,3 +9,7 @@ editors/zed/grammars/
 
 # Packaged VS Code extensions
 *.vsix
+
+# The VS Code extension, packaged locally or by CI
+editors/vscode/*.vsix
+editors/vscode/dist/

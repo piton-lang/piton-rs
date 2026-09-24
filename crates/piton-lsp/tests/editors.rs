@@ -97,3 +97,30 @@ fn every_rule_carries_a_style() {
         );
     }
 }
+
+/// The VS Code extension must not register a command the server lists as its
+/// own. The language client registers every command in the server's
+/// `executeCommandProvider`, VS Code refuses a second registration of the same
+/// name, and the client then fails to start -- so the whole extension stops
+/// working over one duplicated string.
+#[test]
+fn the_vscode_extension_does_not_register_the_servers_commands() {
+    let path = repo_root().join("editors/vscode/client.js");
+    let client = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+    let registered: Vec<&str> = client
+        .split("registerCommand(\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    assert!(!registered.is_empty(), "found no registerCommand calls in client.js");
+    for command in [
+        piton_lsp::features::SOURCE_TO_OUTPUT,
+        piton_lsp::features::SHOW_LOCATION,
+    ] {
+        assert!(
+            !registered.contains(&command),
+            "client.js registers `{command}`, which the server already provides: {registered:?}"
+        );
+    }
+}

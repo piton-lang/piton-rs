@@ -16,6 +16,7 @@
 #   piton-edge-macos-aarch64-0.1.N.zip
 #   piton-edge-macos-x86_64-0.1.N.zip
 #   piton-edge-windows-x86_64-0.1.N.zip
+#   piton-edge-vscode-0.1.N.vsix          (the VS Code extension)
 #
 # `piton --version` prints the version it was released as. The tests run
 # first; nothing is published unless they pass.
@@ -164,8 +165,43 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  vscode:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      # The extension carries the same version as the binaries it goes with.
+      - name: Set the version
+        run: node scripts/sync-version.js "${{ needs.version.outputs.version }}"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          archive="piton-edge-vscode-${{ needs.version.outputs.version }}.vsix"
+          npx --yes @vscode/vsce package --out "dist/${archive}"
+          cd dist
+          sha256sum "${archive}" > "${archive}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piton-edge-vscode
+          path: editors/vscode/dist/*
+          if-no-files-found: error
+
   publish:
-    needs: [version, build]
+    needs: [version, build, vscode]
     runs-on: ubuntu-latest
     permissions:
       # Creating the release and its tag.
@@ -196,6 +232,9 @@ jobs:
 
           Install on Windows (PowerShell):
           \`irm https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.ps1 | iex\`
+
+          VS Code: download \`piton-edge-vscode-${VERSION}.vsix\` below, then run
+          **Extensions: Install from VSIX...** in VS Code.
 
           The macOS binaries are not signed yet. After unzipping, clear the
           quarantine flag: \`xattr -d com.apple.quarantine piton\`

@@ -2,7 +2,7 @@
   "name": "piton-lang",
   "displayName": "Piton Language",
   "description": "Piton language support: highlighting, diagnostics, completion, navigation, and formatting through the Piton language server",
-  "version": "0.1.41",
+  "version": "0.1.43",
   "publisher": "piton-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "images/icon.png",
@@ -27,7 +27,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages",
@@ -60,7 +60,7 @@
     ],
     "commands": [
       {
-        "command": "piton.sourceToOutput",
+        "command": "piton.showOutput",
         "title": "Show Compiled Output for This Construct",
         "category": "Piton"
       },
@@ -78,7 +78,7 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "piton.sourceToOutput",
+          "command": "piton.showOutput",
           "when": "editorLangId == piton"
         },
         {
@@ -120,7 +120,7 @@
   },
   "scripts": {
     "version:sync": "node scripts/sync-version.js",
-    "package": "npx @vscode/vsce package",
-    "publish": "npx @vscode/vsce publish"
+    "package": "node scripts/sync-version.js && npx @vscode/vsce package",
+    "publish": "node scripts/sync-version.js && npx @vscode/vsce publish"
   }
 }

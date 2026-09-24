@@ -54,16 +54,17 @@ async function openAt(path, offset) {
 }
 
 function registerCommands(context, binary) {
-  // The server's code lenses carry `piton.sourceToOutput` with
-  // `{ path, offset }`: the compiled file a construct produced and where in it.
-  // Run from the palette instead, the command asks the server what the cursor
-  // produced (`piton/sourceToOutput`) and offers a choice when there is more
-  // than one output.
+  // The code lenses' commands (`piton.sourceToOutput`, `piton.showLocation`)
+  // belong to the server: it lists them as its own, the language client
+  // registers them, and running one asks the server to open the file. So they
+  // must not be registered here too -- VS Code refuses a second registration,
+  // and the language client would fail to start.
+  //
+  // From the palette, this asks the server what the cursor produced
+  // (`piton/sourceToOutput`) and offers a choice when there is more than one
+  // output.
   context.subscriptions.push(
-    commands.registerCommand("piton.sourceToOutput", async (target) => {
-      if (target && typeof target === "object" && target.path) {
-        return openAt(target.path, target.offset);
-      }
+    commands.registerCommand("piton.showOutput", async () => {
       const editor = window.activeTextEditor;
       if (!client || !editor || editor.document.languageId !== "piton") {
         return;
