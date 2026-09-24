@@ -939,3 +939,40 @@ fn build_output_references_point_into_the_output_tree() {
     assert!(index.contains("\"root\": \"..\""), "{index}");
     assert!(fixture.exists("dist/components/Button.json"));
 }
+
+#[test]
+fn the_language_server_accepts_the_stdio_flag() {
+    // Many editors' language clients (VS Code's among them) start a server
+    // with `--stdio`. Rejecting it stops the server before it says a word.
+    use std::io::{Read, Write};
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_piton"))
+        .args(["lsp", "--stdio"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("piton lsp --stdio");
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":null,"capabilities":{}}}"#;
+    let mut stdin = child.stdin.take().expect("stdin");
+    write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).expect("write");
+    stdin.flush().expect("flush");
+    let mut stdout = child.stdout.take().expect("stdout");
+    let mut header = Vec::new();
+    let mut byte = [0u8; 1];
+    while !header.ends_with(b"\r\n\r\n") {
+        let read = stdout.read(&mut byte).expect("read");
+        assert!(read > 0, "the server exited without answering");
+        header.push(byte[0]);
+    }
+    let header = String::from_utf8_lossy(&header);
+    let length: usize = header
+        .lines()
+        .find_map(|line| line.strip_prefix("Content-Length: "))
+        .and_then(|value| value.trim().parse().ok())
+        .expect("a content length");
+    let mut response = vec![0u8; length];
+    stdout.read_exact(&mut response).expect("response");
+    let _ = child.kill();
+    let response = String::from_utf8_lossy(&response);
+    assert!(response.contains("\"capabilities\""), "{response}");
+}

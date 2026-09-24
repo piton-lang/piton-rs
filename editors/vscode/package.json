@@ -2,7 +2,7 @@
   "name": "piton-lang",
   "displayName": "Piton Language",
   "description": "Piton language support: highlighting, diagnostics, completion, navigation, and formatting through the Piton language server",
-  "version": "0.1.43",
+  "version": "0.1.44",
   "publisher": "piton-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "images/icon.png",
