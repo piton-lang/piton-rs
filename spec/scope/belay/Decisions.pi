@@ -34,10 +34,6 @@ export anchor OpenDecisions:
     instructionScope:
         Define placement for instructions outside shapeRoot.
 
-    referenceIdentity:
-        Decide what happens when one anchor turns into more than one output,
-        like a skill that's also referenced somewhere.
-
     metadataTypes:
         Specify tools, allowed-tools, and model types and their mapping for
         each adapter.

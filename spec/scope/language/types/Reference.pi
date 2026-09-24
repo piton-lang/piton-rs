@@ -13,15 +13,9 @@ export type Reference:
 
     renderers:
         json:
-            By default a reference becomes a string: the path to the other
-            file (relative to this one), a colon, and the dot path to the
-            value. So `../file.json:Anchor.property`.
-
-            If there's no dot path to it, you get whatever the property turned
-            into instead, like `../file.txt:Something`. And if that doesn't
-            work either, you get the line number, like `../file.json:42`.
-
-            You can change this with a renderer option.
+            A reference becomes a string: the path to the other file (relative
+            to this one), a colon, and the dot path to the value. So
+            `../file.json:Anchor.property`.
 
         yaml: Same as json, with the yaml output file.
 

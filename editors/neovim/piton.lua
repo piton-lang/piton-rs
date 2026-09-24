@@ -18,7 +18,7 @@ local M = {}
 --- pins in editors/zed/extension.toml. `cargo xtask publish-grammar` updates
 --- both.
 local GRAMMAR_URL = "https://github.com/piton-lang/tree-sitter-piton"
-local GRAMMAR_REVISION = "5d2fa75e8776694e316c6505bc8ba646121e56b8"
+local GRAMMAR_REVISION = "4c408268dfb246cfcb35c64e204b06c08c6aea6c"
 
 --- Where the Vim runtime files live: an explicit option, else ../vim beside
 --- this file (editors/neovim/piton.lua -> editors/vim).
