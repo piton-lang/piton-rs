@@ -171,10 +171,17 @@ jobs:
       # Creating the release and its tag.
       contents: write
     steps:
+      # For the install scripts, which ride along with every release so
+      # `releases/latest/download/install.sh` always serves the newest one.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Add the install scripts
+        run: cp install.sh install.ps1 dist/
 
       - name: Publish the release
         env:
@@ -183,6 +190,12 @@ jobs:
         run: |
           notes=$(cat <<EOF
           Build of \`main\` at ${GITHUB_SHA::7}.
+
+          Install on macOS or Linux:
+          \`curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sh\`
+
+          Install on Windows (PowerShell):
+          \`irm https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.ps1 | iex\`
 
           The macOS binaries are not signed yet. After unzipping, clear the
           quarantine flag: \`xattr -d com.apple.quarantine piton\`
