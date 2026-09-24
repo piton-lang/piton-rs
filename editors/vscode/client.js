@@ -14,7 +14,7 @@ const {
   ViewColumn,
   TextEditorRevealType,
 } = require("vscode");
-const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
+const { LanguageClient } = require("vscode-languageclient/node");
 const { execFile } = require("child_process");
 const fs = require("fs");
 
@@ -182,9 +182,11 @@ function activate(context) {
     return;
   }
 
+  // No `transport`: stdio is the default, and naming it makes the client
+  // append `--stdio` to the command line.
   const serverOptions = {
-    run: { command, args: ["lsp"], transport: TransportKind.stdio },
-    debug: { command, args: ["lsp"], transport: TransportKind.stdio },
+    run: { command, args: ["lsp"] },
+    debug: { command, args: ["lsp"] },
   };
 
   const clientOptions = {

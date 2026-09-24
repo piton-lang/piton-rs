@@ -108,7 +108,13 @@ enum Command {
     },
 
     /// Run the Piton language server
-    Lsp,
+    Lsp {
+        /// Talk over stdin and stdout. That is the only transport, so this
+        /// changes nothing; it is accepted because many editors' language
+        /// clients pass it.
+        #[arg(long, hide = true)]
+        stdio: bool,
+    },
 
     /// Analyze which parts of the specbase are reachable
     ///
@@ -181,7 +187,7 @@ fn main() -> ExitCode {
         } => commands::compile::run(&path, &renderer, write, dependencies),
         Command::Format { path, check } => commands::format::run(path.as_deref(), check),
         Command::Loc { paths } => commands::loc::run(&paths),
-        Command::Lsp => commands::lsp::run(),
+        Command::Lsp { .. } => commands::lsp::run(),
         Command::Reach {
             targets,
             no_unreachable,
