@@ -57,7 +57,7 @@ export type Strings:
         \\\
         ```
 
-    escaping: {Escaping}
+    escaping: @{Escaping}
     codeBlocks:
         Code blocks are not escaped. To Piton they're just text, so anything
         inside them still gets parsed: expressions, comments, lists, all of it.

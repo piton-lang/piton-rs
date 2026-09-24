@@ -110,7 +110,7 @@ export anchor Expressions:
         \ @{x} \ puts in a reference, which ends up as a link or a path.
 
     expressionTypes:
-        - {StandardExpression}
-        - {NumericExpression}
-        - {ReferenceExpression}
-        - {StringExpression}
+        - @{StandardExpression}
+        - @{NumericExpression}
+        - @{ReferenceExpression}
+        - @{StringExpression}

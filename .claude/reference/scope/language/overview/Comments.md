@@ -1,0 +1,12 @@
+# Comments
+
+## Comments
+
+Comments are line-only. There are no block comments. Comments are created with "//", and a comment has to be on its own line. You can't put one at the end of a line of code; there, "//" is just text.
+```piton
+// This is a comment
+myVariable: 42
+url: https://example.com // not a comment
+```
+Here url is the string “https://example.com // not a comment”.
+`piton format` will always put a space between the "//" and the comment text, so you might as well get used to doing it yourself. It won't touch anything else in the comment though, so commented-out code stays as it is.

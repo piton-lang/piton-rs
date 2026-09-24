@@ -11,14 +11,14 @@ from ./SimpleTypes import SimpleTypes
 from ./Strings import Strings
 
 export anchor Types:
-    overview: {TypesOverview}
-    numbers: {Numbers}
-    strings: {Strings}
-    booleans: {Booleans}
-    null: {Null}
-    collections: {Collections}
-    userDefined: {AnchorType}
-    inference: {Inference}
-    reference: {Reference}
-    simpleTypes: {SimpleTypes}
-    complexTypes: {ComplexTypes}
+    overview: @{TypesOverview}
+    numbers: @{Numbers}
+    strings: @{Strings}
+    booleans: @{Booleans}
+    null: @{Null}
+    collections: @{Collections}
+    userDefined: @{AnchorType}
+    inference: @{Inference}
+    reference: @{Reference}
+    simpleTypes: @{SimpleTypes}
+    complexTypes: @{ComplexTypes}

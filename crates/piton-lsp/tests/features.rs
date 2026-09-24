@@ -1098,21 +1098,22 @@ fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
 #[test]
 fn a_leaf_anchor_leads_only_to_what_composes_it() {
     let fixture = Fixture::new();
-    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
-    // On the anchor's own name, not on the keyword in front of it: the keyword
-    // names the abstract it aliases, which does have implementations.
-    let position = fixture.position_of("spec/scope/language/types/Strings.pi", "Strings:");
+    let uri = fixture.uri("spec/scope/belay/Compilation.pi");
+    // On the anchor's own name, not on the base it extends, which does have
+    // implementations.
+    let position = fixture.position_of("spec/scope/belay/Compilation.pi", "MarkdownSerialization extends");
     // Nothing extends a concrete leaf. What it does have is the anchors that
-    // compose it: `Types` writes `strings: {Strings}`.
+    // compose it: `Compilation` writes `serialization: {MarkdownSerialization}`.
     let Some(request::GotoImplementationResponse::Array(locations)) =
         features::implementations(&fixture.world, &uri, position)
     else {
-        panic!("the composer of Strings is related to it");
+        panic!("the composer of MarkdownSerialization is related to it");
     };
     assert!(
-        locations
-            .iter()
-            .all(|location| location.uri.path().ends_with("types/index.pi")),
+        !locations.is_empty()
+            && locations
+                .iter()
+                .all(|location| location.uri.path().ends_with("belay/Compilation.pi")),
         "{locations:?}"
     );
 }
@@ -1301,15 +1302,15 @@ fn workspace_symbols_carry_their_description() {
 #[test]
 fn the_type_hierarchy_includes_composition() {
     let fixture = Fixture::new();
-    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
-    let position = fixture.position_of("spec/scope/language/types/Strings.pi", "Strings:");
+    let uri = fixture.uri("spec/scope/belay/Compilation.pi");
+    let position = fixture.position_of("spec/scope/belay/Compilation.pi", "MarkdownSerialization extends");
     let item = features::prepare_type_hierarchy(&fixture.world, &uri, position)
         .expect("item")
         .remove(0);
     let subtypes = features::type_hierarchy_subtypes(&fixture.world, &item).expect("subtypes");
     let composer = subtypes
         .iter()
-        .find(|item| item.name == "Types")
+        .find(|item| item.name == "Compilation")
         .unwrap_or_else(|| panic!("{:?}", subtypes.iter().map(|i| &i.name).collect::<Vec<_>>()));
     assert!(
         composer

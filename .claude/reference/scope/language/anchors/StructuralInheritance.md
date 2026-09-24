@@ -1,0 +1,30 @@
+# Structural Inheritance
+
+## Description
+
+Piton uses structural inheritance, not polymorphism. Support for inheritance including multiple bases is accessed via the extends keyword.
+```piton
+anchor FirstBaseAnchor:
+    firstBaseAnchorProperty: Hello from the First Base Anchor
+    description: Description from FirstBaseAnchor
+
+anchor SecondBaseAnchor:
+    secondBaseAnchorProperty: Hello from the Second Base Anchor
+    description: Description from SecondBaseAnchor
+
+anchor ChildAnchor extends FirstBaseAnchor, SecondBaseAnchor:
+    childAnchorProperty: Hello from Child Anchor
+```
+And as JSON:
+```json
+{
+  "firstBaseAnchorProperty": "Hello from the First Base Anchor",
+  "secondBaseAnchorProperty": "Hello from the Second Base Anchor",
+  "description": "Description from SecondBaseAnchor",
+  "childAnchorProperty": "Hello from Child Anchor"
+}
+```
+One particular thing to note here is that both FirstBaseAnchor and SecondBaseAnchor include a description property, and the way that got inherited by ChildAnchor is a simple left to right where the last in line wins.
+Type constraints from the bases work the same way as values; the right-most one wins. Abstracts have their own rules, which we'll get to.
+You can't redeclare a constraint you inherit, you can only give it a value. So if subtitle is already constrained, `subtitle: Hi` is fine and `subtitle:: string: Hi` is a compiler error.
+An anchor can't extend itself, directly or through other anchors. That's a compiler error.

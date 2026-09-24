@@ -629,18 +629,40 @@ fn build_uses_the_configured_output_and_renderer() {
 }
 
 #[test]
-fn a_framework_adds_its_output_on_top_of_the_renderer() {
-    let fixture = full_project("build-both", "        - {ClaudeCodeAdapter}");
+fn a_framework_replaces_the_renderer_output() {
+    let fixture = full_project("build-framework", "        - {ClaudeCodeAdapter}");
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(fixture.exists("dist/index.json"));
     assert!(fixture.exists(".claude/skills/review-components/SKILL.md"));
+    assert!(!fixture.exists("dist"), "only the adapter's output is written");
     let manifest = fixture.read(".piton/manifest.json");
-    assert!(manifest.contains("\"dist/index.json\""), "{manifest}");
-    assert!(
-        manifest.contains("\".claude/skills/review-components/SKILL.md\""),
-        "{manifest}"
-    );
+    assert!(!manifest.contains("dist/"), "{manifest}");
+}
+
+#[test]
+fn naming_the_renderer_output_writes_it_alongside_a_framework() {
+    for (name, setting) in [("build-both-output", "output: ./dist"), ("build-both-renderer", "renderer: yaml")] {
+        let fixture = full_project(name, "        - {ClaudeCodeAdapter}");
+        let config = fixture
+            .read("piton.config.pi")
+            .replace("    entry: ./spec/index.pi\n", &format!("    entry: ./spec/index.pi\n    {setting}\n"));
+        fixture.write("piton.config.pi", &config);
+
+        let (_, stderr, code) = fixture.run(&["build"]);
+        assert_eq!(code, 0, "{stderr}");
+        let extension = if setting.starts_with("renderer") { "yaml" } else { "json" };
+        assert!(fixture.exists(&format!("dist/index.{extension}")), "{setting}");
+        assert!(fixture.exists(".claude/skills/review-components/SKILL.md"));
+        let manifest = fixture.read(".piton/manifest.json");
+        assert!(manifest.contains(&format!("\"dist/index.{extension}\"")), "{manifest}");
+
+        // Taking the setting out again removes what it wrote.
+        let without = config.replace(&format!("    {setting}\n"), "");
+        fixture.write("piton.config.pi", &without);
+        let (stdout, stderr, code) = fixture.run(&["build"]);
+        assert_eq!(code, 0, "{stderr}");
+        assert!(!fixture.exists(&format!("dist/index.{extension}")), "{stdout}");
+    }
 }
 
 #[test]
@@ -825,7 +847,7 @@ fn help_lists_every_documented_command() {
     let output = Command::new(binary()).arg("--help").output().expect("help");
     let text = String::from_utf8_lossy(&output.stdout);
     for command in [
-        "agent", "build", "check", "compile", "format", "loc", "lsp", "reach",
+        "agent", "build", "check", "compile", "format", "loc", "lsp", "reach", "slice",
     ] {
         assert!(
             text.contains(command),
@@ -833,6 +855,258 @@ fn help_lists_every_documented_command() {
         );
     }
     let _ = Path::new(".");
+}
+
+/// Two files where a button reads and references a document, with an
+/// unrelated sibling property.
+fn slice_project(name: &str) -> Fixture {
+    let fixture = Fixture::new(name);
+    fixture.write(
+        "spec/Document.pi",
+        "export anchor Document:\n    name: Untitled\n    save: Writes it to disk.\n",
+    );
+    fixture.write(
+        "spec/ui.pi",
+        "from ./Document import Document\n\n\
+         export anchor SaveButton:\n    \
+         color: blue\n    \
+         click: Saves ${Document.name} with @{Document.save}.\n",
+    );
+    fixture
+}
+
+#[test]
+fn slice_prints_what_a_target_depends_on() {
+    let fixture = slice_project("slice");
+
+    let (stdout, stderr, code) = fixture.run(&["slice", "spec/ui.pi#SaveButton.click"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.starts_with("# SaveButton.click\n"), "{stdout}");
+    assert!(
+        stdout.contains("### SaveButton.click\n\nReads `Document.name`.\n\nSaves Untitled with Document.save.\n"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("### Document.save\n"), "{stdout}");
+    assert!(!stdout.contains("SaveButton.color"), "{stdout}");
+
+    // A property with no dependencies is a slice of one.
+    let (stdout, _, code) = fixture.run(&["slice", "spec/ui.pi#SaveButton.color"]);
+    assert_eq!(code, 0);
+    assert!(!stdout.contains("Document"), "{stdout}");
+
+    // A bare name is looked up across the project, and gives the same bytes.
+    let (bare, stderr, code) = fixture.run(&["slice", "SaveButton.color"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(bare, stdout);
+}
+
+#[test]
+fn slice_reports_targets_it_cannot_resolve() {
+    let fixture = slice_project("slice-errors");
+    fixture.write("spec/other.pi", "export anchor SaveButton:\n    color: red\n");
+
+    let cases: [(&[&str], &str); 5] = [
+        (&["slice", "spec/missing.pi#SaveButton"], "does not exist"),
+        (&["slice", "spec/ui.pi#SaveButon"], "[unresolved-symbol]"),
+        (&["slice", "spec/ui.pi#SaveButton.colour"], "did you mean `color`?"),
+        (&["slice", "SaveButton"], "[ambiguous-target]"),
+        (&["slice", "spec/ui.pi"], "write `spec/ui.pi#Name`"),
+    ];
+    for (args, expected) in cases {
+        let (stdout, stderr, code) = fixture.run(args);
+        assert_eq!(code, 1, "{args:?} should fail");
+        assert!(stdout.is_empty(), "{args:?}: {stdout}");
+        assert!(stderr.contains(expected), "{args:?}:\n{stderr}");
+    }
+}
+
+/// A Belay project whose build compiles a skill and the reference it cites,
+/// and an anchor that reads one the build never writes out, plus a file
+/// nothing imports.
+fn slice_adapter_project(name: &str) -> Fixture {
+    let fixture = Fixture::new(name);
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeCodeAdapter}\n",
+    );
+    fixture.write(
+        "spec/Reference.pi",
+        "export anchor HouseStyle:\n    description: Every component keeps its props flat.\n    naming: Spell names out.\n",
+    );
+    fixture.write(
+        "spec/Orphan.pi",
+        "export anchor Orphan:\n    note: Nothing the build emits cites this.\n",
+    );
+    fixture.write(
+        "spec/Constructs.pi",
+        "use @piton/belay\n\nfrom ./Reference import HouseStyle\nfrom ./Orphan import Orphan\n\n\
+         export skill ReviewComponents:\n    \
+         description: Review a component\n    \
+         useWhen: reviewing a component\n    \
+         prompt: Read @{HouseStyle.naming} first, then review.\n\n\
+         export anchor Uses:\n    \
+         note: See ${Orphan.note}\n",
+    );
+    fixture.write("spec/Loose.pi", "export anchor Loose:\n    note: Unimported.\n");
+    fixture.write("spec/index.pi", "from ./Constructs export ReviewComponents, Uses\n");
+    fixture
+}
+
+#[test]
+fn slice_with_an_adapter_cites_what_the_build_writes() {
+    let fixture = slice_adapter_project("slice-adapter");
+
+    let (stdout, stderr, code) = fixture.run(&[
+        "slice",
+        "spec/Constructs.pi#ReviewComponents.prompt",
+        "--adapter",
+        "claude-code",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stdout.contains("Anchor in `.claude/skills/review-components/SKILL.md`"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Read [HouseStyle.naming](.claude/reference/Reference.md#naming) first"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Anchor in `.claude/reference/Reference.md#house-style`"),
+        "{stdout}"
+    );
+    // An abstract base has no document of its own; what it declares is
+    // compiled into the anchors that extend it, and the source is not cited.
+    assert!(
+        stdout.contains("Abstract anchor, compiled into the anchors that extend it."),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("spec/"), "{stdout}");
+    assert!(!stdout.contains("@piton/"), "{stdout}");
+
+    // Nor is it for an anchor that is only read: its value is compiled into
+    // the reader's document.
+    let (uses, stderr, code) =
+        fixture.run(&["slice", "spec/Constructs.pi#Uses", "--adapter", "claude-code"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(uses.contains("Anchor in `.claude/reference/Constructs.md#uses`"), "{uses}");
+    assert!(uses.contains("## Orphan\n\nAnchor with no compiled document of its own.\n"), "{uses}");
+    assert!(!uses.contains(".pi"), "{uses}");
+
+    // Every location cited is one the build really writes.
+    let (_, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(fixture.exists(".claude/skills/review-components/SKILL.md"));
+    assert!(fixture
+        .read(".claude/reference/Reference.md")
+        .contains("## Naming"));
+
+    // A bare name gives the same bytes.
+    let (bare, stderr, code) = fixture.run(&[
+        "slice",
+        "ReviewComponents.prompt",
+        "--adapter",
+        "claude-code",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(bare, stdout);
+}
+
+#[test]
+fn slice_with_an_adapter_finds_an_anchor_embedded_upstream() {
+    // `Leaf` has no document of its own: the build inlines it into
+    // `Group.items`, which is itself inlined into `Index.group`. Nothing the
+    // slice of `Leaf` depends on says so, since what embeds it is upstream.
+    let fixture = slice_adapter_project("slice-adapter-embedded");
+    fixture.write(
+        "spec/Group.pi",
+        "export anchor Leaf:\n    note: Only ever embedded.\n\n\
+         export anchor Group:\n    \
+         intro: A group of leaves.\n    \
+         items:\n        - {Leaf}\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from ./Constructs export ReviewComponents\nfrom ./Group import Group\n\n\
+         export anchor Index:\n    group: {Group}\n",
+    );
+
+    let (_, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stderr}");
+    let index = fixture.read(".claude/reference/index.md");
+    assert!(index.contains("### Items\n"), "{index}");
+    assert!(index.contains("Only ever embedded."), "{index}");
+
+    let (stdout, stderr, code) = fixture.run(&[
+        "slice",
+        "spec/Group.pi#Leaf",
+        "--adapter",
+        "claude-code",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stdout.contains("Anchor embedded in `.claude/reference/index.md#items`"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "The entry reaches it through [`Index.group`](.claude/reference/index.md#group) and [`Group.items`](.claude/reference/index.md#items), which are included too."
+        ),
+        "{stdout}"
+    );
+
+    // Citing the source, the chain is still traced from the project's entry,
+    // not from the file the target is in.
+    let (source, stderr, code) = fixture.run(&["slice", "spec/Group.pi#Leaf"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        source.contains("The entry reaches it through `Index.group` and `Group.items`"),
+        "{source}"
+    );
+    assert!(source.contains("## Index\n\nAnchor in `spec/index.pi`."), "{source}");
+    assert!(!source.contains("A group of leaves."), "{source}");
+}
+
+#[test]
+fn slice_with_an_adapter_needs_a_target_the_build_writes() {
+    let fixture = slice_adapter_project("slice-adapter-errors");
+
+    let cases: [(&[&str], &[&str]); 4] = [
+        (
+            &["slice", "spec/Orphan.pi#Orphan.note", "--adapter", "claude-code"],
+            &["`Orphan` is never compiled"],
+        ),
+        (
+            &["slice", "spec/Loose.pi#Loose", "--adapter", "claude-code"],
+            &["is not part of what the build compiles"],
+        ),
+        (
+            &["slice", "Loose", "--adapter", "claude-code"],
+            &["[unresolved-symbol]", "only what the build compiles is searched"],
+        ),
+        (
+            &["slice", "Loose", "--adapter", "codex"],
+            &["`codex` is not a target this project builds; it builds `claude-code`"],
+        ),
+    ];
+    for (args, expected) in cases {
+        let (stdout, stderr, code) = fixture.run(args);
+        assert_eq!(code, 1, "{args:?} should fail");
+        assert!(stdout.is_empty(), "{args:?}: {stdout}");
+        for text in expected {
+            assert!(stderr.contains(text), "{args:?}:\n{stderr}");
+        }
+    }
+
+    // Without an adapter the same targets slice from the source.
+    let (_, stderr, code) = fixture.run(&["slice", "spec/Loose.pi#Loose"]);
+    assert_eq!(code, 0, "{stderr}");
+
+    // A project without Belay has nothing to cite.
+    let plain = slice_project("slice-adapter-plain");
+    let (_, stderr, code) = plain.run(&["slice", "SaveButton", "--adapter", "claude-code"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("no Belay configuration"), "{stderr}");
 }
 
 #[test]

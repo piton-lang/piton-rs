@@ -1,0 +1,46 @@
+# Super
+
+## Description
+
+This brings up the question of what happens when a child anchor declares a property that is inherited from the base anchor, and how do we retrieve values from the base?
+```piton
+anchor BaseAnchor:
+    description: Description from BaseAnchor
+
+anchor ChildAnchor extends BaseAnchor:
+    description: Description from ChildAnchor
+```
+This of course will simply use the child anchor’s value.
+```json
+{
+  "description": "Description from ChildAnchor"
+}
+```
+But if we wanted to specifically pull from the parent, that is possible using the super keyword.
+```piton
+anchor BaseAnchor:
+    description: Description from BaseAnchor
+
+anchor ChildAnchor extends BaseAnchor:
+    description:
+        ${super.description} and Description from ChildAnchor
+```
+It’s worth noting the small detail here that we borrow the ${} syntax from other languages for string interpolation.
+So the resulting JSON would be:
+```json
+{
+  "description": "Description from BaseAnchor and Description from ChildAnchor"
+}
+```
+As with the previous example of multiple inheritance, the anchor could be inheriting from multiple bases, in which case what does super point to? super is everything the anchor inherits, merged together the same way as property inheritance: left to right, last in line wins. So if the last base doesn't have the property, super still finds it on an earlier one.
+```piton
+anchor Left:
+    d: from-left
+
+anchor Right:
+    other: x
+
+anchor Child extends Left, Right:
+    d: ${super.d} plus child
+```
+Here Child.d is “from-left plus child”. If none of the bases have the property, that's a compiler error.

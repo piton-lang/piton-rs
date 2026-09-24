@@ -8,6 +8,5 @@ license.workspace = true
 piton-core.workspace = true
 piton-syntax.workspace = true
 indexmap.workspace = true
-
-[dev-dependencies]
 piton-emit.workspace = true
+

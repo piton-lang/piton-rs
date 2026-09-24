@@ -138,6 +138,22 @@ enum Command {
         package: String,
     },
 
+    /// Print the part of the specification one anchor or property depends on
+    ///
+    /// Follows what the target extends, reads, refers to, and embeds, and
+    /// what its types name, transitively, and prints it as one Markdown
+    /// document: the context an agent needs to implement that one thing.
+    Slice {
+        /// `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name to
+        /// look up across the project
+        target: String,
+        /// Cite what this Belay target compiles, like `claude-code`, instead
+        /// of the source: locations and references point at its reference
+        /// documents
+        #[arg(long)]
+        adapter: Option<String>,
+    },
+
     /// Clone and "un-git" repositories into the tethers directory
     ///
     /// On its own, installs everything in piton.config.pi's dependencies.
@@ -194,6 +210,7 @@ fn main() -> ExitCode {
             no_paths,
         } => commands::reach::run(&targets, !no_unreachable, !no_paths),
         Command::Remove { package } => commands::remove::run(&package),
+        Command::Slice { target, adapter } => commands::slice::run(&target, adapter.as_deref()),
         Command::Tether { source, rename } => {
             commands::tether::run(source.as_deref(), rename.as_deref())
         }

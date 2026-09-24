@@ -6,8 +6,8 @@ export anchor Collections:
         Piton has two core collection types: lists and dictionaries – or arrays
         and objects depending on what language you’re coming from.
 
-    lists: {Lists}
-    dictionaries: {Dictionaries}
+    lists: @{Lists}
+    dictionaries: @{Dictionaries}
     combiningCollectionTypes:
         You **can** combine lists and dictionaries (and other types for that
         matter):

@@ -1,0 +1,47 @@
+# Type Constraints
+
+## Type Constraints
+
+You can add type constraints to variables using ::
+```piton
+myVariable:: number: 42
+```
+Note that the whitespace after both :: and : is important. myVariable::number:42 would cause a compiler error. Why? Because including the space makes it more readable.
+
+## Multiple Type Constraints
+
+It’s also possible to add multiple type constraints to a variable using an additional ::
+```piton
+myVariable:: number:: string: 42
+```
+This will allow myVariable to be either a number or a string, and the order of preference is constraint fulfillment left to right. In the above example, myVariable will be a number since 42 can be evaluated as a number.
+However, if you flip it around:
+```piton
+myVariable:: string:: number: 42
+```
+myVariable will be a string since 42 can also be a string and string is evaluated first and wins. One final example:
+```piton
+myVariable:: boolean:: number:: string: "false"
+```
+The quotes are part of the value, so it isn't a boolean or a number. myVariable is the string `"false"`, quotes and all.
+
+## Required And Optional
+
+In an abstract anchor, if a property has a type constraint but no value, it's required. Anything that extends the anchor has to give it a value. Adding null to the constraint means that value can be null, but you still have to write it.
+If it has a default value, it's optional. The usual way to write an optional property is to allow null and default to null:
+```piton
+abstract anchor Card:
+    title:: string
+    subtitle:: string:: null
+    footer:: string:: null: null
+
+anchor MyCard extends Card:
+    title: Hello
+    subtitle: null
+```
+Here title and subtitle are required (subtitle can be null), and footer is optional. The language server won't complain about a missing optional property.
+
+## Empty Values
+
+A property has to have a value. A name with nothing after it and nothing indented under it is a compiler error. If you mean nothing, write null.
+The only exception is a required property in an abstract anchor, like title above. Anywhere else, a type constraint with no value is still a compiler error.

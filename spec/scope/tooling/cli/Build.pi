@@ -25,7 +25,12 @@ export cli-command Build:
         the entry's exports reference. Files keep their place under root and
         get the renderer's extension, so with the defaults
         spec/components/Button.pi becomes dist/components/Button.json.
-        Frameworks add their own output on top of that.
+
+        A framework decides where its own output goes, and that replaces the
+        renderer's: a project configured for Belay's Claude Code adapter gets
+        .claude and nothing in dist. Setting output or renderer in the project
+        config asks for the renderer's output as well, and the build writes
+        both.
 
     manifest:
         In a .piton directory that lives alongside the piton.config.pi file,

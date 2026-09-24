@@ -21,15 +21,15 @@ export anchor PackageManagement:
         to version control, but can be added, updated, removed, and inspected by
         the package management tooling.
 
-    packages: {Package}
-    dependencies: {Dependencies}
-    importingAndUsing: {ImportingAndUsing}
+    packages: @{Package}
+    dependencies: @{Dependencies}
+    importingAndUsing: @{ImportingAndUsing}
 
     commands:
-        - {Remove}
-        - {Tether}
-        - {Untether}
-        - {Update}
+        - @{Remove}
+        - @{Tether}
+        - @{Untether}
+        - @{Update}
     locations:
         Tethered packages are stored in the same directory as the
         piton.config.pi file inside a tethers/ directory.

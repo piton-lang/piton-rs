@@ -1,0 +1,35 @@
+# Compile
+
+## Description
+
+Compiles Piton
+Pointing at a single file, compile will output the compiled result to stdout. Glob-based paths won't work unless we also use Write the result next to the input file.
+If Write the result next to the input file. is set, the compiled result will be written to a file with the appropriate extension for the selected renderer that lives next to the input file.
+
+## Command Name
+
+compile
+
+## Positional Arguments
+
+```
+path: file or glob
+```
+
+## Named Arguments
+
+```
+renderer: Valid options are [ json, yaml, markdown ]. Defaults to json.
+write: Write the result next to the input file.
+dependencies: Include the source files it was compiled from.
+```
+
+## Output
+
+A compiled file is an object with one key per export. Anything that isn't exported is left out, and so are abstract anchors. The JSON examples elsewhere in this spec skip the exports and just show what's being discussed, to keep things short.
+
+## Dependencies
+
+If Include the source files it was compiled from. is set, the result is wrapped with the source files it was compiled from. A build tool that imports a Piton file has to know which other files to watch, and only the compiler knows: imports resolve through the module graph, and a package may keep a file somewhere the importing text never names.
+It comes out as a JSON object with two keys: value, which is the compiled output as a string, and dependencies, which is a list of the source files' absolute paths.
+Bundled package files are left out, since they live inside the compiler rather than on disk.

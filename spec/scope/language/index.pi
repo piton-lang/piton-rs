@@ -7,10 +7,10 @@ from ./types import Types
 from ./variables import Variables
 
 export anchor Language:
-    Overview: {LanguageOverview}
-    Types: {Types}
-    Variables: {Variables}
-    Operators: {Operators}
-    Expressions: {Expressions}
-    Anchors: {Anchors}
-    Reuse: {Reuse}
+    Overview: @{LanguageOverview}
+    Types: @{Types}
+    Variables: @{Variables}
+    Operators: @{Operators}
+    Expressions: @{Expressions}
+    Anchors: @{Anchors}
+    Reuse: @{Reuse}

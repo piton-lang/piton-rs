@@ -326,7 +326,7 @@ pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
 
 /// Collects the anchors a value depends on. A value that embeds an anchor is a
 /// composition edge; a value that links to one is a reference edge.
-fn collect_targets(value: &Value, out: &mut Vec<(AnchorId, EdgeKind)>) {
+pub(crate) fn collect_targets(value: &Value, out: &mut Vec<(AnchorId, EdgeKind)>) {
     match value {
         Value::Anchor(id) => out.push((*id, EdgeKind::Composition)),
         Value::Reference(target) => out.push((target.anchor, EdgeKind::Reference)),

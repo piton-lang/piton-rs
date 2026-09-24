@@ -7,18 +7,18 @@ from ./conditional import CONDITIONAL_OPERATORS, ConditionalOperators
 from ./logical import LOGICAL_OPERATORS, LogicalOperators
 
 export anchor Operators:
-    ControlFlow: {ControlFlow}
+    ControlFlow: @{ControlFlow}
 
     StandardOperators:
         Piton supports a pretty standard if not small set of operators, plus a
         few slightly more unique ones. Let’s start with the standard ones.
 
-    AccessOperators: {AccessOperators}
-    ArithmeticOperators: {ArithmeticOperators}
-    ComparisonOperators: {ComparisonOperators}
-    ConcatenationOperators: {ConcatenationOperators}
-    ConditionalOperators: {ConditionalOperators}
-    LogicalOperators: {LogicalOperators}
+    AccessOperators: @{AccessOperators}
+    ArithmeticOperators: @{ArithmeticOperators}
+    ComparisonOperators: @{ComparisonOperators}
+    ConcatenationOperators: @{ConcatenationOperators}
+    ConditionalOperators: @{ConditionalOperators}
+    LogicalOperators: @{LogicalOperators}
     precedence:
         Higher rows go first. Operators on the same row go left to right,
         except the ternary, which goes right to left. Parentheses change the

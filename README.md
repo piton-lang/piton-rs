@@ -13,6 +13,7 @@ acceptance suite is the language describing itself.
 piton check      # validate the specbase
 piton build      # compile every configured artifact
 piton reach      # see what the entrypoints can and cannot see
+piton slice spec/ui.pi#SaveButton  # the spec one thing depends on, for an agent
 piton tether URL # vendor a dependency into tethers/
 ```
 
@@ -75,6 +76,7 @@ what would happen. `cargo xtask` on its own lists the tasks.
 | `piton lsp` | Runs the language server over stdio |
 | `piton reach [targets]` | Reports reachable anchors with depth and path, and what is unreachable; `--no-paths` and `--no-unreachable` trim the report |
 | `piton remove <package>` | Deletes an installed package and drops it from `dependencies`, refusing if it was edited or anything still imports it |
+| `piton slice <target>` | Prints what one anchor, property, or variable depends on as a single Markdown document; the target is `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name; `--adapter <target>` links to what that Belay target compiles instead of the source |
 | `piton tether [source]` | Installs every dependency, or adds `source` to `dependencies` and installs it; `--as` picks the name |
 | `piton untether <package>` | Moves an installed package to `<root>/untethered/` and rewrites the imports that named it; `--as` renames it, `--no-rewrite` only moves it |
 | `piton update [packages]` | Reinstalls the dependencies declared in `piton.config.pi` at their pinned versions |
@@ -82,8 +84,10 @@ what would happen. `cargo xtask` on its own lists the tasks.
 `piton build` writes the renderer's output to the `output` directory in the
 config (default `./dist`, as JSON unless `renderer` says otherwise): the entry
 file and every file its exports reference, each at its place under `root`. So
-`spec/components/Button.pi` becomes `dist/components/Button.json`. Frameworks
-add their own output on top.
+`spec/components/Button.pi` becomes `dist/components/Button.json`. A
+framework's output replaces it: a project configured for Belay gets its
+adapters' output and no `dist/`, unless the config sets `output` or `renderer`
+to ask for both.
 
 ## Packages
 

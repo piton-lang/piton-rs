@@ -1,0 +1,53 @@
+# Collections
+
+## Collections
+
+Piton has two core collection types: lists and dictionaries – or arrays and objects depending on what language you’re coming from.
+
+## Lists
+
+[Lists](./Lists.md#lists)
+
+## Dictionaries
+
+[Dictionaries](./Dictionaries.md#dictionaries)
+
+## Combining Collection Types
+
+You **can** combine lists and dictionaries (and other types for that matter):
+```piton
+combined:
+    This is a string
+
+    - This
+    - Is
+    - A
+    - List
+
+    nestedDictionary:
+        deeplyNestedDictionary: This is a string
+```
+And this scenario is where Piton takes a little liberty in syntax strictness for the sake of human writability and readability. Because we’re mixing types, what happens here is that combined becomes an implicit list that has a string, a list, and a dictionary inside of it. As JSON that would be:
+```json
+{
+  "combined": [
+    "This is a string",
+    ["This", "Is", "A", "List"],
+    {
+      "nestedDictionary": {
+        "deeplyNestedDictionary": "This is a string"
+      }
+    }
+  ]
+}
+```
+We’re sacrificing the otherwise simple rules of syntax here only because this is an inherently intuitive form for a human. We’ll let the compiler do a bit of heavy lifting to make the human’s job nicer.
+You'll get the same implicit list if you put a list, dictionary, or anchor in the middle of some text with {}. So See {Foo} for details becomes a list with “See”, a copy of Foo, and “for details”.
+One additional gotcha with Piton is that, with an implicit list, dictionary properties declared directly within the mixed block remain addressable; we’re still able to directly reference combined.nestedDictionary.deeplyNestedDictionary and get back “This is a string”. As I said previously, Piton does not allow for list accessors, so trying to access either the string or the list is not possible.
+The same is true here:
+```piton
+combined:
+    - First item
+        nested: value
+```
+Since the dictionary is an item in an explicit list, you cannot access that dictionary anymore. I’m just pointing this out because it is syntactically possible, though arguably not a very wise choice in structuring your data.

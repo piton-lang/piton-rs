@@ -9,6 +9,7 @@ pub mod loc;
 pub mod lsp;
 pub mod reach;
 pub mod remove;
+pub mod slice;
 pub mod tether;
 pub mod untether;
 pub mod update;

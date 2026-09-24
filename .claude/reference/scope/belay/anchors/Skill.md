@@ -1,0 +1,16 @@
+# Skill Behavior
+
+## Description
+
+A skill is a selectively loaded set of instructions for a particular kind of work. Its discovery metadata explains when it is useful.
+
+## Requirements
+
+- Require useWhen. description and prompt are optional.
+- Report an error if the target needs a description and there isn't one.
+- Emit the skill into the configured target's skill directory and format.
+- Derive the skill name from the anchor using the adapter's naming rules.
+- Form the discovery description from description followed by Use when and useWhen.
+- Emit prompt as the primary body of the skill.
+- Serialize additional properties after the primary prompt.
+- Leave skill selection and loading to the consuming platform.

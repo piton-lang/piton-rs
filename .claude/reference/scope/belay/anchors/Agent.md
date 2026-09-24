@@ -1,0 +1,17 @@
+# Agent Behavior
+
+## Description
+
+An agent describes a role and the instructions for performing it, expressed in the format understood by the target platform.
+
+## Requirements
+
+- Require role. description and prompt are optional.
+- Report an error if the target needs a description and there isn't one.
+- Emit the agent into the configured target's agent directory and format.
+- Use the kebab-case anchor name as agent identity unless the target requires another form.
+- Emit description as discovery metadata.
+- Begin the body with You are a followed by the role.
+- Emit prompt after the role introduction.
+- Map explicit tools and model settings only through supported target configuration fields.
+- Serialize additional properties after the primary prompt.

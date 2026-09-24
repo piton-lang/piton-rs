@@ -6,8 +6,8 @@ from ./scope/package-management import PackageManagement
 from ./scope/tooling import Tooling
 
 export anchor Specification:
-    FoundingThesis: {FoundingThesis}
-    Language: {Language}
-    Tooling: {Tooling}
-    Belay: {Belay}
-    PackageManagement: {PackageManagement}
+    FoundingThesis: @{FoundingThesis}
+    Language: @{Language}
+    Tooling: @{Tooling}
+    Belay: @{Belay}
+    PackageManagement: @{PackageManagement}
