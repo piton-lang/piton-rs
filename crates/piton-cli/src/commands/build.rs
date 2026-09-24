@@ -3,7 +3,8 @@
 //! Without a framework, a build writes the renderer's output to the configured
 //! output directory: the entry file, and every file holding something the
 //! entry's exports reference, each keeping its place under the source root and
-//! taking the renderer's extension. Frameworks add their own output on top.
+//! taking the renderer's extension. A framework's output replaces it, unless
+//! the configuration sets `output` or `renderer` to ask for both.
 //!
 //! The plan is built and validated in full before anything is written, so a
 //! project either produces a consistent set of artifacts or produces
@@ -51,7 +52,11 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
 
     // The renderer's output comes first; a framework adds to it.
     let mut plan = Plan {
-        files: rendered_files(&compilation, renderer),
+        files: if compilation.project.renders {
+            rendered_files(&compilation, renderer)
+        } else {
+            Vec::new()
+        },
         diagnostics: Vec::new(),
         targets: Vec::new(),
     };

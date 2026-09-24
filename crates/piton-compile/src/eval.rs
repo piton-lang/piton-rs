@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use indexmap::IndexSet;
 use piton_core::{
     format_number, AnchorId, Diagnostic, Mixed, MixedItem, Properties, Ref, Span, Text, Value,
 };
@@ -76,9 +77,27 @@ impl Evaluated {
     }
 }
 
+/// A value evaluation can read: a property as seen from one anchor, or a
+/// top-level variable.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Read {
+    Property(AnchorId, String),
+    Variable(VariableId),
+}
+
+/// What each property and variable read while it was evaluated, in the order
+/// it read them.
+///
+/// Evaluation folds `${Other.name}` into plain text, so once it is done the
+/// value no longer says where it came from. Tooling that has to know what a
+/// declaration depends on -- `piton slice` -- asks this instead of guessing
+/// from the result.
+pub type Reads = HashMap<Read, IndexSet<Read>>;
+
 pub struct Outcome {
     pub anchors: HashMap<AnchorId, Properties>,
     pub variables: HashMap<VariableId, Value>,
+    pub reads: Reads,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -91,6 +110,9 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
         variables: HashMap::new(),
         variable_stack: Vec::new(),
         anchors: HashMap::new(),
+        reads: Reads::new(),
+        frames: Vec::new(),
+        muted: Vec::new(),
         diagnostics: Vec::new(),
     };
 
@@ -106,6 +128,7 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
     Outcome {
         anchors: evaluator.anchors,
         variables: evaluator.variables,
+        reads: evaluator.reads,
         diagnostics: evaluator.diagnostics,
     }
 }
@@ -119,10 +142,29 @@ struct Evaluator<'a> {
     variables: HashMap<VariableId, Value>,
     variable_stack: Vec<VariableId>,
     anchors: HashMap<AnchorId, Properties>,
+    reads: Reads,
+    /// What is being evaluated right now, innermost last, so a read can be
+    /// charged to whatever asked for it.
+    frames: Vec<Read>,
+    /// Frame depths at which reads are not recorded, because they only
+    /// resolve where a reference points.
+    muted: Vec<usize>,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> Evaluator<'a> {
+    /// Records that whatever is being evaluated read `read`.
+    fn note(&mut self, read: Read) {
+        if self.muted.last() == Some(&self.frames.len()) {
+            return;
+        }
+        if let Some(frame) = self.frames.last() {
+            if *frame != read {
+                self.reads.entry(frame.clone()).or_default().insert(read);
+            }
+        }
+    }
+
     fn path(&self, module: ModuleId) -> PathBuf {
         self.resolution.graph.get(module).path.clone()
     }
@@ -168,6 +210,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn property_value(&mut self, anchor: AnchorId, name: &str) -> Value {
+        self.note(Read::Property(anchor, name.to_string()));
         let key = (anchor, name.to_string());
         if let Some(cached) = self.properties.get(&key) {
             return cached.clone();
@@ -206,7 +249,9 @@ impl<'a> Evaluator<'a> {
         }
 
         self.property_stack.push(key.clone());
+        self.frames.push(Read::Property(anchor, name.to_string()));
         let value = self.slot_value(anchor, &slot, name);
+        self.frames.pop();
         self.property_stack.pop();
 
         self.properties.insert(key, value.clone());
@@ -288,6 +333,7 @@ impl<'a> Evaluator<'a> {
             if !slot.has_value {
                 continue;
             }
+            self.note(Read::Property(slot.owner, name.to_string()));
             let derived = context.derived.unwrap_or(this);
             let key = (derived, format!("{name}\u{0}super\u{0}{}", slot.owner.0));
             if self.property_stack.contains(&key) {
@@ -316,6 +362,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn variable_value(&mut self, id: VariableId) -> Value {
+        self.note(Read::Variable(id));
         if let Some(cached) = self.variables.get(&id) {
             return cached.clone();
         }
@@ -355,6 +402,7 @@ impl<'a> Evaluator<'a> {
         }
 
         self.variable_stack.push(id);
+        self.frames.push(Read::Variable(id));
         let evaluated = self.value_node(&decl.value, &Context::file(def.module));
         let value = self.constrain(
             evaluated,
@@ -363,6 +411,7 @@ impl<'a> Evaluator<'a> {
             def.module,
             decl.name_span,
         );
+        self.frames.pop();
         self.variable_stack.pop();
 
         self.variables.insert(id, value.clone());
@@ -833,7 +882,10 @@ impl<'a> Evaluator<'a> {
             ExprKind::Field(base, field) => {
                 let mut target = self.reference_target(base, context)?;
                 // The property has to exist; reading it also reports a missing
-                // one the same way any other access does.
+                // one the same way any other access does. It is only read to
+                // find where the reference points, which is not a dependency
+                // on its value.
+                self.muted.push(self.frames.len());
                 let value = if target.path.is_empty() {
                     let anchor = target.anchor;
                     self.field(&Value::Anchor(anchor), &field.value, context, field.span).value
@@ -841,6 +893,7 @@ impl<'a> Evaluator<'a> {
                     let holder = self.ref_value(&target);
                     self.field(&holder, &field.value, context, field.span).value
                 };
+                self.muted.pop();
                 match value {
                     // A property holding an anchor points at that anchor.
                     Value::Anchor(anchor) => Some(Ref::anchor(anchor)),
@@ -1718,6 +1771,9 @@ impl<'a> Probe<'a> {
             variables: HashMap::new(),
             variable_stack: Vec::new(),
             anchors: HashMap::new(),
+            reads: Reads::new(),
+            frames: Vec::new(),
+            muted: Vec::new(),
             diagnostics: Vec::new(),
         };
         for def in &resolution.store.anchors {

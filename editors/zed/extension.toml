@@ -15,7 +15,7 @@ repository = "https://github.com/mctavishdynamics/piton"
 # `cargo xtask publish-grammar` pushes `editors/tree-sitter-piton` to that
 # repository and rewrites the commit below to the one it pushed.
 repository = "https://github.com/piton-lang/tree-sitter-piton"
-commit = "4c408268dfb246cfcb35c64e204b06c08c6aea6c"
+commit = "8914c6263306b1c1b5c5718ba5ce452e8a54ad9f"
 
 [language_servers.piton]
 name = "Piton"

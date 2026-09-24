@@ -1,0 +1,21 @@
+# Circular Imports
+
+## Description
+
+Circular imports are supported and will not throw a compiler error. Circular references are fine as well as long as it does not create something impossible to resolve.
+For example
+```piton
+anchor A:
+    description: This anchor talks about ${B}
+
+anchor B:
+    description: This anchor talks about ${A}
+```
+Is perfectly fine because ${A} and ${B} both settle to a string (the anchor's name).
+However
+```piton fragment
+A: {B}
+B: {A}
+```
+Is a compile error because it simply cannot resolve.
+The only cycles that are errors are ones like this, that can't resolve, and an anchor that ends up extending itself.

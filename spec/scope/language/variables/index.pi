@@ -8,11 +8,11 @@ from ./TypeCoercion import TypeCoercion
 from ./TypeConstraints import TypeConstraints
 
 export anchor Variables:
-    overview: {VariablesOverview}
-    typeConstraints: {TypeConstraints}
-    listTypeConstraints: {ListTypeConstraints}
-    nestedTypeConstraints: {NestedTypeConstraints}
-    specialTypeConstraints: {SpecialTypeConstraints}
-    typeCoercion: {TypeCoercion}
-    mutability: {Mutability}
-    scope: {Scope}
+    overview: @{VariablesOverview}
+    typeConstraints: @{TypeConstraints}
+    listTypeConstraints: @{ListTypeConstraints}
+    nestedTypeConstraints: @{NestedTypeConstraints}
+    specialTypeConstraints: @{SpecialTypeConstraints}
+    typeCoercion: @{TypeCoercion}
+    mutability: @{Mutability}
+    scope: @{Scope}

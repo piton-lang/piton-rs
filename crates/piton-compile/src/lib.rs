@@ -9,6 +9,7 @@ pub mod packages;
 pub mod prelude;
 pub mod reach;
 pub mod resolve;
+pub mod slice;
 pub mod store;
 
 use std::collections::HashMap;
@@ -28,6 +29,8 @@ pub struct Compilation {
     pub resolution: Resolution,
     pub values: HashMap<AnchorId, Properties>,
     pub variables: HashMap<VariableId, Value>,
+    /// What each property and variable read while it was evaluated.
+    pub reads: eval::Reads,
     pub diagnostics: DiagnosticSink,
 }
 
@@ -92,6 +95,7 @@ impl Compilation {
             resolution,
             values: outcome.anchors,
             variables: outcome.variables,
+            reads: outcome.reads,
             diagnostics,
         }
     }

@@ -409,6 +409,79 @@ fn report_references(
 }
 
 // ---------------------------------------------------------------------------
+// Locations
+// ---------------------------------------------------------------------------
+
+/// Where one target compiles each anchor, for a tool that has to cite the
+/// compiled output instead of the source, like `piton slice --adapter`.
+///
+/// It is the same layout a build writes: the same files, and fragments that
+/// land on the same headings.
+pub struct Locations<'a> {
+    compilation: &'a Compilation,
+    locations: HashMap<AnchorId, PathBuf>,
+    index: HashMap<PathBuf, FileIndex>,
+}
+
+/// Lays out `target` the way a build would, without rendering or writing
+/// anything past what finding the headings takes.
+///
+/// `target` is a target id, like `claude-code`, and has to be one the
+/// project builds: a link into output nothing writes would go nowhere.
+pub fn locations<'a>(
+    compilation: &'a Compilation,
+    config: &BelayConfig,
+    target: &str,
+) -> Result<Locations<'a>, String> {
+    let options = Options::load(compilation, config);
+    let Some(found) = options.targets.iter().find(|candidate| candidate.id == target) else {
+        let built: Vec<String> = options
+            .targets
+            .iter()
+            .map(|candidate| format!("`{}`", candidate.id))
+            .collect();
+        return Err(if built.is_empty() {
+            format!("`{target}` is not a target this project builds; it builds none")
+        } else {
+            format!(
+                "`{target}` is not a target this project builds; it builds {}",
+                built.join(", ")
+            )
+        });
+    };
+    let mut draft = Draft::default();
+    let emission = Emission::collect(compilation, config, &mut draft);
+    let closure = references::close(compilation, &emission.roots());
+    let Layout { context, .. } = layout(compilation, config, found, &emission, &closure);
+    Ok(Locations {
+        compilation,
+        locations: context.locations,
+        index: context.index,
+    })
+}
+
+impl markdown::LinkResolver for Locations<'_> {
+    /// The project-relative file an anchor compiles into, with the fragment
+    /// of the heading a reference to it, or to one of its properties, lands
+    /// on: `.claude/reference/ui.md#color`.
+    fn link(&self, target: &Ref) -> Option<String> {
+        let location = self.locations.get(&target.anchor)?;
+        let file = slash(location);
+        match self.index.get(location) {
+            Some(headings) => {
+                let fragment = headings
+                    .fragment(target, self.compilation)
+                    .unwrap_or_else(|| piton_emit::reference_fragment(self.compilation, target));
+                Some(format!("{file}#{fragment}"))
+            }
+            // A skill, command, or agent's own output has no headings to
+            // land on, so the link is to the file.
+            None => Some(file),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // One target
 // ---------------------------------------------------------------------------
 
@@ -433,15 +506,22 @@ impl TargetContext<'_> {
     }
 }
 
-fn build_target(
-    compilation: &Compilation,
+/// Where one target puts every document and native artifact, and the
+/// headings each reference document will have.
+struct Layout<'a> {
+    context: TargetContext<'a>,
+    /// Each reference document and the anchors it holds, in order.
+    files: BTreeMap<PathBuf, Vec<AnchorId>>,
+    compiled_shape: String,
+}
+
+fn layout<'a>(
+    compilation: &'a Compilation,
     config: &BelayConfig,
-    target: &Target,
+    target: &'a Target,
     emission: &Emission,
     closure: &Closure,
-    plan: &mut Draft,
-) {
-    let first_file = plan.files.len();
+) -> Layout<'a> {
     let project_root = &compilation.project.root;
 
     // Reference destinations are needed before anything renders, because a
@@ -507,6 +587,28 @@ fn build_target(
     }
     context.index = index;
     context.misses.borrow_mut().clear();
+
+    Layout {
+        context,
+        files,
+        compiled_shape,
+    }
+}
+
+fn build_target(
+    compilation: &Compilation,
+    config: &BelayConfig,
+    target: &Target,
+    emission: &Emission,
+    closure: &Closure,
+    plan: &mut Draft,
+) {
+    let first_file = plan.files.len();
+    let Layout {
+        context,
+        files,
+        compiled_shape,
+    } = layout(compilation, config, target, emission, closure);
 
     for (path, anchors) in &files {
         let parts = render_documents(&context, path, anchors, true);

@@ -16,19 +16,22 @@ from ./astro import AstroPlugin
 from ./vite import VitePlugin
 
 export anchor Tooling:
-    cli: {Cli}
-    projectConfig: {ProjectConfig}
-    frameworks: {Frameworks}
+    something:
+        HAHA TOOLING
+
+    cli: @{Cli}
+    projectConfig: @{ProjectConfig}
+    frameworks: @{Frameworks}
     editors:
-        - {Emacs}
-        - {Helix}
-        - {JetBrains}
-        - {Kate}
-        - {NeoVim}
-        - {Sublime}
-        - {Vim}
-        - {VsCode}
-        - {Zed}
+        - @{Emacs}
+        - @{Helix}
+        - @{JetBrains}
+        - @{Kate}
+        - @{NeoVim}
+        - @{Sublime}
+        - @{Vim}
+        - @{VsCode}
+        - @{Zed}
     consumption:
-        - {AstroPlugin}
-        - {VitePlugin}
+        - @{AstroPlugin}
+        - @{VitePlugin}

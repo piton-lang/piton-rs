@@ -1099,7 +1099,7 @@ fn describe_non_property(item: &ast::BlockItem, anchor: &str) -> (String, String
 }
 
 /// Finds the closest candidate by edit distance, for "did you mean" help.
-fn closest<'a>(name: &str, candidates: &'a [String]) -> Option<&'a str> {
+pub(crate) fn closest<'a>(name: &str, candidates: &'a [String]) -> Option<&'a str> {
     let mut best: Option<(usize, &str)> = None;
     for candidate in candidates {
         let distance = edit_distance(name, candidate);

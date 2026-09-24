@@ -28,7 +28,8 @@ fn primer(root: &Path, reference_root: &str, instruction_file: &str) -> String {
            lazy: follow one when the work touches what it describes.\n\
          - Scoped guidance is written to `{instruction_file}` files placed next to the code \
            they describe.\n\
-         - `piton check` validates the specbase; `piton reach` shows what the entrypoints can see.",
+         - `piton check` validates the specbase; `piton reach` shows what the entrypoints can see; \
+           `piton slice file.pi#Anchor.property` prints just the spec one thing depends on.",
         root.display()
     )
 }

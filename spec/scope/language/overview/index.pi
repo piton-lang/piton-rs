@@ -5,8 +5,8 @@ from ./Keywords import ReservedWords
 from ./Whitespace import Whitespace
 
 export anchor LanguageOverview:
-    introduction: {LanguageIntroduction}
-    filesAndModules: {FilesAndModules}
-    whitespace: {Whitespace}
-    comments: {Comments}
-    keywords: {ReservedWords}
+    introduction: @{LanguageIntroduction}
+    filesAndModules: @{FilesAndModules}
+    whitespace: @{Whitespace}
+    comments: @{Comments}
+    keywords: @{ReservedWords}

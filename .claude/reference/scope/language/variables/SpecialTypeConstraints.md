@@ -1,0 +1,23 @@
+# Special Type Constraints
+
+## Special Type Constraints
+
+There are three additional type annotations that we can use when we want to deal with slightly more fuzzy conditions. These are any, simple, and complex.
+The any constraint will allow any type, simple, complex, number, string, boolean, etc.
+The simple type will allow any simple type, which we’ve previously defined, but includes string, number, boolean, and null. It specifically avoids lists, dictionaries, and anchors.
+The complex type allows for any complex type, in other words, list, dictionary, and anchor.
+There are two more you can use with any type. Add [] to the end for a list of that type, like `string[]`. And put extends in front of an anchor type to accept anything that inherits from it, like `extends Operator[]`. We'll cover that one with abstract anchors.
+```piton
+a:: complex: [1, 2, 3]
+b:: complex:
+    a:: number: 1
+    b:: number: 2
+c:: simple: 1
+d:: simple: Hello, World
+e:: simple: false
+f:: any: 1
+g:: any: Hello, World
+h:: any:
+    - String
+    - [1, 2, 3]
+```

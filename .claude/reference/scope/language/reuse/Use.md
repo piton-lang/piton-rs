@@ -1,0 +1,12 @@
+# Use
+
+## Description
+
+When you want to use a user-defined keyword, you’ll need to apply the use keyword. It brings into scope of the current file any exported user-defined keywords.
+```piton fragment
+use ./CustomKeywords
+
+my-custom-keyword Wow:
+    description: amazing
+```
+`use` only brings in keywords. It does not import anything else that was exported, just as from...import does not import keywords.

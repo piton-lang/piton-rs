@@ -1,0 +1,57 @@
+# Expressions
+
+## Description
+
+Expressions combine values and operators to produce a result. Nothing gets evaluated unless it's in braces, like {a + b} or {1 + 2}. Without braces, 1 + 2 is just text. Evaluation follows Piton’s type and operator rules and resolves forward references. Unresolved or cyclic references are compiler errors.
+
+## Story
+
+A question you might currently have is how can a variable references another variable. We’ve hinted at this in a previous example where we added A and B but now let’s be clear about it.
+Easy expression using literals:
+```piton
+myVariable: {1 + 2}
+```
+`myVariable` will be evaluated to 3. Evaluation will of course follow all the rules we’ve previously defined about types as operators; {2 + "Hello"} will evaluate to a string 2Hello. Inside braces, bare words are treated as symbols, so strings go in double quotes.
+An important thing to note is that an expression must be wrapped in curly braces, otherwise it'll be interpreted as a [Strings](../types/Strings.md#strings).
+Let’s look at this example:
+```piton
+a: 1
+b: 2
+result: a + b
+```
+`result` will be evaluated to the string "a + b". In order for this to evaluate to 3 you’ll need to use the {} expression syntax:
+```piton
+a: 1
+b: 2
+
+result: {a + b}
+```
+This makes the job of the compiler much easier, and lets us avoid the problematic situation of string fallback in case a symbol isn’t recognized.
+Forward references are fully resolved. Unresolved references are a compiler error. Cyclic references are also a compiler error.
+We encounter a probably intuitive but perhaps less obvious scenario when we use [ComplexTypes](../types/ComplexTypes.md#complex-types) like [Lists](../types/Lists.md#lists), [Dictionaries](../types/Dictionaries.md#dictionaries), and [Anchors](../anchors/index.md#anchors).
+```piton
+myList: [1, 2, 3]
+
+myDictionary:
+    list: {myList}
+
+newList: {myDictionary.list + [4, 5, 6]}
+```
+newList will evaluate to [1, 2, 3, 4, 5, 6].
+In this case, {myList} resolves to the value of myList, which is then assigned to myDictionary.list. The newList expression resolves myDictionary.list, combines that value with [4, 5, 6], and evaluates to [1, 2, 3, 4, 5, 6].
+Anchors get copied in too, but the copy still knows it's Foo. So if x is {Foo}, then {x == Foo} is true, ${x} is “Foo”, and x passes a Foo type constraint. If you want a link instead of a copy, use @{Foo}.
+
+## Expressions In Text
+
+If the whole value is just an expression, like total: {a + b}, it keeps its type. If there's other text around it, it depends.
+${x} turns the result into a string, so the whole thing is just a string.
+{x} with a simple value (string, number, boolean, or null) drops the value into the text, so Total: {a + b} is “Total: 3”.
+{x} with a list, dictionary, or anchor copies it in. That turns the property into an implicit list, same as when you mix types in a collection. So See {Foo} for details becomes a list with “See”, a copy of Foo, and “for details”.
+@{x} puts in a reference, which ends up as a link or a path.
+
+## Expression Types
+
+- [StandardExpression](./StandardExpression.md#standard-expression)
+- [NumericExpression](./NumericExpression.md#numeric-expression)
+- [ReferenceExpression](./ReferenceExpression.md#reference-expression)
+- [StringExpression](./StringExpression.md#string-expression)

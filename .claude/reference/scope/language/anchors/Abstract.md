@@ -1,0 +1,64 @@
+# Abstract
+
+## Description
+
+Abstracts allow us to define the shape of an anchor without providing values. An abstract anchor alone will never compile; it must be extended by a non-abstract anchor, and that non-abstract anchor must implement all undefined abstract properties. If nothing implements an abstract, you get a warning, unless it's exported, since another file or project may implement it.
+```piton
+abstract anchor Skill:
+    description:: string
+
+
+anchor ConcreteSkill extends Skill:
+    description: This must be a string as defined by the abstract
+```
+We’ll introduce a new bit of terminology here in that a concrete anchor that extends an abstract anchor is said to be “implementing” the abstract anchor.
+An abstract can give a property a default value. If it does, that property is optional. If it doesn't, it's required.
+
+## Abstract Chains
+
+An abstract can extend another abstract. Whatever implements it has to fill in the required properties from the whole chain.
+```piton
+abstract anchor Construct:
+    description:: string
+    prompt:: string
+
+abstract anchor Skill extends Construct as skill:
+    useWhen:: string
+
+skill Review:
+    description: Reviews code
+    prompt: Review the diff
+    useWhen: Asked for a review
+```
+
+## Multiple Abstracts
+
+An anchor can implement more than one abstract, even ones that share a base. It is in fact good practice to export an abstract anchor as a keyword, and the keyword's anchor always goes last in the inheritance chain, so it wins.
+If two abstracts have type constraints on the same property and the types don't overlap at all (say string and number), that's a compiler error. If they do overlap, the right-most one wins.
+You are still free to extend other concrete anchors in addition to basing off an abstract. Type constraints from concrete anchors just follow normal inheritance: right-most wins, no error.
+
+## Special Type Constraints
+
+We are also able to use the specialized type constraints within abstracts like simple, complex, any, [], etc.
+There's also the extends type constraint keyword, which lets us represent inheritance hierarchy. You can use it anywhere, but it's most at home in abstracts. Take the following example.
+```piton
+abstract anchor A:
+    description:: string
+
+abstract anchor B extends A:
+    name:: string
+
+abstract anchor C:
+    listOfA:: A[]
+    listOfB:: B[]
+
+    listOfExtendsA:: extends A[]
+```
+Here, we have defined an anchor A with a description and an anchor B which extends A and adds a name property. So B has both description and name while A only has a description.
+We have then defined an anchor C. Let’s go one property at a time.
+A plain anchor type only matches anchors that directly implement it. If an anchor has more than one abstract, the one that counts is the one that wins: the keyword's abstract, or else the right-most one.
+listOfA will be satisfied by anything that directly implements the abstract A.
+listOfB will be satisfied by anything that directly implements the abstract B. Something implementing B won't fit in listOfA, even though B extends A.
+Where it gets a little more interesting is in the third property, listOfExtendsA.
+extends on an anchor type means that the constraint may be satisfied by any concrete anchor whose inheritance chain includes that anchor.
+So in this example, that constraint is satisfied by a list of anything that has A in its inheritance hierarchy. So in this case, you’d be able to pass concrete anchors that implement either A or B given that B has A in its inheritance chain.

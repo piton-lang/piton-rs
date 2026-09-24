@@ -6,6 +6,7 @@ from ./Format import Format
 from ./Loc import Loc
 from ./Lsp import Lsp
 from ./Reach import Reach
+from ./Slice import Slice
 from ./package-management import
     Remove,
     Tether,
@@ -18,18 +19,19 @@ export anchor Cli:
         files into output. It also includes helper commands like format.
 
     commands:
-        - {AgentCli}
-        - {Build}
-        - {Check}
-        - {Compile}
-        - {Format}
-        - {Loc}
-        - {Lsp}
-        - {Reach}
-        - {Remove}
-        - {Tether}
-        - {Untether}
-        - {Update}
+        - @{AgentCli}
+        - @{Build}
+        - @{Check}
+        - @{Compile}
+        - @{Format}
+        - @{Loc}
+        - @{Lsp}
+        - @{Reach}
+        - @{Remove}
+        - @{Slice}
+        - @{Tether}
+        - @{Untether}
+        - @{Update}
 
 export abstract anchor CliCommand as cli-command:
     description:: string: Command invokable by the cli by running piton <command>

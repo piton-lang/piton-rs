@@ -67,20 +67,7 @@ While this *is* a new paragraph because there was a blank line above.
 
 ## Escaping
 
-### Description
-
-Escaping works a little differently in Piton than other languages. To escape special characters, you simply wrap them in backslashes, with a space on each side. The spaces are part of the wrapper, so they get removed. So for example \ {1 + 2 + 3} \ would become {1 + 2 + 3}.
-That's the only way to escape. Even a single character gets wrapped: \ : \ becomes :.
-
-### Stacking
-
-You can stack backslashes to escape backslashes themselves. The closing wrapper has to match the opening one, so anything inside can use fewer backslashes:
-\\\ \\ \ {1 + 2 + 3} \ \\ \\\ would become \\ \ {1 + 2 + 3} \ \\.
-
-### Multi Line
-
-Multi-line escape blocks are valid. Put the backslashes on a line by themselves to open the block, and again to close it. Everything in between is kept as is, line breaks and indentation included.
-This spec uses three backslashes for these.
+[Escaping](./Escaping.md#escaping)
 
 ## Code Blocks
 

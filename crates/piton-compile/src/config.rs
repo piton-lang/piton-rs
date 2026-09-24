@@ -89,6 +89,10 @@ pub struct Project {
     /// The renderer `piton build` writes with: `json`, `yaml`, or `markdown`.
     /// `renderer` in the configuration; `json` when left out.
     pub renderer: String,
+    /// Whether `piton build` writes the renderer's output at all. A project
+    /// with a framework has the framework's output instead, unless it asks
+    /// for the renderer's too by setting `output` or `renderer`.
+    pub renders: bool,
     pub config_path: Option<PathBuf>,
     pub frameworks: Vec<Framework>,
     /// Packages this project publishes, in declaration order.
@@ -110,6 +114,7 @@ impl Project {
             source_root: directory,
             entry: path.to_path_buf(),
             renderer: DEFAULT_RENDERER.to_string(),
+            renders: true,
             config_path: None,
             frameworks: Vec::new(),
             packages: Vec::new(),
@@ -181,6 +186,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
                 source_root: root.clone(),
                 output_dir: root.join(DEFAULT_OUTPUT),
                 renderer: DEFAULT_RENDERER.to_string(),
+                renders: true,
                 entry: root,
                 config_path: None,
                 frameworks: Vec::new(),
@@ -327,6 +333,13 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         }
     }
 
+    // A framework decides where its own output goes, so the renderer's copy
+    // is only written when the configuration asks for it by name.
+    let renders = frameworks.is_empty()
+        || written
+            .iter()
+            .any(|property| property.name == "output" || property.name == "renderer");
+
     (
         Project {
             root,
@@ -334,6 +347,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
             entry,
             output_dir,
             renderer,
+            renders,
             config_path: Some(config_path),
             frameworks,
             packages: declared,
@@ -488,6 +502,7 @@ fn default_project(root: &Path, config_path: &Path) -> Project {
         entry: root.to_path_buf(),
         output_dir: root.join(DEFAULT_OUTPUT),
         renderer: DEFAULT_RENDERER.to_string(),
+        renders: true,
         config_path: Some(config_path.to_path_buf()),
         frameworks: Vec::new(),
         packages: Vec::new(),

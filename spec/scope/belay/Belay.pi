@@ -39,31 +39,31 @@ export anchor Belay:
         BELAY_COMPILED_SHAPE: The compiled copy of the shape for the agent, under its reference directory.
 
     framework:
-        - {FrameworkPurpose}
-        - {SourceAuthority}
-        - {FrameworkBoundaries}
-        - {ProjectConfiguration}
-        - {ConstructComposition}
+        - @{FrameworkPurpose}
+        - @{SourceAuthority}
+        - @{FrameworkBoundaries}
+        - @{ProjectConfiguration}
+        - @{ConstructComposition}
 
     anchors:
-        - {InstructionBehavior}
-        - {SkillBehavior}
-        - {CommandBehavior}
-        - {AgentBehavior}
-    compilation: {Compilation}
+        - @{InstructionBehavior}
+        - @{SkillBehavior}
+        - @{CommandBehavior}
+        - @{AgentBehavior}
+    compilation: @{Compilation}
 
     scope:
-        - {ShapeMapping}
-        - {ShapeRootReference}
-        - {AnchorReferences}
+        - @{ShapeMapping}
+        - @{ShapeRootReference}
+        - @{AnchorReferences}
 
     adapters:
-        - {ClaudeCodeAdapter}
-        - {CodexAdapter}
-        - {OpenCodeAdapter}
+        - @{ClaudeCodeAdapter}
+        - @{CodexAdapter}
+        - @{OpenCodeAdapter}
 
     guarantees:
-        - {BuildGuarantees}
-        - {PermissionBoundary}
+        - @{BuildGuarantees}
+        - @{PermissionBoundary}
 
-    unresolved: {OpenDecisions}
+    unresolved: @{OpenDecisions}
