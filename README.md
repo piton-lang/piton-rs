@@ -28,6 +28,26 @@ need `git` on `PATH`; nothing else does.
 
 ## Installing
 
+On macOS or Linux (or Git Bash on Windows):
+
+```
+curl -fsSL https://github.com/piton-lang/piton-rs/releases/latest/download/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```
+irm https://github.com/piton-lang/piton-rs/releases/latest/download/install.ps1 | iex
+```
+
+Both install the latest build from `main`, check it against its checksum, and
+put `piton` in `~/.local/bin` (`%LOCALAPPDATA%\piton\bin` on Windows). On a
+Mac the script also clears the quarantine flag, since the builds aren't signed
+yet. Set `PITON_VERSION=0.1.41` to install a particular build, or
+`PITON_INSTALL_DIR` to put it somewhere else.
+
+### From source
+
 ```
 cargo xtask install
 ```
