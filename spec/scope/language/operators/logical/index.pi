@@ -1,7 +1,7 @@
 from ../lib/Operator import Operator
 from ./AndOperator import AndOperator
-from ./OrOperator import OrOperator
 from ./NegOperator import NegOperator
+from ./OrOperator import OrOperator
 
 export anchor LogicalOperators:
     description:

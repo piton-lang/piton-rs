@@ -59,5 +59,6 @@ There is a single number type in all of Piton; type-wise there’s no difference
 
 Under the hood, numbers are 64-bit floats (IEEE 754).
 Negative numbers are written with a minus, like `-5`. List items always have a space after the dash, so `-5` is a number and `- 5` is a list item.
+The minus is only part of a number. There's no minus in front of an expression, so `{-price}` is a compiler error. Write `{0 - price}` instead.
 There's no exponent notation, so no `1e3`.
 When compiled, numbers are written in their shortest form, so `1_200_000.00` becomes `1200000` and `0.50` becomes `0.5`.

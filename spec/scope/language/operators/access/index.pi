@@ -1,5 +1,5 @@
-from ./PropertyAccessOperator import PropertyAccessOperator
 from ../lib/Operator import Operator
+from ./PropertyAccessOperator import PropertyAccessOperator
 
 export anchor AccessOperators:
     operators: {ACCESS_OPERATORS}
