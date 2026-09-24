@@ -5,3 +5,4 @@ scripts/**
 images/*.svg
 *.vsix
 package-lock.json
+dist/**

@@ -78,7 +78,7 @@ through the server.
 
 | Command | |
 | --- | --- |
-| **Piton: Show Compiled Output for This Construct** (`piton.sourceToOutput`) | Opens the compiled file the construct under the cursor produced, at the place it produced. The server's code lenses run the same command. |
+| **Piton: Show Compiled Output for This Construct** (`piton.showOutput`) | Opens the compiled file the construct under the cursor produced, at the place it produced. The code lenses do the same through the server's `piton.sourceToOutput`. |
 | **Piton: Go to Piton Source** (`piton.outputToSource`) | From a compiled file, jumps to the Piton construct that produced the text under the cursor. |
 | **Piton: Preview Compiled Output** (`piton.previewOutput`) | Runs `piton compile --renderer <json\|yaml\|markdown>` on the current file and shows the result beside it. |
 
