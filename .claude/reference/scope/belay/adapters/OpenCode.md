@@ -64,14 +64,31 @@ description: A prompt that requests restraint is not an enforced restriction. Do
 
 ### Description
 
-Check the complete output plan before writing. Codex and OpenCode can share AGENTS.md paths, and OpenCode can discover other adapters' skills. File separation alone does not guarantee target isolation.
+The tools read each other's files. Codex and OpenCode both read AGENTS.md, and OpenCode also discovers the skills in .claude/skills and .agents/skills. So with several adapters enabled, Belay plans one project that every enabled tool reads, and writes each artifact once, where the tools that need it will find it. With crossDiscovery set to separate, the trees are deployed apart instead, and each adapter writes its own complete tree.
+
+### Shared References
+
+The first adapter listed owns the reference tree, compiled shape included. Every adapter's links point into it, and the others write no reference tree of their own. Where the tree links to a skill, command, or agent, it links to the owner's. With one adapter, or with crossDiscovery set to separate, each adapter owns its own.
+
+### Shared Instructions
+
+An instruction file that several adapters place at one path is written once, by the first of them listed, and the other tools read that file.
+
+### Discovered Skills
+
+An adapter whose tool also discovers another enabled adapter's skill directory writes no copy of a skill that adapter writes there, and links to that one instead. A skill the tool discovers in more than one directory is reported, since the tool offers each copy and nothing in the project can stop it.
+
+### Discovered Commands
+
+A command translated into a skill gets its activation from metadata or a policy file only its own tool reads. When another enabled tool also discovers that skill, the project has to hide it from that tool with a control the tool enforces, or accept the change by setting crossDiscovery to allow. Otherwise it is an error.
 
 ### Requirements
 
-- Reject incompatible writes to a shared instruction file.
-- Coalesce identical shared guidance only once.
-- Diagnose duplicate discoverable skills across enabled adapters.
-- Require an explicit deployment choice when cross-discovery changes behavior.
+- Check the complete output plan before writing.
+- Reject incompatible writes to a shared path, other than an instruction file placed by several adapters.
+- Write identical shared output once.
+- Report a skill a tool discovers more than once.
+- Report a command that another tool would offer as an ordinary skill, unless the project hides it or accepts the change.
 
 ## Validation
 
@@ -136,7 +153,11 @@ Prompt followed by serialized additional content
 
 ### Discovery
 
-OpenCode also discovers compatible Claude and .agents skill directories. Check cross-adapter identities before installing several generated skill trees into one project.
+OpenCode also discovers the skills in .claude/skills and .agents/skills, and ignores frontmatter it doesn't recognise, like Claude's disable-model-invocation. With Claude Code or Codex enabled beside it, OpenCode writes no copy of a skill they already write there.
+
+### Discovered Commands
+
+OpenCode enforces skill permissions from opencode.json or opencode.jsonc, where deny hides a skill. A permission that denies the x- skills Claude Code and Codex write for commands, like "permission": {"skill": {"x-*": "deny"}}, keeps OpenCode from offering them as ordinary skills; its own x- commands are unaffected. Of several patterns that match a name, the last one listed decides.
 
 ## Command
 
@@ -217,5 +238,7 @@ description: Map permissions only when their meanings are equivalent. Native all
 
 - A command keeps its x-prefixed filename and native frontmatter.
 - Agent mode is explicit in generated output.
+- A skill another enabled adapter writes where OpenCode discovers it is not written again.
 - Duplicate skills discovered through other adapters are reported.
+- A command skill OpenCode discovers is an error unless a skill permission denies it or crossDiscovery is set.
 - Required scope behavior that cannot be established for the target version is diagnosed.

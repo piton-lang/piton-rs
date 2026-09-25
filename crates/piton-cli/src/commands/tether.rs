@@ -12,6 +12,9 @@
 use piton_compile::packages::{Dependency, Lock, Pin};
 use piton_compile::Project;
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::config_edit;
 use crate::packages::{Failure, Installer};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
@@ -50,7 +53,11 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
                         ));
                         return EXIT_ERRORS;
                     }
-                    println!("added {source} to piton.config.pi");
+                    println!(
+                        "{} {} to piton.config.pi",
+                        paint(style::SUCCESS, "added"),
+                        paint(style::NAME, &source)
+                    );
                     configured = project::current().0;
                 }
                 Ok(None) => {}
@@ -61,10 +68,8 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
             }
         }
         None => {
-            eprintln!(
-                "warning: there is no piton.config.pi to record {source} in; \
-`piton update` will not know about it"
-            );
+            report::warn(format_args!("there is no piton.config.pi to record {source} in; \
+`piton update` will not know about it"));
         }
     }
 
@@ -93,7 +98,7 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
 pub fn install_all(configured: &Project) -> u8 {
     if configured.config_path.is_none() {
         report::fail("no piton.config.pi, so there is no dependency list to install from");
-        eprintln!("  help: pass a repository to tether it: `piton tether <url>`");
+        report::help("pass a repository to tether it: `piton tether <url>`");
         return EXIT_ERRORS;
     }
     if configured.dependencies.is_empty() {
@@ -122,18 +127,21 @@ fn install(configured: &Project, dependencies: &[Dependency], rename: Option<&st
     }
 
     for warning in &warnings {
-        eprintln!("warning: {warning}");
+        report::warn(format_args!("{warning}"));
     }
     for package in &placed {
         println!(
-            "tethered {} to tethers/{} ({} {})",
+            "{} {} to {} {}",
+            paint(style::SUCCESS, "tethered"),
             package.source,
-            package.name,
-            package.files,
-            report::plural(package.files, "file", "files")
+            paint(style::NAME, format!("tethers/{}", package.name)),
+            paint(
+                style::DIM,
+                format!("({} {})", package.files, report::plural(package.files, "file", "files"))
+            )
         );
         if let Some(commit) = &package.commit {
-            println!("  at {} ({commit})", package.pin);
+            println!("  {}", paint(style::DIM, format!("at {} ({commit})", package.pin)));
         }
     }
     EXIT_SUCCESS
@@ -161,7 +169,7 @@ pub fn report_config_errors(
 pub fn fail(failure: Failure) -> u8 {
     report::fail(failure.message);
     if let Some(help) = failure.help {
-        eprintln!("  help: {help}");
+        report::help(format_args!("{help}"));
     }
     EXIT_ERRORS
 }

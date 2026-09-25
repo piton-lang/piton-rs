@@ -16,4 +16,7 @@ piton-emit.workspace = true
 piton-belay.workspace = true
 piton-lsp.workspace = true
 clap.workspace = true
+inquire.workspace = true
+anstream.workspace = true
+anstyle.workspace = true
 globset.workspace = true

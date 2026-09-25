@@ -77,6 +77,8 @@ pub struct Adapter {
     pub target_id: &'static str,
     /// The anchor `@piton/belay` exports for this target.
     pub export_name: &'static str,
+    /// The platform's own name, for people choosing between targets.
+    pub platform: &'static str,
     /// The platform's own directory in the project, which `BELAY_AGENT_ROOT`
     /// resolves to: the directory holding the reference root.
     pub root: &'static str,
@@ -143,6 +145,7 @@ const CLAUDE_TEXT_OPTIONS: &[NativeOption] = &[
 pub const CLAUDE_CODE: Adapter = Adapter {
     target_id: "claude-code",
     export_name: "ClaudeCodeAdapter",
+    platform: "Claude Code",
     root: ".claude",
     instruction_file: "CLAUDE.md",
     reference_root: ".claude/reference",
@@ -174,6 +177,7 @@ pub const CLAUDE_CODE: Adapter = Adapter {
 pub const CODEX: Adapter = Adapter {
     target_id: "codex",
     export_name: "CodexAdapter",
+    platform: "Codex",
     root: ".codex",
     instruction_file: "AGENTS.md",
     reference_root: ".codex/reference",
@@ -219,6 +223,7 @@ pub const CODEX: Adapter = Adapter {
 pub const OPENCODE: Adapter = Adapter {
     target_id: "opencode",
     export_name: "OpenCodeAdapter",
+    platform: "OpenCode",
     root: ".opencode",
     instruction_file: "AGENTS.md",
     reference_root: ".opencode/reference",

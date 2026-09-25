@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use piton_compile::loc;
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 pub fn run(paths: &[PathBuf]) -> u8 {
@@ -35,10 +38,11 @@ pub fn run(paths: &[PathBuf]) -> u8 {
         .unwrap_or(4)
         .max("file".len());
 
-    println!(
+    let header = format!(
         "{:<width$}  {:>7}  {:>7}  {:>8}  {:>7}",
         "file", "total", "code", "comments", "blank"
     );
+    println!("{}", paint(style::DIM, header));
     for (path, counts) in &report.files {
         println!(
             "{:<width$}  {:>7}  {:>7}  {:>8}  {:>7}",
@@ -49,8 +53,8 @@ pub fn run(paths: &[PathBuf]) -> u8 {
             counts.blank
         );
     }
-    println!("{}", "-".repeat(width + 36));
-    println!(
+    println!("{}", paint(style::DIM, "-".repeat(width + 36)));
+    let totals = format!(
         "{:<width$}  {:>7}  {:>7}  {:>8}  {:>7}",
         format!("{} files", report.files.len()),
         report.summary.total,
@@ -58,5 +62,6 @@ pub fn run(paths: &[PathBuf]) -> u8 {
         report.summary.comments,
         report.summary.blank
     );
+    println!("{}", paint(style::HEADING, totals));
     EXIT_SUCCESS
 }

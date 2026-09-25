@@ -1,0 +1,10 @@
+use @piton/belay
+
+from ../Conventions import Conventions
+
+export instruction Source:
+    description: Guidance for everything under src/.
+    prompt:
+        Follow @{Conventions} for every change here. Add a shape document
+        beside this one, under the matching directory, for guidance that only
+        applies to part of the source.

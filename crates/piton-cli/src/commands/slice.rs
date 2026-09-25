@@ -128,7 +128,7 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
                     "`{}` is not part of what the build compiles, so nothing in it has a compiled location",
                     project::display(path, &root)
                 ));
-                eprintln!("  help: import it from the entry, or slice without --adapter");
+                report::help("import it from the entry, or slice without --adapter");
                 return EXIT_ERRORS;
             }
             None => {
@@ -143,9 +143,7 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
         Err(diagnostic) => {
             fail(&compilation, &diagnostic);
             if adapter.is_some() && entry.is_none() {
-                eprintln!(
-                    "  help: with --adapter, only what the build compiles is searched; without it, every file is"
-                );
+                report::help("with --adapter, only what the build compiles is searched; without it, every file is");
             }
             return EXIT_ERRORS;
         }
@@ -167,9 +165,7 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
                 "`{}` is never compiled: nothing the build emits exports, references, or embeds it",
                 def.name
             ));
-            eprintln!(
-                "  help: export it from the entry, or slice without --adapter to cite the source"
-            );
+            report::help("export it from the entry, or slice without --adapter to cite the source");
             return EXIT_ERRORS;
         }
     }

@@ -66,7 +66,7 @@ fields:
   codeRoot: Required. Where the app's code lives, relative to the project config.
   shapeRoot: Optional. Where the shape instructions live. Without it, BELAY_SHAPE_ROOT is the project root and nothing is placed by shape.
   adapters: Required. The list of adapters to build for.
-  crossDiscovery: Optional. allow or separate. Required when one tool would pick up another tool's output and change how it activates.
+  crossDiscovery: Optional. separate when each tool's output is deployed apart, so every adapter writes its own complete tree; allow to accept that one tool offers another tool's command skills as ordinary skills. Without it, the enabled tools share one project.
   instructionByteLimit: Optional. The instruction byte limit to check against, for targets that have one.
 example:
   codeRoot: ./src/

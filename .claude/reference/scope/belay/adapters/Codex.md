@@ -64,14 +64,31 @@ description: A prompt that requests restraint is not an enforced restriction. Do
 
 ### Description
 
-Check the complete output plan before writing. Codex and OpenCode can share AGENTS.md paths, and OpenCode can discover other adapters' skills. File separation alone does not guarantee target isolation.
+The tools read each other's files. Codex and OpenCode both read AGENTS.md, and OpenCode also discovers the skills in .claude/skills and .agents/skills. So with several adapters enabled, Belay plans one project that every enabled tool reads, and writes each artifact once, where the tools that need it will find it. With crossDiscovery set to separate, the trees are deployed apart instead, and each adapter writes its own complete tree.
+
+### Shared References
+
+The first adapter listed owns the reference tree, compiled shape included. Every adapter's links point into it, and the others write no reference tree of their own. Where the tree links to a skill, command, or agent, it links to the owner's. With one adapter, or with crossDiscovery set to separate, each adapter owns its own.
+
+### Shared Instructions
+
+An instruction file that several adapters place at one path is written once, by the first of them listed, and the other tools read that file.
+
+### Discovered Skills
+
+An adapter whose tool also discovers another enabled adapter's skill directory writes no copy of a skill that adapter writes there, and links to that one instead. A skill the tool discovers in more than one directory is reported, since the tool offers each copy and nothing in the project can stop it.
+
+### Discovered Commands
+
+A command translated into a skill gets its activation from metadata or a policy file only its own tool reads. When another enabled tool also discovers that skill, the project has to hide it from that tool with a control the tool enforces, or accept the change by setting crossDiscovery to allow. Otherwise it is an error.
 
 ### Requirements
 
-- Reject incompatible writes to a shared instruction file.
-- Coalesce identical shared guidance only once.
-- Diagnose duplicate discoverable skills across enabled adapters.
-- Require an explicit deployment choice when cross-discovery changes behavior.
+- Check the complete output plan before writing.
+- Reject incompatible writes to a shared path, other than an instruction file placed by several adapters.
+- Write identical shared output once.
+- Report a skill a tool discovers more than once.
+- Report a command that another tool would offer as an ordinary skill, unless the project hides it or accepts the change.
 
 ## Validation
 

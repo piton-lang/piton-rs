@@ -1,9 +1,11 @@
 //! Compiles the project templates `piton init` offers into the binary.
 //!
-//! Every directory in `create-templates/` at the repository root is one
-//! template: its files are what `piton init` writes, and its `.template` file
-//! holds the one-line description the picker shows. Adding a template is
-//! adding a directory; nothing here lists them by name.
+//! Every directory in `create-templates/` at the repository root is a group
+//! of templates, like `belay`, and every directory in a group is one template,
+//! like `belay/application`: its files are what `piton init` writes. Groups and
+//! templates each have a `.template` file holding the one-line description the
+//! picker shows. Adding a template is adding a directory; nothing here lists
+//! them by name.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -18,42 +20,46 @@ fn main() {
     // template file rebuilds the table.
     println!("cargo:rerun-if-changed={}", root.display());
 
-    let mut templates: Vec<PathBuf> = std::fs::read_dir(&root)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", root.display()))
-        .map(|entry| entry.expect("template entry").path())
-        .filter(|path| path.is_dir())
-        .collect();
-    templates.sort();
+    let mut out = String::from("pub static GROUPS: &[Group] = &[\n");
+    for group in directories(&root) {
+        let name = group.file_name().expect("name").to_string_lossy();
+        writeln!(
+            out,
+            "    Group {{\n        name: {name:?},\n        description: {:?},\n        templates: &[",
+            description(&group, &name)
+        )
+        .unwrap();
+        let templates = directories(&group);
+        assert!(!templates.is_empty(), "create-templates/{name} has no templates");
+        for template in &templates {
+            let template_name = template.file_name().expect("name").to_string_lossy();
+            let path = format!("{name}/{template_name}");
 
-    let mut out = String::from("pub static TEMPLATES: &[Template] = &[\n");
-    for template in &templates {
-        let name = template.file_name().expect("name").to_string_lossy();
-        let description = std::fs::read_to_string(template.join(DESCRIPTION))
-            .unwrap_or_else(|_| panic!("create-templates/{name} has no {DESCRIPTION} file"));
-        let description = description.lines().next().unwrap_or_default().trim();
-        assert!(
-            !description.is_empty(),
-            "create-templates/{name}/{DESCRIPTION} is empty"
-        );
+            let mut files = Vec::new();
+            collect(template, template, &mut files);
+            files.sort();
+            assert!(!files.is_empty(), "create-templates/{path} has no files");
 
-        let mut files = Vec::new();
-        collect(template, template, &mut files);
-        files.sort();
-        assert!(!files.is_empty(), "create-templates/{name} has no files");
-
-        writeln!(out, "    Template {{\n        name: {name:?},\n        description: {description:?},\n        files: &[").unwrap();
-        for relative in &files {
-            let absolute = template.join(relative);
             writeln!(
                 out,
-                "            ({relative:?}, include_bytes!({:?})),",
-                absolute
-                    .canonicalize()
-                    .expect("template file")
-                    .display()
-                    .to_string()
+                "            Template {{\n                name: {path:?},\n                description: {:?},\n                files: &[",
+                description(template, &path)
             )
             .unwrap();
+            for relative in &files {
+                let absolute = template.join(relative);
+                writeln!(
+                    out,
+                    "                    ({relative:?}, include_bytes!({:?})),",
+                    absolute
+                        .canonicalize()
+                        .expect("template file")
+                        .display()
+                        .to_string()
+                )
+                .unwrap();
+            }
+            out.push_str("                ],\n            },\n");
         }
         out.push_str("        ],\n    },\n");
     }
@@ -62,6 +68,27 @@ fn main() {
     let destination =
         PathBuf::from(std::env::var("OUT_DIR").expect("out dir")).join("templates.rs");
     std::fs::write(destination, out).expect("write templates.rs");
+}
+
+/// The directories directly inside `directory`, sorted.
+fn directories(directory: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", directory.display()))
+        .map(|entry| entry.expect("template entry").path())
+        .filter(|path| path.is_dir())
+        .collect();
+    found.sort();
+    found
+}
+
+/// The first line of the `.template` file in `directory`, which has to exist
+/// and say something.
+fn description(directory: &Path, name: &str) -> String {
+    let description = std::fs::read_to_string(directory.join(DESCRIPTION))
+        .unwrap_or_else(|_| panic!("create-templates/{name} has no {DESCRIPTION} file"));
+    let description = description.lines().next().unwrap_or_default().trim();
+    assert!(!description.is_empty(), "create-templates/{name}/{DESCRIPTION} is empty");
+    description.to_string()
 }
 
 /// Every file under `directory` but the description, as `/`-separated paths

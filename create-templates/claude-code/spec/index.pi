@@ -1,7 +1,0 @@
-from ./Conventions import Conventions
-from ./agent export *
-
-export anchor Specification:
-    description:
-        What this project is, in a sentence or two. How its code is written
-        is in @{Conventions}.

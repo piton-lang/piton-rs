@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 
 use piton_compile::{reach, AnchorDef, Compilation, ModuleId, Symbol};
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 /// What a command-line target names.
@@ -119,10 +122,10 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
             .push(entry);
     }
 
-    println!("reachable");
+    println!("{}", paint(style::HEADING, "reachable"));
     for (source, mut entries) in by_source {
         entries.sort_by_key(|entry| entry.depth);
-        println!("  {source}");
+        println!("  {}", paint(style::DIM, &source));
         for entry in entries {
             let name = compilation.store().anchor(entry.anchor).name.clone();
             // A root was not reached from anywhere; it is where the reading
@@ -131,25 +134,21 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
                 Some(kind) => format!("via {}", kind.as_str()),
                 None => "root".to_string(),
             };
+            let mut detail = format!("depth {}  {via}", entry.depth);
             if show_paths {
-                println!(
-                    "    {name}  depth {}  {via}  [{}]",
-                    entry.depth,
-                    entry.path.join(" -> ")
-                );
-            } else {
-                println!("    {name}  depth {}  {via}", entry.depth);
+                detail.push_str(&format!("  [{}]", entry.path.join(" -> ")));
             }
+            println!("    {}  {}", paint(style::NAME, &name), paint(style::DIM, detail));
         }
     }
 
     if show_unreachable {
-        println!("\nunreachable");
+        println!("\n{}", paint(style::WARNING, "unreachable"));
         if reachability.unreachable.is_empty()
             && reachability.unreachable_modules.is_empty()
             && reachability.unloaded_modules.is_empty()
         {
-            println!("  nothing");
+            println!("  {}", paint(style::SUCCESS, "nothing"));
         }
 
         // Grouped by source, the same as the reachable half, so a file whose
@@ -178,18 +177,26 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
 
         for (source, names) in by_source {
             if dead_files.contains(&source) {
-                println!("  {source}  (nothing here is reached)");
+                println!(
+                    "  {}  {}",
+                    paint(style::WARNING, &source),
+                    paint(style::DIM, "(nothing here is reached)")
+                );
             } else {
-                println!("  {source}");
+                println!("  {}", paint(style::DIM, &source));
             }
             for name in names {
-                println!("    {name}");
+                println!("    {}", paint(style::WARNING, name));
             }
         }
 
         for module in &reachability.unloaded_modules {
             // Nothing imports these, so compilation never opened them.
-            println!("  {}  (never imported)", project::display(module, &root));
+            println!(
+                "  {}  {}",
+                paint(style::WARNING, project::display(module, &root)),
+                paint(style::DIM, "(never imported)")
+            );
         }
     }
 
@@ -197,19 +204,21 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     // modules are tallied apart because they are different questions: a dead
     // anchor is something to delete, a dead module is a file to delete, and a
     // file nothing imports was never read at all.
-    println!(
-        "\n{} {} reachable, {} unreachable",
+    let anchors = format!(
+        "{} {} reachable, {} unreachable",
         reachability.reached.len(),
         report::plural(reachability.reached.len(), "anchor", "anchors"),
         reachability.unreachable.len(),
     );
-    println!(
+    let modules = format!(
         "{} {} loaded, {} carrying nothing reachable, {} never imported",
         reachability.loaded,
         report::plural(reachability.loaded, "module", "modules"),
         reachability.unreachable_modules.len(),
         reachability.unloaded_modules.len(),
     );
+    println!("\n{}", paint(style::HEADING, anchors));
+    println!("{}", paint(style::HEADING, modules));
     EXIT_SUCCESS
 }
 

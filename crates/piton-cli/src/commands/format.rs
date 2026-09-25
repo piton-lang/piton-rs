@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use piton_syntax::format;
 
+use anstream::{eprintln, println};
+
+use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 pub fn run(path: Option<&str>, check_only: bool) -> u8 {
@@ -61,32 +64,37 @@ pub fn run(path: Option<&str>, check_only: bool) -> u8 {
             report::fail(format!("cannot write `{}`: {error}", source.display()));
             return EXIT_ERRORS;
         }
-        println!("{}", project::display(source, &configured.root));
+        println!("{}", report::added(project::display(source, &configured.root)));
         changed += 1;
     }
 
     if check_only {
         if unformatted.is_empty() {
-            eprintln!("all {} files are formatted", sources.len());
+            report::done(format!("all {} files are formatted", sources.len()));
             return EXIT_SUCCESS;
         }
         for path in &unformatted {
-            eprintln!("unformatted: {}", project::display(path, &configured.root));
+            eprintln!(
+                "{} {}",
+                paint(style::WARNING, "unformatted:"),
+                project::display(path, &configured.root)
+            );
         }
-        eprintln!(
+        report::stopped(format!(
             "{} of {} {} not formatted",
             unformatted.len(),
             sources.len(),
             report::plural(unformatted.len(), "file is", "files are")
-        );
+        ));
+        report::help("run `piton format` to format them");
         return EXIT_ERRORS;
     }
 
-    eprintln!(
+    report::done(format!(
         "formatted {changed} of {} {}",
         sources.len(),
         report::plural(sources.len(), "file", "files")
-    );
+    ));
     EXIT_SUCCESS
 }
 
@@ -111,7 +119,7 @@ fn format_stdin(check_only: bool) -> u8 {
             sink.extend(errors);
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             report::diagnostics(&sink, &|_| Some(source.clone()), &cwd);
-            eprintln!("not formatted; fix the syntax errors above first");
+            report::stopped("not formatted; fix the syntax errors below first");
             return EXIT_ERRORS;
         }
     };
@@ -119,7 +127,7 @@ fn format_stdin(check_only: bool) -> u8 {
         if formatted == source {
             return EXIT_SUCCESS;
         }
-        eprintln!("unformatted: <stdin>");
+        eprintln!("{} <stdin>", paint(style::WARNING, "unformatted:"));
         return EXIT_ERRORS;
     }
     let mut stdout = std::io::stdout();

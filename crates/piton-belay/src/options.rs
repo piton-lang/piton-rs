@@ -46,6 +46,14 @@ pub struct Options {
 }
 
 impl Options {
+    /// True when several enabled tools read one project, so their output is
+    /// planned together: one reference tree, each artifact written once where
+    /// the tools find it. False with one target, or when the trees are
+    /// deployed apart.
+    pub fn shared(&self) -> bool {
+        self.targets.len() > 1 && self.cross_discovery != Some(CrossDiscovery::Separate)
+    }
+
     /// Reads the options for `config` from the project's configuration file.
     ///
     /// Without a configuration file -- a project assembled in code -- every
