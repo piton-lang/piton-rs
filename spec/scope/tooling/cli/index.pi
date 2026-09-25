@@ -3,6 +3,7 @@ from ./Build import Build
 from ./Check import Check
 from ./Compile import Compile
 from ./Format import Format
+from ./Init import Init
 from ./Loc import Loc
 from ./Lsp import Lsp
 from ./Reach import Reach
@@ -24,6 +25,7 @@ export anchor Cli:
         - @{Check}
         - @{Compile}
         - @{Format}
+        - @{Init}
         - @{Loc}
         - @{Lsp}
         - @{Reach}

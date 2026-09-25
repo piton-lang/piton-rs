@@ -1,0 +1,5 @@
+use @piton/config
+
+export piton-config Project:
+    root: ./spec
+    entry: ./spec/index.pi

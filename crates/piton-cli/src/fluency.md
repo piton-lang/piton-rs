@@ -1298,7 +1298,9 @@ Rules for every adapter:
   rejected, identical guidance is written once. OpenCode's discovery of other
   adapters' skills is reported (`cross-target-discovery`), and
   `crossDiscovery` must be set when that changes activation.
-- Generated links must point at planned outputs (`broken-reference-link`),
+- Generated links (from `@{...}` references) must point at planned outputs
+  (`broken-reference-link`); Markdown links you write in prose are text and are
+  never checked,
   and discovery metadata and body are emitted exactly once. Frontmatter is
   written with a format-aware YAML or TOML encoder.
 
@@ -1411,6 +1413,7 @@ The commands:
 | `piton format [path] [--check]` | Applies canonical formatting (4-space indents, constraint spacing, sorted and wrapped imports, no `.pi` in import paths, a space after `//`). `--check` reports without writing. `piton format -` reads source from stdin and writes the formatted text to stdout. It **only splits overflowing lines and never rejoins a paragraph**, so rewrap edited prose by hand, and don't reflow `key: value` blocks as prose. |
 | `piton reach [targets...] [--no-unreachable] [--no-paths]` | Starting from files, globs or anchor names (the entry by default), follows outgoing imports, references, inheritance and composition, direct and transitive. Reports what is reachable with its depth and the path taken, and what is unreachable. The flags hide the last two. Use it to find dead spec. |
 | `piton slice <target> [--adapter <target>]` | Prints the part of the spec one thing depends on, as one Markdown document for an agent's prompt. The target is `file.pi#Anchor`, `file.pi#Anchor.property`, `file.pi#variable`, or a bare name looked up across the project (an error when more than one file declares it). Follows, transitively: what an anchor extends, every base that also declares a property, anchors named by type constraints, what a value read (`${Other.x}`, variables), and what it references or embeds. Slicing a property leaves out the anchor's other properties. It also includes the chain from the project's entry down to the target (`Specification.Tooling`, `Tooling.cli`, `Cli.commands`), each link only that one property, without following it further. Each declaration appears once, in dependency order, then the chain. `--adapter claude-code` (any Belay target the project builds) cites the compiled output instead of the source: each declaration's location and every reference link to where `piton build` writes it, and no `.pi` file is ever cited (an abstract base or an anchor that is only read has no document of its own, so it is described without one). The target itself has to be something the build writes out. |
+| `piton init [directory] [--template <name>] [--list]` | Starts a new project from a template compiled into the compiler: `minimal` (plain Piton to JSON), `claude-code` (Belay with the Claude Code adapter and a sample skill), or `package` (a package others can tether). Without `--template` it asks, when there is a terminal to ask on. It never overwrites a file: if any it would write exists, it writes none. |
 | `piton loc [paths...]` | Counts total, code, comment and blank lines per file, with a summary. Defaults to the project. |
 | `piton lsp` | Runs the language server over stdio (section 14). |
 | `piton agent [claude] [--print-fluency] [args...]` | Launches the agent with a short project primer plus this fluency prompt (the project's `FLUENCY_PROMPT.md`, or the copy built into the compiler), passed to `claude` as `--append-system-prompt`. Extra arguments go to the agent. `--print-fluency` prints the prompt and does nothing else. |

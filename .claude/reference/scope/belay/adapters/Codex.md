@@ -76,6 +76,7 @@ Check the complete output plan before writing. Codex and OpenCode can share AGEN
 ## Validation
 
 - Verify all generated relative links point to planned outputs.
+- Pass Markdown links an author wrote in prose through as written, without verifying them; Piton has no link syntax, so they are text.
 - Verify discovery metadata and body content are emitted exactly once.
 - Verify a command retains the x- prefix after target-name normalization.
 - Verify generated filenames and serialized native metadata against the target schema.

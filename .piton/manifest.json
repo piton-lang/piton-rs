@@ -90,6 +90,7 @@
     ".claude/reference/scope/tooling/cli/Check.md",
     ".claude/reference/scope/tooling/cli/Compile.md",
     ".claude/reference/scope/tooling/cli/Format.md",
+    ".claude/reference/scope/tooling/cli/Init.md",
     ".claude/reference/scope/tooling/cli/Loc.md",
     ".claude/reference/scope/tooling/cli/Lsp.md",
     ".claude/reference/scope/tooling/cli/Reach.md",

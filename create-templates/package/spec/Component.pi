@@ -1,0 +1,4 @@
+export abstract anchor Component as component:
+    description:: string
+    accessibility:: string:
+        Every interactive part can be reached and used from the keyboard.

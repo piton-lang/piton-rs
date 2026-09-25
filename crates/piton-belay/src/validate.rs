@@ -167,7 +167,14 @@ fn links(compilation: &Compilation, options: &Options, plan: &mut Draft) {
     for (index, file) in plan.files.iter().enumerate() {
         let directory = file.path.parent().unwrap_or(Path::new(""));
         for link in markdown_links(&file.contents) {
-            if has_scheme(&link) {
+            // Only the links Belay wrote have to land on its output. One an
+            // author wrote, like an image beside their source, is passed
+            // through as written.
+            if has_scheme(&link)
+                || !plan
+                    .generated_links
+                    .contains(&(directory.to_path_buf(), link.clone()))
+            {
                 continue;
             }
             let (target, fragment) = match link.split_once('#') {

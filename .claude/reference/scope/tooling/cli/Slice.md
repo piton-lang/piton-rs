@@ -49,9 +49,15 @@ A property needs every base that declares it too, the anchors its type constrain
 A reference to an anchor needs the whole anchor, and a reference to a property needs only that property.
 A variable needs what its value read, refers to, or embeds, and the anchors its type constraint names.
 
+## Chain
+
+The target is also placed where it sits in the project. The chain is the shortest way the build gets from the project's entry to the target's anchor: starting at the entry's exports, following what each property's value refers to or embeds, like `Specification.Tooling`, then `Tooling.cli`, then `Cli.commands` for a command the CLI lists.
+Each link is only that one property. What else it refers to or embeds is not followed, since the target doesn't need it, and following it from the entry would bring in the whole specification.
+The chain is traced from the project's entry even when the target is given as a file, so the project is compiled as a build compiles it. A file the build doesn't reach, an export of the entry, and a variable have no chain.
+
 ## Output
 
-One Markdown document on stdout. The target comes first, then what it depends on, nearest first, with source order breaking ties, so the same source always prints the same bytes.
+One Markdown document on stdout. The target comes first, then what it depends on, nearest first, with source order breaking ties, then the chain from the entry, outermost first, so the same source always prints the same bytes. The introduction names the chain's links in order.
 Each declaration appears once, headed by its name as written in the source, like `SaveButton` or `SaveButton.color`, with the file it is declared in, what it extends, its type, and what it reads. Values are written the way the Markdown renderer writes them, except that a reference or an embedded anchor is written as its name, since the declaration it names is in the same document.
 A cycle is followed until it comes back around, and every dependency in it is still listed, so it stays visible.
 

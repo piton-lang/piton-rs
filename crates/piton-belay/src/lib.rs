@@ -22,7 +22,7 @@ pub mod shape;
 mod validate;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use piton_compile::{module, prelude, BelayConfig, Compilation};
@@ -116,6 +116,10 @@ impl std::ops::DerefMut for Planned {
 pub(crate) struct Draft {
     pub files: Vec<Planned>,
     pub diagnostics: Vec<Diagnostic>,
+    /// The links rendering wrote, each with the directory it is relative
+    /// to. Only these are checked against the plan; a link an author wrote,
+    /// to an image or a page of their own, is theirs.
+    pub generated_links: HashSet<(PathBuf, String)>,
 }
 
 impl Draft {
@@ -492,6 +496,7 @@ struct TargetContext<'a> {
     locations: HashMap<AnchorId, PathBuf>,
     index: HashMap<PathBuf, FileIndex>,
     misses: RefCell<Vec<Ref>>,
+    generated: RefCell<HashSet<(PathBuf, String)>>,
 }
 
 impl TargetContext<'_> {
@@ -502,6 +507,7 @@ impl TargetContext<'_> {
             locations: &self.locations,
             index: indexed.then_some(&self.index),
             misses: &self.misses,
+            generated: &self.generated,
         }
     }
 }
@@ -574,6 +580,7 @@ fn layout<'a>(
         locations,
         index: HashMap::new(),
         misses: RefCell::new(Vec::new()),
+        generated: RefCell::new(HashSet::new()),
     };
 
     // Headings do not depend on links, so a first rendering finds every
@@ -587,6 +594,7 @@ fn layout<'a>(
     }
     context.index = index;
     context.misses.borrow_mut().clear();
+    context.generated.borrow_mut().clear();
 
     Layout {
         context,
@@ -693,6 +701,8 @@ fn build_target(
     // A reference that found no location was reported when the closure was
     // built; anything else would be a planning gap, and is reported here
     // rather than rendered as a bare name.
+    plan.generated_links
+        .extend(std::mem::take(&mut *context.generated.borrow_mut()));
     let misses = std::mem::take(&mut *context.misses.borrow_mut());
     let mut missing: BTreeSet<AnchorId> = BTreeSet::new();
     for miss in misses {
