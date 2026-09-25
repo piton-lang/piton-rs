@@ -1149,8 +1149,10 @@ fn slice_with_an_adapter_needs_a_target_the_build_writes() {
 fn templates(fixture: &Fixture) -> Vec<String> {
     let (stdout, stderr, code) = fixture.run(&["init", "--list"]);
     assert_eq!(code, 0, "{stderr}");
+    // Templates are the indented lines, under their group's line.
     stdout
         .lines()
+        .filter(|line| line.starts_with("  "))
         .map(|line| line.split_whitespace().next().expect("name").to_string())
         .collect()
 }
@@ -1159,7 +1161,12 @@ fn templates(fixture: &Fixture) -> Vec<String> {
 fn every_template_starts_a_project_that_checks_and_builds() {
     let fixture = Fixture::new("init-templates");
     let names = templates(&fixture);
-    for expected in ["claude-code", "minimal", "package"] {
+    for expected in [
+        "belay/application",
+        "belay/minimal",
+        "piton/library",
+        "piton/minimal",
+    ] {
         assert!(names.iter().any(|name| name == expected), "{names:?}");
     }
 
@@ -1181,8 +1188,76 @@ fn every_template_starts_a_project_that_checks_and_builds() {
         assert_eq!(code, 0, "{name}: {stdout}{stderr}");
     }
 
-    assert!(fixture.exists("claude-code/.claude/skills/review-change/SKILL.md"));
-    assert!(fixture.exists("minimal/dist/index.json"));
+    assert!(fixture.exists("belay/application/.claude/skills/review-change/SKILL.md"));
+    assert!(fixture.exists("belay/application/src/CLAUDE.md"));
+    assert!(fixture.exists("belay/minimal/.claude/skills/explain/SKILL.md"));
+    assert!(fixture.exists("piton/minimal/dist/index.json"));
+}
+
+#[test]
+fn init_builds_a_belay_project_for_the_adapters_chosen() {
+    let fixture = Fixture::new("init-adapters");
+    for adapter in ["claude-code", "codex", "opencode"] {
+        let (_, stderr, code) =
+            fixture.run(&["init", adapter, "--template", "belay/application", "--adapter", adapter]);
+        assert_eq!(code, 0, "{adapter}: {stderr}");
+        let (stdout, stderr, code) = fixture.run_in(adapter, &["format", "--check"]);
+        assert_eq!(code, 0, "{adapter}: {stdout}{stderr}");
+        let (stdout, stderr, code) = fixture.run_in(adapter, &["build"]);
+        assert_eq!(code, 0, "{adapter}: {stdout}{stderr}");
+    }
+    assert!(fixture.exists("codex/.agents/skills/review-change/SKILL.md"));
+    assert!(
+        !fixture.exists("codex/.claude"),
+        "only the chosen adapter is built"
+    );
+    assert!(fixture.exists("opencode/.opencode/skills/review-change/SKILL.md"));
+    assert!(fixture.exists("opencode/opencode.json"), "OpenCode is told to load src/AGENTS.md");
+    assert!(!fixture.exists("codex/opencode.json"), "only the chosen adapter's files are written");
+    assert!(!fixture.exists("codex/.adapters"));
+
+    let (_, stderr, code) = fixture.run(&[
+        "init",
+        "several",
+        "--template",
+        "belay/application",
+        "--adapter",
+        "codex,claude-code",
+        "-a",
+        "codex",
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.contains("for claude-code, codex"), "{stderr}");
+    let config = fixture.read("several/piton.config.pi");
+    assert!(
+        config.contains("import ClaudeCodeAdapter, CodexAdapter"),
+        "{config}"
+    );
+    assert!(
+        config.contains("- {ClaudeCodeAdapter}\n        - {CodexAdapter}\n"),
+        "{config}"
+    );
+    let (stdout, stderr, code) = fixture.run_in("several", &["build"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+
+    let (_, stderr, code) =
+        fixture.run(&["init", "bad", "--template", "belay/minimal", "--adapter", "cursor"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("`cursor` is not an adapter"), "{stderr}");
+    let (_, stderr, code) = fixture.run(&[
+        "init",
+        "plain",
+        "--template",
+        "piton/minimal",
+        "--adapter",
+        "codex",
+    ]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("doesn't use Belay"), "{stderr}");
+    assert!(
+        !fixture.exists("bad") && !fixture.exists("plain"),
+        "nothing is written on an error"
+    );
 }
 
 #[test]
@@ -1190,7 +1265,7 @@ fn init_never_overwrites_a_file() {
     let fixture = Fixture::new("init-existing");
     fixture.write("piton.config.pi", "// mine\n");
 
-    let (stdout, stderr, code) = fixture.run(&["init", "--template", "minimal"]);
+    let (stdout, stderr, code) = fixture.run(&["init", "--template", "piton/minimal"]);
     assert_eq!(code, 1);
     assert!(stdout.is_empty(), "{stdout}");
     assert!(stderr.contains("nothing was written"), "{stderr}");
@@ -1211,6 +1286,12 @@ fn init_needs_a_template_it_knows() {
     let (_, stderr, code) = fixture.run(&["init", "--template", "nope"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("`nope` is not a template; the templates are"), "{stderr}");
+
+    // A group alone isn't enough without a terminal to pick from it.
+    let (_, stderr, code) = fixture.run(&["init", "--template", "belay"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("`belay` is a group of templates"), "{stderr}");
+    assert!(stderr.contains("`belay/application`, `belay/minimal`"), "{stderr}");
     assert!(!fixture.exists("piton.config.pi"));
 }
 

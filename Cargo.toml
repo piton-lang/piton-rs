@@ -44,6 +44,9 @@ globset = "0.4"
 walkdir = "2"
 camino = "1"
 similar = "2"
+inquire = "0.9"
+anstream = "1"
+anstyle = "1"
 
 [profile.release]
 opt-level = 2

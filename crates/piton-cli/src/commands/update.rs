@@ -10,6 +10,9 @@
 
 use piton_compile::packages::Lock;
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::commands::tether::{fail, report_config_errors};
 use crate::packages::Installer;
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
@@ -58,15 +61,12 @@ pub fn run(requested: &[String]) -> u8 {
             "no declared dependency matches {}",
             requested.join(", ")
         ));
-        eprintln!(
-            "  help: declared dependencies are {}",
-            configured
+        report::help(format_args!("declared dependencies are {}", configured
                 .dependencies
                 .iter()
                 .map(|dependency| dependency.source.clone())
                 .collect::<Vec<_>>()
-                .join(", ")
-        );
+                .join(", ")));
         return EXIT_ERRORS;
     }
 
@@ -88,7 +88,7 @@ pub fn run(requested: &[String]) -> u8 {
     }
 
     for warning in &warnings {
-        eprintln!("warning: {warning}");
+        report::warn(format_args!("{warning}"));
     }
 
     let mut changed = 0usize;
@@ -102,20 +102,26 @@ pub fn run(requested: &[String]) -> u8 {
                 .map(short)
                 .unwrap_or_else(|| "nothing".to_string());
             println!(
-                "updated {} from {from} to {}",
-                package.name,
+                "{} {} from {from} to {}",
+                paint(style::SUCCESS, "updated"),
+                paint(style::NAME, &package.name),
                 package.commit.as_deref().map(short).unwrap_or_else(|| "?".to_string())
             );
         } else {
-            println!("{} is already at {}", package.name, package.pin);
+            println!(
+                "{} {}",
+                paint(style::NAME, &package.name),
+                paint(style::DIM, format!("is already at {}", package.pin))
+            );
         }
     }
-    println!(
+    let outcome = format!(
         "{} of {} {} changed",
         changed,
         placed.len(),
         report::plural(placed.len(), "package", "packages")
     );
+    println!("{}", paint(style::HEADING, outcome));
 
     EXIT_SUCCESS
 }

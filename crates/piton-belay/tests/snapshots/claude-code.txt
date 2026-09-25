@@ -1,0 +1,58 @@
+==> .claude/agents/reviewer.md (claude-code, agent)
+---
+name: reviewer
+description: Reviews a change against the project's conventions.
+---
+
+You are a careful reviewer who reads a change before judging it
+
+Review the change you are given the way [ReviewChange](../skills/review-change/SKILL.md) describes, and report what you find without changing any files.
+==> .claude/reference/Conventions.md (claude-code, reference)
+# Conventions
+
+## Naming
+
+Spell names out. A name says what something is, not how it is stored.
+
+## Changes
+
+- Keep each change small enough to review in one sitting.
+- Update the specification in the same change as the code.
+==> .claude/reference/index.md (claude-code, reference)
+# Specification
+
+## Description
+
+What this application is, in a sentence or two. How its code is written is in [Conventions](./Conventions.md#conventions).
+==> .claude/reference/shape/Source.md (claude-code, shape reference)
+# Source
+
+## Description
+
+Guidance for everything under src/.
+
+## Prompt
+
+Follow [Conventions](../Conventions.md#conventions) for every change here. Add a shape document beside this one, under the matching directory, for guidance that only applies to part of the source.
+==> .claude/skills/review-change/SKILL.md (claude-code, skill)
+---
+name: review-change
+description: Review a change against the project's conventions. Use when reviewing a change before it is merged
+---
+
+Read [Conventions](../../reference/Conventions.md#conventions) first, then review the change against it. Report each place it departs from them, with the file and line.
+==> .claude/skills/x-check-conventions/SKILL.md (claude-code, command)
+---
+name: x-check-conventions
+description: Check the working tree against the project's conventions.
+disable-model-invocation: true
+---
+
+Look at every uncommitted change and list each place it departs from [Conventions](../../reference/Conventions.md#conventions), with the file and line.
+==> src/CLAUDE.md (claude-code, instruction)
+# Source
+
+Guidance for everything under src/.
+
+Follow [Conventions](../.claude/reference/Conventions.md#conventions) for every change here. Add a shape document beside this one, under the matching directory, for guidance that only applies to part of the source.
+==> diagnostics

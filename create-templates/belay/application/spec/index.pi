@@ -1,0 +1,8 @@
+from ./Conventions import Conventions
+from ./agent export *
+from ./shape export *
+
+export anchor Specification:
+    description:
+        What this application is, in a sentence or two. How its code is
+        written is in @{Conventions}.

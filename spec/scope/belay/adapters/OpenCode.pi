@@ -40,9 +40,19 @@ export anchor OpenCodeAdapter extends Adapter:
             - Reject descriptions outside the supported 1 to 1024 character range.
             - Do not rely on unrecognized frontmatter to enforce policy.
         discovery:
-            OpenCode also discovers compatible Claude and .agents skill
-            directories. Check cross-adapter identities before installing
-            several generated skill trees into one project.
+            OpenCode also discovers the skills in .claude/skills and
+            .agents/skills, and ignores frontmatter it doesn't recognise, like
+            Claude's disable-model-invocation. With Claude Code or Codex
+            enabled beside it, OpenCode writes no copy of a skill they already
+            write there.
+        discoveredCommands:
+            OpenCode enforces skill permissions from opencode.json or
+            opencode.jsonc, where deny hides a skill. A permission that denies
+            the x- skills Claude Code and Codex write for commands, like
+            \ "permission": {"skill": {"x-*": "deny"}} \, keeps OpenCode from
+            offering them as ordinary skills; its own x- commands are
+            unaffected. Of several patterns that match a name, the last one
+            listed decides.
 
     command:
         support: native
@@ -83,5 +93,7 @@ export anchor OpenCodeAdapter extends Adapter:
     checks:
         - A command keeps its x-prefixed filename and native frontmatter.
         - Agent mode is explicit in generated output.
+        - A skill another enabled adapter writes where OpenCode discovers it is not written again.
         - Duplicate skills discovered through other adapters are reported.
+        - A command skill OpenCode discovers is an error unless a skill permission denies it or crossDiscovery is set.
         - Required scope behavior that cannot be established for the target version is diagnosed.

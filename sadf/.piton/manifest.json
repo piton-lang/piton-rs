@@ -1,0 +1,23 @@
+{
+  "generated": [
+    ".agents/skills/review-change/SKILL.md",
+    ".agents/skills/x-check-conventions/SKILL.md",
+    ".agents/skills/x-check-conventions/agents/openai.yaml",
+    ".claude/agents/reviewer.md",
+    ".claude/reference/Conventions.md",
+    ".claude/reference/index.md",
+    ".claude/reference/shape/Source.md",
+    ".claude/skills/review-change/SKILL.md",
+    ".claude/skills/x-check-conventions/SKILL.md",
+    ".codex/agents/reviewer.toml",
+    ".opencode/agents/reviewer.md",
+    ".opencode/commands/x-check-conventions.md",
+    "src/AGENTS.md",
+    "src/CLAUDE.md"
+  ],
+  "targets": {
+    "claude-code": "2026-09-21",
+    "codex": "2026-09-21",
+    "opencode": "2026-09-21"
+  }
+}

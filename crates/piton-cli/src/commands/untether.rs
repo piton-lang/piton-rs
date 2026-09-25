@@ -11,6 +11,9 @@ use std::path::Path;
 use piton_compile::module;
 use piton_compile::packages::{self, Lock};
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::commands::tether::fail;
 use crate::packages::{self as ops, Failure};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
@@ -22,9 +25,9 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
         report::fail(format!("`{name}` is not installed"));
         let installed = packages::installed_names(&configured.root);
         if installed.is_empty() {
-            eprintln!("  help: nothing is installed in tethers/");
+            report::help("nothing is installed in tethers/");
         } else {
-            eprintln!("  help: installed packages are {}", installed.join(", "));
+            report::help(format_args!("installed packages are {}", installed.join(", ")));
         }
         return EXIT_ERRORS;
     }
@@ -39,7 +42,7 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
             "`{}` already exists",
             project::display(&to, &configured.root)
         ));
-        eprintln!("  help: pass `--as <name>` to untether it under a different name");
+        report::help("pass `--as <name>` to untether it under a different name");
         return EXIT_ERRORS;
     }
 
@@ -66,8 +69,10 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
     }
 
     println!(
-        "untethered {name} to {}",
-        project::display(&to, &configured.root)
+        "{} {} to {}",
+        paint(style::SUCCESS, "untethered"),
+        paint(style::NAME, name),
+        paint(style::NAME, project::display(&to, &configured.root))
     );
 
     if no_rewrite {
@@ -80,8 +85,8 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
             );
             for site in &sites {
                 println!(
-                    "  {}: {}",
-                    project::display(&site.file, &configured.root),
+                    "  {} {}",
+                    paint(style::DIM, format!("{}:", project::display(&site.file, &configured.root))),
                     site.written
                 );
             }
@@ -125,21 +130,21 @@ fn report_managed(project: &piton_compile::Project, sites: &[ops::ImportSite], n
     if managed.is_empty() {
         return;
     }
-    println!(
-        "{} {} inside other installed packages still {} `{name}`, and {} not rewritten:",
+    report::warn(format_args!(
+        "{} {} inside other installed packages still {} `{name}`, and {} not rewritten",
         managed.len(),
         report::plural(managed.len(), "import", "imports"),
         report::plural(managed.len(), "names", "name"),
         report::plural(managed.len(), "was", "were")
-    );
+    ));
     for site in managed {
-        println!(
-            "  {}: {}",
+        report::note(format_args!(
+            "{}: {}",
             project::display(&site.file, &project.root),
             site.written
-        );
+        ));
     }
-    println!("  untether those packages too, or the imports will not resolve");
+    report::help("untether those packages too, or the imports will not resolve");
 }
 
 /// Moves a package out of `tethers/`, falling back to copy-and-delete across

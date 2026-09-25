@@ -9,8 +9,10 @@ against the code or by running `piton`.
 
 - [ ] **Per-target output boundaries.** Only "inside the project root" is
   checked, not each target's own roots (`BuildGuarantees`).
-- [ ] **Golden tests cover claude-code only.** Nothing snapshots the Codex or
-  OpenCode trees.
+- [ ] **The repo's golden test covers claude-code only.** Every adapter
+  combination is snapshotted on the `belay/application` template
+  (`tests/combinations.rs`), but the repo's own Codex and OpenCode trees
+  aren't.
 
 ## Open — LSP and editors
 

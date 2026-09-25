@@ -1176,7 +1176,7 @@ A project turns on Belay by listing a `belay-config` anchor under
 | `codeRoot` | Required. Where the app's code lives, relative to the project config. |
 | `shapeRoot` | Optional. Where the shape instructions live. Without it, `BELAY_SHAPE_ROOT` is the project root and nothing is placed by shape. |
 | `adapters` | Required. The adapters to build for: `ClaudeCodeAdapter`, `CodexAdapter`, `OpenCodeAdapter`. |
-| `crossDiscovery` | Optional. `allow` or `separate`. Required when one tool would pick up another tool's output and change how it activates. |
+| `crossDiscovery` | Optional. `separate` when each tool's output is deployed apart (every adapter writes its own complete tree); `allow` to accept that OpenCode offers other tools' command skills as ordinary skills. Without it, the enabled tools share one project (11.5). |
 | `instructionByteLimit` | Optional number. The instruction byte limit to check against, for targets that have one. |
 
 Adapter and other paths are relative to the project root (where
@@ -1353,13 +1353,28 @@ Rules for every adapter:
   after normalization. Collisions are errors (`name-collision`,
   `output-collision`) unless the artifacts are identical in content,
   reference resolution and activation.
-- **Multiple adapters:** the whole output plan is checked before anything is
-  written. Codex and OpenCode share `AGENTS.md` paths: incompatible writes are
-  rejected, identical guidance is written once. Separate files alone don't
-  guarantee isolation between targets, and duplicate discoverable skills
-  across enabled adapters are diagnosed. OpenCode's discovery of other
-  adapters' skills is reported (`cross-target-discovery`), and
-  `crossDiscovery` must be set when that changes activation.
+- **Multiple adapters:** the tools read each other's files (Codex and
+  OpenCode both read `AGENTS.md`; OpenCode also discovers `.claude/skills` and
+  `.agents/skills`), so with several adapters Belay plans one shared project
+  and writes each artifact once, where the tools find it:
+  - the **first adapter listed owns the one reference tree**, and every
+    adapter links into it;
+  - an instruction file several adapters place at one path (`AGENTS.md`) is
+    **written once**, by the first of them listed;
+  - OpenCode **writes no copy of a skill** Claude Code or Codex already
+    writes where it discovers it, and links to theirs;
+  - a command's `x-` skill that OpenCode would discover is an error
+    (`cross-discovery-activation`) unless `opencode.json` hides it with a
+    skill permission (`"permission": {"skill": {"x-*": "deny"}}`; the last
+    matching pattern decides) or `crossDiscovery` is set;
+  - a skill OpenCode finds in two directories (all three adapters enabled)
+    is a `cross-target-discovery` warning, since nothing in the project can
+    stop it.
+
+  `crossDiscovery: separate` means each tool's tree is deployed apart: every
+  adapter writes its own complete tree, and incompatible writes to one path
+  are rejected (`output-collision`). The whole plan is still checked before
+  anything is written.
 - Generated links (from `@{...}` references) are relative to the file that
   contains them and must point at planned outputs (`broken-reference-link`).
   Markdown links you write in prose are text and are never checked.
@@ -1498,6 +1513,12 @@ The commands:
 
 ## 13. CLI reference
 
+Every command prints what it produced first, then a one-line outcome (✓ or
+✗), and its problems last: diagnostics, errors and warnings with their help
+and notes, then the error and warning count. On a terminal the output is
+coloured and paths are marked `+`/`-`; piped or with `NO_COLOR`, it is plain
+text and stdout carries the bare results.
+
 | Command | Behaviour |
 | --- | --- |
 | `piton check [paths...]` | Validates syntax, imports, references, types, inheritance, composition, exports and circular dependencies, reporting errors and warnings. Writes nothing. Exits 0 when there are no errors and 1 otherwise. Paths are optional files, directories or globs; the default is the project (or every `.pi` file under the working directory when there's no `piton.config.pi`). |
@@ -1506,7 +1527,7 @@ The commands:
 | `piton format [path] [--check]` | Applies canonical formatting (4-space indents, constraint spacing, sorted and wrapped imports, no `.pi` in import paths, a space after `//`). `--check` reports without writing. `piton format -` reads source from stdin and writes the formatted text to stdout. It **only splits overflowing lines and never rejoins a paragraph**, so rewrap edited prose by hand, and don't reflow `key: value` blocks as prose. |
 | `piton reach [targets...] [--no-unreachable] [--no-paths]` | Starting from files, globs or anchor names (the entry by default), follows outgoing imports, references, inheritance and composition, direct and transitive. Reports what is reachable with its depth and the path taken, and what is unreachable. The flags hide the last two. Use it to find dead spec. Grouped by source, with a summary. No diagnostics; always exits 0. |
 | `piton slice <target> [--adapter <target>]` | Prints the part of the spec one thing depends on, as one Markdown document for an agent's prompt. The target is `file.pi#Anchor`, `file.pi#Anchor.property`, `file.pi#variable`, or a bare name looked up across the project (an error when more than one file declares it). Follows, transitively: what an anchor extends, every base that also declares a property, anchors named by type constraints, what a value read (`${Other.x}`, variables), and what it references or embeds. Imports alone bring nothing in. A whole anchor needs all its properties and bases; slicing a property leaves out the anchor's other properties; a reference to a property needs only that property. It also includes the **chain** from the project's entry down to the target (`Specification.Tooling`, `Tooling.cli`, `Cli.commands`): the shortest path the build takes, each link only that one property and not followed further. An export of the entry, a variable, and a file the build doesn't reach have no chain. Order: the target, then its dependencies nearest first (source order breaks ties), then the chain outermost first, so the same source prints the same bytes. Each declaration appears once, headed by its name as written (`SaveButton.color`), with its file, what it extends, its type and what it reads. References and embeds are written as names; cycles are followed until they come back around. Every path it prints is relative to the directory it runs in, and it finds the project by looking upward for `piton.config.pi`. `--adapter claude-code` (any Belay target the project builds) cites the compiled output instead: each location and every reference links to where `piton build` writes it (an embedded anchor to the section that embeds it), and no `.pi` file is ever cited; an abstract base or an anchor that is only read has no document of its own and is described without one. With `--adapter` the target itself must be something the build writes out. Markdown links the author wrote pass through unchanged. Exits 1 on errors. |
-| `piton init [directory] [--template <name>] [--list]` | Starts a new project from a template compiled into the compiler (no network needed): `minimal` (plain Piton to JSON), `claude-code` (Belay with the Claude Code adapter and a sample skill), or `package` (a package others can tether). Templates are the directories in the compiler repo's `create-templates/`, each holding exactly the files a project gets plus a one-line `.template` description that is not written out; adding a template is adding a directory, and every template must check cleanly, be formatted, and build. `directory` defaults to the working one and is created if missing. `--list` describes the templates and does nothing else. Without `--template` it lists them by number and asks (number or name); with no terminal, a template must be named. It never overwrites a file: if any it would write exists, it names each and writes none. Prints each written path on stdout, then the count and what to run next on stderr. Exits 1 on errors. |
+| `piton init [directory] [--template <group/name>] [--adapter <id>...] [--list]` | Starts a new project from a template compiled into the compiler (no network needed). Templates come in groups: `piton/minimal` (plain Piton to JSON), `piton/library` (a package others can tether), `belay/application` (a shape instruction placed in `src/`, a skill, an agent and a command) and `belay/minimal` (the Belay config and one skill). Without a directory it first asks for the project's name and creates that directory (an empty answer, or no terminal, uses the working one). Then it asks for a group and a template (`--template belay` asks only for the template), and for a Belay template, which adapters to build for: a checklist of Claude Code, Codex and OpenCode with the template's default (Claude Code) checked, or `--adapter`, repeated or comma-separated. The chosen adapters replace the config's import and `adapters` list, and a template's `.adapters/<id>/` files (like OpenCode's `opencode.json`) are written only for the adapters chosen. Templates are the `group/name` directories in the compiler repo's `create-templates/`, each with a one-line `.template` description that is not written out; adding one is adding a directory, and every template must check cleanly, be formatted, and build. `--list` describes the groups and templates and does nothing else. With no terminal, a full template name is required. It never overwrites a file: if any it would write exists, it names each and writes none, and cancelling a question writes nothing. Prints each written path on stdout, then a summary and the next commands on stderr. Exits 1 on errors. |
 | `piton loc [paths...]` | Counts total, code, comment and blank lines per file, with a summary. Defaults to the project. No diagnostics; always exits 0. |
 | `piton lsp` | Runs the language server over stdio (section 14). |
 | `piton agent [claude] [--print-fluency] [args...]` | Launches the agent with a short project primer plus this fluency prompt (the project's `FLUENCY_PROMPT.md`, or the copy built into the compiler), passed to `claude` as `--append-system-prompt`. Extra arguments go to the agent. `--print-fluency` prints the prompt and does nothing else. |

@@ -17,6 +17,9 @@ use piton_belay::{OutputFile, OutputKind, Plan};
 use piton_compile::{module, reach, Compilation, Framework, ModuleId};
 use piton_emit::Adapter;
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::{project, render, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 /// Where the build records the files it owns, so cleanup never touches a file
@@ -38,7 +41,7 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
             "the entry file `{}` does not exist",
             project::display(&compilation.project.entry, &root)
         ));
-        eprintln!("  help: set `entry` in piton.config.pi, or add an index.pi to the root");
+        report::help("set `entry` in piton.config.pi, or add an index.pi to the root");
         return EXIT_ERRORS;
     }
 
@@ -84,24 +87,27 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
 
     if had_errors {
         report::summary(&diagnostics);
-        eprintln!("build stopped; no files were written");
+        report::stopped("build stopped; no files were written");
         return EXIT_ERRORS;
+    }
+    // A clean build says so in its outcome; the count is only for problems.
+    if !diagnostics.is_empty() {
+        report::summary(&diagnostics);
     }
 
     if dry_run {
         for file in &plan.files {
             println!(
-                "{} ({}, {})",
-                file.path.display(),
-                file.kind.as_str(),
-                file.target
+                "{} {}",
+                report::added(file.path.display()),
+                paint(style::DIM, format!("({}, {})", file.kind.as_str(), file.target))
             );
         }
-        eprintln!(
+        report::done(format!(
             "{} {} would be written",
             plan.files.len(),
             report::plural(plan.files.len(), "file", "files")
-        );
+        ));
         return EXIT_SUCCESS;
     }
 
@@ -129,17 +135,20 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
     }
 
     for path in &written {
-        println!("{}", path.display());
+        println!("{}", report::added(path.display()));
     }
     for path in &removed {
-        println!("removed {}", path.display());
+        println!("{}", report::removed(path.display()));
     }
-    report::summary(&diagnostics);
-    eprintln!(
+    let mut outcome = format!(
         "wrote {} {}",
         written.len(),
         report::plural(written.len(), "file", "files")
     );
+    if !removed.is_empty() {
+        outcome.push_str(&format!(", removed {}", removed.len()));
+    }
+    report::done(outcome);
     EXIT_SUCCESS
 }
 

@@ -6,6 +6,7 @@ mod packages;
 mod project;
 mod render;
 mod report;
+mod style;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -103,16 +104,23 @@ enum Command {
 
     /// Start a new project from one of the built-in templates
     ///
-    /// Without --template, asks which one to use. Nothing is overwritten:
-    /// if any file the template writes already exists, nothing is written.
+    /// Without a directory, asks for the project's name and creates it in a
+    /// directory of that name. Without --template, asks which one to use, and
+    /// for a Belay template which adapters to build for. Nothing is overwritten: if any file the
+    /// template writes already exists, nothing is written.
     Init {
-        /// Directory to create the project in (defaults to the current one)
+        /// Directory to create the project in; asked for as the project's
+        /// name, or the current one when there is no terminal to ask on
         directory: Option<PathBuf>,
         /// Template to start from; `--list` names them
         #[arg(long, short)]
         template: Option<String>,
+        /// Belay adapter to build for, like `codex`; repeat it or separate
+        /// with commas for several
+        #[arg(long, short, value_delimiter = ',')]
+        adapter: Vec<String>,
         /// List the templates and what each one sets up
-        #[arg(long, conflicts_with_all = ["directory", "template"])]
+        #[arg(long, conflicts_with_all = ["directory", "template", "adapter"])]
         list: bool,
     },
 
@@ -220,8 +228,9 @@ fn main() -> ExitCode {
         Command::Init {
             directory,
             template,
+            adapter,
             list,
-        } => commands::init::run(directory.as_deref(), template.as_deref(), list),
+        } => commands::init::run(directory.as_deref(), template.as_deref(), &adapter, list),
         Command::Loc { paths } => commands::loc::run(&paths),
         Command::Lsp { .. } => commands::lsp::run(),
         Command::Reach {
@@ -241,5 +250,7 @@ fn main() -> ExitCode {
         } => commands::untether::run(&package, rename.as_deref(), no_rewrite),
         Command::Update { packages } => commands::update::run(&packages),
     };
+    // Problems are printed last, whatever the command printed before them.
+    report::flush();
     ExitCode::from(code)
 }

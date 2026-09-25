@@ -1,0 +1,8 @@
+use @piton/belay
+
+export skill Explain:
+    description: Explain how a part of this project works.
+    useWhen: asked how something in the project works
+    prompt:
+        Read the code involved before answering, and cite each file and line
+        the answer depends on.

@@ -392,6 +392,80 @@ fn cross_discovery_that_changes_activation_needs_a_choice() {
 }
 
 #[test]
+fn a_command_skill_opencode_is_told_to_hide_needs_no_choice() {
+    let sandbox = Sandbox::new("cross-permission");
+    sandbox.configure(&["ClaudeCodeAdapter", "OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport command Release:\n    description: Cut a release\n    prompt: Go.\n",
+    );
+    // A later pattern decides over an earlier one.
+    sandbox.write(
+        "opencode.json",
+        "{\n  \"permission\": {\"skill\": {\"*\": \"allow\", \"x-*\": \"deny\"}}\n}\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(!built.codes().contains(&"cross-target-discovery".to_string()), "{:?}", built.codes());
+
+    sandbox.write(
+        "opencode.json",
+        "{\n  \"permission\": {\"skill\": {\"x-*\": \"deny\", \"*\": \"allow\"}}\n}\n",
+    );
+    assert!(sandbox.plan().diagnostic("cross-discovery-activation").is_error());
+}
+
+#[test]
+fn shared_projects_write_one_reference_tree_and_one_agents_md() {
+    let sandbox = Sandbox::new("shared");
+    sandbox
+        .configure(&["CodexAdapter", "OpenCodeAdapter"], "")
+        .write("opencode.json", "{\n  \"instructions\": [\"src/AGENTS.md\"]\n}\n")
+        .write("spec/Style.pi", "export anchor Style:\n    rule: Flat props.\n")
+        .write(
+            "spec/shape/Source.pi",
+            "use @piton/belay\n\nfrom ../Style import Style\n\nexport instruction Source:\n    prompt: Follow @{Style}.\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nfrom ./Style import Style\nfrom ./shape/Source export *\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n    prompt: Follow @{Style}.\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    // The first adapter listed owns the one reference tree.
+    assert!(built.has(".codex/reference/Style.md"));
+    assert!(!built.has(".opencode/reference/Style.md"), "{:?}", built.paths());
+    // Both tools read the one AGENTS.md, which links into that tree.
+    assert!(built.file("src/AGENTS.md").contains("../.codex/reference/Style.md"));
+    // OpenCode discovers the Codex skill, so it writes no copy of its own.
+    assert!(built.has(".agents/skills/tidy/SKILL.md"));
+    assert!(!built.has(".opencode/skills/tidy/SKILL.md"), "{:?}", built.paths());
+
+    // Deployed apart, each tool gets its own tree and they can no longer
+    // share AGENTS.md.
+    sandbox.configure(&["CodexAdapter", "OpenCodeAdapter"], "    crossDiscovery: separate\n");
+    let built = sandbox.plan();
+    assert!(built.has(".opencode/reference/Style.md"));
+    assert!(built.has(".opencode/skills/tidy/SKILL.md"));
+    assert!(built.diagnostic("output-collision").is_error());
+}
+
+#[test]
+fn a_skill_opencode_finds_twice_is_reported_once_per_skill() {
+    let sandbox = Sandbox::new("twice");
+    sandbox
+        .configure(&["ClaudeCodeAdapter", "CodexAdapter", "OpenCodeAdapter"], "")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let warning = built.diagnostic("cross-target-discovery");
+    assert!(warning.message.contains("`.agents/skills/tidy` and `.claude/skills/tidy`"), "{}", warning.message);
+    assert!(!built.has(".opencode/skills/tidy/SKILL.md"));
+}
+
+#[test]
 fn the_target_versions_are_recorded() {
     let sandbox = Sandbox::new("record");
     sandbox.configure(CLAUDE, "").write(

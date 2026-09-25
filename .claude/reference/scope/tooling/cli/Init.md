@@ -11,33 +11,57 @@ init
 ## Positional Arguments
 
 ```
-directory: Where to create the project. Defaults to the current directory, and is created if it doesn't exist.
+directory: Where to create the project, created if it doesn't exist. Without it, init asks for the project's name and uses it as the directory; with no terminal to ask on, it uses the current directory.
 ```
 
 ## Named Arguments
 
 ```
-template: The template to start from, by name.
-list: List the templates, each with what it sets up, and do nothing else.
+template: The template to start from, named with its group, like `belay/application`. Naming only the group, like `belay`, asks which of its templates to use.
+adapter: A Belay adapter to build for, by its target id, like `codex`. Repeat it, or separate ids with commas, to build for several. Only a Belay template takes it.
+list: List the groups and their templates, each with what it sets up, and do nothing else.
 ```
 
 ## Templates
 
-Each template is a directory in create-templates/ at the root of the compiler's repository, and holds exactly the files a new project gets, laid out as the project lays them out. A `.template` file in it describes it in one line, and is not written into the project.
-The templates are compiled into the binary when the compiler is built, so init needs no network, and a release always writes the templates it was released with. Adding a template is adding a directory; nothing else lists them.
-Every template has to start a project that checks without problems, is already formatted, and builds.
+Templates come in groups. Each group is a directory in create-templates/ at the root of the compiler's repository, and each template is a directory in its group, which holds exactly the files a new project gets, laid out as the project lays them out. A template is named with its group, `group/template`. The group and each template have a `.template` file that describes them in one line, which is not written into the project.
+The templates are compiled into the binary when the compiler is built, so init needs no network, and a release always writes the templates it was released with. Adding a template is adding a directory; nothing in the compiler lists them.
+Every template has to start a project that checks without problems, is already formatted, and builds, for each adapter it can be built for.
+
+## Bundled Templates
+
+The compiler ships with these groups and templates, each named after its directory.
+
+- piton, plain Piton compiled by a renderer
+  - piton/minimal, a project compiled to JSON in dist/
+  - piton/library, a package others install with piton tether
+- belay, agent guidance compiled for the adapters chosen
+  - belay/application, a shape instruction, skill, agent and command
+  - belay/minimal, the Belay configuration and one skill
+
+belay/application places its shape instruction in src/, beside the application's source.
+
+## Naming
+
+Without a directory given, the first thing init asks is the project's name, and the project is created in a directory of that name beneath the current one. An empty answer creates it in the current directory. Only then does it ask for a template.
 
 ## Choosing
 
-Without a template named, init lists the templates by number and asks which one to use, taking either its number or its name. When there is no terminal to ask on, a template has to be named, and init says so.
+Without a template named, init asks which group to start from, then which template in it, each as a list to move through, pick from, and filter by typing. A group with a single template doesn't ask. When there is no terminal to ask on, a template has to be named in full, and init says so.
+
+## Adapters
+
+A template is a Belay template when its configuration lists Belay adapters, and the adapters it lists are the default. After the template is chosen, init asks which of the adapters @piton/belay exports to build for, as a list with a box to check beside each, naming the platform and its target id. The defaults start checked, and at least one has to be. With --adapter, or with no terminal to ask on, it doesn't ask; without --adapter it keeps the defaults.
+The chosen adapters replace the listed ones in the configuration written, both in its import from @piton/belay and in its adapters list, each once and in the order @piton/belay exports them. The configuration is written canonically formatted.
+Files a template keeps in `.adapters/<target id>/` are written only when that adapter is chosen, at their path beneath it. A template uses them for what one platform needs and the others don't, like the opencode.json that has OpenCode load the instructions placed in src/.
 
 ## Safety
 
-Init never overwrites a file. When any file the template would write already exists, it names each one and writes none of them.
+Init never overwrites a file. When any file the template would write already exists, it names each one and writes none of them. Escape or Ctrl+C at any question stops init before anything is written.
 
 ## Output
 
-The path of each file written, one per line on stdout, then on stderr how many were written and what to run next.
+The path of each file written, one per line on stdout, then on stderr what was created from which template, the adapters chosen for a Belay template, how many files were written, and the commands to run next. On a terminal each path is marked as added with its directory dimmed; piped, stdout is the bare paths.
 
 ## Diagnostics
 
@@ -49,7 +73,7 @@ true
 
 false
 
-A template that doesn't exist, no template named without a terminal to ask on, an answer that isn't one of the templates, and a file that would be overwritten are all errors.
+A template that doesn't exist, a group or no template named without a terminal to ask on, an adapter that doesn't exist, --adapter given for a template that isn't a Belay template, a question cancelled, and a file that would be overwritten are all errors.
 
 ## Exit Code
 

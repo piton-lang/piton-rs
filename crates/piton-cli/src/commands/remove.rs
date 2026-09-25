@@ -7,6 +7,9 @@
 
 use piton_compile::packages::{self, Lock};
 
+use anstream::println;
+
+use crate::style::{self, paint};
 use crate::commands::tether::fail;
 use crate::config_edit;
 use crate::packages as ops;
@@ -19,9 +22,9 @@ pub fn run(name: &str) -> u8 {
         report::fail(format!("`{name}` is not installed"));
         let installed = packages::installed_names(&configured.root);
         if installed.is_empty() {
-            eprintln!("  help: nothing is installed in tethers/");
+            report::help("nothing is installed in tethers/");
         } else {
-            eprintln!("  help: installed packages are {}", installed.join(", "));
+            report::help(format_args!("installed packages are {}", installed.join(", ")));
         }
         return EXIT_ERRORS;
     }
@@ -45,7 +48,7 @@ pub fn run(name: &str) -> u8 {
                 site.written
             );
         }
-        eprintln!("  help: remove those imports first, or run `piton untether {name}` to keep the files");
+        report::help(format_args!("remove those imports first, or run `piton untether {name}` to keep the files"));
         return EXIT_ERRORS;
     }
 
@@ -63,7 +66,7 @@ pub fn run(name: &str) -> u8 {
         }
     }
 
-    println!("removed {name}");
+    println!("{} {}", paint(style::SUCCESS, "removed"), paint(style::NAME, name));
 
     // And from the configuration, or the next `piton tether` or `piton update`
     // would install it again.
@@ -83,7 +86,7 @@ pub fn run(name: &str) -> u8 {
         if !siblings.is_empty() {
             println!(
                 "{} stays in piton.config.pi, because {} still {} installed from it",
-                dependency.source,
+                paint(style::NAME, &dependency.source),
                 siblings.join(", "),
                 report::plural(siblings.len(), "is", "are")
             );
@@ -98,13 +101,19 @@ pub fn run(name: &str) -> u8 {
                     report::fail(format!("cannot write `{}`: {error}", config_path.display()));
                     return EXIT_ERRORS;
                 }
-                println!("dropped {} from piton.config.pi", dependency.source);
+                println!(
+                    "{} {} from piton.config.pi",
+                    paint(style::SUCCESS, "dropped"),
+                    paint(style::NAME, &dependency.source)
+                );
             }
-            Ok(None) => println!(
-                "{} is declared in piton.config.pi in a way that could not be edited; \
-drop it from dependencies by hand or `piton update` will install it again",
-                dependency.source
-            ),
+            Ok(None) => {
+                report::warn(format_args!(
+                    "{} is declared in piton.config.pi in a way that could not be edited",
+                    dependency.source
+                ));
+                report::help("drop it from dependencies by hand, or `piton update` will install it again");
+            }
             Err(message) => {
                 report::fail(message);
                 return EXIT_ERRORS;

@@ -29,7 +29,7 @@ use piton_compile::{module, prelude, BelayConfig, Compilation};
 use piton_core::{kebab_case, title_case, AnchorId, Diagnostic, Ref, Span, Value};
 use piton_emit::markdown;
 
-use adapter::{AgentFormat, CommandSupport, NativeOption, OptionRule, Target};
+use adapter::{AgentFormat, CommandSupport, NativeOption, OptionRule, Target, FOREIGN_SKILL_ROOTS};
 use construct::{Construct, ConstructKind};
 use options::Options;
 use references::{Closure, FileIndex, Links, Unrepresentable};
@@ -164,8 +164,13 @@ pub fn plan_with(compilation: &Compilation, config: &BelayConfig, options: &Opti
     let closure = references::close(compilation, &emission.roots());
     report_references(compilation, &emission, &closure, &mut plan);
 
-    for target in &options.targets {
-        build_target(compilation, config, target, &emission, &closure, &mut plan);
+    let targets = planned_targets(options);
+    let sharing = Sharing {
+        shared: options.shared(),
+        targets: &targets,
+    };
+    for target in &targets {
+        build_target(compilation, config, target, &sharing, &emission, &closure, &mut plan);
     }
 
     validate::validate(compilation, options, &mut plan);
@@ -438,7 +443,8 @@ pub fn locations<'a>(
     target: &str,
 ) -> Result<Locations<'a>, String> {
     let options = Options::load(compilation, config);
-    let Some(found) = options.targets.iter().find(|candidate| candidate.id == target) else {
+    let targets = planned_targets(&options);
+    let Some(found) = targets.iter().find(|candidate| candidate.id == target) else {
         let built: Vec<String> = options
             .targets
             .iter()
@@ -456,7 +462,11 @@ pub fn locations<'a>(
     let mut draft = Draft::default();
     let emission = Emission::collect(compilation, config, &mut draft);
     let closure = references::close(compilation, &emission.roots());
-    let Layout { context, .. } = layout(compilation, config, found, &emission, &closure);
+    let sharing = Sharing {
+        shared: options.shared(),
+        targets: &targets,
+    };
+    let Layout { context, .. } = layout(compilation, config, found, &sharing, &emission, &closure);
     Ok(Locations {
         compilation,
         locations: context.locations,
@@ -488,6 +498,54 @@ impl markdown::LinkResolver for Locations<'_> {
 // ---------------------------------------------------------------------------
 // One target
 // ---------------------------------------------------------------------------
+
+/// The enabled targets as they are planned. In a shared project every target
+/// links into the first one's reference tree, so the files the tools share --
+/// AGENTS.md -- come out identical.
+fn planned_targets(options: &Options) -> Vec<Target> {
+    let shared = options.shared();
+    options
+        .targets
+        .iter()
+        .map(|target| {
+            let mut target = target.clone();
+            if shared {
+                target.reference_root = options.targets[0].reference_root.clone();
+            }
+            target
+        })
+        .collect()
+}
+
+/// How the enabled targets share one project.
+struct Sharing<'a> {
+    /// False with one target, or when the trees are deployed apart.
+    shared: bool,
+    /// Every enabled target, in the order configured, as planned.
+    targets: &'a [Target],
+}
+
+impl Sharing<'_> {
+    /// Whether `target` writes the reference tree: its own when nothing is
+    /// shared, and only the first target's when it is.
+    fn owns_references(&self, target: &Target) -> bool {
+        !self.shared || self.targets.first().is_some_and(|first| first.id == target.id)
+    }
+
+    /// The enabled target whose skills `target`'s tool already discovers, so
+    /// `target` writes no copies of its own and links to that target's.
+    fn skill_source(&self, target: &Target) -> Option<&Target> {
+        if !self.shared || !target.base.discovers_foreign_skills {
+            return None;
+        }
+        self.targets.iter().find(|peer| {
+            peer.id != target.id
+                && FOREIGN_SKILL_ROOTS
+                    .iter()
+                    .any(|root| peer.skill_output.starts_with(&format!("{root}/")))
+        })
+    }
+}
 
 /// What rendering needs for one target.
 struct TargetContext<'a> {
@@ -525,6 +583,7 @@ fn layout<'a>(
     compilation: &'a Compilation,
     config: &BelayConfig,
     target: &'a Target,
+    sharing: &Sharing<'_>,
     emission: &Emission,
     closure: &Closure,
 ) -> Layout<'a> {
@@ -539,7 +598,10 @@ fn layout<'a>(
     for item in &emission.constructs {
         let name = kebab_case(&item.name);
         let path = match item.kind {
-            ConstructKind::Skill => target.skill_path(&name),
+            ConstructKind::Skill => match sharing.skill_source(target) {
+                Some(peer) => peer.skill_path(&name),
+                None => target.skill_path(&name),
+            },
             ConstructKind::Command => target.command_path(&name),
             ConstructKind::Agent => target.agent_path(&name),
             ConstructKind::Instruction => continue,
@@ -607,6 +669,7 @@ fn build_target(
     compilation: &Compilation,
     config: &BelayConfig,
     target: &Target,
+    sharing: &Sharing<'_>,
     emission: &Emission,
     closure: &Closure,
     plan: &mut Draft,
@@ -616,9 +679,14 @@ fn build_target(
         context,
         files,
         compiled_shape,
-    } = layout(compilation, config, target, emission, closure);
+    } = layout(compilation, config, target, sharing, emission, closure);
 
-    for (path, anchors) in &files {
+    let owned = if sharing.owns_references(target) {
+        files.iter().collect()
+    } else {
+        Vec::new()
+    };
+    for (path, anchors) in owned {
         let parts = render_documents(&context, path, anchors, true);
         let contents = parts
             .iter()
@@ -657,6 +725,9 @@ fn build_target(
     let mut instructions: BTreeMap<PathBuf, Vec<InstructionSection>> = BTreeMap::new();
     for item in &emission.constructs {
         match item.kind {
+            // A skill the tool already discovers in another target's
+            // directory isn't written again.
+            ConstructKind::Skill if sharing.skill_source(target).is_some() => {}
             ConstructKind::Skill => render_skill(&context, item, plan),
             ConstructKind::Command => render_command(&context, item, plan),
             ConstructKind::Agent => render_agent(&context, item, plan),

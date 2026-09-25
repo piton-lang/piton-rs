@@ -47,8 +47,10 @@ pub(crate) fn validate(compilation: &Compilation, options: &Options, plan: &mut 
 ///
 /// Within one target that is a name collision, reported even when the two
 /// files would be identical: two constructs normalized to the same identity.
-/// Across targets it is acceptable only when the artifacts are identical --
-/// Codex and OpenCode share `AGENTS.md` -- and then the file is written once.
+/// Across targets it is acceptable when the artifacts are identical, and then
+/// the file is written once. In a shared project an instruction file several
+/// targets place -- Codex and OpenCode both read `AGENTS.md` -- is written by
+/// the first target listed, and the other tools read that one.
 fn collisions(compilation: &Compilation, options: &Options, plan: &mut Draft) {
     let mut by_path: BTreeMap<PathBuf, Vec<usize>> = BTreeMap::new();
     for (index, file) in plan.files.iter().enumerate() {
@@ -90,7 +92,12 @@ fn collisions(compilation: &Compilation, options: &Options, plan: &mut Draft) {
         }
 
         let first = files[0];
-        if per_target.len() > 1 && !files.iter().all(|file| file.contents == first.contents) {
+        let shared_instruction = options.shared()
+            && files.iter().all(|file| file.kind == OutputKind::Instruction);
+        if per_target.len() > 1
+            && !shared_instruction
+            && !files.iter().all(|file| file.contents == first.contents)
+        {
             plan.diagnostics.push(
                 error_at(
                     "output-collision",
@@ -109,7 +116,8 @@ fn collisions(compilation: &Compilation, options: &Options, plan: &mut Draft) {
             );
         }
     }
-    // Identical shared guidance is written once.
+    // Shared guidance is written once: the files are in target order, so the
+    // first target's copy is the one kept.
     let mut seen = HashSet::new();
     plan.files.retain(|file| seen.insert(file.path.clone()));
 }
@@ -270,6 +278,7 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
             options.cross_discovery_site.span,
         )
     };
+    let permissions = opencode_skill_permissions(&compilation.project.root);
     for discoverer in options.targets.iter().filter(|t| t.base.discovers_foreign_skills) {
         let foreign: Vec<&Planned> = plan
             .files
@@ -285,6 +294,12 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
         // A command translated into a skill relies on metadata or a policy
         // file OpenCode does not read, so it would be offered as an ordinary,
         // automatically selected skill.
+        // A skill the tool is told not to offer is hidden from it.
+        let foreign: Vec<&Planned> = foreign
+            .into_iter()
+            .filter(|file| !denied(&permissions, &artifact_name(file).unwrap_or_default()))
+            .collect();
+
         if options.cross_discovery.is_none() {
             for file in foreign.iter().filter(|f| f.kind == OutputKind::Command) {
                 let name = artifact_name(file).unwrap_or_default();
@@ -307,7 +322,7 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
                         "the command is declared here",
                     ))
                     .with_help(
-                        "choose a deployment in the belay-config: `crossDiscovery: separate` if each tool gets only its own tree, or `crossDiscovery: allow` to accept the change"
+                        "hide the command skills from OpenCode with `\"permission\": {\"skill\": {\"x-*\": \"deny\"}}` in opencode.json; or set `crossDiscovery: separate` in the belay-config if each tool gets only its own tree, or `crossDiscovery: allow` to accept the change"
                             .to_string(),
                     ),
                 );
@@ -317,33 +332,80 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
         if options.cross_discovery == Some(CrossDiscovery::Separate) {
             continue;
         }
-        let mut identities: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+        let mut identities: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let own = plan.files.iter().filter(|file| {
             file.target == discoverer.id && file.kind == OutputKind::Skill
         });
         for file in own.chain(foreign.iter().copied()) {
             if let Some(name) = artifact_name(file) {
-                identities.entry(name).or_default().insert(file.target);
+                let directory = file.path.parent().unwrap_or(Path::new(""));
+                identities.entry(name).or_default().insert(slash(directory));
             }
         }
-        for (name, targets) in identities.into_iter().filter(|(_, t)| t.len() > 1) {
+        for (name, directories) in identities.into_iter().filter(|(_, d)| d.len() > 1) {
             plan.diagnostics.push(
                 warning_at(
                     "cross-target-discovery",
                     format!(
-                        "skill `{name}` is generated for {}, and {} discovers the other adapters' skill directories, so it is offered more than once",
-                        targets.into_iter().collect::<Vec<_>>().join(" and "),
-                        discoverer.anchor_name
+                        "{} discovers the skill `{name}` in {}, so it offers it more than once",
+                        discoverer.anchor_name,
+                        directories
+                            .iter()
+                            .map(|directory| format!("`{directory}`"))
+                            .collect::<Vec<_>>()
+                            .join(" and ")
                     ),
                     config_site(),
                 )
                 .with_help(
-                    "set `crossDiscovery: separate` if the trees are deployed apart, or enable fewer adapters"
+                    "nothing in the project stops OpenCode reading both; set OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1 where it runs, set `crossDiscovery: separate` if the trees are deployed apart, or enable fewer adapters"
                         .to_string(),
                 ),
             );
         }
     }
+}
+
+/// OpenCode's skill permissions from the project's `opencode.json` or
+/// `opencode.jsonc`, in order: each name pattern with `allow`, `ask`, or
+/// `deny`. A single action for every skill is the pattern `*`.
+fn opencode_skill_permissions(root: &Path) -> Vec<(String, String)> {
+    for name in ["opencode.json", "opencode.jsonc"] {
+        let Ok(text) = std::fs::read_to_string(root.join(name)) else {
+            continue;
+        };
+        // JSONC's line comments are dropped; anything else it allows is
+        // read as JSON, and a file that doesn't parse grants nothing.
+        let text: String = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let Ok(document) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        return match document.pointer("/permission/skill") {
+            Some(serde_json::Value::String(action)) => vec![("*".to_string(), action.clone())],
+            Some(serde_json::Value::Object(patterns)) => patterns
+                .iter()
+                .filter_map(|(pattern, action)| {
+                    action.as_str().map(|action| (pattern.clone(), action.to_string()))
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+    }
+    Vec::new()
+}
+
+/// Whether OpenCode hides the skill `name`: the last pattern that matches it
+/// decides.
+fn denied(permissions: &[(String, String)], name: &str) -> bool {
+    permissions
+        .iter()
+        .rev()
+        .find(|(pattern, _)| glob_matches(pattern, name))
+        .is_some_and(|(_, action)| action == "deny")
 }
 
 /// A file at a planned path that the previous build did not record belongs to

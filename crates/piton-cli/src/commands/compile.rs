@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use piton_compile::Compilation;
 use piton_emit::Adapter;
 
+use anstream::println;
+
 use crate::{project, render, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
@@ -76,7 +78,7 @@ pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
                 failed = true;
                 continue;
             }
-            println!("{}", destination.display());
+            println!("{}", report::added(destination.display()));
         } else {
             print!("{rendered}");
         }
