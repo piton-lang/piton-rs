@@ -1,0 +1,16 @@
+from ../lib/Operator import Operator
+from ./AssignmentOperator import AssignmentOperator
+from ./TypeAnnotationOperator import TypeAnnotationOperator
+
+export anchor DeclarationOperators:
+    description:
+        Now let's tackle the weirder ones. These two don't go inside
+        expressions. They're how you write a declaration in the first place,
+        so they aren't part of the precedence table, and no type lists them
+        as supported.
+
+    operators: {DECLARATION_OPERATORS}
+
+export DECLARATION_OPERATORS:: extends Operator[]:
+    - {AssignmentOperator}
+    - {TypeAnnotationOperator}

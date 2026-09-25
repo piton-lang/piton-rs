@@ -20,6 +20,12 @@ Operators that join strings, lists, and dictionaries.
     On strings it joins them with a line break.
   symbol: ++
 
+## Sets And Lists
+
+What do you expect `{[1, 2, 3] + [1, 2, 3]}` to give you? `[1, 2, 3, 1, 2, 3]`? Sorry... It's actually `[1, 2, 3]`. When it's list to list, `+` removes duplicates and keeps the last one, so `{[1, 2, 3, 4] + [1, 2, 3]}` sadly becomes `[4, 1, 2, 3]`. It makes logical sense given that Piton is a left-to-right, right-wins language, but still, it's just generally like **ugh**. I get it, trust me I do.
+Then there's `++`, which keeps the duplicates. I'm sorry Ken Thompson and like, the rest of all literal programming history. I think that `+=` is a perfectly efficient way to increment. And yeah, "C plus equals" is a horrible name for a language.
+In my defense, is not the inherent duplication of the `+` operator to create the `++` operator a very ergonomic way to signify what would otherwise be distinguished as a set vs. a list? `+` gives you a set, `++` gives you a list.
+
 ## Plus Dispatch
 
 The `+` symbol is shared by [AdditionOperator](../arithmetic/AdditionOperator.md#addition-operator), [ConcatenationOperator](./ConcatenationOperator.md#concatenation-operator), and [MergeOperator](./MergeOperator.md#merge-operator). Which one you get depends on the types on each side.

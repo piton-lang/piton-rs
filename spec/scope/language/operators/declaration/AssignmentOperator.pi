@@ -1,0 +1,12 @@
+use ../lib/Operator
+from ../../variables/Overview import VariablesOverview
+
+export operator AssignmentOperator:
+    description:
+        So this is just thing equals thing. Like in most languages
+        `var thing = "thing"`, but since Piton is this sort of
+        Python/YAML/JSON hybrid thing, it just makes sense to stick with
+        `\ : \`. There always has to be a space after it. See
+        @{VariablesOverview}.
+
+    symbol: \ : \
