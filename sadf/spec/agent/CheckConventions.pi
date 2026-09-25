@@ -1,9 +1,0 @@
-use @piton/belay
-
-from ../Conventions import Conventions
-
-export command CheckConventions:
-    description: Check the working tree against the project's conventions.
-    prompt:
-        Look at every uncommitted change and list each place it departs from
-        @{Conventions}, with the file and line.
