@@ -1,0 +1,13 @@
+use @piton/config
+use @piton/packaging
+
+export piton-config Project:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    packages:
+        - {Library}
+
+piton-package Library:
+    name: my-library
+    root: ./spec

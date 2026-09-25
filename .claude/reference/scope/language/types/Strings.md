@@ -73,3 +73,8 @@ While this *is* a new paragraph because there was a blank line above.
 
 Code blocks are not escaped. To Piton they're just text, so anything inside them still gets parsed: expressions, comments, lists, all of it.
 So often, you'll want to put an escape block inside the code block. Every example in this spec does that.
+
+## Markdown
+
+Markdown in a string is text too. Piton has no link syntax of its own, so a link or an image written in Markdown, like `[the guide](./guide.md)` or `![A diagram](./diagram.png)`, is passed through exactly as written. Nothing resolves it, rewrites it, or checks that it goes anywhere, and it can never be an error.
+The only links Piton makes are references, `@{Button}`. Those are resolved to wherever the anchor was compiled, and a renderer or framework can check that they land there.

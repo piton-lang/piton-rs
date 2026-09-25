@@ -101,6 +101,21 @@ enum Command {
         check: bool,
     },
 
+    /// Start a new project from one of the built-in templates
+    ///
+    /// Without --template, asks which one to use. Nothing is overwritten:
+    /// if any file the template writes already exists, nothing is written.
+    Init {
+        /// Directory to create the project in (defaults to the current one)
+        directory: Option<PathBuf>,
+        /// Template to start from; `--list` names them
+        #[arg(long, short)]
+        template: Option<String>,
+        /// List the templates and what each one sets up
+        #[arg(long, conflicts_with_all = ["directory", "template"])]
+        list: bool,
+    },
+
     /// Count lines of Piton source for specific files or the project
     Loc {
         /// Optional file, directory, or glob; defaults to the project
@@ -202,6 +217,11 @@ fn main() -> ExitCode {
             dependencies,
         } => commands::compile::run(&path, &renderer, write, dependencies),
         Command::Format { path, check } => commands::format::run(path.as_deref(), check),
+        Command::Init {
+            directory,
+            template,
+            list,
+        } => commands::init::run(directory.as_deref(), template.as_deref(), list),
         Command::Loc { paths } => commands::loc::run(&paths),
         Command::Lsp { .. } => commands::lsp::run(),
         Command::Reach {

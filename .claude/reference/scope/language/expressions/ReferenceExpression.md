@@ -34,6 +34,7 @@ Render a Markdown link to the referenced anchor's compiled representation, relat
 - Link to the specific anchor when several anchors share an output file.
 - For a property, link to its heading.
 - Preserve lazy access rather than automatically including the referenced content.
+- Treat a link written in Markdown as text, never as a reference: only a reference is resolved or checked.
 
 ## Other Formats
 

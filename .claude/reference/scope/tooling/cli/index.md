@@ -11,6 +11,7 @@ The CLI compiler is a command-line tool that allows you to compile Piton files i
 - [Check](./Check.md#check)
 - [Compile](./Compile.md#compile)
 - [Format](./Format.md#format)
+- [Init](./Init.md#init)
 - [Loc](./Loc.md#loc)
 - [Lsp](./Lsp.md#lsp)
 - [Reach](./Reach.md#reach)

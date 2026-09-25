@@ -320,6 +320,19 @@ pub struct Links<'a> {
     pub index: Option<&'a HashMap<PathBuf, FileIndex>>,
     /// References with no planned location, reported after rendering.
     pub misses: &'a RefCell<Vec<Ref>>,
+    /// Every link written, with the directory it is relative to, so that
+    /// validation checks the links Belay wrote and not the ones an author
+    /// did.
+    pub generated: &'a RefCell<HashSet<(PathBuf, String)>>,
+}
+
+impl Links<'_> {
+    fn record(&self, link: String) -> String {
+        self.generated
+            .borrow_mut()
+            .insert((self.from_directory.clone(), link.clone()));
+        link
+    }
 }
 
 impl markdown::LinkResolver for Links<'_> {
@@ -334,12 +347,12 @@ impl markdown::LinkResolver for Links<'_> {
             // document with headings to land on, so the link is to the file.
             Some(index) => match index.get(location) {
                 Some(headings) => headings.fragment(target, self.anchors),
-                None => return Some(file),
+                None => return Some(self.record(file)),
             },
             None => None,
         }
         .unwrap_or_else(|| piton_emit::reference_fragment(self.anchors, target));
-        Some(format!("{file}#{fragment}"))
+        Some(self.record(format!("{file}#{fragment}")))
     }
 }
 

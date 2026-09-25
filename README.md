@@ -10,6 +10,7 @@ specification in `spec/` is itself written in Piton, so the compiler's
 acceptance suite is the language describing itself.
 
 ```
+piton init       # start a project from a template
 piton check      # validate the specbase
 piton build      # compile every configured artifact
 piton reach      # see what the entrypoints can and cannot see
@@ -72,6 +73,7 @@ what would happen. `cargo xtask` on its own lists the tasks.
 | `piton check [paths]` | Validates syntax, imports, references, types, inheritance, composition, exports, and circular dependencies; exits 1 on any error |
 | `piton compile <path>` | Prints one file's output, or writes a glob's with `--write`; `--renderer json\|yaml\|markdown`, `--dependencies` |
 | `piton format [path]` | Applies canonical formatting; `--check` reports without writing, and `piton format -` formats stdin to stdout |
+| `piton init [directory]` | Starts a project from a built-in template (`--template`, or asks); `--list` describes them. Templates live in `create-templates/`, one directory each, and are compiled into the binary. Never overwrites a file |
 | `piton loc [paths]` | Counts total, code, comment, and blank lines per file |
 | `piton lsp` | Runs the language server over stdio |
 | `piton reach [targets]` | Reports reachable anchors with depth and path, and what is unreachable; `--no-paths` and `--no-unreachable` trim the report |

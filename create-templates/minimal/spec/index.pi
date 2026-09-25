@@ -1,0 +1,10 @@
+from ./Glossary import Glossary
+
+export anchor Specification:
+    description:
+        What this project is, in a sentence or two. Terms it relies on are in
+        the @{Glossary}.
+
+    goals:
+        - Say what the project must do.
+        - Say what it must never do.

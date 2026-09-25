@@ -54,9 +54,14 @@ impl Fixture {
     }
 
     fn run(&self, args: &[&str]) -> (String, String, i32) {
+        self.run_in(".", args)
+    }
+
+    /// Runs piton from a directory inside the fixture.
+    fn run_in(&self, directory: &str, args: &[&str]) -> (String, String, i32) {
         let output = Command::new(binary())
             .args(args)
-            .current_dir(&self.dir)
+            .current_dir(self.dir.join(directory))
             .output()
             .expect("run piton");
         (
@@ -847,7 +852,7 @@ fn help_lists_every_documented_command() {
     let output = Command::new(binary()).arg("--help").output().expect("help");
     let text = String::from_utf8_lossy(&output.stdout);
     for command in [
-        "agent", "build", "check", "compile", "format", "loc", "lsp", "reach", "slice",
+        "agent", "build", "check", "compile", "format", "init", "loc", "lsp", "reach", "slice",
     ] {
         assert!(
             text.contains(command),
@@ -1107,6 +1112,98 @@ fn slice_with_an_adapter_needs_a_target_the_build_writes() {
     let (_, stderr, code) = plain.run(&["slice", "SaveButton", "--adapter", "claude-code"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("no Belay configuration"), "{stderr}");
+}
+
+/// The template names `piton init --list` reports.
+fn templates(fixture: &Fixture) -> Vec<String> {
+    let (stdout, stderr, code) = fixture.run(&["init", "--list"]);
+    assert_eq!(code, 0, "{stderr}");
+    stdout
+        .lines()
+        .map(|line| line.split_whitespace().next().expect("name").to_string())
+        .collect()
+}
+
+#[test]
+fn every_template_starts_a_project_that_checks_and_builds() {
+    let fixture = Fixture::new("init-templates");
+    let names = templates(&fixture);
+    for expected in ["claude-code", "minimal", "package"] {
+        assert!(names.iter().any(|name| name == expected), "{names:?}");
+    }
+
+    for name in &names {
+        let (stdout, stderr, code) = fixture.run(&["init", name, "--template", name]);
+        assert_eq!(code, 0, "{name}: {stderr}");
+        assert!(stdout.contains(&format!("{name}/piton.config.pi")), "{name}: {stdout}");
+        assert!(
+            !fixture.exists(&format!("{name}/.template")),
+            "the description is not part of the project"
+        );
+
+        let (stdout, stderr, code) = fixture.run_in(name, &["check"]);
+        assert_eq!(code, 0, "{name}: {stdout}{stderr}");
+        assert!(!stderr.contains("warning"), "{name}: {stderr}");
+        let (stdout, stderr, code) = fixture.run_in(name, &["format", "--check"]);
+        assert_eq!(code, 0, "{name} is not canonically formatted: {stdout}{stderr}");
+        let (stdout, stderr, code) = fixture.run_in(name, &["build"]);
+        assert_eq!(code, 0, "{name}: {stdout}{stderr}");
+    }
+
+    assert!(fixture.exists("claude-code/.claude/skills/review-change/SKILL.md"));
+    assert!(fixture.exists("minimal/dist/index.json"));
+}
+
+#[test]
+fn init_never_overwrites_a_file() {
+    let fixture = Fixture::new("init-existing");
+    fixture.write("piton.config.pi", "// mine\n");
+
+    let (stdout, stderr, code) = fixture.run(&["init", "--template", "minimal"]);
+    assert_eq!(code, 1);
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("nothing was written"), "{stderr}");
+    assert!(stderr.contains("note: piton.config.pi"), "{stderr}");
+    assert_eq!(fixture.read("piton.config.pi"), "// mine\n");
+    assert!(!fixture.exists("spec"), "no file is written when any would be overwritten");
+}
+
+#[test]
+fn init_needs_a_template_it_knows() {
+    let fixture = Fixture::new("init-choose");
+
+    // With no terminal to ask on, the template has to be named.
+    let (_, stderr, code) = fixture.run(&["init"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("pick a template with --template"), "{stderr}");
+
+    let (_, stderr, code) = fixture.run(&["init", "--template", "nope"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("`nope` is not a template; the templates are"), "{stderr}");
+    assert!(!fixture.exists("piton.config.pi"));
+}
+
+#[test]
+fn a_markdown_link_an_author_writes_is_passed_through() {
+    // Piton has no link syntax of its own, so a Markdown link or image in
+    // prose is text: Belay checks the links it generates from references,
+    // never these.
+    let fixture = slice_adapter_project("authored-links");
+    fixture.write(
+        "spec/Reference.pi",
+        "export anchor HouseStyle:\n    \
+         description: Every component keeps its props flat.\n    \
+         naming: Spell names out.\n    \
+         syntax:\n        \\\\\\\n        \
+         ![A diagram of the parser](./images/parser.png)\n        \\\\\\\n    \
+         guide: See [the guide](../docs/guide.md#start) before changing it.\n",
+    );
+
+    let (stdout, stderr, code) = fixture.run(&["build"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    let reference = fixture.read(".claude/reference/Reference.md");
+    assert!(reference.contains("![A diagram of the parser](./images/parser.png)"), "{reference}");
+    assert!(reference.contains("[the guide](../docs/guide.md#start)"), "{reference}");
 }
 
 #[test]
