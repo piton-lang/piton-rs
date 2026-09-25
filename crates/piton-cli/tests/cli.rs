@@ -1073,6 +1073,37 @@ fn slice_with_an_adapter_finds_an_anchor_embedded_upstream() {
 }
 
 #[test]
+fn slice_writes_every_path_relative_to_where_it_runs() {
+    // Run from spec/, below the configuration, which slice finds by looking
+    // upward.
+    let fixture = slice_adapter_project("slice-here");
+
+    let (stdout, stderr, code) = fixture.run_in(
+        "spec",
+        &["slice", "Constructs.pi#ReviewComponents.prompt", "--adapter", "claude-code"],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stdout.contains("Anchor in `../.claude/skills/review-components/SKILL.md`"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Read [HouseStyle.naming](../.claude/reference/Reference.md#naming) first"),
+        "{stdout}"
+    );
+
+    let (stdout, stderr, code) = fixture.run_in("spec", &["slice", "Constructs.pi#Uses"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Anchor in `Constructs.pi`"), "{stdout}");
+    assert!(stdout.contains("## Orphan\n\nAnchor in `Orphan.pi`"), "{stdout}");
+
+    fixture.mkdir("src/deep");
+    let (stdout, stderr, code) = fixture.run_in("src/deep", &["slice", "Uses"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Anchor in `../../spec/Constructs.pi`"), "{stdout}");
+}
+
+#[test]
 fn slice_with_an_adapter_needs_a_target_the_build_writes() {
     let fixture = slice_adapter_project("slice-adapter-errors");
 

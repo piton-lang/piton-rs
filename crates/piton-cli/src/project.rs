@@ -11,6 +11,21 @@ pub fn current() -> (Project, piton_core::DiagnosticSink) {
     config::load(&cwd, None)
 }
 
+/// Loads the project the working directory is inside: the nearest
+/// `piton.config.pi` in it or any directory above it, or the working
+/// directory on its own when there is none.
+///
+/// `piton slice` is run from wherever someone is working, and what it prints
+/// is written for that place, so it looks upward where other commands only
+/// read the configuration in the working directory.
+pub fn enclosing() -> (Project, piton_core::DiagnosticSink) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let found = cwd
+        .ancestors()
+        .find_map(|directory| config::find_config(directory));
+    config::load(&cwd, found.as_deref())
+}
+
 /// Loads a project from an explicit configuration path.
 pub fn from_config(path: Option<&Path>) -> (Project, piton_core::DiagnosticSink) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
