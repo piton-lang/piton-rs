@@ -14,7 +14,10 @@
 
 use piton_compile::slice::{self, Target};
 use piton_compile::Compilation;
-use piton_core::{diagnostics, Diagnostic, Span};
+use std::path::{Path, PathBuf};
+
+use piton_core::{diagnostics, Diagnostic, Ref, Span};
+use piton_emit::markdown::LinkResolver;
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
@@ -27,7 +30,7 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
         }
     };
 
-    let (configured, _) = project::current();
+    let (configured, _) = project::enclosing();
     if let Some(adapter) = adapter {
         if configured.belay().is_none() {
             report::fail(format!(
@@ -173,20 +176,58 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
 
     let slice = slice::slice(&compilation, entity);
     let Some(locations) = locations else {
-        print!("{}", slice::markdown::render(&compilation, &slice, &root));
+        print!("{}", slice::markdown::render(&compilation, &slice, &here()));
         return EXIT_SUCCESS;
     };
 
     print!(
         "{}",
-        slice::markdown::render_compiled(&compilation, &slice, &locations)
+        slice::markdown::render_compiled(
+            &compilation,
+            &slice,
+            &Rebased {
+                links: &locations,
+                root: &root,
+                here: here(),
+            }
+        )
     );
     EXIT_SUCCESS
 }
 
+/// The directory the command runs in, which every path printed is written
+/// relative to.
+fn here() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// A target's locations, which are relative to the project root, rewritten
+/// relative to where the command runs, so the reader can follow them from
+/// there: `../../.claude/reference/ui.md#color` from `spec/components`.
+struct Rebased<'a> {
+    links: &'a dyn LinkResolver,
+    root: &'a Path,
+    here: PathBuf,
+}
+
+impl LinkResolver for Rebased<'_> {
+    fn link(&self, target: &Ref) -> Option<String> {
+        let link = self.links.link(target)?;
+        let (file, fragment) = match link.split_once('#') {
+            Some((file, fragment)) => (file, Some(fragment)),
+            None => (link.as_str(), None),
+        };
+        let file = piton_emit::relative_link(&self.here, &self.root.join(file));
+        Some(match fragment {
+            Some(fragment) => format!("{file}#{fragment}"),
+            None => file,
+        })
+    }
+}
+
 /// The module file `file` names, a directory standing for its index, or
 /// `None` once that has been reported.
-fn existing(file: &std::path::Path) -> Option<std::path::PathBuf> {
+fn existing(file: &Path) -> Option<PathBuf> {
     let mut path = project::canonical_target(file);
     if path.is_dir() {
         path = path.join("index.pi");

@@ -26,12 +26,14 @@ use crate::eval::constraint_label;
 use crate::store::VariableId;
 use crate::Compilation;
 
-/// Renders `slice` citing the source, with paths shown relative to `root`.
-pub fn render(compilation: &Compilation, slice: &Slice, root: &Path) -> String {
+/// Renders `slice` citing the source, with each path written relative to
+/// `base`, the directory the reader is in: `../ui.pi` when `base` is a
+/// sibling of the file's directory.
+pub fn render(compilation: &Compilation, slice: &Slice, base: &Path) -> String {
     Writer {
         compilation,
         slice,
-        cite: Cite::Source(root),
+        cite: Cite::Source(base),
     }
     .render()
 }
@@ -207,12 +209,14 @@ sections below.\n\n"
         out
     }
 
-    fn source_path(&self, root: &Path, module: crate::ModuleId) -> String {
+    fn source_path(&self, base: &Path, module: crate::ModuleId) -> String {
         let path = &self.compilation.graph().get(module).path;
-        path.strip_prefix(root)
-            .unwrap_or(path)
-            .display()
-            .to_string()
+        // A bundled package's file is not on disk, so it has no path from
+        // anywhere and is written as its name.
+        if !path.is_absolute() {
+            return path.display().to_string();
+        }
+        piton_emit::relative_link(base, path)
     }
 
     /// Where the reader finds `entity`: its source file, or the place it was
@@ -221,7 +225,7 @@ sections below.\n\n"
     /// of its own, so neither has a compiled location.
     fn location(&self, entity: &Entity) -> Option<String> {
         match self.cite {
-            Cite::Source(root) => Some(self.source_path(root, entity.module(self.compilation))),
+            Cite::Source(base) => Some(self.source_path(base, entity.module(self.compilation))),
             Cite::Compiled { links } => match entity {
                 Entity::Variable(_) => None,
                 _ => links.link(&reference(entity)),

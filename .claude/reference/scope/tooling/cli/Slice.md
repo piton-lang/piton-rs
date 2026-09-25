@@ -61,6 +61,12 @@ One Markdown document on stdout. The target comes first, then what it depends on
 Each declaration appears once, headed by its name as written in the source, like `SaveButton` or `SaveButton.color`, with the file it is declared in, what it extends, its type, and what it reads. Values are written the way the Markdown renderer writes them, except that a reference or an embedded anchor is written as its name, since the declaration it names is in the same document.
 A cycle is followed until it comes back around, and every dependency in it is still listed, so it stays visible.
 
+## Paths
+
+Every path the slice prints is written relative to the directory the command runs in, so the reader can follow it from there: a source file or, with `--adapter`, a compiled document and the links into it. Run from spec/components, a declaration in spec/components/Button.pi is in `Button.pi`, and a link to the compiled reference is `../../.claude/reference/components/Button.md#button`.
+The project is the one the command runs inside: the nearest piton.config.pi in the working directory or any directory above it.
+Markdown links an author wrote are text, and are passed through as written, never rewritten.
+
 ## Adapter
 
 With `--adapter`, the slice is for an agent that reads the compiled reference documents rather than the `.pi` source. Each declaration is placed in the file, and under the heading, that target's build writes it to, and every reference or name the text cites is a link to that place, like `.claude/reference/ui.md#color`. An anchor embedded into another's document is placed in the section that embeds it.

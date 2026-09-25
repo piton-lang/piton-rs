@@ -87,6 +87,20 @@ export cli-command Slice:
         A cycle is followed until it comes back around, and every dependency
         in it is still listed, so it stays visible.
 
+    paths:
+        Every path the slice prints is written relative to the directory the
+        command runs in, so the reader can follow it from there: a source file
+        or, with `--adapter`, a compiled document and the links into it. Run
+        from spec/components, a declaration in spec/components/Button.pi is in
+        `Button.pi`, and a link to the compiled reference is
+        `../../.claude/reference/components/Button.md#button`.
+
+        The project is the one the command runs inside: the nearest
+        piton.config.pi in the working directory or any directory above it.
+
+        Markdown links an author wrote are text, and are passed through as
+        written, never rewritten.
+
     adapter:
         With `--adapter`, the slice is for an agent that reads the compiled
         reference documents rather than the `.pi` source. Each declaration is
