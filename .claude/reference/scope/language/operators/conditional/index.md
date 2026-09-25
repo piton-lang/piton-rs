@@ -3,6 +3,7 @@
 ## Description
 
 Picks between two values based on a boolean.
+Ternary is just a fun word to say, kind of like "Guido" is fun to say. But my name isn't Guido, so I have to include the ternary operators in the language.
 
 ## Operators
 

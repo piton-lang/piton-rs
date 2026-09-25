@@ -42,6 +42,7 @@
     ".claude/reference/scope/language/operators/concatenation/index.md",
     ".claude/reference/scope/language/operators/conditional/TernaryOperator.md",
     ".claude/reference/scope/language/operators/conditional/index.md",
+    ".claude/reference/scope/language/operators/declaration/index.md",
     ".claude/reference/scope/language/operators/index.md",
     ".claude/reference/scope/language/operators/logical/index.md",
     ".claude/reference/scope/language/overview/Comments.md",

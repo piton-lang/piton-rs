@@ -3,6 +3,7 @@
 ## Description
 
 Compares two values and gives you a boolean.
+Introduces FOMO and jealousy.
 
 ## Equality
 

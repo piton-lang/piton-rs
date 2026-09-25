@@ -32,6 +32,10 @@ Piton supports a pretty standard if not small set of operators, plus a few sligh
 
 [LogicalOperators](./logical/index.md#logical-operators)
 
+## Declaration Operators
+
+[DeclarationOperators](./declaration/index.md#declaration-operators)
+
 ## Precedence
 
 Higher rows go first. Operators on the same row go left to right, except the ternary, which goes right to left. Parentheses change the order.

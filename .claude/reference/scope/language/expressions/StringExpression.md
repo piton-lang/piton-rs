@@ -36,3 +36,25 @@ description: The result is a string that can be embedded in surrounding text or 
 ```
 description: Preserve the string type in structured output. Apply any escaping required by the output format during serialization.
 ```
+
+## Complex Values
+
+`${}` never pulls in the contents of a list, dictionary, or anchor. It only gives you the name. If you want the contents, or a link to them, use the other two forms. Each one does one job, the same way in every renderer. In a file named Metadata.pi:
+```piton
+export anchor Metadata:
+    name: Piton
+    version:: string: 1.0
+
+export byName: Information about Piton ${Metadata}
+export byValue: Information about Piton {Metadata}
+export byLink: Information about Piton @{Metadata}
+```
+```json
+{
+  "byName": "Information about Piton Metadata",
+  "byValue": ["Information about Piton", { "name": "Piton", "version": "1.0" }],
+  "byLink": "Information about Piton ./Metadata.json:Metadata"
+}
+```
+In Markdown, byValue puts Metadata's content in place under its own headings, and byLink becomes `[Metadata](./Metadata.md#metadata)`.
+A reference has to point at an anchor, or a property on one. A plain list or dictionary at the top of a file can't be linked to, so if you want to link to it, put it in an anchor.

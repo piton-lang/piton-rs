@@ -190,7 +190,8 @@ negative: -5
 - **A decimal needs its leading `0`.** `0.14` is a number; `.5` is not a number
   (unconstrained, it is the string `".5"`).
 - `_` may separate digits for readability.
-- **There is no exponent notation.** `1e3` is not a number.
+- **There is no exponent notation.** `1e3` is not a number (unconstrained, it
+  is silently the string `"1e3"`, not an error).
 - A negative number is written with a minus, like `-5`. A list item always has
   a space after its dash, so `-5` is a number and `- 5` is a list item.
 - **The minus is only part of a number.** There's no minus in front of an
@@ -272,6 +273,10 @@ block:
   `` `a + b` `` in a table cell is text only because it has no braces.
 - An expression in running text changes the value's shape when it evaluates
   to a list, dictionary or anchor (section 6.2).
+
+Wrapping stops text being parsed as syntax, but it doesn't change the inferred
+type: `\ false \` is still the boolean `false`. To get the string, write
+`${false}`.
 
 The wrapper is the only way to escape. A backslash that doesn't open a
 wrapper (a backslash followed by a space) is just a backslash, so `\:` is the
@@ -608,6 +613,24 @@ there is other text around it:
   the variable name at the top of a file. So if `tags` is a top-level list,
   `${tags}` is `"tags"`.
 - A list or dictionary with no name (`${[1, 2]}`) is `no-string-form`.
+- **`${}` never pulls in the contents** of a list, dictionary or anchor, only
+  its name. For the contents use `{x}`; for a link use `@{x}`. In
+  `Metadata.pi`:
+
+  ```piton
+  export anchor Metadata:
+      name: Piton
+      version:: string: 1.0
+
+  export byName: Information about Piton ${Metadata}
+  export byValue: Information about Piton {Metadata}
+  export byLink: Information about Piton @{Metadata}
+  ```
+
+  `byName` is `"Information about Piton Metadata"`, `byValue` is
+  `["Information about Piton", {"name": "Piton", "version": "1.0"}]`, and
+  `byLink` is `"Information about Piton ./Metadata.json:Metadata"` (in
+  Markdown, `[Metadata](./Metadata.md#metadata)`).
 - The result is never re-parsed as source.
 - In structured output the value stays a string; whatever escaping the output
   format needs is applied when it is serialized.
@@ -628,7 +651,7 @@ there is other text around it:
 | Access | `.` | Property access on dictionaries and anchors. |
 | Arithmetic | `+ - * / %` | Numbers only. Division or modulo by zero is an error. `%` keeps the sign of the left side: `{-7 % 3}` is `-1`. |
 | Comparison | `== != < <= > >=` | The result is a boolean. `==` and `!=` work on every type (see below). `< <= > >=` work on numbers and on strings (by Unicode code point); anything else, or a number against a string, is an error. |
-| Logical | `&& \|\| !` | Booleans only. **There is no truthiness**; anything else is `invalid-operand`. |
+| Logical | `&& \|\| !` | Booleans only. **There is no truthiness**; anything else is `invalid-operand`. **No short-circuiting**: both sides are always evaluated and must be booleans, so `{true \|\| 5}` and `{false && 1 / 0 == 1}` are both errors. |
 | Conditional | `cond ? a : b` | The condition must be a boolean (`invalid-condition`). Only the selected branch is evaluated. Chainable in either slot. |
 | Concatenation / merge | `+` | Dispatches on the operand types (table below). |
 | Duplicate merge | `++` | Lists: joined in order, duplicates kept. Dictionaries: deep merge (nested dictionaries on both sides are merged all the way down; otherwise the right side wins). Strings: joined with a line break. |
@@ -678,13 +701,24 @@ the ternary, which goes right to left; parentheses change the order):
 So `{1 + 2 == 3 && !false}` is `{((1 + 2) == 3) && (!false)}`, and
 `{a ? b : c ? d : e}` is `{a ? b : (c ? d : e)}`.
 
-**Control flow:** the ternary is the only conditional. There are no loops and
-no functions.
+**Control flow:** the ternary is the only conditional, and the only operator
+that evaluates just one side. There are no loops and no functions.
+
+**Declaration operators:** `:` (assignment) and `::` (type annotation) are
+documented as operators in `spec/scope/language/operators/declaration/`
+(`DeclarationOperators`), but they are not expression operators: they aren't in
+`allOperators`, the precedence table, or any type's `supportedOperators`.
+
+**Why `+` and `++`:** on lists, `+` behaves like a set (duplicates removed,
+last kept) and `++` like a list (duplicates kept). The spec explains this in
+`ConcatenationOperators.setsAndLists`.
 
 ### 6.5 References `@{}`
 
 - The expression must identify an anchor or **a property on one**
   (`@{Button}`, `@{Button.color}`). Anything else is `invalid-reference`.
+  **A plain list or dictionary at the top of a file can't be referenced**; to
+  link to it, put it in an anchor.
 - The referenced anchor joins the compilation dependency graph (for a
   property, the anchor it is on), so it gets compiled and emitted.
 - References are resolved separately for each output target, through the
@@ -1038,15 +1072,27 @@ my-anchor ChildAnchor extends OtherBase:
 - **Renderers** decide the format: `json` (default), `yaml` or `markdown`.
   Frameworks add adapters on top; Belay's adapters build on the Markdown
   renderer.
-- **Markdown serialization** (used by the Markdown renderer and Belay):
-  - Anchor names and prose-bearing property names become word-separated title
-    headings. `myProperty` becomes `My Property`, `t1` becomes `T 1`, and runs
-    of capitals are not split (`whatIsAType` becomes `What Is AType`). Heading
-    depth follows nesting, and bold labels take over past level 6.
+- **Markdown serialization** (used by the Markdown renderer and Belay; the
+  worked examples are in `spec/scope/belay/Compilation.pi`,
+  `MarkdownSerialization`):
+  - Anchor and property names become word-separated title headings.
+    `myProperty` becomes `My Property`, `t1` becomes `T 1`, and runs of
+    capitals are not split (`whatIsAType` becomes `What Is AType`). Heading
+    depth follows nesting, and bold labels (`**G**`) take over past level 6.
+  - **Every property of an anchor gets a heading**, even one holding a single
+    `false` or `42`, with the value under it.
+  - A **pure dictionary** is one whose every value is a simple value (string,
+    number, boolean, null) or another pure dictionary: no lists and no mixed
+    content anywhere inside. It is written as-is, indentation-structured,
+    inside a code fence, and its keys don't become headings, including when
+    it's embedded in mixed content.
+  - A dictionary that isn't pure, and any mixed content, gets a heading per
+    key instead.
+  - **Strings count as simple values, even long prose**, so a dictionary whose
+    values are all prose is fenced. To get a heading per key, start the block
+    with a line of prose before the keys, or make at least one value a list.
   - Primitives become their text form (`false`, `42`, `null`).
   - Explicit lists become Markdown lists with nested indentation.
-  - Pure dictionaries become indentation-structured text inside code fences,
-    including when they are embedded in mixed content.
   - Mixed lists keep the order of their prose and structure.
   - `{Other}` is serialized as a copy of the anchor's content. Only `@{Other}`
     becomes a link.
@@ -1672,7 +1718,11 @@ surprise you:
   the value on the anchor itself.
 - `piton check` with no paths checks what the entry reaches, so a file that
   nothing imports is not checked. Name it: `piton check path/to/file.pi`.
-- The Markdown renderer puts a dictionary whose values are all strings in a
-  code fence, even when the strings are prose. To get a heading per key,
-  start the block with a line of prose before the keys, or make at least one
-  value a list: either one turns every key into a heading.
+- **Prose directly in an anchor body is silently dropped.** `anchor A:` with
+  only a line of text under it (no key) compiles to an empty anchor, with no
+  diagnostic. Always put prose under a key, such as `description:`.
+- Mixed-type equality is simply unequal: `{1 == "1"}` is `false`, not an
+  error. The spec says `==` works on every type but doesn't spell this out.
+- Which constructs each adapter requires a `description` for (section 11.2)
+  is hardcoded in `crates/piton-belay/src/adapter.rs`, not declared in the
+  adapter `.pi` files.

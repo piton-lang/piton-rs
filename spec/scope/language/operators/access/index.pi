@@ -2,6 +2,12 @@ from ../lib/Operator import Operator
 from ./PropertyAccessOperator import PropertyAccessOperator
 
 export anchor AccessOperators:
+    description:
+        Reads a property from a dictionary or an anchor.
+
+        If only buying land were as cheap as accessing a value from a
+        dictionary.
+
     operators: {ACCESS_OPERATORS}
 
 export ACCESS_OPERATORS:: extends Operator[]:

@@ -4,6 +4,7 @@ from ./arithmetic import ARITHMETIC_OPERATORS, ArithmeticOperators
 from ./comparison import COMPARISON_OPERATORS, ComparisonOperators
 from ./concatenation import CONCATENATION_OPERATORS, ConcatenationOperators
 from ./conditional import CONDITIONAL_OPERATORS, ConditionalOperators
+from ./declaration import DeclarationOperators
 from ./logical import LOGICAL_OPERATORS, LogicalOperators
 
 export anchor Operators:
@@ -19,6 +20,7 @@ export anchor Operators:
     ConcatenationOperators: @{ConcatenationOperators}
     ConditionalOperators: @{ConditionalOperators}
     LogicalOperators: @{LogicalOperators}
+    DeclarationOperators: @{DeclarationOperators}
     precedence:
         Higher rows go first. Operators on the same row go left to right,
         except the ternary, which goes right to left. Parentheses change the
