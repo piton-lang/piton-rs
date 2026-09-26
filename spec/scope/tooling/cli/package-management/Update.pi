@@ -14,7 +14,16 @@ export cli-command Update:
             discarding the edits. Each package whose edits were discarded is
             named in a warning, with what changed in it.
         diff:
-            Show a unified diff of every file each update changed, from what was
-            on disk before to what is installed now, local edits included.
-            Removed lines are red and added lines green on a terminal; piped,
-            it is a plain unified diff.
+            Show every file each update changed, line by line, from what was on
+            disk before to what is installed now, local edits included. Each
+            changed region is printed with three lines of unchanged context,
+            and every line with its old and new line number: an unchanged line
+            has both, a removed line only its old one, an added line only its
+            new one. Separate regions of one file are split by a line of its
+            own. Each package says how many files changed, and says so when
+            none did. When an update is refused because a package was edited,
+            the diff shows those edits instead: the package as it was
+            installed, fetched again from the commit the lock file records,
+            against what is on disk now. The diff is computed by the compiler
+            itself, so it needs no diff program installed. On a terminal removed lines are red and
+            added lines green.

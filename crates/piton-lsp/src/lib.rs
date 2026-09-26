@@ -258,7 +258,7 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "piton-lsp".into(),
-                version: Some(env!("CARGO_PKG_VERSION").into()),
+                version: Some(VERSION.get().copied().unwrap_or(env!("CARGO_PKG_VERSION")).into()),
             }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -669,7 +669,13 @@ impl LanguageServer for Backend {
 }
 
 /// Runs the language server over stdio.
-pub fn serve() {
+/// The version the server reports to the editor: the binary's, which
+/// [`serve`] is given, rather than this crate's.
+static VERSION: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Runs the language server over stdio, reporting `version` as its own.
+pub fn serve(version: &'static str) {
+    let _ = VERSION.set(version);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

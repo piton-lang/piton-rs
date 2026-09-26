@@ -1631,16 +1631,17 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
     let insert = insertion_point(compilation, cursor.module, &cursor.text);
     let at = offset_to_position(&cursor.text, insert);
 
-    let mut items = Vec::new();
+    // A name re-exported by an index is exported from several modules, and
+    // they all lead to the same symbol. It is offered once, imported from the
+    // shortest path -- usually the index, which is what re-exporting it was
+    // for -- rather than once per module that passes it along.
+    let mut chosen: Vec<(String, Symbol, String)> = Vec::new();
     for module in compilation.graph().iter() {
         if module.id == cursor.module {
             continue;
         }
         let written = import_path(&cursor.path, &module.path, &compilation.project.source_root);
         for name in compilation.resolution.exported_names(module.id) {
-            if items.len() >= LIMIT {
-                return items;
-            }
             if visible.contains(&name) {
                 continue;
             }
@@ -1654,7 +1655,25 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
             if !only.accepts(compilation, symbol) {
                 continue;
             }
+            match chosen
+                .iter_mut()
+                .find(|(seen, bound, _)| *seen == name && *bound == symbol)
+            {
+                Some(entry) => {
+                    let shorter = (written.len(), &written) < (entry.2.len(), &entry.2);
+                    if shorter {
+                        entry.2 = written.clone();
+                    }
+                }
+                None => chosen.push((name, symbol, written.clone())),
+            }
+        }
+    }
 
+    chosen
+        .into_iter()
+        .take(LIMIT)
+        .map(|(name, symbol, written)| {
             let mut item = symbol_completion(compilation, &name, symbol);
             item.label_details = Some(CompletionItemLabelDetails {
                 description: Some(written.clone()),
@@ -1667,10 +1686,9 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
                 range: Range { start: at, end: at },
                 new_text: format!("from {written} import {name}\n"),
             }]);
-            items.push(item);
-        }
-    }
-    items
+            item
+        })
+        .collect()
 }
 
 /// The types a `::` constraint accepts.

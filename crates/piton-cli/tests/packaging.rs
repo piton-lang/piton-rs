@@ -257,6 +257,16 @@ fn an_edited_package_is_not_overwritten() {
     assert!(stderr.contains("untether"), "{stderr}");
     assert_eq!(sandbox.read("app/tethers/dep-lib/Anchors.pi"), edited);
 
+    // Asked for a diff, the refusal still shows the edit itself: the file as
+    // it was installed against what is on disk now.
+    let (stdout, stderr, code) = sandbox.piton(&["update", "--diff"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("has been modified"), "{stderr}");
+    assert!(stdout.contains("edited dep-lib (1 file changed since it was installed)"), "{stdout}");
+    assert!(stdout.contains("2   │-    label: Save"), "{stdout}");
+    assert!(stdout.contains("  2 │+    label: Edited locally"), "{stdout}");
+    assert_eq!(sandbox.read("app/tethers/dep-lib/Anchors.pi"), edited);
+
     // Removing it is refused for the same reason.
     let (_, stderr, code) = sandbox.piton(&["remove", "dep-lib"]);
     assert_eq!(code, 1, "{stderr}");
@@ -286,15 +296,19 @@ fn a_forced_update_discards_the_edits_and_shows_the_diff() {
     assert!(stderr.contains("discarded the local changes to `dep-lib`"), "{stderr}");
     assert!(stderr.contains("Anchors.pi"), "{stderr}");
     // ...and the diff runs from what was on disk to what is there now.
-    assert!(stdout.contains("--- a/tethers/dep-lib/Anchors.pi"), "{stdout}");
-    assert!(stdout.contains("+++ b/tethers/dep-lib/Anchors.pi"), "{stdout}");
-    assert!(stdout.contains("-    label: Edited locally"), "{stdout}");
-    assert!(stdout.contains("+    label: Submit"), "{stdout}");
+    assert!(stdout.contains("1 file changed:"), "{stdout}");
+    assert!(stdout.contains("\ntethers/dep-lib/Anchors.pi\n"), "{stdout}");
+    // Every line carries its old and new line number: context both, a
+    // removed line only the old, an added line only the new.
+    assert!(stdout.contains("1 1 │ export anchor Button as button:"), "{stdout}");
+    assert!(stdout.contains("2   │-    label: Edited locally"), "{stdout}");
+    assert!(stdout.contains("  2 │+    label: Submit"), "{stdout}");
 
     // With nothing edited and nothing new, a diff has nothing to show.
     let (stdout, stderr, code) = sandbox.piton(&["update", "--diff"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(!stdout.contains("--- a/"), "{stdout}");
+    assert!(!stdout.contains("│"), "{stdout}");
+    assert!(stdout.contains("no files changed"), "{stdout}");
 }
 
 #[test]
