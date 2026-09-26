@@ -3,7 +3,7 @@ from ../../variables/TypeCoercion import TypeCoercion
 from ../Inference import Inference
 
 export abstract anchor Type as type:
-    whatIsAType:
+    what-is-a-type:
         A type describes what kind of value something is. It defines which
         values are allowed, which operations they support, and where they can be
         used.

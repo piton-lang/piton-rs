@@ -272,3 +272,49 @@ fn rereading_the_configuration_moves_the_source_root() {
         "the configuration says where the project is, and it moved"
     );
 }
+
+#[test]
+fn a_missing_entry_still_leaves_the_workspace_to_edit() {
+    let fixture = Fixture::new("missing-entry");
+    std::fs::remove_file(fixture.path("spec/index.pi")).expect("remove the entry");
+    fixture.write(
+        "spec/Page.pi",
+        "export abstract anchor Page as page:\n    title:: string\n",
+    );
+    fixture.write(
+        "spec/Home.pi",
+        "use ./Page\n\nexport page Home:\n    title: Home\n    \n",
+    );
+    let world = fixture.opened("spec/Home.pi");
+
+    // The missing entry is reported...
+    let diagnostics = world.diagnostics_by_file();
+    assert!(
+        diagnostics
+            .get(&fixture.path("spec/index.pi"))
+            .is_some_and(|found| !found.is_empty()),
+        "{diagnostics:?}"
+    );
+    // ...and every other file still loads, with nothing reported as unused
+    // for want of an entry to reach it from.
+    let home = fixture.path("spec/Home.pi");
+    assert!(loaded(&world, &home));
+    assert!(loaded(&world, &fixture.path("spec/Reached.pi")));
+    assert!(
+        diagnostics.get(&home).is_none_or(|found| found.is_empty()),
+        "{:?}",
+        diagnostics.get(&home)
+    );
+
+    // So the file being written still completes.
+    let text = std::fs::read_to_string(&home).expect("readable");
+    let offset = text.find("    \n").expect("blank body line") + 4;
+    let position = offset_to_position(&text, offset);
+    let uri = path_to_url(&home).expect("url");
+    let labels: Vec<String> = match features::completion(&world, &uri, position) {
+        Some(CompletionResponse::Array(items)) => items.into_iter().map(|item| item.label).collect(),
+        Some(CompletionResponse::List(list)) => list.items.into_iter().map(|item| item.label).collect(),
+        None => Vec::new(),
+    };
+    assert!(labels.contains(&"title".to_string()), "{labels:?}");
+}

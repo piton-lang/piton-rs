@@ -43,6 +43,10 @@ pub struct Resolution {
     pub store: Store,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub entry: ModuleId,
+    /// False when the entry could not be loaded. `entry` then names no module
+    /// of its own -- only the editor's workspace still resolves the files
+    /// around it -- and there is nothing to measure reachability from.
+    pub has_entry: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -171,6 +175,7 @@ pub fn resolve_with(
             store: Store::default(),
             scopes: HashMap::new(),
             entry: ModuleId(0),
+            has_entry: false,
             diagnostics,
         };
     };
@@ -193,15 +198,7 @@ pub fn resolve_including(
 ) -> Resolution {
     let mut graph = graph;
     let mut diagnostics = Vec::new();
-    let Some(entry_id) = graph.load(entry, &mut diagnostics) else {
-        return Resolution {
-            graph,
-            store: Store::default(),
-            scopes: HashMap::new(),
-            entry: ModuleId(0),
-            diagnostics,
-        };
-    };
+    let entry_id = graph.load(entry, &mut diagnostics);
 
     let mut seeds = Vec::new();
     for path in also {
@@ -212,7 +209,27 @@ pub fn resolve_including(
         }
     }
 
-    resolve_from_roots(graph, entry_id, &seeds, roots, diagnostics)
+    match entry_id {
+        Some(entry_id) => resolve_from_roots(graph, entry_id, &seeds, roots, diagnostics),
+        // A missing entry is reported, but the files being edited still have
+        // to resolve: without them there are no completions, symbols, or
+        // diagnostics for the very files that would fix the project.
+        None => match seeds.split_first() {
+            Some((first, rest)) => {
+                let mut resolution = resolve_from_roots(graph, *first, rest, roots, diagnostics);
+                resolution.has_entry = false;
+                resolution
+            }
+            None => Resolution {
+                graph,
+                store: Store::default(),
+                scopes: HashMap::new(),
+                entry: ModuleId(0),
+                has_entry: false,
+                diagnostics,
+            },
+        },
+    }
 }
 
 /// Resolves a graph that already has its entry module loaded. The language
@@ -436,6 +453,7 @@ pub fn resolve_from_roots(
         store,
         scopes,
         entry,
+        has_entry: true,
         diagnostics,
     };
 
