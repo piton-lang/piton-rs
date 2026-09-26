@@ -6,7 +6,10 @@
 //!
 //! Nothing is replaced without first checking that what is on disk is still
 //! what was installed. An edited package is carrying work, and the only safe
-//! answers are to leave it alone and say so.
+//! answers are to leave it alone and say so -- unless `--force` says to throw
+//! the work away, and then what was thrown away is still said.
+//!
+//! `--diff` shows what each update changed, file by file.
 
 use piton_compile::packages::Lock;
 
@@ -17,7 +20,7 @@ use crate::commands::tether::{fail, report_config_errors};
 use crate::packages::Installer;
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
-pub fn run(requested: &[String]) -> u8 {
+pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
     let (configured, diagnostics) = project::current();
     if report_config_errors(&configured, &diagnostics) {
         return EXIT_ERRORS;
@@ -72,6 +75,8 @@ pub fn run(requested: &[String]) -> u8 {
 
     let before = lock.clone();
     let mut installer = Installer::new(&configured.root, lock);
+    installer.force = force;
+    installer.diff = diff;
     for dependency in &wanted {
         if let Err(failure) = installer.add(dependency, None) {
             return fail(failure);
@@ -107,12 +112,29 @@ pub fn run(requested: &[String]) -> u8 {
                 paint(style::NAME, &package.name),
                 package.commit.as_deref().map(short).unwrap_or_else(|| "?".to_string())
             );
+        } else if package.discarded.is_some() {
+            changed += 1;
+            println!(
+                "{} {} to {}",
+                paint(style::SUCCESS, "restored"),
+                paint(style::NAME, &package.name),
+                package.pin
+            );
         } else {
             println!(
                 "{} {}",
                 paint(style::NAME, &package.name),
                 paint(style::DIM, format!("is already at {}", package.pin))
             );
+        }
+        if diff {
+            crate::diff::print(&format!("tethers/{}", package.name), &package.changes);
+        }
+        if let Some(discarded) = &package.discarded {
+            report::warn(format_args!(
+                "discarded the local changes to `{}` ({discarded})",
+                package.name
+            ));
         }
     }
     let outcome = format!(

@@ -264,6 +264,40 @@ fn an_edited_package_is_not_overwritten() {
 }
 
 #[test]
+fn a_forced_update_discards_the_edits_and_shows_the_diff() {
+    let Some(sandbox) = fixture("forced") else {
+        return;
+    };
+    assert_eq!(sandbox.piton(&["tether", &sandbox.source()]).2, 0);
+    sandbox.write(
+        "app/tethers/dep-lib/Anchors.pi",
+        "export anchor Button as button:\n    label: Edited locally\n",
+    );
+    sandbox.write(
+        "repo/spec/Anchors.pi",
+        "export anchor Button as button:\n    label: Submit\n",
+    );
+    sandbox.commit("two");
+
+    let (stdout, stderr, code) = sandbox.piton(&["update", "--force", "--diff"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(sandbox.read("app/tethers/dep-lib/Anchors.pi").contains("Submit"));
+    // The edits it threw away are said to be gone...
+    assert!(stderr.contains("discarded the local changes to `dep-lib`"), "{stderr}");
+    assert!(stderr.contains("Anchors.pi"), "{stderr}");
+    // ...and the diff runs from what was on disk to what is there now.
+    assert!(stdout.contains("--- a/tethers/dep-lib/Anchors.pi"), "{stdout}");
+    assert!(stdout.contains("+++ b/tethers/dep-lib/Anchors.pi"), "{stdout}");
+    assert!(stdout.contains("-    label: Edited locally"), "{stdout}");
+    assert!(stdout.contains("+    label: Submit"), "{stdout}");
+
+    // With nothing edited and nothing new, a diff has nothing to show.
+    let (stdout, stderr, code) = sandbox.piton(&["update", "--diff"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stdout.contains("--- a/"), "{stdout}");
+}
+
+#[test]
 fn untethering_moves_the_package_and_rewrites_what_named_it() {
     let Some(sandbox) = fixture("untether") else {
         return;

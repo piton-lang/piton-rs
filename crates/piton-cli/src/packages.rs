@@ -50,6 +50,88 @@ pub struct Placed {
     pub pin: Pin,
     pub commit: Option<String>,
     pub files: usize,
+    /// Every file that differs between what was installed before and what is
+    /// installed now, when the operation was asked for a diff.
+    pub changes: Vec<FileChange>,
+    /// The local edits a forced replacement threw away, described for a
+    /// warning, when there were any.
+    pub discarded: Option<String>,
+}
+
+/// One file's contents before and after an install. None is a file that
+/// wasn't there.
+pub struct FileChange {
+    /// The path inside the package, `/`-separated.
+    pub path: String,
+    pub before: Option<Vec<u8>>,
+    pub after: Option<Vec<u8>>,
+}
+
+/// Every file under `directory`, by its `/`-separated path inside it.
+fn read_tree(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(root: &Path, directory: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else if let (Ok(relative), Ok(contents)) = (path.strip_prefix(root), std::fs::read(&path)) {
+                let parts: Vec<String> = relative
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().to_string())
+                    .collect();
+                out.insert(parts.join("/"), contents);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(directory, directory, &mut out);
+    out
+}
+
+/// The files that differ between two snapshots of a package, by path.
+fn changes(
+    mut before: std::collections::BTreeMap<String, Vec<u8>>,
+    after: std::collections::BTreeMap<String, Vec<u8>>,
+) -> Vec<FileChange> {
+    let mut out = Vec::new();
+    for (path, contents) in after {
+        let old = before.remove(&path);
+        if old.as_ref() != Some(&contents) {
+            out.push(FileChange {
+                path,
+                before: old,
+                after: Some(contents),
+            });
+        }
+    }
+    for (path, contents) in before {
+        out.push(FileChange {
+            path,
+            before: Some(contents),
+            after: None,
+        });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
+/// What has changed in an installed package since it was installed, for the
+/// warning a forced replacement gives.
+fn local_changes(project_root: &Path, lock: &Lock, name: &str) -> String {
+    let directory = packages::package_directory(project_root, name);
+    let Some(recorded) = lock.get(name) else {
+        return "it was not recorded by `piton tether`".to_string();
+    };
+    let drift = recorded.compare(&directory);
+    let paths = drift.paths();
+    let mut listed: Vec<String> = paths.iter().take(5).cloned().collect();
+    if paths.len() > 5 {
+        listed.push(format!("and {} more", paths.len() - 5));
+    }
+    format!("{}: {}", drift.summary(), listed.join(", "))
 }
 
 /// Runs `git`, returning its trimmed standard output.
@@ -251,7 +333,7 @@ remove it and tether it again, or untether it to keep it",
         drift.summary()
     ))
     .with_help(format!(
-        "run `piton untether {name}` to keep the changes, or delete the directory to discard them"
+        "run `piton untether {name}` to keep the changes, or `piton update --force` to discard them"
     )))
 }
 
@@ -295,6 +377,8 @@ pub fn install(
         pin: pin.clone(),
         commit: commit.map(str::to_string),
         files,
+        changes: Vec::new(),
+        discarded: None,
     })
 }
 
@@ -311,6 +395,11 @@ pub struct Installer<'a> {
     pub lock: Lock,
     pub placed: Vec<Placed>,
     pub warnings: Vec<String>,
+    /// Replace an edited package anyway, discarding its local changes, rather
+    /// than refusing.
+    pub force: bool,
+    /// Record what each install changed, for a diff.
+    pub diff: bool,
     /// Sources already installed.
     seen: Vec<Seen>,
 }
@@ -332,6 +421,8 @@ impl<'a> Installer<'a> {
             lock,
             placed: Vec::new(),
             warnings: Vec::new(),
+            force: false,
+            diff: false,
             seen: Vec::new(),
         }
     }
@@ -437,11 +528,24 @@ impl<'a> Installer<'a> {
                 (None, _) => published,
             };
 
+            let mut discarded = std::collections::HashMap::new();
             for package in &published {
-                require_unmodified(self.project_root, &self.lock, &package.name)?;
+                match require_unmodified(self.project_root, &self.lock, &package.name) {
+                    Ok(()) => {}
+                    // Forced, the edits are thrown away, and said to be.
+                    Err(_) if self.force => {
+                        discarded.insert(
+                            package.name.clone(),
+                            local_changes(self.project_root, &self.lock, &package.name),
+                        );
+                    }
+                    Err(failure) => return Err(failure),
+                }
             }
             for package in &published {
-                let placed = install(
+                let directory = packages::package_directory(self.project_root, &package.name);
+                let before = self.diff.then(|| read_tree(&directory));
+                let mut placed = install(
                     self.project_root,
                     &mut self.lock,
                     package,
@@ -449,6 +553,10 @@ impl<'a> Installer<'a> {
                     &dependency.pin,
                     checkout.commit.as_deref(),
                 )?;
+                if let Some(before) = before {
+                    placed.changes = changes(before, read_tree(&directory));
+                }
+                placed.discarded = discarded.remove(&package.name);
                 // A later, newer version replaces what an earlier one placed.
                 self.placed.retain(|earlier| earlier.name != placed.name);
                 self.placed.push(placed);

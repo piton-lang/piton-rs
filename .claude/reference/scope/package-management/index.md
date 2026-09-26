@@ -40,4 +40,4 @@ Cloning with git (tethering) should remove any traces of git; these are just pla
 
 ## Conflict Resolution
 
-When a package is updated (or tethered or anything else), it should check the current status of the files against the lock file, and only if there are no differences can it update. If it appears that the package has been modified, the user should be informed of the problem and asked to untether.
+When a package is updated (or tethered or anything else), it should check the current status of the files against the lock file, and only if there are no differences can it update. If it appears that the package has been modified, the user should be informed of the problem and asked to untether, or to update with --force, which discards the edits and says so.
