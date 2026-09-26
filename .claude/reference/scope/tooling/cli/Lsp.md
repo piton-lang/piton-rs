@@ -57,6 +57,7 @@ duplicateRedundantDefinitionDetection: Identify declarations that unnecessarily 
 documentationIntegration: Surface documentation comments and descriptions through hover, completion, symbol search, and hierarchy views so the specbase remains understandable while navigating it.
 incrementalAnalysis: Only re-evaluate the portions of the dependency graph affected by an edit rather than recompiling the entire specbase after every keystroke.
 workspaceIndexing: Maintain an index of symbols, relationships, references, exports, inheritance, and composition across the project so navigation and completion remain fast.
+  The index covers every source under the project root and every open file, whether or not the entry reaches it. A missing or unreadable entry is reported, and everything else still loads, so the files that would fix the project keep their diagnostics, symbols, and completion. Without an entry nothing is reachable, so nothing is reported as unused.
 editorSelectionRanges: Understand Piton's semantic structure so expanding selection moves naturally from a value to a property, declaration, and enclosing anchor.
 folding: Provide folding ranges for anchors, skills, agents, multiline values, documentation blocks, and other structural Piton constructs.
 ```

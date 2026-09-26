@@ -121,7 +121,11 @@ impl Compilation {
     }
 
     /// Every anchor exported from the entry module, in declaration order.
+    /// None when the entry could not be loaded.
     pub fn entry_exports(&self) -> Vec<AnchorId> {
+        if !self.resolution.has_entry {
+            return Vec::new();
+        }
         let entry = self.resolution.entry;
         self.resolution
             .exported_names(entry)

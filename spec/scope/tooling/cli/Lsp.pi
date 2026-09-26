@@ -192,6 +192,13 @@ export cli-command Lsp:
             inheritance, and composition across the project so navigation and
             completion remain fast.
 
+            The index covers every source under the project root and every
+            open file, whether or not the entry reaches it. A missing or
+            unreadable entry is reported, and everything else still loads, so
+            the files that would fix the project keep their diagnostics,
+            symbols, and completion. Without an entry nothing is reachable, so
+            nothing is reported as unused.
+
         editorSelectionRanges:
             Understand Piton's semantic structure so expanding selection moves
             naturally from a value to a property, declaration, and

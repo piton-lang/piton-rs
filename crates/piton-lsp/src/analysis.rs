@@ -148,7 +148,11 @@ pub fn analyze(compilation: &Compilation, index: &Index, output: &OutputSettings
 
     imports(compilation, index, &mut analysis.diagnostics);
     ambiguities(compilation, index, &mut analysis);
-    unused(compilation, index, &reachability, &mut analysis.diagnostics);
+    // Without an entry nothing is reached, so everything would read as
+    // unused; the missing entry is the one thing to report.
+    if compilation.resolution.has_entry {
+        unused(compilation, index, &reachability, &mut analysis.diagnostics);
+    }
     redundant(compilation, &mut analysis.diagnostics);
     compositions(compilation, &mut analysis);
     composition_edges(compilation, &mut analysis);
