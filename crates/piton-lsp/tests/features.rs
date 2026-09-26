@@ -195,11 +195,11 @@ fn completion_inside_an_anchor_offers_inherited_properties() {
         panic!("expected an array");
     };
     let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
-    assert!(labels.contains(&"whatIsAType"), "{labels:?}");
+    assert!(labels.contains(&"what-is-a-type"), "{labels:?}");
     assert!(labels.contains(&"unsupportedOperators"), "{labels:?}");
     let inherited = items
         .iter()
-        .find(|item| item.label == "whatIsAType")
+        .find(|item| item.label == "what-is-a-type")
         .and_then(|item| item.detail.clone())
         .unwrap_or_default();
     assert!(inherited.contains("inherited from Type"), "{inherited}");
@@ -603,8 +603,8 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
     // written at.
     let key = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    wh<|>\n");
     assert_eq!(
-        key.accept("whatIsAType"),
-        "use ./lib/Type\n\nexport type N:\n    whatIsAType: \n"
+        key.accept("what-is-a-type"),
+        "use ./lib/Type\n\nexport type N:\n    what-is-a-type: \n"
     );
 
     // The `::` before a constraint is not part of the type being named.
@@ -705,11 +705,11 @@ fn completion_after_a_dot_offers_the_members_of_what_it_follows() {
     let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
     // `self` is the anchor being written, so its slots are what follows the
     // dot -- the inherited ones included.
-    assert!(labels.contains(&"whatIsAType"), "{labels:?}");
+    assert!(labels.contains(&"what-is-a-type"), "{labels:?}");
     assert!(labels.contains(&"supportedOperators"), "{labels:?}");
     let detail = items
         .iter()
-        .find(|item| item.label == "whatIsAType")
+        .find(|item| item.label == "what-is-a-type")
         .and_then(|item| item.detail.clone())
         .unwrap_or_default();
     assert!(detail.contains("inherited from Type"), "{detail}");
@@ -785,7 +785,7 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
     let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    <|>\n");
     let items = buffer.items();
     let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
-    assert!(labels.contains(&"whatIsAType"), "{labels:?}");
+    assert!(labels.contains(&"what-is-a-type"), "{labels:?}");
     assert!(
         labels.contains(&"pass"),
         "an anchor with nothing to say still has to say so: {labels:?}"
@@ -807,8 +807,8 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
     );
     let optional = items
         .iter()
-        .find(|item| item.label == "whatIsAType")
-        .expect("whatIsAType");
+        .find(|item| item.label == "what-is-a-type")
+        .expect("what-is-a-type");
     assert!(
         optional
             .sort_text
@@ -1048,10 +1048,10 @@ fn an_unconstrained_value_proposes_nothing() {
     // The specification is explicit: `property: ` should propose nothing,
     // because the likely intent is to write prose. Only a constraint saying
     // what belongs there makes a proposal something other than a guess.
-    // `whatIsAType` carries no constraint at all.
+    // `what-is-a-type` carries no constraint at all.
     let free = Buffer::over(
         NULL,
-        "use ./lib/Type\n\nexport type Null:\n    whatIsAType: <|>\n",
+        "use ./lib/Type\n\nexport type Null:\n    what-is-a-type: <|>\n",
     );
     assert!(
         free.labels().is_empty(),
@@ -1320,4 +1320,28 @@ fn the_type_hierarchy_includes_composition() {
         "{:?}",
         composer.detail
     );
+}
+
+#[test]
+fn a_name_re_exported_by_an_index_is_offered_once() {
+    // `BuildTooling` is declared in `spec/agent/skills/BuildTooling.pi` and
+    // re-exported by `spec/agent/index.pi` and `spec/index.pi`: three modules
+    // export it, and all three lead to the same anchor.
+    let buffer = Buffer::over(
+        "spec/scope/tooling/cli/Loc.pi",
+        "export anchor Probe:\n    x: {<|>}\n",
+    );
+    let offered: Vec<CompletionItem> = buffer
+        .items()
+        .into_iter()
+        .filter(|item| item.label == "BuildTooling")
+        .collect();
+    assert_eq!(offered.len(), 1, "{:?}", offered.iter().map(|item| &item.label_details).collect::<Vec<_>>());
+    // Imported from the shortest path, which is the index that re-exports it.
+    let from = offered[0]
+        .label_details
+        .as_ref()
+        .and_then(|details| details.description.clone())
+        .expect("an auto-import names its module");
+    assert!(!from.ends_with("skills/BuildTooling"), "{from}");
 }

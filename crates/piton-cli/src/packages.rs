@@ -118,6 +118,53 @@ fn changes(
     out
 }
 
+/// The local edits to an installed package, file by file: the files as they
+/// were installed, fetched again from the commit the lock file records,
+/// against what is on disk now.
+fn local_edits(
+    project_root: &Path,
+    lock: &Lock,
+    name: &str,
+    fallback: &str,
+    scratch: &Path,
+) -> Outcome<Vec<FileChange>> {
+    let Some(recorded) = lock.get(name) else {
+        return Err(Failure::new(format!(
+            "`{name}` was not recorded by `piton tether`, so there is nothing to compare it with"
+        )));
+    };
+    let Some(commit) = recorded.commit.clone() else {
+        return Err(Failure::new(format!(
+            "the lock file records no commit for `{name}`, so what was installed can't be fetched again"
+        )));
+    };
+    let checkout = clone(&recorded.source, &Pin::Commit(commit), scratch)?;
+    let offered = published(&checkout.directory, fallback);
+    // A package tethered under another name is the one the repository offers
+    // when it offers only one.
+    let package = offered
+        .iter()
+        .find(|package| package.name == name)
+        .or_else(|| (offered.len() == 1).then(|| &offered[0]))
+        .ok_or_else(|| {
+            Failure::new(format!(
+                "`{}` no longer offers `{name}` at the installed commit",
+                recorded.source
+            ))
+        })?;
+    // Copied the way installing copies it, so only the files an install
+    // writes are compared.
+    let installed = scratch.join(format!("installed-{name}"));
+    let _ = std::fs::remove_dir_all(&installed);
+    copy_ungitted(&package.root, &installed)?;
+    let edits = changes(
+        read_tree(&installed),
+        read_tree(&packages::package_directory(project_root, name)),
+    );
+    let _ = std::fs::remove_dir_all(&installed);
+    Ok(edits)
+}
+
 /// What has changed in an installed package since it was installed, for the
 /// warning a forced replacement gives.
 fn local_changes(project_root: &Path, lock: &Lock, name: &str) -> String {
@@ -200,8 +247,21 @@ pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
             )?;
         }
         Pin::Commit(commit) => {
-            git(scratch, &["clone", "--quiet", source, &target])?;
-            git(&directory, &["checkout", "--quiet", commit])?;
+            // Only that commit is fetched: cloning the whole history to check
+            // one commit out is the slow part of a pinned install. A server
+            // that won't hand out a commit by its hash, or a commit given
+            // abbreviated, falls back to the full clone.
+            std::fs::create_dir_all(&directory).map_err(|error| {
+                Failure::new(format!("cannot create a working directory: {error}"))
+            })?;
+            let shallow = git(&directory, &["init", "--quiet", "."])
+                .and_then(|_| git(&directory, &["fetch", "--quiet", "--depth", "1", source, commit]))
+                .and_then(|_| git(&directory, &["checkout", "--quiet", "FETCH_HEAD"]));
+            if shallow.is_err() {
+                let _ = std::fs::remove_dir_all(&directory);
+                git(scratch, &["clone", "--quiet", source, &target])?;
+                git(&directory, &["checkout", "--quiet", commit])?;
+            }
         }
     }
 
@@ -400,6 +460,10 @@ pub struct Installer<'a> {
     pub force: bool,
     /// Record what each install changed, for a diff.
     pub diff: bool,
+    /// With `diff`, the local edits of each package that was edited since it
+    /// was installed, so they can be shown even when the update is refused
+    /// because of them.
+    pub edited: Vec<(String, Outcome<Vec<FileChange>>)>,
     /// Sources already installed.
     seen: Vec<Seen>,
 }
@@ -423,6 +487,7 @@ impl<'a> Installer<'a> {
             warnings: Vec::new(),
             force: false,
             diff: false,
+            edited: Vec::new(),
             seen: Vec::new(),
         }
     }
@@ -530,7 +595,18 @@ impl<'a> Installer<'a> {
 
             let mut discarded = std::collections::HashMap::new();
             for package in &published {
-                match require_unmodified(self.project_root, &self.lock, &package.name) {
+                let unmodified = require_unmodified(self.project_root, &self.lock, &package.name);
+                if unmodified.is_err() && self.diff && !self.force {
+                    let edits = local_edits(
+                        self.project_root,
+                        &self.lock,
+                        &package.name,
+                        &dependency.default_name(),
+                        &self.scratch,
+                    );
+                    self.edited.push((package.name.clone(), edits));
+                }
+                match unmodified {
                     Ok(()) => {}
                     // Forced, the edits are thrown away, and said to be.
                     Err(_) if self.force => {

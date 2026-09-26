@@ -18,15 +18,9 @@ use clap::{Parser, Subcommand};
 pub const EXIT_SUCCESS: u8 = 0;
 pub const EXIT_ERRORS: u8 = 1;
 
-/// The version `piton --version` reports.
-///
-/// A release build sets `PITON_VERSION` when it compiles, to the version it is
-/// published as, like `0.1.562`. A local build falls back to the crate
-/// version.
-const VERSION: &str = match option_env!("PITON_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+/// The version `piton --version` reports: the one the edge workflow
+/// publishes this commit as, like `0.1.562`. `build.rs` works it out.
+const VERSION: &str = env!("PITON_BUILD_VERSION");
 
 #[derive(Parser)]
 #[command(

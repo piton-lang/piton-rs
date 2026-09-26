@@ -108,12 +108,25 @@ impl zed::Extension for PitonExtension {
         _id: &LanguageServerId,
         completion: Completion,
     ) -> Option<CodeLabel> {
-        label(
+        // An auto-import names the module it imports from. Two anchors can
+        // share a name -- a project's own copy of a spec and the one bundled
+        // with the compiler -- and the module is what tells them apart.
+        let source = completion
+            .label_details
+            .as_ref()
+            .and_then(|details| details.description.as_deref())
+            .map(|module| format!("from {module}"));
+        let mut label = label(
             &completion.label,
             highlight_for_completion(completion.kind?)?,
             completion.detail.as_deref(),
             None,
-        )
+        )?;
+        if let Some(source) = source {
+            label.spans.push(CodeLabelSpan::literal("  ", None));
+            label.spans.push(CodeLabelSpan::literal(source, Some("comment".into())));
+        }
+        Some(label)
     }
 
     fn label_for_symbol(&self, _id: &LanguageServerId, symbol: Symbol) -> Option<CodeLabel> {

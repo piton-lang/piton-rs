@@ -37,6 +37,15 @@ export anchor Cli:
         plain text, and stdout is then the bare results: colour and marks
         never carry something the words don't.
 
+    version:
+        piton --version, and the version the language server reports to an
+        editor, is the version the edge build publishes the commit as. The
+        major and minor come from Cargo.toml, and the patch is the number of
+        commits up to the one being built, so a local build of a commit
+        reports what its release does, like 0.1.57. A build that sets
+        PITON_VERSION uses that instead. Without git, or outside a checkout,
+        it is the version in Cargo.toml.
+
     commands:
         - @{AgentCli}
         - @{Build}

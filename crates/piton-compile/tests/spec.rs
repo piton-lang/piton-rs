@@ -42,7 +42,7 @@ fn inherited_properties_keep_the_base_order() {
     assert_eq!(
         &names[..4],
         &[
-            "whatIsAType",
+            "what-is-a-type",
             "supportedOperators",
             "unsupportedOperators",
             "description"

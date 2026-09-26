@@ -24,6 +24,13 @@ export cli-command Lsp:
 
             However, don't autocomplete things that don't exist.
 
+            Offer each thing once. A name an index re-exports is exported by
+            several modules that all lead to the same anchor, and it is offered
+            once, imported from the shortest path. Two different anchors that
+            share a name, like a project's copy of a spec and the one bundled
+            with the compiler, are both offered, each naming the module it
+            would be imported from so they can be told apart.
+
             Don't propose autocomplete on nothing. If I type `property: ` it
             shouldn't propose anything because the likely intent is to type
             unstructured next.

@@ -22,6 +22,7 @@ null
 diagnostics: Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
 completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
   However, don't autocomplete things that don't exist.
+  Offer each thing once. A name an index re-exports is exported by several modules that all lead to the same anchor, and it is offered once, imported from the shortest path. Two different anchors that share a name, like a project's copy of a spec and the one bundled with the compiler, are both offered, each naming the module it would be imported from so they can be told apart.
   Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
   Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md#property-access-operator) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
 autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.

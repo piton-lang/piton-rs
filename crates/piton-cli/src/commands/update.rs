@@ -79,6 +79,35 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
     installer.diff = diff;
     for dependency in &wanted {
         if let Err(failure) = installer.add(dependency, None) {
+            // An update refused because of local edits still shows them.
+            for (name, edits) in &installer.edited {
+                match edits {
+                    Ok(changes) => {
+                        let files = changes.len();
+                        println!(
+                            "{} {} {}",
+                            paint(style::WARNING, "edited"),
+                            paint(style::NAME, name),
+                            paint(
+                                style::DIM,
+                                format!(
+                                    "({files} {} changed since it was installed)",
+                                    report::plural(files, "file", "files")
+                                )
+                            )
+                        );
+                        crate::diff::print(&format!("tethers/{name}"), changes);
+                    }
+                    Err(problem) => report::warn(format_args!(
+                        "cannot show the local changes to `{name}`: {}",
+                        problem.message
+                    )),
+                }
+            }
+            let _ = std::fs::remove_dir_all(&installer.scratch);
+            if !installer.edited.is_empty() {
+                report::stopped("nothing was updated");
+            }
             return fail(failure);
         }
     }
@@ -128,6 +157,19 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
             );
         }
         if diff {
+            // Said even when nothing changed, so an empty diff reads as an
+            // answer rather than as a flag that did nothing.
+            let files = package.changes.len();
+            println!(
+                "  {}",
+                paint(
+                    style::DIM,
+                    match files {
+                        0 => "no files changed".to_string(),
+                        _ => format!("{files} {} changed:", report::plural(files, "file", "files")),
+                    }
+                )
+            );
             crate::diff::print(&format!("tethers/{}", package.name), &package.changes);
         }
         if let Some(discarded) = &package.discarded {
