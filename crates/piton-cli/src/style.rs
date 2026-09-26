@@ -13,6 +13,10 @@ pub const NOTE: Style = AnsiColor::Blue.on_default().bold();
 pub const GUTTER: Style = AnsiColor::Blue.on_default().bold();
 /// Something the reader can type or look for: a template, a command, a path.
 pub const NAME: Style = AnsiColor::Cyan.on_default();
+/// A removed line in a diff: red, without the weight of an error label.
+pub const ERROR_LINE: Style = AnsiColor::Red.on_default();
+/// An added line in a diff.
+pub const SUCCESS_LINE: Style = AnsiColor::Green.on_default();
 pub const HEADING: Style = Style::new().bold();
 pub const DIM: Style = Style::new().dimmed();
 

@@ -19,4 +19,5 @@ clap.workspace = true
 inquire.workspace = true
 anstream.workspace = true
 anstyle.workspace = true
+similar.workspace = true
 globset.workspace = true

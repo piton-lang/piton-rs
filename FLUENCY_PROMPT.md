@@ -1540,15 +1540,17 @@ compile time.
 - **Conflicts.** Before tether, update or any other operation on an installed
   package, the tooling compares its files with the lock file and goes ahead
   only if nothing changed. If the files were edited, it says so and asks the
-  user to untether.
+  user to untether (or `piton update --force` to discard the edits).
 
 The commands:
 
 - `piton tether` on its own installs everything in `dependencies`. Given a
   source URL, it adds it to `dependencies` in `piton.config.pi` and installs
   it. `--as <name>` installs under another name.
-- `piton update [packages...]` reinstalls from `dependencies`, all packages
-  when none are named.
+- `piton update [packages...] [--force] [--diff]` reinstalls from
+  `dependencies`, all packages when none are named. `--force` replaces a
+  package even if it was edited, discarding the edits with a warning;
+  `--diff` prints a coloured unified diff of every file each update changed.
 - `piton untether <package>` moves the package from `tethers/` to
   `<root>/untethered/` and rewrites the imports that named it, making it the
   project's own source. `--as <name>` renames it; `--no-rewrite` only moves
@@ -1578,7 +1580,7 @@ text and stdout carries the bare results.
 | `piton lsp` | Runs the language server over stdio (section 14). |
 | `piton agent [claude] [--print-fluency] [args...]` | Launches the agent with a short project primer plus this fluency prompt (the project's `FLUENCY_PROMPT.md`, or the copy built into the compiler), passed to `claude` as `--append-system-prompt`. Extra arguments go to the agent. `--print-fluency` prints the prompt and does nothing else. |
 | `piton tether [source] [--as name]` | See section 12. |
-| `piton update [packages...]` | See section 12. |
+| `piton update [packages...] [--force] [--diff]` | See section 12. |
 | `piton untether <package> [--as name] [--no-rewrite]` | See section 12. |
 | `piton remove <package>` | See section 12. |
 

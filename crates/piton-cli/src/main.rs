@@ -7,6 +7,7 @@ mod project;
 mod render;
 mod report;
 mod style;
+mod diff;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -205,6 +206,13 @@ enum Command {
     Update {
         /// Packages to update; all of them when none are named
         packages: Vec<String>,
+        /// Replace packages that were edited since they were installed,
+        /// discarding the edits
+        #[arg(long)]
+        force: bool,
+        /// Show a diff of every file each update changes
+        #[arg(long)]
+        diff: bool,
     },
 }
 
@@ -248,7 +256,11 @@ fn main() -> ExitCode {
             rename,
             no_rewrite,
         } => commands::untether::run(&package, rename.as_deref(), no_rewrite),
-        Command::Update { packages } => commands::update::run(&packages),
+        Command::Update {
+            packages,
+            force,
+            diff,
+        } => commands::update::run(&packages, force, diff),
     };
     // Problems are printed last, whatever the command printed before them.
     report::flush();
