@@ -1,0 +1,45 @@
+{
+  "targets": [
+    {
+      "name": "Run",
+      "command": "cargo run --bin piton -- --help",
+      "kind": "run"
+    },
+    {
+      "name": "Run Release",
+      "command": "cargo run --release --bin piton -- --help",
+      "kind": "run",
+      "release": true
+    },
+    {
+      "name": "Build",
+      "command": "cargo build --workspace",
+      "kind": "build"
+    },
+    {
+      "name": "Build Release",
+      "command": "cargo build --release",
+      "kind": "build"
+    },
+    {
+      "name": "Test",
+      "command": "cargo test --workspace",
+      "kind": "test"
+    },
+    {
+      "name": "Check Spec",
+      "command": "cargo run --bin piton -- check",
+      "kind": "other"
+    },
+    {
+      "name": "Build Spec",
+      "command": "cargo run --bin piton -- build",
+      "kind": "other"
+    },
+    {
+      "name": "Install",
+      "command": "cargo xtask install",
+      "kind": "other"
+    }
+  ]
+}
