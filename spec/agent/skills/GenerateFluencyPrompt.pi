@@ -13,6 +13,9 @@ export skill GenerateFluencyPrompt:
         The goal is that the agent can use this prompt to understand and work on
         a Piton specbase.
 
+        You should try to keep the fluency prompt as small as possible while
+        still being useful and covering everything important.
+
         Output the results into ${FLUENCY_PROMPT_FILE}
 
 export FLUENCY_PROMPT_FILE: ${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md
