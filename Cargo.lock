@@ -798,6 +798,7 @@ dependencies = [
  "piton-emit",
  "piton-lsp",
  "piton-syntax",
+ "serde_json",
  "similar",
 ]
 

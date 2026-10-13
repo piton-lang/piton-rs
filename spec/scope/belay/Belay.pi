@@ -15,6 +15,7 @@ from ./Scope import
     ShapeRootReference
 from ./adapters/ClaudeCode import ClaudeCodeAdapter
 from ./adapters/Codex import CodexAdapter
+from ./adapters/Muse import MuseAdapter
 from ./adapters/OpenCode import OpenCodeAdapter
 from ./anchors/Agent import AgentBehavior
 from ./anchors/Command import CommandBehavior
@@ -32,7 +33,7 @@ export anchor Belay:
             and used. They're filled in at compile time, for each adapter, as
             a path relative to the file they end up in.
 
-        BELAY_AGENT_ROOT: The agent's directory, so that might be .claude or .opencode, etc.
+        BELAY_AGENT_ROOT: The agent's directory, so that might be .claude, .codex, .opencode or .muse.
         BELAY_PROJECT_ROOT: The project, where piton.config.pi lives.
         BELAY_SHAPE_ROOT: The shape as configured in the project config. If not specified, it's the project root.
         BELAY_CODE_ROOT: The code as configured in the project config.
@@ -61,6 +62,7 @@ export anchor Belay:
         - @{ClaudeCodeAdapter}
         - @{CodexAdapter}
         - @{OpenCodeAdapter}
+        - @{MuseAdapter}
 
     guarantees:
         - @{BuildGuarantees}

@@ -18,6 +18,7 @@ const ADAPTERS: &[(&str, &str)] = &[
     ("claude-code", "ClaudeCodeAdapter"),
     ("codex", "CodexAdapter"),
     ("opencode", "OpenCodeAdapter"),
+    ("muse", "MuseAdapter"),
 ];
 
 fn repo_root() -> PathBuf {

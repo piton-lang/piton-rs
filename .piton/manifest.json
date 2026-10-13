@@ -8,6 +8,7 @@
     ".claude/reference/scope/belay/Scope.md",
     ".claude/reference/scope/belay/adapters/ClaudeCode.md",
     ".claude/reference/scope/belay/adapters/Codex.md",
+    ".claude/reference/scope/belay/adapters/Muse.md",
     ".claude/reference/scope/belay/adapters/OpenCode.md",
     ".claude/reference/scope/belay/anchors/Agent.md",
     ".claude/reference/scope/belay/anchors/Command.md",

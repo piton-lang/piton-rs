@@ -96,9 +96,21 @@ pub struct Adapter {
     pub invocation: &'static str,
     /// Version of the target these mappings were validated against.
     pub documentation_checked: &'static str,
-    /// True when the platform discovers skill directories belonging to other
-    /// adapters, which makes cross-target isolation a planning concern.
-    pub discovers_foreign_skills: bool,
+    /// Skill directories the platform discovers that other adapters may
+    /// write, which makes cross-target isolation a planning concern. Empty
+    /// when it reads only its own.
+    pub discovered_skill_roots: &'static [&'static str],
+    /// True when the platform honours the other adapters' command
+    /// translations -- Claude's `disable-model-invocation` and Codex's
+    /// `allow_implicit_invocation: false` policy -- so a command skill it
+    /// discovers keeps its activation, and it needs no copy of its own.
+    pub honours_command_translations: bool,
+    /// True when the platform keeps one copy of a skill it finds in several
+    /// discovered directories, rather than offering each.
+    pub offers_one_copy: bool,
+    /// False when the platform has no project-local agent definition, so an
+    /// agent is reported and left out.
+    pub supports_agents: bool,
     /// Native agent options this target accepts.
     pub agent_options: &'static [NativeOption],
     /// Native skill options this target accepts.
@@ -156,7 +168,10 @@ pub const CLAUDE_CODE: Adapter = Adapter {
     agent_format: AgentFormat::MarkdownNamed,
     invocation: "/x-<name>",
     documentation_checked: "2026-09-21",
-    discovers_foreign_skills: false,
+    discovered_skill_roots: &[],
+    honours_command_translations: false,
+    offers_one_copy: false,
+    supports_agents: true,
     agent_options: &[
         option("tools", OptionRule::TextOrList),
         option("model", OptionRule::Text),
@@ -188,7 +203,10 @@ pub const CODEX: Adapter = Adapter {
     agent_format: AgentFormat::Toml,
     invocation: "$x-<name>",
     documentation_checked: "2026-09-21",
-    discovers_foreign_skills: false,
+    discovered_skill_roots: &[],
+    honours_command_translations: false,
+    offers_one_copy: false,
+    supports_agents: true,
     agent_options: &[
         option("model", OptionRule::Text),
         option(
@@ -234,7 +252,10 @@ pub const OPENCODE: Adapter = Adapter {
     agent_format: AgentFormat::MarkdownFilenameIdentity,
     invocation: "/x-<name>",
     documentation_checked: "2026-09-21",
-    discovers_foreign_skills: true,
+    discovered_skill_roots: &[".claude/skills", ".agents/skills"],
+    honours_command_translations: false,
+    offers_one_copy: false,
+    supports_agents: true,
     agent_options: &[
         option("mode", OptionRule::OneOf(&["primary", "subagent", "all"])),
         option("model", OptionRule::ProviderModel),
@@ -252,10 +273,42 @@ pub const OPENCODE: Adapter = Adapter {
     loads_nested_instructions: false,
 };
 
-static ALL: &[Adapter] = &[CLAUDE_CODE, CODEX, OPENCODE];
+/// Muse Code. It reads AGENTS.md, discovers the skill directories Codex and
+/// Claude Code write, and honours both of their command translations, so it
+/// shares their files rather than writing its own. It has no project-local
+/// agent definition.
+pub const MUSE: Adapter = Adapter {
+    target_id: "muse",
+    export_name: "MuseAdapter",
+    platform: "Muse Code",
+    root: ".muse",
+    instruction_file: "AGENTS.md",
+    reference_root: ".muse/reference",
+    skill_root: ".agents/skills",
+    agent_root: ".muse/agents",
+    command_root: ".agents/skills",
+    command_support: CommandSupport::TranslatedSkill,
+    agent_format: AgentFormat::MarkdownNamed,
+    invocation: "/x-<name>",
+    documentation_checked: "2026-10-13",
+    // In Muse's order of priority; a copy in a later one is skipped.
+    discovered_skill_roots: &[".agents/skills", ".claude/skills", ".codex/skills"],
+    honours_command_translations: true,
+    offers_one_copy: true,
+    supports_agents: false,
+    // `allowed-tools` is advisory in Muse and enforces nothing.
+    agent_options: &[],
+    skill_options: &[],
+    command_options: &[],
+    // Muse rejects a SKILL.md without a description.
+    description_required: &[ConstructKind::Skill, ConstructKind::Command],
+    description_range: (1, 1024),
+    instruction_byte_limit: None,
+    instruction_override: None,
+    loads_nested_instructions: true,
+};
 
-/// Skill directories OpenCode discovers besides its own.
-pub const FOREIGN_SKILL_ROOTS: &[&str] = &[".claude/skills", ".agents/skills"];
+static ALL: &[Adapter] = &[CLAUDE_CODE, CODEX, OPENCODE, MUSE];
 
 /// An adapter as the project configured it: the facts its anchor states, over
 /// the defaults of the built-in adapter with the same target id.
@@ -402,6 +455,15 @@ impl Target {
     pub fn requires_description(&self, kind: ConstructKind) -> bool {
         self.base.description_required.contains(&kind)
     }
+
+    /// Whether this target's tool discovers `path`, a skill's `SKILL.md`, in
+    /// a directory other adapters may write.
+    pub fn discovers(&self, path: &str) -> bool {
+        self.base
+            .discovered_skill_roots
+            .iter()
+            .any(|root| path.starts_with(&format!("{root}/")))
+    }
 }
 
 fn default_outputs(base: &Adapter) -> (String, String, Option<String>, String) {
@@ -494,6 +556,10 @@ mod tests {
             Some(".agents/skills/x-release/agents/openai.yaml")
         );
         assert_eq!(codex.agent_path("reviewer"), ".codex/agents/reviewer.toml");
+        let muse = Target::builtin(&MUSE);
+        assert_eq!(muse.skill_path("review"), ".agents/skills/review/SKILL.md");
+        assert_eq!(muse.command_path("release"), ".agents/skills/x-release/SKILL.md");
+        assert_eq!(muse.policy_path("release"), None);
         let opencode = Target::builtin(&OPENCODE);
         assert_eq!(opencode.command_path("release"), ".opencode/commands/x-release.md");
         assert_eq!(opencode.default_mode.as_deref(), Some("subagent"));

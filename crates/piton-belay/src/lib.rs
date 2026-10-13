@@ -29,7 +29,7 @@ use piton_compile::{module, prelude, BelayConfig, Compilation};
 use piton_core::{kebab_case, title_case, AnchorId, Diagnostic, Ref, Span, Value};
 use piton_emit::markdown;
 
-use adapter::{AgentFormat, CommandSupport, NativeOption, OptionRule, Target, FOREIGN_SKILL_ROOTS};
+use adapter::{AgentFormat, CommandSupport, NativeOption, OptionRule, Target};
 use construct::{Construct, ConstructKind};
 use options::Options;
 use references::{Closure, FileIndex, Links, Unrepresentable};
@@ -535,15 +535,36 @@ impl Sharing<'_> {
     /// The enabled target whose skills `target`'s tool already discovers, so
     /// `target` writes no copies of its own and links to that target's.
     fn skill_source(&self, target: &Target) -> Option<&Target> {
-        if !self.shared || !target.base.discovers_foreign_skills {
+        if !self.shared {
+            return None;
+        }
+        self.targets
+            .iter()
+            .find(|peer| peer.id != target.id && target.discovers(&peer.skill_output))
+    }
+
+    /// The enabled target whose command skills `target`'s tool discovers and
+    /// honours as commands, so `target` writes none of its own.
+    fn command_source(&self, target: &Target) -> Option<&Target> {
+        if !self.shared || !target.base.honours_command_translations {
             return None;
         }
         self.targets.iter().find(|peer| {
             peer.id != target.id
-                && FOREIGN_SKILL_ROOTS
-                    .iter()
-                    .any(|root| peer.skill_output.starts_with(&format!("{root}/")))
+                && peer.command_support != CommandSupport::Native
+                && target.discovers(&peer.command_output)
         })
+    }
+
+    /// For a target with no agent definitions, the enabled target whose agent
+    /// files links to an agent go to.
+    fn agent_source(&self, target: &Target) -> Option<&Target> {
+        if !self.shared || target.base.supports_agents {
+            return None;
+        }
+        self.targets
+            .iter()
+            .find(|peer| peer.id != target.id && peer.base.supports_agents)
     }
 }
 
@@ -602,8 +623,17 @@ fn layout<'a>(
                 Some(peer) => peer.skill_path(&name),
                 None => target.skill_path(&name),
             },
-            ConstructKind::Command => target.command_path(&name),
-            ConstructKind::Agent => target.agent_path(&name),
+            ConstructKind::Command => match sharing.command_source(target) {
+                Some(peer) => peer.command_path(&name),
+                None => target.command_path(&name),
+            },
+            ConstructKind::Agent if target.base.supports_agents => target.agent_path(&name),
+            // An agent the target cannot write is linked to where another
+            // tool's copy is, or else documented in the reference tree.
+            ConstructKind::Agent => match sharing.agent_source(target) {
+                Some(peer) => peer.agent_path(&name),
+                None => continue,
+            },
             ConstructKind::Instruction => continue,
         };
         natives.insert(item.anchor, PathBuf::from(path));
@@ -729,7 +759,25 @@ fn build_target(
             // directory isn't written again.
             ConstructKind::Skill if sharing.skill_source(target).is_some() => {}
             ConstructKind::Skill => render_skill(&context, item, plan),
+            ConstructKind::Command if sharing.command_source(target).is_some() => {}
             ConstructKind::Command => render_command(&context, item, plan),
+            ConstructKind::Agent if !target.base.supports_agents => {
+                plan.diagnostics.push(
+                    warning_at(
+                        "unsupported-construct",
+                        format!(
+                            "{} has no project-local agent definition, so the agent `{}` is left out of its output",
+                            target.anchor_name, item.name
+                        ),
+                        anchor_site(compilation, item.anchor),
+                    )
+                    .with_origin(item.name.clone())
+                    .with_help(format!(
+                        "{} still gets everything else; make it a skill if it should load there, or build the agent for an adapter that supports agents",
+                        target.id
+                    )),
+                );
+            }
             ConstructKind::Agent => render_agent(&context, item, plan),
             ConstructKind::Instruction => {
                 if let Some(scope) = emission.placements.get(&item.anchor) {

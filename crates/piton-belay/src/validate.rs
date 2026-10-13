@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use piton_compile::{module, Compilation};
 use piton_core::{is_valid_artifact_name, title_case, AnchorId, Diagnostic, Label, Span};
 
-use crate::adapter::{Adapter, Target, FOREIGN_SKILL_ROOTS};
+use crate::adapter::{Adapter, Target};
 use crate::construct::Construct;
 use crate::options::{CrossDiscovery, Options};
 use crate::references::FileIndex;
@@ -269,8 +269,8 @@ fn descriptions(compilation: &Compilation, options: &Options, plan: &mut Draft) 
     }
 }
 
-/// File separation alone does not guarantee target isolation: OpenCode also
-/// discovers the other adapters' skill directories.
+/// File separation alone does not guarantee target isolation: OpenCode and
+/// Muse also discover the other adapters' skill directories.
 fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draft) {
     let config_site = || {
         (
@@ -279,15 +279,18 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
         )
     };
     let permissions = opencode_skill_permissions(&compilation.project.root);
-    for discoverer in options.targets.iter().filter(|t| t.base.discovers_foreign_skills) {
+    for discoverer in options
+        .targets
+        .iter()
+        .filter(|t| !t.base.discovered_skill_roots.is_empty())
+    {
         let foreign: Vec<&Planned> = plan
             .files
             .iter()
             .filter(|file| file.target != discoverer.id)
             .filter(|file| matches!(file.kind, OutputKind::Skill | OutputKind::Command))
             .filter(|file| {
-                file.path.ends_with("SKILL.md")
-                    && FOREIGN_SKILL_ROOTS.iter().any(|root| file.path.starts_with(root))
+                file.path.ends_with("SKILL.md") && discoverer.discovers(&slash(&file.path))
             })
             .collect();
 
@@ -300,7 +303,9 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
             .filter(|file| !denied(&permissions, &artifact_name(file).unwrap_or_default()))
             .collect();
 
-        if options.cross_discovery.is_none() {
+        // A tool that honours the command translations offers them as
+        // commands.
+        if options.cross_discovery.is_none() && !discoverer.base.honours_command_translations {
             for file in foreign.iter().filter(|f| f.kind == OutputKind::Command) {
                 let name = artifact_name(file).unwrap_or_default();
                 plan.diagnostics.push(
@@ -329,7 +334,8 @@ fn cross_discovery(compilation: &Compilation, options: &Options, plan: &mut Draf
             }
         }
 
-        if options.cross_discovery == Some(CrossDiscovery::Separate) {
+        // A tool that keeps one copy of each skill offers none twice.
+        if options.cross_discovery == Some(CrossDiscovery::Separate) || discoverer.base.offers_one_copy {
             continue;
         }
         let mut identities: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();

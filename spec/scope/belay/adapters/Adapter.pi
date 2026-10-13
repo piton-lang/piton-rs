@@ -51,9 +51,10 @@ export abstract anchor Adapter as belay-agent-adapter:
 
     multipleAdapters:
         description:
-            The tools read each other's files. Codex and OpenCode both read
-            AGENTS.md, and OpenCode also discovers the skills in .claude/skills
-            and .agents/skills. So with several adapters enabled, Belay plans
+            The tools read each other's files. Codex, OpenCode and Muse all
+            read AGENTS.md; OpenCode also discovers the skills in
+            .claude/skills and .agents/skills, and Muse those in .agents/skills,
+            .claude/skills and .codex/skills. So with several adapters enabled, Belay plans
             one project that every enabled tool reads, and writes each artifact
             once, where the tools that need it will find it. With
             crossDiscovery set to separate, the trees are deployed apart
@@ -66,6 +67,12 @@ export abstract anchor Adapter as belay-agent-adapter:
             command, or agent, it links to the owner's. With one adapter, or
             with crossDiscovery set to separate, each adapter owns its own.
 
+        unsupportedConstructs:
+            When a target has no native form for a construct, like an agent
+            for Muse, it writes nothing for it and the build warns. Links to
+            that construct go to another enabled adapter's artifact for it when
+            the project is shared, or else to its reference document.
+
         sharedInstructions:
             An instruction file that several adapters place at one path is
             written once, by the first of them listed, and the other tools read
@@ -74,14 +81,17 @@ export abstract anchor Adapter as belay-agent-adapter:
         discoveredSkills:
             An adapter whose tool also discovers another enabled adapter's
             skill directory writes no copy of a skill that adapter writes
-            there, and links to that one instead. A skill the tool discovers in
-            more than one directory is reported, since the tool offers each
-            copy and nothing in the project can stop it.
+            there, and links to that one instead. A tool that also honours
+            the other adapters' command translations does the same for
+            commands. A skill the tool discovers in more than one directory is
+            reported, since the tool offers each copy and nothing in the
+            project can stop it, unless the tool itself keeps only one copy.
 
         discoveredCommands:
             A command translated into a skill gets its activation from metadata
-            or a policy file only its own tool reads. When another enabled tool
-            also discovers that skill, the project has to hide it from that
+            or a policy file. When another enabled tool also discovers that
+            skill and does not honour that metadata or policy, the project has
+            to hide it from that
             tool with a control the tool enforces, or accept the change by
             setting crossDiscovery to allow. Otherwise it is an error.
 
