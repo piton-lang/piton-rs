@@ -40,7 +40,7 @@ enum Command {
     /// Launch the specified agent with Piton fluency
     Agent {
         /// Which agent to run
-        #[arg(value_parser = ["claude"], default_value = "claude")]
+        #[arg(value_parser = ["claude", "codex", "opencode", "muse"], default_value = "claude")]
         agent: String,
         /// Print the entire fluency prompt instead of launching the agent
         #[arg(long)]

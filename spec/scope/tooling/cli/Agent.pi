@@ -5,7 +5,8 @@ export cli-command AgentCli:
     commandName: agent
 
     positionalArguments:
-        agent: Which agent to run [ claude ]
+        agent: Which agent to run [ claude | codex | opencode | muse ], claude by default
+        args: Anything after the agent is passed through to it
 
     namedArguments:
         print-fluency: Print the entire fluency prompt
@@ -13,4 +14,37 @@ export cli-command AgentCli:
     description:
         Launches the specified agent with Piton fluency using the output of the
         @{GenerateFluencyPrompt} skill, which is FLUENCY_PROMPT.md in the
-        project root.
+        project root. Without one, the copy built into the compiler is used.
+
+    prompt:
+        The fluency prompt is a short primer about the project followed by the
+        fluency reference. The primer names the source root, the reference
+        root and the scoped instruction file the launched tool reads. Those
+        are the tool's own when the project builds for its adapter. In a
+        shared project the reference root is the first adapter's, unless the
+        tool's own reference tree was written. When the project doesn't build
+        for the tool, they are the first configured adapter's.
+
+    launch:
+        description:
+            Each tool gets the prompt added to its own instructions, never
+            replacing them, and the agent runs in the project root.
+        claude: claude --append-system-prompt <prompt>
+        codex: codex -c developer_instructions=<prompt as a TOML string>
+        opencode:
+            OpenCode takes extra instructions only as files. The prompt is
+            written to a temporary file, removed when OpenCode exits, and
+            OpenCode runs as opencode --standalone with OPENCODE_CONFIG_CONTENT
+            set to a configuration whose instructions list that file. Its
+            server reads that variable, so it runs a private server rather
+            than the shared background one.
+        muse: muse -c run.developer_prompt=<prompt as a JSON string>
+        subcommands:
+            Muse's exec and OpenCode's run take the prompt options after the
+            subcommand name, so they go there. A subcommand that rejects them,
+            like muse resume or opencode models, runs as given, without the
+            prompt.
+
+    errors:
+        A tool that is not on PATH is reported with a suggestion to print the
+        prompt instead. The tool's own exit status is piton agent's.

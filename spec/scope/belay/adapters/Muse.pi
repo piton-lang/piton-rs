@@ -1,0 +1,83 @@
+from ./Adapter import Adapter
+
+// Native format sources, checked 2026-10-13 against Muse Code 1.4.7: its
+// `muse --help`, `muse skills list --json` and `muse init` output, and the
+// warnings `muse exec --trust-workspace` prints about rules files.
+export anchor MuseAdapter extends Adapter:
+    description: Compile Belay constructs into project-local Muse Code artifacts.
+    targetId: muse
+    instructionFile: AGENTS.md
+    referenceRoot: .muse/reference
+    documentationChecked: 2026-10-13
+
+    instruction:
+        output: AGENTS.md at the scope selected by ShapeMapping
+        format: Markdown
+        loading:
+            Muse reads rules files from the working directory up to the
+            workspace root, and only in a trusted workspace. It reads AGENTS.md
+            and CLAUDE.md; when both sit in one directory, AGENTS.md takes
+            precedence and CLAUDE.md is ignored with a warning. Descendant
+            placement does not guarantee initial loading from a session started
+            above it.
+        rules:
+            - Combine guidance for the same scope in one file.
+            - Share the AGENTS.md Codex and OpenCode read rather than writing a second rules file.
+
+    skill:
+        output: .agents/skills/<name>/SKILL.md
+        format: Markdown with YAML frontmatter
+        metadata:
+            name: Normalized construct name
+            description: Description followed by Use when and useWhen
+        body: Prompt followed by serialized additional content
+        rules:
+            - Always write a description; Muse rejects a SKILL.md without one.
+            - Do not emit allowed-tools; Muse records it as advisory metadata and enforces nothing.
+        discovery:
+            Muse discovers project skills in .agents/skills, .claude/skills
+            and .codex/skills, in that order of priority. A skill found again
+            in a lower-priority directory is skipped, so Muse offers one copy.
+            With Claude Code or Codex enabled beside it, Muse writes no copy of
+            a skill or command they already write there, and links to theirs.
+
+    command:
+        support: translated to a manually invoked skill
+        output: .agents/skills/x-<name>/SKILL.md
+        metadata:
+            name: x- followed by the normalized construct name
+            description: Command description
+            disable-model-invocation: true
+        body: Command prompt followed by serialized additional content
+        invocation: /x-<name>
+        discoveredCommands:
+            Muse honours both translations the other adapters write: Claude's
+            disable-model-invocation and Codex's agents/openai.yaml policy with
+            allow_implicit_invocation false. Either makes the skill
+            user-invocable only, so a command another adapter writes keeps its
+            activation in Muse.
+
+    agent:
+        support: unsupported
+        description:
+            Muse has no project-local agent definition file. Agent definitions
+            come from plugins or from a per-run overlay, neither of which a
+            build can write. An agent is not translated into a skill: Muse
+            gets no file for it, and the build warns with
+            unsupported-construct. Everything else, the reference tree
+            included, is still written.
+        references:
+            A reference to an agent links to the agent another enabled
+            adapter writes in the same project. With none, the agent is
+            documented in the reference tree like any other referenced anchor.
+
+    permissions:
+        description:
+            Muse's approval mode, sandbox and permission profiles govern
+            execution. Generated guidance cannot change them, and Muse accepts
+            no native options from Belay.
+
+    checks:
+        - A command keeps its x-prefixed name and disable-model-invocation.
+        - A skill or command another enabled adapter writes where Muse discovers it is not written again.
+        - Every agent is reported as unsupported, and no agent file is written.

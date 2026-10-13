@@ -466,6 +466,57 @@ fn a_skill_opencode_finds_twice_is_reported_once_per_skill() {
 }
 
 #[test]
+fn muse_leaves_agents_out_and_still_gets_its_references() {
+    let sandbox = Sandbox::new("muse-agent");
+    sandbox.configure(&["MuseAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport anchor Style:\n    rule: Flat props.\n\nexport agent Reviewer:\n    description: Reviews.\n    role: careful reviewer\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n    prompt: Follow @{Style}, or ask @{Reviewer}.\n",
+    );
+    let built = sandbox.plan();
+    let warning = built.diagnostic("unsupported-construct");
+    assert!(!warning.is_error());
+    assert!(warning.message.contains("`Reviewer`"), "{}", warning.message);
+    assert!(built.has(".muse/reference/index.md"), "{:?}", built.paths());
+    assert!(!built.paths().iter().any(|path| path.contains("agents/reviewer")), "{:?}", built.paths());
+    // With nowhere else to link, the agent is documented in the reference tree.
+    let skill = built.file(".agents/skills/tidy/SKILL.md");
+    assert!(skill.contains("../../../.muse/reference/index.md#style"), "{skill}");
+    assert!(skill.contains("../../../.muse/reference/index.md#reviewer"), "{skill}");
+}
+
+#[test]
+fn muse_shares_the_skills_and_commands_codex_and_claude_write() {
+    let sandbox = Sandbox::new("muse-shared");
+    let spec = "use @piton/belay\n\nexport agent Reviewer:\n    description: Reviews.\n    role: careful reviewer\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n    prompt: Ask @{Reviewer}.\n\nexport command Release:\n    description: Releases.\n";
+    sandbox.configure(&["CodexAdapter", "MuseAdapter"], "").write("spec/index.pi", spec);
+    let built = sandbox.plan();
+    built.assert_clean();
+    // Muse honours the Codex policy file, so the one copy serves both.
+    assert!(built.file(".agents/skills/x-release/SKILL.md").contains("name: x-release"));
+    assert!(built.has(".agents/skills/x-release/agents/openai.yaml"));
+    assert!(built.paths().iter().all(|path| !path.starts_with(".muse/")), "{:?}", built.paths());
+    // The agent Muse can't load is linked where Codex writes it.
+    assert!(built.file(".agents/skills/tidy/SKILL.md").contains("../../../.codex/agents/reviewer.toml"));
+
+    sandbox.configure(&["ClaudeCodeAdapter", "MuseAdapter"], "").write("spec/index.pi", spec);
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.has(".claude/skills/x-release/SKILL.md"));
+    assert!(built.paths().iter().all(|path| !path.starts_with(".agents/")), "{:?}", built.paths());
+}
+
+#[test]
+fn opencode_still_needs_muse_command_skills_hidden() {
+    let sandbox = Sandbox::new("muse-opencode");
+    sandbox.configure(&["MuseAdapter", "OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport command Release:\n    description: Releases.\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("cross-discovery-activation").message.contains("OpenCodeAdapter"));
+}
+
+#[test]
 fn the_target_versions_are_recorded() {
     let sandbox = Sandbox::new("record");
     sandbox.configure(CLAUDE, "").write(

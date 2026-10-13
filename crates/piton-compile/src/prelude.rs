@@ -129,6 +129,7 @@ const BELAY_ADAPTER: &str = include_str!("../../../spec/scope/belay/adapters/Ada
 const BELAY_CLAUDE_CODE: &str = include_str!("../../../spec/scope/belay/adapters/ClaudeCode.pi");
 const BELAY_CODEX: &str = include_str!("../../../spec/scope/belay/adapters/Codex.pi");
 const BELAY_OPENCODE: &str = include_str!("../../../spec/scope/belay/adapters/OpenCode.pi");
+const BELAY_MUSE: &str = include_str!("../../../spec/scope/belay/adapters/Muse.pi");
 
 /// `@piton/belay`: re-exports the constructs and the adapters, and adds the
 /// configuration anchor and the special imports.
@@ -152,6 +153,7 @@ from ./adapters/Adapter export Adapter
 from ./adapters/ClaudeCode export ClaudeCodeAdapter
 from ./adapters/Codex export CodexAdapter
 from ./adapters/OpenCode export OpenCodeAdapter
+from ./adapters/Muse export MuseAdapter
 
 from ./adapters/ClaudeCode import ClaudeCodeAdapter
 
@@ -167,8 +169,9 @@ export BELAY_SHAPE_ROOT: __BELAY_SHAPE_ROOT_MARKER__
 export BELAY_CODE_ROOT: __BELAY_CODE_ROOT_MARKER__
 
 // crossDiscovery is the deployment choice for skills one adapter writes and
-// another discovers (OpenCode reads .claude/skills and .agents/skills): allow
-// accepts that, separate says the trees are deployed apart. It is required
+// another discovers (OpenCode and Muse read .claude/skills and
+// .agents/skills): allow accepts that, separate says the trees are deployed
+// apart. It is required
 // only when discovery would change how something activates.
 // instructionByteLimit is the byte budget of an instruction chain, for
 // targets that truncate past one (Codex's project_doc_max_bytes).
@@ -209,6 +212,7 @@ fn modules() -> &'static [(&'static str, &'static str)] {
                 ("@piton/belay/adapters/ClaudeCode", BELAY_CLAUDE_CODE),
                 ("@piton/belay/adapters/Codex", BELAY_CODEX),
                 ("@piton/belay/adapters/OpenCode", BELAY_OPENCODE),
+                ("@piton/belay/adapters/Muse", BELAY_MUSE),
             ]
         })
         .as_slice()
