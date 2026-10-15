@@ -6,8 +6,10 @@
 //! the compiler from disk, and never fetched again until someone asks.
 //!
 //! On its own, `piton tether` installs everything `piton.config.pi` lists under
-//! `dependencies`. Given a source, it adds that source to the list first, so
-//! the configuration and `tethers/` agree about what the project depends on.
+//! `dependencies`. Given a source, it installs it and then adds it to the list,
+//! so the configuration and `tethers/` agree about what the project depends
+//! on. A source that fails to install, or that publishes a package name
+//! another package already has, changes nothing.
 //!
 //! A source is a URL or a directory on disk. A relative path is read from the
 //! directory holding `piton.config.pi`, wherever piton happens to run.
@@ -25,7 +27,7 @@ use crate::packages::{Failure, Installer};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
-    let (mut configured, diagnostics) = project::current();
+    let (configured, diagnostics) = project::current();
     if report_config_errors(&configured, &diagnostics) {
         return EXIT_ERRORS;
     }
@@ -40,9 +42,23 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
     let source = as_configured(&configured, source);
     let source = source.as_str();
 
-    // The source is recorded before anything is installed, so a failed clone
-    // leaves the intent written down rather than a project that forgot it.
-    match &configured.config_path {
+    // A repository already named in `dependencies` brings its pin with it, so
+    // tethering and building agree about which version the project wants.
+    let declared = configured
+        .dependencies
+        .iter()
+        .find(|dependency| dependency.source == source);
+    let dependency = Dependency {
+        source: source.to_string(),
+        pin: declared.map(|dependency| dependency.pin.clone()).unwrap_or(Pin::Default),
+        packages: declared.and_then(|dependency| dependency.packages.clone()),
+    };
+
+    // The configuration is edited in memory first, so a source it can't
+    // record stops before anything is fetched, and written only once the
+    // install has succeeded: a source that fails to clone, or that conflicts
+    // with another package, is not added.
+    let edit = match &configured.config_path {
         Some(config_path) => {
             let text = match std::fs::read_to_string(config_path) {
                 Ok(text) => text,
@@ -52,22 +68,7 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
                 }
             };
             match config_edit::add_dependency(&text, config_path, source) {
-                Ok(Some(updated)) => {
-                    if let Err(error) = std::fs::write(config_path, updated) {
-                        report::fail(format!(
-                            "cannot write `{}`: {error}",
-                            config_path.display()
-                        ));
-                        return EXIT_ERRORS;
-                    }
-                    println!(
-                        "{} {} to piton.config.pi",
-                        paint(style::SUCCESS, "added"),
-                        paint(style::NAME, &source)
-                    );
-                    configured = project::current().0;
-                }
-                Ok(None) => {}
+                Ok(updated) => updated.map(|updated| (config_path.clone(), updated)),
                 Err(message) => {
                     report::fail(message);
                     return EXIT_ERRORS;
@@ -77,28 +78,30 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
         None => {
             report::warn(format_args!("there is no piton.config.pi to record {source} in; \
 `piton update` will not know about it"));
+            None
         }
-    }
-
-    // A repository already named in `dependencies` brings its pin with it, so
-    // tethering and building agree about which version the project wants.
-    let pin = configured
-        .dependencies
-        .iter()
-        .find(|dependency| dependency.source == source)
-        .map(|dependency| dependency.pin.clone())
-        .unwrap_or(Pin::Default);
-    let packages = configured
-        .dependencies
-        .iter()
-        .find(|dependency| dependency.source == source)
-        .and_then(|dependency| dependency.packages.clone());
-    let dependency = Dependency {
-        source: source.to_string(),
-        pin,
-        packages,
     };
-    install(&configured, &[dependency], rename)
+
+    let code = install(&configured, &[dependency], rename, true);
+    if code != EXIT_SUCCESS {
+        if edit.is_some() {
+            report::stopped(format!("nothing was tethered, and {source} was not added to piton.config.pi"));
+        }
+        return code;
+    }
+    if let Some((config_path, updated)) = edit {
+        if let Err(error) = std::fs::write(&config_path, updated) {
+            report::fail(format!("cannot write `{}`: {error}", config_path.display()));
+            report::help(format_args!("add {source} to `dependencies` by hand so `piton update` knows about it"));
+            return EXIT_ERRORS;
+        }
+        println!(
+            "{} {} to piton.config.pi",
+            paint(style::SUCCESS, "added"),
+            paint(style::NAME, source)
+        );
+    }
+    EXIT_SUCCESS
 }
 
 /// A source as the configuration should record it.
@@ -146,12 +149,22 @@ pub fn install_all(configured: &Project) -> u8 {
         println!("no dependencies are declared in piton.config.pi");
         return EXIT_SUCCESS;
     }
-    install(configured, &configured.dependencies, None)
+    install(configured, &configured.dependencies, None, false)
 }
 
-fn install(configured: &Project, dependencies: &[Dependency], rename: Option<&str>) -> u8 {
+/// Installs `dependencies`, all or nothing. `guard_owners` refuses a package
+/// already tethered from another source instead of replacing it, which is what
+/// adding a new source needs.
+fn install(
+    configured: &Project,
+    dependencies: &[Dependency],
+    rename: Option<&str>,
+    guard_owners: bool,
+) -> u8 {
     let lock = Lock::load(&configured.root);
     let mut installer = Installer::new(&configured.root, lock);
+    installer.guard_owners = guard_owners;
+    installer.own = configured.packages.iter().map(|package| package.name.clone()).collect();
     for dependency in dependencies {
         if let Err(failure) = installer.add(dependency, rename) {
             return fail(failure);

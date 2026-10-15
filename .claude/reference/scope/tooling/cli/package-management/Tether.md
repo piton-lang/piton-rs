@@ -2,7 +2,8 @@
 
 ## Description
 
-Clones and "un-gits" a repository into the tethers directory. Run it on its own and it installs everything in piton.config.pi's dependencies. Give it a source and it adds that to piton.config.pi and installs it.
+Clones and "un-gits" a repository into the tethers directory. Run it on its own and it installs everything in piton.config.pi's dependencies. Give it a source and it installs it, then adds it to piton.config.pi.
+A source is added only when it installs. If it can't be fetched, if anything it requires can't be, or if it publishes a package under a name another package already has, nothing changes: piton.config.pi, tethers/ and the lock file are left as they were, and the error says why. A name is taken when it's already tethered from a different source, when the project offers a package by that name itself, or when another source in the same install publishes it. `--as` installs the package under another name instead.
 The source can be a local directory as well as a URL (see [Dependencies](../../../package-management/Dependencies.md#dependencies)). A relative path given on the command line is taken from the working directory, and it's rewritten when it's recorded so that it leads to the same place from piton.config.pi's directory.
 
 ## Command Name

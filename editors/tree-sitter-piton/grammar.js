@@ -70,7 +70,9 @@ module.exports = grammar({
         $.from_declaration,
         $.anchor_declaration,
         $.pass_statement,
-        seq("export", $.property),
+        // Still a `property` node, with `export` inside it as before, so
+        // queries written against the grammar keep their shape.
+        alias($._exported_property, $.property),
         $.property,
         $.list_item,
         $.merge_item,
@@ -107,12 +109,19 @@ module.exports = grammar({
       seq(
         field("open", $.fence_marker),
         optional(field("language", $.fence_language)),
+        optional(field("info", $.fence_info)),
         $._newline,
-        repeat(choice($.fence_content, $.escape_marker)),
+        // An escape block inside a fence is the usual way to show source, and
+        // what it holds is literal: a ``` in it doesn't close the fence.
+        repeat(choice($.fence_content, $.escape_block)),
         field("close", $.fence_marker)
       ),
-    fence_marker: () => /`{3,}/,
+    // Three or more backticks. Written out because tree-sitter reads `{3,}`
+    // as exactly three, which would split a ```` marker.
+    fence_marker: () => /```+/,
     fence_language: () => /[A-Za-z0-9_+-]+/,
+    // Whatever follows the language on the opening line: ```piton fragment.
+    fence_info: () => /[^\n]+/,
     // A whole line, newline included, so that a blank line inside a fence is
     // content rather than a line break the outer grammar could claim.
     fence_content: () => token(prec(-1, /[^\n]*\r?\n/)),
@@ -175,7 +184,9 @@ module.exports = grammar({
 
     // A key is any text without spaces. Keywords are keys here too: the colon
     // is what separates `anchor Name:` from `anchor: a description`.
-    property: ($) =>
+    property: ($) => $._property_body,
+    _exported_property: ($) => seq("export", $._property_body),
+    _property_body: ($) =>
       seq(
         field("name", $.key),
         repeat(field("constraint", $.type_constraint)),
@@ -191,14 +202,21 @@ module.exports = grammar({
 
     // `name:: string: a description` -- the name token took the first colon,
     // so a constraint opens on the second and closes on the one before the
-    // value. Constraints chain: `p:: dictionary:: null: null`.
+    // value. Constraints chain: `p:: dictionary:: null: null`. An abstract
+    // anchor's required property has no value, and so no closing colon:
+    // `title:: string`.
+    //
+    // A colon after the type always closes it: the next constraint opens on
+    // the colon after that. Right associativity says so.
     type_constraint: ($) =>
-      seq(
-        ":",
-        optional("extends"),
-        field("type", choice($.builtin_type, $.identifier)),
-        optional($.list_suffix),
-        ":"
+      prec.right(
+        seq(
+          ":",
+          optional("extends"),
+          field("type", choice($.builtin_type, $.identifier)),
+          optional($.list_suffix),
+          optional(":")
+        )
       ),
     builtin_type: () => choice(...TYPES),
     list_suffix: () => "[]",

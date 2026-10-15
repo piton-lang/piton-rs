@@ -888,3 +888,90 @@ export piton-config App:
     assert!(stderr.contains("into itself"), "{stderr}");
     assert!(!sandbox.exists("app/tethers"));
 }
+
+/// A second repository at `name`, publishing one package called `package`
+/// that requires `requires`, when given.
+fn other_repository(sandbox: &Sandbox, name: &str, package: &str, requires: Option<&str>) -> String {
+    let dependencies = requires
+        .map(|source| format!("    dependencies:\n        - {source}\n"))
+        .unwrap_or_default();
+    sandbox.write(
+        &format!("{name}/piton.config.pi"),
+        &format!(
+            "use @piton/config
+use @piton/packaging
+
+export piton-config Other:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    packages:
+        - {{OtherPackage}}
+
+piton-package OtherPackage:
+    name: {package}
+    root: ./spec
+{dependencies}"
+        ),
+    );
+    sandbox.write(
+        &format!("{name}/spec/index.pi"),
+        "export anchor Button:\n    label: Other\n",
+    );
+    let directory = sandbox.dir.join(name);
+    sandbox.git(&directory, &["init", "-q", "."]);
+    sandbox.git(&directory, &["add", "-A"]);
+    sandbox.git(
+        &directory,
+        &["-c", "user.email=test@example.test", "-c", "user.name=Test", "commit", "-qm", "one"],
+    );
+    directory.to_string_lossy().to_string()
+}
+
+#[test]
+fn tethering_a_source_whose_package_name_is_taken_changes_nothing() {
+    let Some(sandbox) = fixture("tether-conflict") else {
+        return;
+    };
+    assert_eq!(sandbox.piton(&["tether"]).2, 0);
+    let config = sandbox.read("app/piton.config.pi");
+    let lock = sandbox.read("app/.piton/tether.lock");
+
+    let other = other_repository(&sandbox, "other", "dep-lib", None);
+    let (_, stderr, code) = sandbox.piton(&["tether", &other]);
+    assert_ne!(code, 0, "{stderr}");
+    assert!(stderr.contains("already tethered from"), "{stderr}");
+    assert_eq!(sandbox.read("app/piton.config.pi"), config, "the source was recorded");
+    assert_eq!(sandbox.read("app/.piton/tether.lock"), lock);
+    assert!(
+        sandbox.read("app/tethers/dep-lib/Anchors.pi").contains("Save"),
+        "the installed package was replaced"
+    );
+
+    // Under another name it does not conflict, and is recorded.
+    let (_, stderr, code) = sandbox.piton(&["tether", &other, "--as", "other-lib"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(sandbox.exists("app/tethers/other-lib/index.pi"));
+    assert!(sandbox.read("app/piton.config.pi").contains(&other));
+}
+
+#[test]
+fn tethering_a_source_that_fails_is_not_recorded() {
+    let Some(sandbox) = fixture("tether-fails") else {
+        return;
+    };
+    let config = sandbox.read("app/piton.config.pi");
+    let missing = sandbox.dir.join("nowhere").to_string_lossy().to_string();
+    let (_, stderr, code) = sandbox.piton(&["tether", &missing]);
+    assert_ne!(code, 0, "{stderr}");
+    assert!(stderr.contains("was not added"), "{stderr}");
+    assert_eq!(sandbox.read("app/piton.config.pi"), config);
+
+    // A package whose own dependency can't be fetched places nothing at all.
+    let other = other_repository(&sandbox, "other", "other-lib", Some(&missing));
+    let (_, stderr, code) = sandbox.piton(&["tether", &other]);
+    assert_ne!(code, 0, "{stderr}");
+    assert_eq!(sandbox.read("app/piton.config.pi"), config);
+    assert!(!sandbox.exists("app/tethers/other-lib"), "a partial install was left behind");
+    assert!(!sandbox.exists("app/.piton/tether.lock"));
+}
