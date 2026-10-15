@@ -29,6 +29,14 @@ false
 - inheritance
 - composition
 
+## Composition
+
+Composition covers everything a value is built from, including what evaluation folded into it. Embedding a top-level variable (`{PURPOSE}`) reaches the module that declares it, and whatever that variable embeds or reads in turn. Reading another anchor's property (`${Other.name}`) reaches that anchor through composition.
+
+## Configuration
+
+`piton.config.pi` is read rather than imported. It is never reported as unreachable.
+
 ## Direction
 
 outgoing

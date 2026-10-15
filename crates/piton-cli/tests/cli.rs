@@ -510,6 +510,34 @@ fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
 }
 
 #[test]
+fn reach_follows_variables_and_property_reads() {
+    // Evaluation folds `{PURPOSE}` and `${Names.title}` into the value, so a
+    // walk over values alone loses the modules they came from and calls them
+    // dead while the entry is built out of them.
+    let fixture = Fixture::new("reach-reads");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: .\n    entry: ./index.pi\n",
+    );
+    fixture.write("index.pi", "from ./Doc export *\n");
+    fixture.write(
+        "Doc.pi",
+        "from ./Names import Names\nfrom ./Overview import PURPOSE\n\nexport anchor Doc:\n    purpose: {PURPOSE}\n    title: ${Names.title}\n",
+    );
+    fixture.write("Overview.pi", "export PURPOSE: Track builds\n");
+    fixture.write("Names.pi", "export anchor Names:\n    title: Dashboard\n");
+
+    let (stdout, stderr, code) = fixture.run(&["reach"]);
+    assert_eq!(code, 0, "{stderr}");
+    let (reachable, unreachable) = stdout.split_once("\nunreachable").unwrap();
+    assert!(reachable.contains("Names  depth 1  via composition"), "{stdout}");
+    assert!(!unreachable.contains("Overview.pi"), "{stdout}");
+    // The configuration is read, never imported.
+    assert!(!unreachable.contains("piton.config.pi"), "{stdout}");
+    assert!(unreachable.contains("nothing"), "{stdout}");
+}
+
+#[test]
 fn reach_counts_every_line_it_prints() {
     let fixture = full_project("reach-counts", "        - {ClaudeCodeAdapter}");
     // Loaded, because a file the entry does not reach imports it, and nothing
