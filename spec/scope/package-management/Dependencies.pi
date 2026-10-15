@@ -32,5 +32,35 @@ export anchor Dependencies:
         \\\
         ```
 
+        A source can also be a directory on disk instead of a URL: an
+        absolute path, a path starting with `\ ~/ \`, or a relative path, which
+        is read from the directory holding the piton.config.pi that lists it
+        (never from wherever piton happens to run). Anything with a scheme
+        like `\ https:// \` or `\ file:// \`, or written like
+        `\ git@host:path \`, is a URL.
+
+        ```piton
+        \\\
+        dependencies:
+            - ../shared-kit
+            - ~/work/ui-kit
+                branch: next
+        \\\
+        ```
+
+        A directory that is a git repository is cloned like any other, so it
+        can be pinned and its commit goes in the lock file. Only what is
+        committed is tethered; uncommitted changes there get a warning and are
+        left behind. A plain directory, one that isn't a git repository, is
+        copied as it stands. It has no versions, so pinning it is an error,
+        and the lock file records no commit for it; update takes whatever it
+        holds now. A directory that contains the project itself can't be
+        tethered, since that would copy the project into itself.
+
+        A package that came from a local directory can list its own
+        dependencies as paths relative to that directory. A package fetched
+        from a URL can't use relative paths, because there's no directory to
+        read them from.
+
         Project dependencies and package dependencies are separate. The
         project's only apply to the project, and each package has its own.

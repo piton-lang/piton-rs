@@ -128,8 +128,21 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
     let mut changed = 0usize;
     for package in &placed {
         let was = before.get(&package.name);
-        let moved = was.is_none_or(|entry| entry.commit != package.commit);
-        if moved {
+        // A plain directory has no commits, so it has moved when its files did.
+        let moved = was.is_none_or(|entry| {
+            entry.commit != package.commit
+                || (package.commit.is_none()
+                    && lock.get(&package.name).map(|now| &now.files) != Some(&entry.files))
+        });
+        if moved && package.commit.is_none() {
+            changed += 1;
+            println!(
+                "{} {} from {}",
+                paint(style::SUCCESS, "updated"),
+                paint(style::NAME, &package.name),
+                package.source
+            );
+        } else if moved {
             changed += 1;
             let from = was
                 .and_then(|entry| entry.commit.as_deref())
@@ -143,18 +156,21 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
             );
         } else if package.discarded.is_some() {
             changed += 1;
+            let to = match package.commit {
+                Some(_) => package.pin.to_string(),
+                None => format!("what {} holds", package.source),
+            };
             println!(
-                "{} {} to {}",
+                "{} {} to {to}",
                 paint(style::SUCCESS, "restored"),
-                paint(style::NAME, &package.name),
-                package.pin
+                paint(style::NAME, &package.name)
             );
         } else {
-            println!(
-                "{} {}",
-                paint(style::NAME, &package.name),
-                paint(style::DIM, format!("is already at {}", package.pin))
-            );
+            let state = match package.commit {
+                Some(_) => format!("is already at {}", package.pin),
+                None => format!("is already what {} holds", package.source),
+            };
+            println!("{} {}", paint(style::NAME, &package.name), paint(style::DIM, state));
         }
         if diff {
             // Said even when nothing changed, so an empty diff reads as an

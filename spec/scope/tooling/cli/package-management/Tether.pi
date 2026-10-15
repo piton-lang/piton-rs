@@ -1,5 +1,7 @@
 use ../../cli
 
+from /scope/package-management/Dependencies import Dependencies
+
 export cli-command Tether:
     commandName: tether
     description:
@@ -8,5 +10,12 @@ export cli-command Tether:
         dependencies. Give it a source and it adds that to piton.config.pi and
         installs it.
 
+        The source can be a local directory as well as a URL (see
+        @{Dependencies}). A relative path given on the command line is taken
+        from the working directory, and it's rewritten when it's recorded so
+        that it leads to the same place from piton.config.pi's directory.
+
     positionalArguments:
-        source: Optional. URL of the git repository
+        source:
+            Optional. URL of the git repository, or the path to a directory on
+            disk, which can be a git repository or a plain directory

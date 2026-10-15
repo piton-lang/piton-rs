@@ -787,3 +787,104 @@ button Cancel:
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("Plain"), "{stdout}");
 }
+
+#[test]
+fn a_relative_path_to_a_local_repository_is_read_from_the_configuration() {
+    let Some(sandbox) = fixture("relative-repo") else {
+        return;
+    };
+    sandbox.write(
+        "app/piton.config.pi",
+        "use @piton/config
+
+export piton-config App:
+    root: ./spec
+    entry: ./spec/index.pi
+",
+    );
+    // Work nobody committed is not part of what gets tethered.
+    sandbox.write("repo/spec/Draft.pi", "draft: 1\n");
+
+    let (stdout, stderr, code) = sandbox.piton(&["tether", "../repo"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("tethers/dep-lib"), "{stdout}");
+    assert!(stderr.contains("uncommitted changes"), "{stderr}");
+    assert!(sandbox.exists("app/tethers/dep-lib/Anchors.pi"));
+    assert!(!sandbox.exists("app/tethers/dep-lib/Draft.pi"));
+    assert!(sandbox.read("app/piton.config.pi").contains("- ../repo\n"));
+    assert!(sandbox.read("app/.piton/tether.lock").contains("\"commit\": \""));
+    assert_eq!(sandbox.piton(&["check"]).2, 0);
+}
+
+#[test]
+fn a_plain_directory_is_copied_as_it_stands() {
+    let sandbox = Sandbox::new("plain-dir");
+    sandbox.write("shared-kit/index.pi", "from ./Thing export Thing\n");
+    sandbox.write("shared-kit/Thing.pi", "export anchor Thing:\n    kind: plain\n");
+    sandbox.write(
+        "app/piton.config.pi",
+        "use @piton/config
+
+export piton-config App:
+    root: ./spec
+    entry: ./spec/index.pi
+",
+    );
+    sandbox.write(
+        "app/spec/index.pi",
+        "from shared-kit import Thing\n\nexport anchor Uses:\n    it: {Thing}\n",
+    );
+
+    let (stdout, stderr, code) = sandbox.piton(&["tether", "../shared-kit"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("plain directory"), "{stdout}");
+    assert!(sandbox.exists("app/tethers/shared-kit/Thing.pi"));
+    let (stdout, stderr, code) = sandbox.piton(&["compile", "spec/index.pi"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("\"kind\": \"plain\""), "{stdout}");
+
+    // With no commits to compare, an update notices that the files moved.
+    let (stdout, _, _) = sandbox.piton(&["update"]);
+    assert!(stdout.contains("0 of 1"), "{stdout}");
+    sandbox.write("shared-kit/More.pi", "more: 1\n");
+    let (stdout, stderr, code) = sandbox.piton(&["update"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("updated shared-kit"), "{stdout}");
+    assert!(sandbox.exists("app/tethers/shared-kit/More.pi"));
+
+    // A directory without history has no versions to pin.
+    sandbox.write(
+        "app/piton.config.pi",
+        "use @piton/config
+
+export piton-config App:
+    root: ./spec
+    entry: ./spec/index.pi
+
+    dependencies:
+        - ../shared-kit
+            tag: v1
+",
+    );
+    let (_, stderr, code) = sandbox.piton(&["tether"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("plain directory"), "{stderr}");
+}
+
+#[test]
+fn a_directory_holding_the_project_is_not_tethered_into_it() {
+    let sandbox = Sandbox::new("self-tether");
+    sandbox.write(
+        "app/piton.config.pi",
+        "use @piton/config
+
+export piton-config App:
+    root: ./spec
+",
+    );
+    sandbox.write("app/spec/index.pi", "x: 1\n");
+    let (_, stderr, code) = sandbox.piton(&["tether", "."]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("into itself"), "{stderr}");
+    assert!(!sandbox.exists("app/tethers"));
+}
