@@ -42,9 +42,23 @@ module.exports = grammar({
     //
     // The last line of a file may have no newline, so it is admitted once, at
     // the end, where it cannot be confused with anything else.
-    source_file: ($) => seq(repeat($._line), optional($._statement)),
+    source_file: ($) =>
+      seq(repeat($._line), optional(choice($._statement, seq($._indent, $._block_statement)))),
 
-    _line: ($) => choice(seq($._statement, $._newline), $.escape_block, $._newline),
+    _line: ($) =>
+      choice(
+        seq($._statement, $._newline),
+        seq($._indent, $._block_statement, $._newline),
+        seq(optional($._indent), $.escape_block),
+        seq(optional($._indent), $._newline)
+      ),
+
+    // Leading whitespace. It is not an extra at the start of a line, because
+    // what may follow depends on it: imports and declarations are top-level
+    // only, so an indented `use the spec` or `export the result` is prose in a
+    // string, which is what the compiler makes of it. A token that can start
+    // with a space wins over the extra, so this only has to be valid here.
+    _indent: () => token(/[ \t]+/),
 
     // Everything that occupies a line without consuming the newline ending it.
     // An escape block is not here: its closing delimiter takes its own.
@@ -55,6 +69,19 @@ module.exports = grammar({
         $.use_declaration,
         $.from_declaration,
         $.anchor_declaration,
+        $.pass_statement,
+        seq("export", $.property),
+        $.property,
+        $.list_item,
+        $.merge_item,
+        $.prose
+      ),
+
+    // What an indented line can be: a block's contents, never a declaration.
+    _block_statement: ($) =>
+      choice(
+        $.comment,
+        $.fence,
         $.pass_statement,
         $.property,
         $.list_item,
@@ -150,7 +177,6 @@ module.exports = grammar({
     // is what separates `anchor Name:` from `anchor: a description`.
     property: ($) =>
       seq(
-        optional("export"),
         field("name", $.key),
         repeat(field("constraint", $.type_constraint)),
         optional(field("value", $._inline))
@@ -184,7 +210,11 @@ module.exports = grammar({
     // `+` merges and deduplicates; `++` keeps duplicates.
     merge_item: ($) => seq(field("operator", choice("++", "+")), optional(field("value", $._inline))),
 
-    _inline: ($) => repeat1(choice($.interpolation, $.inline_list, $.text, $.punctuation)),
+    // A list literal is a list only when it opens the value: `[x, y]` is a
+    // list, `see [x, y] there` and `[x](./x.md)` are strings. Text after a
+    // leading list is admitted so that the link form still parses.
+    _inline: ($) => choice(seq($.inline_list, optional($._inline_text)), $._inline_text),
+    _inline_text: ($) => repeat1(choice($.interpolation, $.text, $.punctuation)),
 
     inline_list: ($) => seq("[", optional(seq($._inline, repeat(seq(",", $._inline)))), "]"),
 

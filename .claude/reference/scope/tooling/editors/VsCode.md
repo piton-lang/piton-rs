@@ -20,6 +20,10 @@ On a blank line inside a dictionary or anchor, enter should insert a new line an
 
 Autoformat on save is an option. Autoformat should add the space after `//`, but not touch anything else that's commented.
 
+### Strings Stay Strings
+
+Prose is one string, and the syntax highlighter colors it as one. A word in it is never a keyword, constant, number, or type, and characters like `$`, `#`, `@`, a backtick, or brackets that open nothing are part of the string. Imports and declarations are top-level only, so they're recognized at column 0: an indented line like `use the spec to decide` or `export the result` is prose. Only the expressions inside `{...}` forms are highlighted within a value.
+
 ## Syntax Highlighter
 
 - textmate

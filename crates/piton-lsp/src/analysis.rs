@@ -42,8 +42,9 @@ pub struct Mapping {
 pub struct Composition {
     pub module: ModuleId,
     pub span: Span,
-    /// The property or declaration this composition belongs to, when known.
-    pub enclosing: Span,
+    /// The spans a hover explains it on: the expression, or each `+`/`++`
+    /// line of a block, never the prose between them.
+    pub targets: Vec<Span>,
     pub summary: String,
     /// A short inlay, e.g. `+ merge`.
     pub hint: String,
@@ -89,13 +90,12 @@ pub struct Analysis {
 }
 
 impl Analysis {
-    /// Compositions whose operator or enclosing declaration covers `offset`.
+    /// Compositions whose operator covers `offset`.
     pub fn compositions_at(&self, module: ModuleId, offset: usize) -> Vec<&Composition> {
         self.compositions
             .iter()
             .filter(|item| {
-                item.module == module
-                    && (item.span.contains(offset) || item.enclosing.contains(offset))
+                item.module == module && item.targets.iter().any(|span| span.contains(offset))
             })
             .collect()
     }
@@ -1024,7 +1024,7 @@ impl Composer<'_, '_> {
 
     fn value(&mut self, value: &ast::ValueNode, enclosing: Span, name: &str, holder: Holder) {
         if let Some(line) = &value.inline {
-            self.line(line, enclosing);
+            self.line(line);
         }
         if let Some(items) = &value.inline_list {
             for item in items {
@@ -1054,45 +1054,45 @@ impl Composer<'_, '_> {
                 }
                 BlockItem::Prose(paragraph) => {
                     for line in &paragraph.lines {
-                        self.line(line, enclosing);
+                        self.line(line);
                     }
                 }
-                BlockItem::Merge(merge) => self.line(&merge.value, enclosing),
+                BlockItem::Merge(merge) => self.line(&merge.value),
                 _ => {}
             }
         }
     }
 
-    fn line(&mut self, line: &ast::ProseLine, enclosing: Span) {
+    fn line(&mut self, line: &ast::ProseLine) {
         for segment in &line.segments {
             if let ast::ProseSegment::Interpolation(interpolation) = segment {
-                self.expr(&interpolation.expr, enclosing);
+                self.expr(&interpolation.expr);
             }
         }
     }
 
-    fn expr(&mut self, expr: &Expr, enclosing: Span) {
+    fn expr(&mut self, expr: &Expr) {
         if let ExprKind::Binary(op @ (BinaryOp::Add | BinaryOp::Concat), left, right) = &expr.kind
         {
-            self.binary(expr, *op, left, right, enclosing);
+            self.binary(expr, *op, left, right);
         }
         match &expr.kind {
-            ExprKind::Field(base, _) => self.expr(base, enclosing),
+            ExprKind::Field(base, _) => self.expr(base),
             ExprKind::Unary(_, operand) | ExprKind::Paren(operand) | ExprKind::Nested(_, operand) => {
-                self.expr(operand, enclosing)
+                self.expr(operand)
             }
             ExprKind::Binary(_, left, right) => {
-                self.expr(left, enclosing);
-                self.expr(right, enclosing);
+                self.expr(left);
+                self.expr(right);
             }
             ExprKind::Ternary(condition, consequent, alternative) => {
-                self.expr(condition, enclosing);
-                self.expr(consequent, enclosing);
-                self.expr(alternative, enclosing);
+                self.expr(condition);
+                self.expr(consequent);
+                self.expr(alternative);
             }
             ExprKind::List(items) => {
                 for item in items {
-                    self.expr(item, enclosing);
+                    self.expr(item);
                 }
             }
             _ => {}
@@ -1101,7 +1101,7 @@ impl Composer<'_, '_> {
 
     /// `{a + b}` or `{a ++ b}`: both inputs and the result, each evaluated by
     /// the compiler's own rules.
-    fn binary(&mut self, whole: &Expr, op: BinaryOp, left: &Expr, right: &Expr, enclosing: Span) {
+    fn binary(&mut self, whole: &Expr, op: BinaryOp, left: &Expr, right: &Expr) {
         let left_value = self.probe.expr(self.module, self.owner, left);
         let right_value = self.probe.expr(self.module, self.owner, right);
         let combined = match (&left_value, &right_value) {
@@ -1138,7 +1138,7 @@ impl Composer<'_, '_> {
         self.analysis.compositions.push(Composition {
             module: self.module,
             span: whole.span,
-            enclosing,
+            targets: vec![whole.span],
             summary: out,
             hint: rule.hint,
         });
@@ -1215,19 +1215,23 @@ impl Composer<'_, '_> {
             out.push_str(&preview(self.compilation, &value));
             out.push_str("\n```");
         }
-        let span = block
+        let targets: Vec<Span> = block
             .items
             .iter()
             .filter_map(|item| match item {
                 BlockItem::Merge(merge) => Some(merge.span),
                 _ => None,
             })
+            .collect();
+        let span = targets
+            .iter()
+            .copied()
             .reduce(|left, right| left.cover(right))
             .unwrap_or(enclosing);
         self.analysis.compositions.push(Composition {
             module: self.module,
             span,
-            enclosing,
+            targets,
             summary: out,
             hint: hints.join(", "),
         });

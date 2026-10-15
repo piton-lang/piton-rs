@@ -50,38 +50,44 @@ else that is commented."
   :type 'boolean
   :group 'piton)
 
-(defconst piton--declaration-keywords
-  '("use" "from" "import" "export" "anchor" "abstract" "as" "extends" "pass")
-  "Words that introduce or modify a declaration.")
+(defconst piton--constants '("true" "false" "null")
+  "Literal values.")
 
 (defconst piton--type-names
   '("string" "number" "boolean" "null" "list" "dictionary"
     "anchor" "reference" "any" "simple" "complex")
   "Type names usable in a `::' constraint.")
 
-(defconst piton--constants '("true" "false" "null")
-  "Literal values.")
-
 (defvar piton-font-lock-keywords
   `(
     ;; Comments are syntactic: see `piton--syntax-propertize'.
 
-    ;; Declarations: `[export] [abstract] <keyword> Name [as kw] [extends ...]:'
-    ("^[ \t]*\\(?:\\(export\\)[ \t]+\\)?\\(?:\\(abstract\\)[ \t]+\\)?\\([a-z][a-z0-9-]*\\)[ \t]+\\([A-Za-z_][A-Za-z0-9_]*\\)"
+    ;; Declarations: `[export] [abstract] <keyword> Name [extends ...] [as kw]:'.
+    ;; Declarations and imports are top-level only, so they start at column 0
+    ;; and a declaration ends at its colon: an indented `use the spec' is
+    ;; prose, and a word in prose is never a keyword.
+    ("^\\(?:\\(export\\)[ \t]+\\)?\\(?:\\(abstract\\)[ \t]+\\)?\\([a-z][a-z0-9-]*\\)[ \t]+\\([A-Za-z_][A-Za-z0-9_]*\\)\\(?:[ \t]+\\(as\\)[ \t]+\\([a-z][a-z0-9-]*\\)\\)?\\(?:[ \t]+\\(extends\\)[ \t]+\\([^:\n]*?\\)\\)?\\(?:[ \t]+\\(as\\)[ \t]+\\([a-z][a-z0-9-]*\\)\\)?[ \t]*:[ \t]*$"
      (1 font-lock-keyword-face nil t)
      (2 font-lock-keyword-face nil t)
      (3 font-lock-builtin-face)
-     (4 font-lock-type-face))
-    ("[ \t]\\(as\\)[ \t]+\\([a-z][a-z0-9-]*\\)"
-     (1 font-lock-keyword-face)
-     (2 font-lock-function-name-face))
-    ("[ \t]\\(extends\\)[ \t]+" 1 font-lock-keyword-face)
+     (4 font-lock-type-face)
+     (5 font-lock-keyword-face nil t)
+     (6 font-lock-function-name-face nil t)
+     (7 font-lock-keyword-face nil t)
+     (8 font-lock-type-face nil t)
+     (9 font-lock-keyword-face nil t)
+     (10 font-lock-function-name-face nil t))
 
     ;; Imports
-    ("^[ \t]*\\(use\\|from\\)[ \t]+\\(\\S-+\\)"
+    ("^\\(use\\)[ \t]+\\(\\S-+\\)"
      (1 font-lock-keyword-face)
      (2 font-lock-string-face))
-    ("[ \t]\\(import\\|export\\)\\_>" 1 font-lock-keyword-face)
+    ("^\\(from\\)[ \t]+\\(\\S-+\\)[ \t]+\\(import\\|export\\)\\_>"
+     (1 font-lock-keyword-face)
+     (2 font-lock-string-face)
+     (3 font-lock-keyword-face))
+    ;; `export Name' re-exports; `export name: value' exports a variable.
+    ("^\\(export\\)[ \t]" 1 font-lock-keyword-face)
 
     ;; A key is any text without spaces followed by a colon.  Keywords are keys
     ;; here too: the colon is what separates the two readings.
@@ -91,7 +97,6 @@ else that is commented."
 
     ;; `pass` is an intentionally empty body.
     ("^[ \t]*\\(pass\\)[ \t]*$" 1 font-lock-keyword-face)
-    (,(regexp-opt piton--declaration-keywords 'symbols) . font-lock-keyword-face)
 
     ;; Structure markers
     ("^[ \t]*\\(-\\)\\(?:[ \t]\\|$\\)" 1 font-lock-negation-char-face)
@@ -102,11 +107,21 @@ else that is commented."
      (1 font-lock-preprocessor-face)
      (2 font-lock-constant-face)
      (3 font-lock-preprocessor-face))
+    ;; Constants and `this', `self', `super' only mean something inside an
+    ;; interpolation; in prose they are part of the string.
+    ("\\(?:\\$\\|#\\|@\\)?{"
+     (,(regexp-opt piton--constants 'symbols)
+      (save-excursion (if (search-forward "}" (line-end-position) t) (point) (line-end-position)))
+      nil
+      (0 font-lock-constant-face t)))
+    ("\\(?:\\$\\|#\\|@\\)?{"
+     ("\\_<\\(this\\|self\\|super\\)\\_>"
+      (save-excursion (if (search-forward "}" (line-end-position) t) (point) (line-end-position)))
+      nil
+      (1 font-lock-builtin-face t)))
 
     ;; A line of backslashes delimits a literal block.
-    ("^[ \t]*\\(\\\\+\\)[ \t]*$" 1 font-lock-preprocessor-face)
-    (,(regexp-opt piton--constants 'symbols) . font-lock-constant-face)
-    ("\\_<\\(this\\|self\\|super\\)\\_>" 1 font-lock-builtin-face))
+    ("^[ \t]*\\(\\\\+\\)[ \t]*$" 1 font-lock-preprocessor-face))
   "Font lock rules for `piton-mode'.")
 
 (defvar piton-mode-syntax-table
@@ -363,6 +378,8 @@ after `//' and touches nothing else that is commented."
              :language 'piton
              :feature 'string
              '((text) @font-lock-string-face
+               ;; Sigil characters that open nothing are part of the string.
+               (punctuation) @font-lock-string-face
                (string) @font-lock-string-face
                (fence) @font-lock-string-face
                (escape_block) @font-lock-string-face

@@ -124,9 +124,8 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
             parts.push(markdown);
         }
     }
-    // Composition and the compiled slice are answers about the position, not
-    // about a named occurrence, so they are appended even when the cursor is
-    // sitting on `+` rather than on a symbol.
+    // A composition is explained on its own operator, even though `+` is not
+    // a named occurrence. Plain text gets nothing: a string is a string.
     let compositions = world.analysis.compositions_at(cursor.module, cursor.offset);
     if !compositions.is_empty() {
         let mut seen = HashSet::new();
@@ -136,8 +135,13 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
             }
         }
     }
-    if let Some(note) = mapping_note(&world.analysis, &cursor.path, cursor.offset) {
-        parts.push(note);
+    // Where a construct compiles to is a fact about its declaration, so it is
+    // shown on the name that declares it, not on every word of its value.
+    let declaring = occurrence.is_some_and(|item| item.role == Role::Definition);
+    if declaring {
+        if let Some(note) = mapping_note(&world.analysis, &cursor.path, cursor.offset) {
+            parts.push(note);
+        }
     }
     if parts.is_empty() {
         return None;
@@ -2461,6 +2465,19 @@ pub fn selection_ranges(
 // ---------------------------------------------------------------------------
 
 pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeActionResponse> {
+    code_actions_for(world, uri, range, None)
+}
+
+/// The actions for a range. Each one belongs to something there: an
+/// unresolved name, a declaration's header line, an import. Whole-file source
+/// actions come only when the client asks for that kind, or, for organizing
+/// imports, when the range is on an import; prose offers nothing.
+pub fn code_actions_for(
+    world: &World,
+    uri: &Url,
+    range: Range,
+    only: Option<&[CodeActionKind]>,
+) -> Option<CodeActionResponse> {
     let cursor = cursor(world, uri, range.start)?;
     let compilation = cursor.compilation;
     let index = world.index.get(cursor.module)?;
@@ -2522,14 +2539,32 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
         }));
     }
 
-    // Offer to export a declaration that nothing outside the file can see.
-    for item in &compilation.graph().get(cursor.module).ast().items {
+    let requested = |kind: &CodeActionKind| {
+        only.is_some_and(|kinds| {
+            kinds
+                .iter()
+                .any(|wanted| kind.as_str().starts_with(wanted.as_str()))
+        })
+    };
+    let touches = |span: Span| span.start <= end && span.end >= start;
+    let header = |span: Span| {
+        let header_end = cursor.text[span.start..]
+            .find('\n')
+            .map(|offset| span.start + offset)
+            .unwrap_or(span.end);
+        Span::new(span.start, header_end)
+    };
+    let items = &compilation.graph().get(cursor.module).ast().items;
+
+    // Offer to export a declaration that nothing outside the file can see,
+    // from its header line rather than from anywhere in its value.
+    for item in items {
         let (name, span, exported) = match item {
             Item::Anchor(decl) => (&decl.name, decl.span, decl.exported),
             Item::Variable(decl) => (&decl.name, decl.span, decl.exported),
             _ => continue,
         };
-        if exported || !(span.contains(start) || span.contains(end)) {
+        if exported || !touches(header(span)) {
             continue;
         }
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
@@ -2555,7 +2590,11 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
     actions.extend(qualify_actions(world, &cursor, uri, start, end));
     actions.extend(conflict_actions(&cursor, uri, start, end));
 
-    if let Some(edits) = organize_import_edits(world, &cursor) {
+    let on_import = items
+        .iter()
+        .any(|item| matches!(item, Item::Use(_) | Item::From(_)) && touches(item.span()));
+    let organize = on_import || requested(&CodeActionKind::SOURCE_ORGANIZE_IMPORTS);
+    if let Some(edits) = organize.then(|| organize_import_edits(world, &cursor)).flatten() {
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: "Organize imports".into(),
             kind: Some(CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
@@ -2567,7 +2606,9 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
         }));
     }
 
-    if formatting(world, uri).is_some_and(|edits| !edits.is_empty()) {
+    if requested(&CodeActionKind::SOURCE)
+        && formatting(world, uri).is_some_and(|edits| !edits.is_empty())
+    {
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: "Format this file".into(),
             kind: Some(CodeActionKind::SOURCE),

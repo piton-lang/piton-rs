@@ -63,5 +63,8 @@
 (escape_block) @string
 (escape_marker) @punctuation.special
 
-; Prose is a value in Piton, not decoration.
+; Prose is a value in Piton, not decoration. A string is one string: the
+; sigil characters that open nothing (`$5`, `#3`, a backtick, `@piton/x`, a
+; bracket in `[x](./x.md)`) are part of it, not punctuation.
 (text) @string
+(punctuation) @string
