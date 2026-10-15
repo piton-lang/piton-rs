@@ -8,9 +8,14 @@
 //! On its own, `piton tether` installs everything `piton.config.pi` lists under
 //! `dependencies`. Given a source, it adds that source to the list first, so
 //! the configuration and `tethers/` agree about what the project depends on.
+//!
+//! A source is a URL or a directory on disk. A relative path is read from the
+//! directory holding `piton.config.pi`, wherever piton happens to run.
+
+use std::path::Path;
 
 use piton_compile::packages::{Dependency, Lock, Pin};
-use piton_compile::Project;
+use piton_compile::{module, Project};
 
 use anstream::println;
 
@@ -32,6 +37,8 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
         }
         return install_all(&configured);
     };
+    let source = as_configured(&configured, source);
+    let source = source.as_str();
 
     // The source is recorded before anything is installed, so a failed clone
     // leaves the intent written down rather than a project that forgot it.
@@ -94,6 +101,40 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
     install(&configured, &[dependency], rename)
 }
 
+/// A source as the configuration should record it.
+///
+/// A relative path typed on the command line is written from the working
+/// directory, but the configuration reads it from its own, so when the two
+/// differ it is rewritten to lead to the same place from there.
+fn as_configured(configured: &Project, source: &str) -> String {
+    let relative = Dependency::new(source).is_local()
+        && Path::new(source).is_relative()
+        && !source.starts_with("~/");
+    if !relative {
+        return source.to_string();
+    }
+    let (Ok(cwd), Ok(root)) = (
+        std::env::current_dir().and_then(std::fs::canonicalize),
+        std::fs::canonicalize(&configured.root),
+    ) else {
+        return source.to_string();
+    };
+    let Ok(target) = std::fs::canonicalize(cwd.join(source)) else {
+        return source.to_string();
+    };
+    if cwd == root {
+        return source.to_string();
+    }
+    let path = module::relative_path(&root, &target)
+        .to_string_lossy()
+        .replace('\\', "/");
+    if path.starts_with("..") {
+        path
+    } else {
+        format!("./{path}")
+    }
+}
+
 /// Installs everything the configuration depends on.
 pub fn install_all(configured: &Project) -> u8 {
     if configured.config_path.is_none() {
@@ -140,8 +181,11 @@ fn install(configured: &Project, dependencies: &[Dependency], rename: Option<&st
                 format!("({} {})", package.files, report::plural(package.files, "file", "files"))
             )
         );
-        if let Some(commit) = &package.commit {
-            println!("  {}", paint(style::DIM, format!("at {} ({commit})", package.pin)));
+        match &package.commit {
+            Some(commit) => {
+                println!("  {}", paint(style::DIM, format!("at {} ({commit})", package.pin)));
+            }
+            None => println!("  {}", paint(style::DIM, "copied as it stands, from a plain directory")),
         }
     }
     EXIT_SUCCESS

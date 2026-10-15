@@ -112,11 +112,43 @@ impl Dependency {
     /// declaring packages; this is the fallback for one that does not.
     pub fn default_name(&self) -> String {
         let trimmed = self.source.trim_end_matches('/');
+        // `.` and `..` in a local path say where to go, not what it is called.
         let last = trimmed
             .rsplit(['/', ':', '\\'])
-            .find(|segment| !segment.is_empty())
+            .find(|segment| !segment.is_empty() && *segment != "." && *segment != "..")
             .unwrap_or(trimmed);
         last.trim_end_matches(".git").to_string()
+    }
+
+    /// True when the source is a directory on disk rather than a URL.
+    ///
+    /// A URL has a scheme (`https://`, `ssh://`, `file://`) or is git's
+    /// `user@host:path` shorthand; anything else is a path. A drive letter
+    /// (`C:\lib`) is a path, not a host called `C`.
+    pub fn is_local(&self) -> bool {
+        let source = self.source.trim();
+        if source.is_empty() || source.contains("://") {
+            return false;
+        }
+        match source.split_once(':') {
+            Some((host, _)) => host.contains(['/', '\\']) || host.len() == 1,
+            None => true,
+        }
+    }
+
+    /// Where a local source is, with a relative path read from `base` -- the
+    /// directory holding the `piton.config.pi` that declared it -- and `~/`
+    /// read from the home directory. None for a URL.
+    pub fn local_path(&self, base: &Path) -> Option<PathBuf> {
+        if !self.is_local() {
+            return None;
+        }
+        let source = self.source.trim();
+        let expanded = match source.strip_prefix("~/") {
+            Some(rest) => std::env::var_os("HOME").map(|home| PathBuf::from(home).join(rest))?,
+            None => PathBuf::from(source),
+        };
+        Some(crate::module::normalize(&base.join(expanded)))
     }
 }
 
@@ -1011,6 +1043,29 @@ mod tests {
         assert_eq!(
             Dependency::new("git@github.com:piton-lang/piton-rs.git").default_name(),
             "piton-rs"
+        );
+    }
+
+    #[test]
+    fn a_path_is_local_and_a_url_is_not() {
+        for local in ["../lib", "./lib", "lib", "/abs/lib", "~/lib", "C:\\lib"] {
+            assert!(Dependency::new(local).is_local(), "{local}");
+        }
+        for remote in [
+            "https://github.com/piton-lang/piton-rs",
+            "file:///abs/lib",
+            "git@github.com:piton-lang/piton-rs.git",
+            "host:repo",
+        ] {
+            assert!(!Dependency::new(remote).is_local(), "{remote}");
+        }
+        assert_eq!(
+            Dependency::new("../lib").local_path(Path::new("/work/app")),
+            Some(PathBuf::from("/work/lib"))
+        );
+        assert_eq!(
+            Dependency::new("/abs/lib").local_path(Path::new("/work/app")),
+            Some(PathBuf::from("/abs/lib"))
         );
     }
 

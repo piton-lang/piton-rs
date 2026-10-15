@@ -2,7 +2,9 @@
 //!
 //! A tethered package is plain files. Cloning brings a repository in, the clone
 //! is stripped of everything that made it a repository, and what is left is
-//! copied into `tethers/` and committed with the project. Nothing here runs at
+//! copied into `tethers/` and committed with the project. A source can also be
+//! a directory on disk: a git repository there is cloned like any other, and a
+//! plain directory is copied as it stands. Nothing here runs at
 //! compile time; these are the operations the four package commands are made
 //! of.
 //!
@@ -134,12 +136,25 @@ fn local_edits(
         )));
     };
     let Some(commit) = recorded.commit.clone() else {
+        // A plain directory keeps no history, so what it held when it was
+        // installed is gone; only the digests in the lock file remain.
+        let why = if Dependency::new(&recorded.source).is_local() {
+            "came from a plain directory, which keeps no history"
+        } else {
+            "has no commit in the lock file"
+        };
         return Err(Failure::new(format!(
-            "the lock file records no commit for `{name}`, so what was installed can't be fetched again"
+            "`{name}` {why}, so what was installed can't be fetched again"
         )));
     };
-    let checkout = clone(&recorded.source, &Pin::Commit(commit), scratch)?;
-    let offered = published(&checkout.directory, fallback);
+    let checkout = fetch(
+        &recorded.source,
+        &Pin::Commit(commit),
+        Some(project_root),
+        scratch,
+    )?;
+    let fallback = checkout.fallback_name().unwrap_or_else(|| fallback.to_string());
+    let offered = published(&checkout.directory, &fallback);
     // A package tethered under another name is the one the repository offers
     // when it offers only one.
     let package = offered
@@ -209,12 +224,90 @@ pub struct Checkout {
     /// When `commit` was committed, in seconds since the epoch. Version
     /// conflicts are settled by it: the newest commit wins.
     pub committed_at: Option<i64>,
+    /// The directory on disk the source named, when it named one. Relative
+    /// paths among its packages' dependencies are read from here.
+    pub local: Option<PathBuf>,
+    /// False when `directory` is a plain directory read where it stands. That
+    /// is somebody's work, not a scratch copy, and outlives the checkout.
+    owned: bool,
+}
+
+impl Checkout {
+    /// The name a local source installs under when it declares none: its
+    /// directory's, which `.` or `..` as written would not give.
+    pub fn fallback_name(&self) -> Option<String> {
+        let name = self.local.as_deref()?.file_name()?.to_string_lossy();
+        Some(name.trim_end_matches(".git").to_string())
+    }
 }
 
 impl Drop for Checkout {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.directory);
+        if self.owned {
+            let _ = std::fs::remove_dir_all(&self.directory);
+        }
     }
+}
+
+/// Fetches `source` at `pin`.
+///
+/// A URL is cloned. A path is a directory on disk, read from `base` when it is
+/// relative -- the directory holding the configuration that named it, which is
+/// `None` for a repository fetched from a URL, where a relative path leads
+/// nowhere. A directory that is a git repository is cloned like a URL, so pins
+/// work and the commit is recorded; one that is not is read as it stands, and
+/// can't be pinned because it has no versions to pin to.
+pub fn fetch(source: &str, pin: &Pin, base: Option<&Path>, scratch: &Path) -> Outcome<Checkout> {
+    let dependency = Dependency::new(source);
+    if !dependency.is_local() {
+        return clone(source, pin, scratch);
+    }
+    let relative = Path::new(source.trim()).is_relative() && !source.trim().starts_with("~/");
+    let path = match (base, relative) {
+        (None, true) => {
+            return Err(Failure::new(format!(
+                "`{source}` is a relative path in a repository fetched from a URL, so there is no directory to read it from"
+            ))
+            .with_help("give the dependency as a URL or an absolute path"))
+        }
+        (base, _) => dependency
+            .local_path(base.unwrap_or(Path::new("/")))
+            .ok_or_else(|| Failure::new(format!("`{source}` is not a path")))?,
+    };
+    let path = std::fs::canonicalize(&path)
+        .ok()
+        .filter(|path| path.is_dir())
+        .ok_or_else(|| {
+            Failure::new(format!(
+                "`{source}` is not a directory (looked for {})",
+                path.display()
+            ))
+        })?;
+
+    if path.join(".git").exists() {
+        let mut checkout = clone(&path.to_string_lossy(), pin, scratch)?;
+        checkout.local = Some(path);
+        return Ok(checkout);
+    }
+    if *pin != Pin::Default {
+        return Err(Failure::new(format!(
+            "`{source}` is pinned to {pin}, but it is a plain directory, not a git repository, so it has no versions to pin"
+        ))
+        .with_help("remove the pin, or make the directory a git repository"));
+    }
+    Ok(Checkout {
+        directory: path.clone(),
+        commit: None,
+        committed_at: None,
+        local: Some(path),
+        owned: false,
+    })
+}
+
+/// True when the git repository at `directory` has changes nobody committed,
+/// which cloning it leaves behind.
+fn uncommitted(directory: &Path) -> bool {
+    git(directory, &["status", "--porcelain"]).is_ok_and(|status| !status.is_empty())
 }
 
 /// Clones `source` at `pin` into a temporary directory.
@@ -273,6 +366,8 @@ pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
         directory,
         commit,
         committed_at,
+        local: None,
+        owned: true,
     })
 }
 
@@ -407,6 +502,18 @@ pub fn install(
     commit: Option<&str>,
 ) -> Outcome<Placed> {
     let directory = packages::package_directory(project_root, &package.name);
+    // Tethering a directory the project sits inside would copy the project,
+    // `tethers/` and all, into itself.
+    if let (Ok(project), Ok(root)) = (
+        std::fs::canonicalize(project_root),
+        std::fs::canonicalize(&package.root),
+    ) {
+        if project.starts_with(&root) {
+            return Err(Failure::new(format!(
+                "`{source}` contains this project, so tethering it would copy the project into itself"
+            )));
+        }
+    }
     if directory.exists() {
         std::fs::remove_dir_all(&directory).map_err(|error| {
             Failure::new(format!(
@@ -499,9 +606,16 @@ impl<'a> Installer<'a> {
     /// `piton tether --as` needs; a repository that publishes several names them
     /// itself.
     pub fn add(&mut self, dependency: &Dependency, rename: Option<&str>) -> Outcome<()> {
-        let mut queue = vec![(dependency.clone(), rename.map(str::to_string))];
+        // Each dependency carries the directory its relative path is read from:
+        // the project's for its own, a local repository's for that
+        // repository's packages, and none for a repository behind a URL.
+        let mut queue = vec![(
+            dependency.clone(),
+            rename.map(str::to_string),
+            Some(self.project_root.to_path_buf()),
+        )];
 
-        while let Some((dependency, rename)) = queue.pop() {
+        while let Some((dependency, rename, base)) = queue.pop() {
             let checkout = match self
                 .seen
                 .iter()
@@ -511,7 +625,7 @@ impl<'a> Installer<'a> {
                 Some(index) => {
                     // Asked for at a second version. Both are looked at, and
                     // the newer commit is the one the project gets.
-                    let checkout = clone(&dependency.source, &dependency.pin, &self.scratch)?;
+                    let checkout = fetch(&dependency.source, &dependency.pin, base.as_deref(), &self.scratch)?;
                     let taken = &self.seen[index];
                     if checkout.commit.is_some() && checkout.commit == taken.commit {
                         continue;
@@ -542,7 +656,7 @@ impl<'a> Installer<'a> {
                     checkout
                 }
                 None => {
-                    let checkout = clone(&dependency.source, &dependency.pin, &self.scratch)?;
+                    let checkout = fetch(&dependency.source, &dependency.pin, base.as_deref(), &self.scratch)?;
                     self.seen.push(Seen {
                         source: dependency.source.clone(),
                         pin: dependency.pin.clone(),
@@ -553,7 +667,18 @@ impl<'a> Installer<'a> {
                 }
             };
 
-            let mut published = published(&checkout.directory, &dependency.default_name());
+            if checkout.commit.is_some()
+                && checkout.local.as_deref().is_some_and(uncommitted)
+            {
+                self.warnings.push(format!(
+                    "`{}` has uncommitted changes, which are not tethered; tethering takes what is committed",
+                    dependency.source
+                ));
+            }
+            let fallback = checkout
+                .fallback_name()
+                .unwrap_or_else(|| dependency.default_name());
+            let mut published = published(&checkout.directory, &fallback);
             // `packages:` under the dependency picks which of the repository's
             // packages to take.
             if let Some(wanted) = &dependency.packages {
@@ -601,7 +726,7 @@ impl<'a> Installer<'a> {
                         self.project_root,
                         &self.lock,
                         &package.name,
-                        &dependency.default_name(),
+                        &fallback,
                         &self.scratch,
                     );
                     self.edited.push((package.name.clone(), edits));
@@ -642,8 +767,22 @@ impl<'a> Installer<'a> {
             // because there is nowhere nested for it to go. The repository's
             // own project dependencies are not followed: they are for working
             // on that repository, not for using what it publishes.
+            //
+            // A relative path there is written from the repository's own
+            // directory, so it is made absolute before it leaves it.
             for required in published.iter().flat_map(|package| &package.dependencies) {
-                queue.push((required.clone(), None));
+                let mut required = required.clone();
+                if let Some(path) = checkout
+                    .local
+                    .as_deref()
+                    .and_then(|local| required.local_path(local))
+                {
+                    required.source = std::fs::canonicalize(&path)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .to_string();
+                }
+                queue.push((required, None, checkout.local.clone()));
             }
         }
         Ok(())
