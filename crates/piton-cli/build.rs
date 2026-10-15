@@ -6,13 +6,17 @@
 //! like `belay/application`: its files are what `piton init` writes. Groups and
 //! templates each have a `.template` file holding the one-line description the
 //! picker shows. Adding a template is adding a directory; nothing here lists
-//! them by name.
+//! them by name. A group holding a `.preferred` file is the one to recommend,
+//! and comes before the others.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// The file in each template that describes it, and is never written out.
 const DESCRIPTION: &str = ".template";
+
+/// The file marking a group as the recommended one.
+const PREFERRED: &str = ".preferred";
 
 fn main() {
     version();
@@ -22,13 +26,17 @@ fn main() {
     // template file rebuilds the table.
     println!("cargo:rerun-if-changed={}", root.display());
 
+    let mut groups = directories(&root);
+    // Stable, so the others stay in name order after the preferred ones.
+    groups.sort_by_key(|group| !group.join(PREFERRED).is_file());
     let mut out = String::from("pub static GROUPS: &[Group] = &[\n");
-    for group in directories(&root) {
+    for group in groups {
         let name = group.file_name().expect("name").to_string_lossy();
         writeln!(
             out,
-            "    Group {{\n        name: {name:?},\n        description: {:?},\n        templates: &[",
-            description(&group, &name)
+            "    Group {{\n        name: {name:?},\n        description: {:?},\n        preferred: {},\n        templates: &[",
+            description(&group, &name),
+            group.join(PREFERRED).is_file()
         )
         .unwrap();
         let templates = directories(&group);

@@ -102,7 +102,8 @@ enum Command {
     /// Without a directory, asks for the project's name and creates it in a
     /// directory of that name. Without --template, asks which one to use, and
     /// for a Belay template which adapters to build for. Nothing is overwritten: if any file the
-    /// template writes already exists, nothing is written.
+    /// template writes already exists, nothing is written. A template that
+    /// declares dependencies, like crux/project, has them tethered.
     Init {
         /// Directory to create the project in; asked for as the project's
         /// name, or the current one when there is no terminal to ask on
@@ -115,8 +116,12 @@ enum Command {
         #[arg(long, short, value_delimiter = ',')]
         adapter: Vec<String>,
         /// List the templates and what each one sets up
-        #[arg(long, conflicts_with_all = ["directory", "template", "adapter"])]
+        #[arg(long, conflicts_with_all = ["directory", "template", "adapter", "no_tether"])]
         list: bool,
+        /// Write the files only, leaving a template's dependencies for
+        /// `piton tether`
+        #[arg(long)]
+        no_tether: bool,
     },
 
     /// Count lines of Piton source for specific files or the project
@@ -232,7 +237,14 @@ fn main() -> ExitCode {
             template,
             adapter,
             list,
-        } => commands::init::run(directory.as_deref(), template.as_deref(), &adapter, list),
+            no_tether,
+        } => commands::init::run(
+            directory.as_deref(),
+            template.as_deref(),
+            &adapter,
+            list,
+            no_tether,
+        ),
         Command::Loc { paths } => commands::loc::run(&paths),
         Command::Lsp { .. } => commands::lsp::run(),
         Command::Reach {
