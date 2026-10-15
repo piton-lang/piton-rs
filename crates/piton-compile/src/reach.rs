@@ -9,8 +9,9 @@ use std::path::PathBuf;
 
 use piton_core::{AnchorId, MixedItem, Value};
 
+use crate::eval::Read;
 use crate::module::ModuleId;
-use crate::store::Symbol;
+use crate::store::{Symbol, VariableId};
 use crate::Compilation;
 
 /// The kinds of edge the traversal follows.
@@ -196,6 +197,7 @@ fn walk(
         for value in def.properties.values() {
             collect_targets(value, &mut neighbours);
         }
+        read_targets(compilation, anchor, &mut neighbours, result);
 
         for (next, kind) in neighbours {
             if seen.contains_key(&next) {
@@ -205,6 +207,61 @@ fn walk(
             let mut next_path = path.clone();
             next_path.push(compilation.resolution.store.anchor(next).name.clone());
             queue.push_back((next, depth + 1, next_path, Some(kind)));
+        }
+    }
+}
+
+/// Follows what evaluating an anchor's properties read.
+///
+/// Evaluation folds `{PURPOSE}` and `${Other.name}` into the value, so the
+/// value alone no longer says that the anchor depends on the module declaring
+/// `PURPOSE` or on `Other`. Reading a variable is composition all the same: its
+/// module carries something reached, and whatever the variable embeds or reads
+/// is reached in turn. Reading another anchor's property composes that anchor.
+fn read_targets(
+    compilation: &Compilation,
+    anchor: AnchorId,
+    neighbours: &mut Vec<(AnchorId, EdgeKind)>,
+    result: &mut Reachability,
+) {
+    let mut pending: Vec<Read> = compilation
+        .values
+        .get(&anchor)
+        .map(|properties| {
+            properties
+                .keys()
+                .map(|name| Read::Property(anchor, name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut visited: HashSet<Read> = pending.iter().cloned().collect();
+    let mut variables: Vec<VariableId> = Vec::new();
+    while let Some(read) = pending.pop() {
+        let Some(reads) = compilation.reads.get(&read) else {
+            continue;
+        };
+        for next in reads {
+            if !visited.insert(next.clone()) {
+                continue;
+            }
+            match next {
+                Read::Variable(variable) => variables.push(*variable),
+                Read::Property(other, _) if *other != anchor => {
+                    neighbours.push((*other, EdgeKind::Composition));
+                    // The other anchor is walked on its own; its reads are
+                    // followed from there.
+                    continue;
+                }
+                Read::Property(..) => {}
+            }
+            pending.push(next.clone());
+        }
+    }
+    for variable in variables {
+        let def = compilation.resolution.store.variable(variable);
+        result.modules.insert(def.module);
+        if let Some(value) = compilation.variables.get(&variable) {
+            collect_targets(value, neighbours);
         }
     }
 }
@@ -318,9 +375,21 @@ pub fn from_entry(compilation: &Compilation) -> Reachability {
 /// as "loaded but unreached". Finding it takes a look at the filesystem, and it
 /// is usually the answer someone is after when they ask what is unreachable.
 pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
+    let config = compilation
+        .project
+        .config_path
+        .as_ref()
+        .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()));
     crate::module::sources(&compilation.project.source_root)
         .into_iter()
         .filter(|path| compilation.graph().id_for(path).is_none())
+        // The configuration is read, not imported; it is never part of the
+        // specbase's graph and never dead.
+        .filter(|path| {
+            config.as_ref().is_none_or(|config| {
+                std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()) != *config
+            })
+        })
         .collect()
 }
 
