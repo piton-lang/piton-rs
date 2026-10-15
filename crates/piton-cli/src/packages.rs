@@ -571,8 +571,27 @@ pub struct Installer<'a> {
     /// was installed, so they can be shown even when the update is refused
     /// because of them.
     pub edited: Vec<(String, Outcome<Vec<FileChange>>)>,
-    /// Sources already installed.
+    /// Refuse a package whose name the lock file records under a different
+    /// source, rather than replacing that package with this one.
+    pub guard_owners: bool,
+    /// The names of the packages this project offers itself, which nothing it
+    /// installs may take.
+    pub own: Vec<String>,
+    /// Sources already resolved.
     seen: Vec<Seen>,
+    /// What `finish` will place, once every dependency has resolved.
+    planned: Vec<Planned>,
+}
+
+/// A package resolved and checked but not yet written to `tethers/`.
+struct Planned {
+    package: PackageDecl,
+    source: String,
+    pin: Pin,
+    commit: Option<String>,
+    discarded: Option<String>,
+    /// Holds the files `package.root` points into until they are copied.
+    _checkout: std::rc::Rc<Checkout>,
 }
 
 /// A source the installer has already placed, and the version it took.
@@ -595,12 +614,17 @@ impl<'a> Installer<'a> {
             force: false,
             diff: false,
             edited: Vec::new(),
+            guard_owners: false,
+            own: Vec::new(),
             seen: Vec::new(),
+            planned: Vec::new(),
         }
     }
 
-    /// Installs `dependency` and, transitively, what the packages it publishes
-    /// require.
+    /// Resolves `dependency` and, transitively, what the packages it publishes
+    /// require, checking each package against everything else. Nothing is
+    /// written until `finish`, so a failure anywhere leaves the project as it
+    /// was.
     ///
     /// `rename` names the single package a repository publishes, which is what
     /// `piton tether --as` needs; a repository that publishes several names them
@@ -718,6 +742,10 @@ impl<'a> Installer<'a> {
                 (None, _) => published,
             };
 
+            for package in &published {
+                self.check_name(&package.name, &dependency.source)?;
+            }
+
             let mut discarded = std::collections::HashMap::new();
             for package in &published {
                 let unmodified = require_unmodified(self.project_root, &self.lock, &package.name);
@@ -743,24 +771,18 @@ impl<'a> Installer<'a> {
                     Err(failure) => return Err(failure),
                 }
             }
+            let checkout = std::rc::Rc::new(checkout);
             for package in &published {
-                let directory = packages::package_directory(self.project_root, &package.name);
-                let before = self.diff.then(|| read_tree(&directory));
-                let mut placed = install(
-                    self.project_root,
-                    &mut self.lock,
-                    package,
-                    &dependency.source,
-                    &dependency.pin,
-                    checkout.commit.as_deref(),
-                )?;
-                if let Some(before) = before {
-                    placed.changes = changes(before, read_tree(&directory));
-                }
-                placed.discarded = discarded.remove(&package.name);
-                // A later, newer version replaces what an earlier one placed.
-                self.placed.retain(|earlier| earlier.name != placed.name);
-                self.placed.push(placed);
+                // A later, newer version replaces what an earlier one planned.
+                self.planned.retain(|earlier| earlier.package.name != package.name);
+                self.planned.push(Planned {
+                    package: package.clone(),
+                    source: dependency.source.clone(),
+                    pin: dependency.pin.clone(),
+                    commit: checkout.commit.clone(),
+                    discarded: discarded.remove(&package.name),
+                    _checkout: checkout.clone(),
+                });
             }
 
             // What each package needs becomes this project's dependency too,
@@ -788,9 +810,74 @@ impl<'a> Installer<'a> {
         Ok(())
     }
 
-    pub fn finish(self) -> Outcome<(Lock, Vec<Placed>, Vec<String>)> {
+    /// Refuses a package name another package already has.
+    ///
+    /// Two packages can't share `tethers/<name>`, and installing one over the
+    /// other would quietly swap what every import of that name means.
+    fn check_name(&self, name: &str, source: &str) -> Outcome<()> {
+        if self.own.iter().any(|own| own == name) {
+            return Err(Failure::new(format!(
+                "`{source}` publishes a package named `{name}`, which this project offers itself"
+            ))
+            .with_help("tether it under another name with `--as <name>`"));
+        }
+        if let Some(other) = self
+            .planned
+            .iter()
+            .find(|planned| planned.package.name == name && planned.source != source)
+        {
+            return Err(Failure::new(format!(
+                "`{}` and `{source}` both publish a package named `{name}`",
+                other.source
+            ))
+            .with_help("only one package can be installed under a name; pick which one with `packages:` under the dependency"));
+        }
+        if self.guard_owners {
+            if let Some(owner) = self.lock.get(name).filter(|entry| entry.source != source) {
+                return Err(Failure::new(format!(
+                    "`{source}` publishes a package named `{name}`, which is already tethered from `{}`",
+                    owner.source
+                ))
+                .with_help(format!(
+                    "tether it under another name with `--as <name>`, or `piton remove {name}` first"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes every planned package to `tethers/` and records it in the lock.
+    pub fn finish(mut self) -> Outcome<(Lock, Vec<Placed>, Vec<String>)> {
+        let planned = std::mem::take(&mut self.planned);
+        let mut outcome = Ok(());
+        for planned in &planned {
+            let directory = packages::package_directory(self.project_root, &planned.package.name);
+            let before = self.diff.then(|| read_tree(&directory));
+            match install(
+                self.project_root,
+                &mut self.lock,
+                &planned.package,
+                &planned.source,
+                &planned.pin,
+                planned.commit.as_deref(),
+            ) {
+                Ok(mut placed) => {
+                    if let Some(before) = before {
+                        placed.changes = changes(before, read_tree(&directory));
+                    }
+                    placed.discarded = planned.discarded.clone();
+                    self.placed.push(placed);
+                }
+                Err(failure) => {
+                    outcome = Err(failure);
+                    break;
+                }
+            }
+        }
+        // The checkouts go before the scratch directory holding them.
+        drop(planned);
         let _ = std::fs::remove_dir_all(&self.scratch);
-        Ok((self.lock, self.placed, self.warnings))
+        outcome.map(|()| (self.lock, self.placed, self.warnings))
     }
 }
 
