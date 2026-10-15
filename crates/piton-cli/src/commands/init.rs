@@ -10,6 +10,11 @@
 //! replace them in the written config. Files a template keeps under
 //! `.adapters/<target id>/` are written only when that adapter is chosen.
 //!
+//! A template whose config lists `dependencies` has them tethered once its
+//! files are written, so the project builds straight away; `--no-tether`
+//! leaves that for `piton tether`. The crux group is preferred: it comes first
+//! and is marked as recommended.
+//!
 //! Nothing is ever overwritten: when any file a template would write already
 //! exists, the command says which and writes none of them.
 
@@ -25,8 +30,9 @@ use piton_belay::adapter::Adapter;
 
 use anstream::{eprintln, println};
 
+use crate::commands::tether;
 use crate::style::{self, paint};
-use crate::{report, EXIT_ERRORS, EXIT_SUCCESS};
+use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
 /// The file in a template that holds its project configuration.
 const CONFIG: &str = "piton.config.pi";
@@ -39,6 +45,8 @@ const ADAPTER_FILES: &str = ".adapters/";
 pub struct Group {
     pub name: &'static str,
     pub description: &'static str,
+    /// Whether this is the group to recommend. It comes first.
+    pub preferred: bool,
     pub templates: &'static [Template],
 }
 
@@ -57,6 +65,7 @@ pub fn run(
     template: Option<&str>,
     adapters: &[String],
     list: bool,
+    no_tether: bool,
 ) -> u8 {
     if list {
         let width = GROUPS
@@ -67,9 +76,10 @@ pub fn run(
             .unwrap_or(0);
         for group in GROUPS {
             println!(
-                "{}  {}",
+                "{}  {}{}",
                 paint(style::HEADING, group.name),
-                paint(style::DIM, group.description)
+                paint(style::DIM, group.description),
+                recommended(group.preferred)
             );
             for template in group.templates {
                 println!(
@@ -213,6 +223,27 @@ pub fn run(
         println!("{}", report::added(display(&directory, path)));
     }
 
+    // A template that depends on packages has them tethered, so the project
+    // it starts builds without another step.
+    let mut untethered = false;
+    if config.is_some() {
+        let (configured, diagnostics) = project::from_config(Some(&directory.join(CONFIG)));
+        if tether::report_config_errors(&configured, &diagnostics) {
+            return EXIT_ERRORS;
+        }
+        if !configured.dependencies.is_empty() {
+            if no_tether {
+                untethered = true;
+            } else if tether::install_all(&configured) != EXIT_SUCCESS {
+                report::help(format_args!(
+                    "the project was written; run `piton tether` in {} to install its dependencies",
+                    directory.display()
+                ));
+                return EXIT_ERRORS;
+            }
+        }
+    }
+
     let mut summary = format!(
         "Created {} in {}",
         paint(style::NAME, template.name),
@@ -239,6 +270,9 @@ pub fn run(
             "  {}",
             paint(style::NAME, format!("cd {}", directory.display()))
         );
+    }
+    if untethered {
+        eprintln!("  {}", paint(style::NAME, "piton tether"));
     }
     eprintln!("  {}", paint(style::NAME, "piton build"));
     EXIT_SUCCESS
@@ -281,6 +315,7 @@ struct Choice<T> {
     value: T,
     name: &'static str,
     description: &'static str,
+    preferred: bool,
     width: usize,
 }
 
@@ -288,9 +323,10 @@ impl<T> std::fmt::Display for Choice<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:<width$}  {}",
+            "{:<width$}  {}{}",
             self.name,
             self.description,
+            recommended(self.preferred),
             width = self.width
         )
     }
@@ -326,6 +362,7 @@ fn pick_group() -> Option<&'static Group> {
             value: group,
             name: group.name,
             description: group.description,
+            preferred: group.preferred,
             width: 0,
         })
         .collect();
@@ -341,6 +378,7 @@ fn pick(group: &'static Group) -> Option<&'static Template> {
             value: template,
             name: template.name.rsplit('/').next().unwrap_or(template.name),
             description: template.description,
+            preferred: false,
             width: 0,
         })
         .collect();
@@ -496,6 +534,15 @@ fn with_adapters(config: &str, chosen: &[&'static Adapter]) -> String {
         }
     }
     piton_syntax::format::format(&out, Path::new(CONFIG))
+}
+
+/// The mark beside the preferred group.
+fn recommended(preferred: bool) -> String {
+    if preferred {
+        format!("  {}", paint(style::SUCCESS, "(recommended)"))
+    } else {
+        String::new()
+    }
 }
 
 fn names(templates: impl IntoIterator<Item = &'static Template>) -> String {

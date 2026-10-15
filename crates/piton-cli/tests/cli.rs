@@ -1192,20 +1192,26 @@ fn every_template_starts_a_project_that_checks_and_builds() {
     for expected in [
         "belay/application",
         "belay/minimal",
+        "crux/project",
         "piton/library",
         "piton/minimal",
     ] {
         assert!(names.iter().any(|name| name == expected), "{names:?}");
     }
+    assert_eq!(names[0], "crux/project", "the preferred group comes first");
+    stub_crux(&fixture);
 
     for name in &names {
-        let (stdout, stderr, code) = fixture.run(&["init", name, "--template", name]);
+        // Tethering is left out, since the tests don't reach GitHub; a
+        // template's dependencies are tethered from a stand-in instead.
+        let (stdout, stderr, code) = fixture.run(&["init", name, "--template", name, "--no-tether"]);
         assert_eq!(code, 0, "{name}: {stderr}");
         assert!(stdout.contains(&format!("{name}/piton.config.pi")), "{name}: {stdout}");
         assert!(
             !fixture.exists(&format!("{name}/.template")),
             "the description is not part of the project"
         );
+        tether_stub_crux(&fixture, name);
 
         let (stdout, stderr, code) = fixture.run_in(name, &["check"]);
         assert_eq!(code, 0, "{name}: {stdout}{stderr}");
@@ -1220,6 +1226,55 @@ fn every_template_starts_a_project_that_checks_and_builds() {
     assert!(fixture.exists("belay/application/src/CLAUDE.md"));
     assert!(fixture.exists("belay/minimal/.claude/skills/explain/SKILL.md"));
     assert!(fixture.exists("piton/minimal/dist/index.json"));
+    assert!(fixture.exists("crux/project/.claude/skills/crux-stand-in/SKILL.md"));
+}
+
+/// The crux package as `stub-crux/`: one skill, offered as `crux`.
+fn stub_crux(fixture: &Fixture) {
+    fixture.write(
+        "stub-crux/piton.config.pi",
+        "use @piton/config\nuse @piton/packaging\n\nexport piton-config Stub:\n    root: ./spec\n\n    packages:\n        - {Crux}\n\npiton-package Crux:\n    name: crux\n    root: ./spec\n",
+    );
+    fixture.write(
+        "stub-crux/spec/index.pi",
+        "use @piton/belay\n\nexport skill CruxStandIn:\n    description: Stands in for crux.\n    useWhen: testing\n",
+    );
+}
+
+/// Points the template written in `name` at the stand-in crux, when it
+/// depends on crux, and tethers it.
+fn tether_stub_crux(fixture: &Fixture, name: &str) {
+    let config = format!("{name}/piton.config.pi");
+    let text = fixture.read(&config);
+    const CRUX: &str = "https://github.com/piton-lang/crux.git";
+    if !text.contains(CRUX) {
+        return;
+    }
+    let depth = name.split('/').count();
+    let stub = format!("{}stub-crux", "../".repeat(depth));
+    fixture.write(&config, &text.replace(CRUX, &stub));
+    let (stdout, stderr, code) = fixture.run_in(name, &["tether"]);
+    assert_eq!(code, 0, "{name}: {stdout}{stderr}");
+    assert!(fixture.exists(&format!("{name}/tethers/crux/index.pi")), "{name}");
+}
+
+#[test]
+fn init_leaves_tethering_to_later_when_asked() {
+    let fixture = Fixture::new("init-no-tether");
+    let (stdout, stderr, code) =
+        fixture.run(&["init", "app", "--template", "crux/project", "--no-tether"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stdout.contains("tethered"), "{stdout}");
+    assert!(!fixture.exists("app/tethers"));
+    assert!(stderr.contains("piton tether"), "the next steps say to tether: {stderr}");
+    let config = fixture.read("app/piton.config.pi");
+    assert!(config.contains("- https://github.com/piton-lang/crux.git"), "{config}");
+    assert_eq!(fixture.read("app/spec/index.pi").lines().last(), Some("from crux export *"));
+
+    // A template without dependencies has nothing to tether.
+    let (_, stderr, code) = fixture.run(&["init", "plain", "--template", "piton/minimal"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stderr.contains("piton tether"), "{stderr}");
 }
 
 #[test]

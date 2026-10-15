@@ -19,12 +19,13 @@ directory: Where to create the project, created if it doesn't exist. Without it,
 ```
 template: The template to start from, named with its group, like `belay/application`. Naming only the group, like `belay`, asks which of its templates to use.
 adapter: A Belay adapter to build for, by its target id, like `codex`. Repeat it, or separate ids with commas, to build for several. Only a Belay template takes it.
-list: List the groups and their templates, each with what it sets up, and do nothing else.
+list: List the groups and their templates, each with what it sets up, and do nothing else. The preferred group is listed first and marked as recommended.
+no-tether: Write the template's files only, leaving the dependencies its configuration declares for piton tether to install later.
 ```
 
 ## Templates
 
-Templates come in groups. Each group is a directory in create-templates/ at the root of the compiler's repository, and each template is a directory in its group, which holds exactly the files a new project gets, laid out as the project lays them out. A template is named with its group, `group/template`. The group and each template have a `.template` file that describes them in one line, which is not written into the project.
+Templates come in groups. Each group is a directory in create-templates/ at the root of the compiler's repository, and each template is a directory in its group, which holds exactly the files a new project gets, laid out as the project lays them out. A template is named with its group, `group/template`. The group and each template have a `.template` file that describes them in one line, which is not written into the project. A group holding a `.preferred` file is the one to recommend: it comes before the others, which stay in name order, and is marked as recommended wherever groups are offered.
 The templates are compiled into the binary when the compiler is built, so init needs no network, and a release always writes the templates it was released with. Adding a template is adding a directory; nothing in the compiler lists them.
 Every template has to start a project that checks without problems, is already formatted, and builds, for each adapter it can be built for.
 
@@ -32,6 +33,8 @@ Every template has to start a project that checks without problems, is already f
 
 The compiler ships with these groups and templates, each named after its directory.
 
+- crux, the preferred group, guidance built on the crux skills
+  - crux/project, Belay with the crux package tethered and built
 - piton, plain Piton compiled by a renderer
   - piton/minimal, a project compiled to JSON in dist/
   - piton/library, a package others install with piton tether
@@ -40,6 +43,7 @@ The compiler ships with these groups and templates, each named after its directo
   - belay/minimal, the Belay configuration and one skill
 
 belay/application places its shape instruction in src/, beside the application's source.
+crux/project declares https://github.com/piton-lang/crux.git under `dependencies` and its entry re-exports everything the package exports, so once crux is tethered the first build emits every crux skill for each adapter chosen.
 
 ## Naming
 
@@ -47,7 +51,7 @@ Without a directory given, the first thing init asks is the project's name, and 
 
 ## Choosing
 
-Without a template named, init asks which group to start from, then which template in it, each as a list to move through, pick from, and filter by typing. A group with a single template doesn't ask. When there is no terminal to ask on, a template has to be named in full, and init says so.
+Without a template named, init asks which group to start from, then which template in it, each as a list to move through, pick from, and filter by typing. The preferred group is offered first, so it is the one already selected. A group with a single template doesn't ask. When there is no terminal to ask on, a template has to be named in full, and init says so.
 
 ## Adapters
 
@@ -55,13 +59,17 @@ A template is a Belay template when its configuration lists Belay adapters, and 
 The chosen adapters replace the listed ones in the configuration written, both in its import from @piton/belay and in its adapters list, each once and in the order @piton/belay exports them. The configuration is written canonically formatted.
 Files a template keeps in `.adapters/<target id>/` are written only when that adapter is chosen, at their path beneath it. A template uses them for what one platform needs and the others don't, like the opencode.json that has OpenCode load the instructions placed in src/.
 
+## Tethering
+
+When the configuration written declares dependencies, init tethers them once the files are written, as piton tether does with no source, so the project builds without another step. That needs the network. When tethering fails, the files stay written, the failure is reported with a reminder to run piton tether in the project, and init exits with errors. With --no-tether init doesn't tether, and the commands to run next include piton tether.
+
 ## Safety
 
 Init never overwrites a file. When any file the template would write already exists, it names each one and writes none of them. Escape or Ctrl+C at any question stops init before anything is written.
 
 ## Output
 
-The path of each file written, one per line on stdout, then on stderr what was created from which template, the adapters chosen for a Belay template, how many files were written, and the commands to run next. On a terminal each path is marked as added with its directory dimmed; piped, stdout is the bare paths.
+The path of each file written, one per line on stdout, followed by what piton tether prints for each package tethered. Then on stderr what was created from which template, the adapters chosen for a Belay template, how many files were written, and the commands to run next. On a terminal each path is marked as added with its directory dimmed; piped, the paths are bare.
 
 ## Diagnostics
 
@@ -73,7 +81,7 @@ true
 
 false
 
-A template that doesn't exist, a group or no template named without a terminal to ask on, an adapter that doesn't exist, --adapter given for a template that isn't a Belay template, a question cancelled, and a file that would be overwritten are all errors.
+A template that doesn't exist, a group or no template named without a terminal to ask on, an adapter that doesn't exist, --adapter given for a template that isn't a Belay template, a question cancelled, and a file that would be overwritten, and dependencies that fail to tether are all errors.
 
 ## Exit Code
 
