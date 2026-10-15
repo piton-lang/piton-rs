@@ -94,8 +94,8 @@
     "import": {
       "patterns": [
         {
-          "comments": "`use` brings keywords into scope and nothing else.",
-          "match": "^\\s*(use)\\s+(\\S+)",
+          "comments": "`use` brings keywords into scope and nothing else. Imports are top-level only, so an indented `use the spec` is prose.",
+          "match": "^(use)\\s+(\\S+)",
           "captures": {
             "1": {
               "name": "keyword.control.import.piton"
@@ -106,7 +106,7 @@
           }
         },
         {
-          "match": "^\\s*(from)\\s+(\\S+)\\s+(import|export)\\b",
+          "match": "^(from)\\s+(\\S+)\\s+(import|export)\\b",
           "captures": {
             "1": {
               "name": "keyword.control.import.piton"
@@ -121,7 +121,7 @@
         },
         {
           "comments": "`export Name` re-exports an already bound symbol.",
-          "match": "^\\s*(export)\\s+([A-Z][A-Za-z0-9_]*)\\s*$",
+          "match": "^(export)\\s+([A-Z][A-Za-z0-9_]*)\\s*$",
           "captures": {
             "1": {
               "name": "keyword.control.import.piton"
@@ -134,8 +134,8 @@
       ]
     },
     "declaration": {
-      "comments": "`[export] [abstract] <keyword> Name [as kw] [extends A, B]:` \u2014 the keyword may be user-defined.",
-      "match": "^\\s*(?:(export)\\s+)?(?:(abstract)\\s+)?([a-z][a-z0-9-]*)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(as)\\s+([a-z][a-z0-9-]*))?(?:\\s+(extends)\\s+([^:]+))?\\s*:",
+      "comments": "`[export] [abstract] <keyword> Name [as kw] [extends A, B]:` \u2014 the keyword may be user-defined. Declarations are top-level only, so the line starts at column 0 and ends at its colon; an indented line like `use the spec` is prose.",
+      "match": "^(?:(export)\\s+)?(?:(abstract)\\s+)?([a-z][a-z0-9-]*)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(as)\\s+([a-z][a-z0-9-]*))?(?:\\s+(extends)\\s+([^:]+))?\\s*:\\s*$",
       "captures": {
         "1": {
           "name": "keyword.control.piton"

@@ -62,17 +62,33 @@
              code, `//` is just text. -->
         <RegExpr String="//.*$" attribute="Comment" firstNonSpace="true"/>
 
-        <RegExpr String="^\s*(use|from)\s+" attribute="Keyword" context="ImportPath"/>
-        <keyword String="declaration" attribute="Keyword"/>
+        <!-- Imports and declarations are top-level only, so they start at
+             column 0: an indented `use the spec` is prose, and a word in
+             prose is never a keyword. -->
+        <RegExpr String="^(use|from)\s+" attribute="Keyword" context="ImportPath"/>
+        <RegExpr String="^(export\s+)?(abstract\s+)?[a-z][a-z0-9-]*\s+[A-Za-z_][A-Za-z0-9_]*[^:\n]*:\s*$" lookAhead="true" context="Declaration"/>
+        <RegExpr String="^export(?=\s)" attribute="Keyword"/>
+        <RegExpr String="^\s*pass\s*$" attribute="Keyword"/>
 
         <!-- A key is any text without spaces followed by a colon. -->
-        <RegExpr String="^\s*[^\s:]+(?=(::[^:]*)*:(\s|$))" attribute="Property"/>
-        <RegExpr String="::\s*(extends\s+)?" attribute="Operator" context="TypeConstraint"/>
+        <RegExpr String="^\s*[^\s:]+(?=(::[^:]*)*:(\s|$))" attribute="Property" context="AfterKey"/>
 
         <RegExpr String="^\s*-(?=\s|$)" attribute="Marker"/>
         <RegExpr String="^\s*\+\+?(?=\s|$)" attribute="Operator"/>
 
         <RegExpr String="(\$|#|@)?\{" attribute="Sigil" context="Interpolation"/>
+      </context>
+
+      <context name="Declaration" attribute="Prose" lineEndContext="#pop">
+        <keyword String="declaration" attribute="Keyword"/>
+        <RegExpr String="\b[A-Z][A-Za-z0-9_]*\b" attribute="Type"/>
+        <DetectChar char=":" attribute="Operator" context="#pop"/>
+      </context>
+
+      <!-- Between a key and its colon: type constraints, then the value. -->
+      <context name="AfterKey" attribute="Prose" lineEndContext="#pop">
+        <RegExpr String="::\s*(extends\s+)?" attribute="Operator" context="TypeConstraint"/>
+        <DetectChar char=":" attribute="Operator" context="#pop"/>
       </context>
 
       <context name="ImportPath" attribute="Path" lineEndContext="#pop">
@@ -84,7 +100,7 @@
       <context name="TypeConstraint" attribute="Type" lineEndContext="#pop">
         <keyword String="types" attribute="DataType"/>
         <StringDetect String="[]" attribute="Operator"/>
-        <DetectChar char=":" attribute="Operator" context="#pop"/>
+        <DetectChar char=":" lookAhead="true" context="#pop"/>
       </context>
 
       <context name="Interpolation" attribute="Expression" lineEndContext="#pop">

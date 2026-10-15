@@ -14,15 +14,16 @@ syn region pitonFence matchgroup=pitonFenceDelim start="^\s*```\+" end="^\s*```\
 syn match pitonEscapeDelim "^\s*\\\+\s*$" contained
 syn region pitonEscape matchgroup=pitonEscapeDelim start="^\s*\z(\\\+\)\s*$" end="^\s*\z1\s*$" keepend
 
-" Imports
-syn match pitonImport "^\s*\<use\>" nextgroup=pitonPath skipwhite
-syn match pitonImport "^\s*\<from\>" nextgroup=pitonPath skipwhite
+" Imports and declarations are top-level only: an indented `use the spec` is
+" prose, and prose is left alone.
+syn match pitonImport "^\<use\>" nextgroup=pitonPath skipwhite
+syn match pitonImport "^\<from\>" nextgroup=pitonPath skipwhite
 syn match pitonPath "\S\+" contained nextgroup=pitonImportWord skipwhite
 syn keyword pitonImportWord import export contained
 syn match pitonStar "\*"
 
 " Declarations: `[export] [abstract] <keyword> Name [as kw] [extends A, B]:`
-syn match pitonDeclaration "^\s*\%(export\s\+\)\?\%(abstract\s\+\)\?[a-z][a-z0-9-]*\s\+[A-Za-z_][A-Za-z0-9_]*.*:\s*$"
+syn match pitonDeclaration "^\%(export\s\+\)\?\%(abstract\s\+\)\?[a-z][a-z0-9-]*\s\+[A-Za-z_][A-Za-z0-9_]*[^:]*:\s*$"
       \ contains=pitonStorage,pitonModifier,pitonKeywordName,pitonAnchorName,pitonAs,pitonExtends,pitonBase
 syn keyword pitonStorage export contained
 syn keyword pitonModifier abstract contained

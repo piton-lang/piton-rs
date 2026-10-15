@@ -1345,3 +1345,40 @@ fn a_name_re_exported_by_an_index_is_offered_once() {
         .expect("an auto-import names its module");
     assert!(!from.ends_with("skills/BuildTooling"), "{from}");
 }
+
+#[test]
+fn plain_text_has_no_hover_and_no_actions() {
+    let prose = "<|>use ./lib/Type\n\nexport type Null:\n    description: Plain words that mention Null\n    other:\n        More prose here\n        + {[\"x\"]}\n\nanchor Hidden:\n    note: Some text\n";
+    let buffer = Buffer::over(NULL, prose);
+    let text = |line: u32, column: u32| {
+        features::hover(&buffer.world, &buffer.uri, Position::new(line, column)).map(|hover| {
+            match hover.contents {
+                HoverContents::Markup(markup) => markup.value,
+                _ => String::new(),
+            }
+        })
+    };
+    // Prose, including a word that happens to name an anchor.
+    assert_eq!(text(3, 22), None);
+    assert_eq!(text(3, 40), None);
+    // Prose in a block that is composed: only the `+` line explains it.
+    assert_eq!(text(5, 12), None);
+    assert!(text(6, 8).is_some_and(|hover| hover.contains("Composition")));
+    // The declaring name still says where it compiles to.
+    assert!(text(3, 6).is_some_and(|hover| hover.contains("Compiled to")));
+
+    let titles = |line: u32, column: u32| -> Vec<String> {
+        let at = Position::new(line, column);
+        features::code_actions(&buffer.world, &buffer.uri, Range::new(at, at))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|action| match action {
+                CodeActionOrCommand::CodeAction(action) => action.title,
+                CodeActionOrCommand::Command(command) => command.title,
+            })
+            .collect()
+    };
+    assert!(titles(9, 14).is_empty(), "{:?}", titles(9, 14));
+    assert!(titles(3, 22).is_empty(), "{:?}", titles(3, 22));
+    assert!(titles(8, 9).contains(&"Export `Hidden`".to_string()));
+}

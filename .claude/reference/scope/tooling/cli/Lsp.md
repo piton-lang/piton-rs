@@ -27,14 +27,17 @@ completion: Suggest anchors, skills, agents, properties, keywords, imports, inhe
   Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md#property-access-operator) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
 autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
 hoverInformation: Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
+  Hover only on what means something: a symbol, a declaring name, or a composition operator. Plain text in a string gets no hover, even a word that happens to name an anchor, and neither does the prose around a `+` line. Where a construct compiles to is shown on the name that declares it, not on every word of its value.
 goToDefinition: Navigate from any reference to the anchor, property, skill, agent, import, or other symbol that defines it.
 findReferences: Show every place a symbol is referenced, inherited, composed, interpolated, exported, or otherwise depended upon across the specbase.
 renameSymbol: Rename a symbol safely across the entire specbase while updating all imports, references, expressions, inheritance relationships, and compositions that depend on it.
 documentSymbols: Expose the structural contents of the current Piton file as an outline of anchors, skills, agents, properties, exports, and other named constructs.
 workspaceSymbols: Allow fast searching across all named constructs in the entire specbase regardless of which file defines them.
 semanticHighlighting: Highlight Piton constructs according to their semantic meaning rather than syntax alone, distinguishing anchors, references, properties, inherited values, exports, imports, expressions, types, and keywords.
+  A string is a string. Prose gets no tokens of its own: a word in it that looks like a keyword, number, constant, or anchor name is part of the string. Only the expressions inside `{...}` forms are highlighted within a value.
 inlayHints: Show useful inferred information inline, such as resolved types, inherited origins, composition sources, or the anchor from which a value ultimately derives.
 codeActions: Offer context-sensitive fixes and transformations such as importing a missing symbol, creating an unresolved anchor, adding an export, qualifying an ambiguous reference, or resolving a simple inheritance conflict.
+  Each action belongs to something at the cursor: an unresolved name, a declaration's header line, or an import. Plain text offers nothing. Whole-file actions, organizing imports and formatting, are offered when the editor asks for that kind of action, and organizing imports also when the cursor is on an import.
 importOrganization: Detect unused, duplicate, invalid, or unnecessarily broad imports and provide an action to clean and normalize them.
 formatting: Format Piton source according to the canonical language style, particularly indentation, spacing, declaration layout, expressions, imports, and multiline structures.
 inheritanceResolution: Understand `extends` relationships and expose the fully resolved inheritance chain, including which parent contributed each inherited property.

@@ -61,12 +61,14 @@ contexts:
         - match: '$\n?'
           pop: true
 
+  # Imports and declarations are top-level only: an indented `use the spec`
+  # is prose, and prose is left alone.
   import:
-    - match: '^\s*(use)\s+(\S+)'
+    - match: '^(use)\s+(\S+)'
       captures:
         1: keyword.control.import.piton
         2: string.unquoted.module-path.piton
-    - match: '^\s*(from)\s+(\S+)\s+(import|export)\b'
+    - match: '^(from)\s+(\S+)\s+(import|export)\b'
       captures:
         1: keyword.control.import.piton
         2: string.unquoted.module-path.piton
@@ -74,7 +76,7 @@ contexts:
 
   # `[export] [abstract] <keyword> Name [as kw] [extends A, B]:`
   declaration:
-    - match: '^\s*(?:(export)\s+)?(?:(abstract)\s+)?({{keyword_name}})\s+({{identifier}})'
+    - match: '^(?:(export)\s+)?(?:(abstract)\s+)?({{keyword_name}})\s+({{identifier}})(?=[^\n:]*:\s*$)'
       captures:
         1: keyword.control.piton
         2: storage.modifier.piton

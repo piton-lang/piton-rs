@@ -619,10 +619,11 @@ impl LanguageServer for Backend {
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let world = self.fresh().await;
-        Ok(features::code_actions(
+        Ok(features::code_actions_for(
             &world,
             &params.text_document.uri,
             params.range,
+            params.context.only.as_deref(),
         ))
     }
 

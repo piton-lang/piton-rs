@@ -48,6 +48,12 @@ export cli-command Lsp:
             source, documentation, inheritance chain, exported status, and where
             applicable its compiled interpretation.
 
+            Hover only on what means something: a symbol, a declaring name, or
+            a composition operator. Plain text in a string gets no hover, even
+            a word that happens to name an anchor, and neither does the prose
+            around a `+` line. Where a construct compiles to is shown on the
+            name that declares it, not on every word of its value.
+
         goToDefinition:
             Navigate from any reference to the anchor, property, skill,
             agent, import, or other symbol that defines it.
@@ -77,6 +83,11 @@ export cli-command Lsp:
             properties, inherited values, exports, imports, expressions, types,
             and keywords.
 
+            A string is a string. Prose gets no tokens of its own: a word in it
+            that looks like a keyword, number, constant, or anchor name is part
+            of the string. Only the expressions inside `\ {...} \` forms are
+            highlighted within a value.
+
         inlayHints:
             Show useful inferred information inline, such as resolved types,
             inherited origins, composition sources, or the anchor from which a
@@ -87,6 +98,12 @@ export cli-command Lsp:
             a missing symbol, creating an unresolved anchor, adding an export,
             qualifying an ambiguous reference, or resolving a simple inheritance
             conflict.
+
+            Each action belongs to something at the cursor: an unresolved name,
+            a declaration's header line, or an import. Plain text offers
+            nothing. Whole-file actions, organizing imports and formatting, are
+            offered when the editor asks for that kind of action, and
+            organizing imports also when the cursor is on an import.
 
         importOrganization:
             Detect unused, duplicate, invalid, or unnecessarily broad imports
