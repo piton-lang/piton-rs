@@ -191,6 +191,12 @@ export cli-command Lsp:
             editor can identify which source construct produced a particular
             section of generated output.
 
+            The mapping is shown in the hover, under Compiled to, and in a code
+            lens on the construct's first line. It is never offered as document
+            links. A construct's range is its whole body, and it usually
+            compiles to one file per adapter, so links would mark the whole
+            body as navigable and stack one tooltip per adapter on every hover.
+
         unusedSymbolDetection:
             Warn about anchors, imports, properties, exports, or other
             declarations that are never referenced or contribute nothing to the

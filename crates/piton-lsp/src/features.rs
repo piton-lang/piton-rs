@@ -3582,30 +3582,6 @@ pub fn execute_command(
     }
 }
 
-pub fn document_links(world: &World, uri: &Url) -> Option<Vec<DocumentLink>> {
-    let cursor = file_context(world, uri)?;
-    let mut links = Vec::new();
-    let mut seen = HashSet::new();
-    for mapping in &world.analysis.mappings {
-        if !paths_equal(&mapping.source_file, &cursor.path) {
-            continue;
-        }
-        if !seen.insert((mapping.source_span.start, mapping.output_path.clone())) {
-            continue;
-        }
-        let Some(target) = path_to_url(&mapping.output_path) else {
-            continue;
-        };
-        links.push(DocumentLink {
-            range: span_to_range(&cursor.text, mapping.source_span),
-            target: Some(target),
-            tooltip: Some(mapping.label.clone()),
-            data: None,
-        });
-    }
-    Some(links)
-}
-
 /// `piton/sourceToOutput`: which compiled slices a source position produced.
 pub fn source_to_output(world: &World, params: &serde_json::Value) -> serde_json::Value {
     let Some(uri) = params

@@ -575,6 +575,68 @@ fn reach_counts_every_line_it_prints() {
 }
 
 #[test]
+fn reach_counts_the_anchors_of_never_imported_files() {
+    // A file nothing imports is listed as unreachable, so a headline reading
+    // "0 unreachable" next to it reads as nothing dead while the list says
+    // otherwise.
+    let fixture = Fixture::new("reach-never-imported");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: .\n    entry: ./index.pi\n",
+    );
+    fixture.write("index.pi", "export anchor Root:\n    v: 1\n");
+    fixture.write(
+        "Orphan.pi",
+        "export anchor First:\n    v: 1\nanchor Second:\n    v: 2\n",
+    );
+    fixture.write("Constants.pi", "export LIMIT: 3\n");
+
+    let (stdout, stderr, code) = fixture.run(&["reach"]);
+    assert_eq!(code, 0, "{stderr}");
+    let unreachable = stdout.split("\nunreachable").nth(1).unwrap_or_default();
+    assert!(
+        unreachable.contains("Orphan.pi  (never imported, 2 anchors)"),
+        "{stdout}"
+    );
+    assert!(
+        unreachable.contains("Constants.pi  (never imported, 0 anchors)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("1 anchor reachable, 2 unreachable (2 in 2 never-imported files)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("1 module loaded, 0 carrying nothing reachable, 2 never imported"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn reach_counts_an_anchor_lost_to_a_duplicate_export_once() {
+    let fixture = Fixture::new("reach-duplicate-export");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: .\n    entry: ./index.pi\n",
+    );
+    fixture.write("index.pi", "from ./cruxible export *\nfrom ./strataglyph export *\n");
+    fixture.write("cruxible.pi", "export anchor Roles:\n    v: 1\n");
+    fixture.write("strataglyph.pi", "export anchor Roles:\n    v: 2\n");
+
+    let (stdout, stderr, code) = fixture.run(&["reach"]);
+    assert_eq!(code, 0, "{stderr}");
+    let (reachable, unreachable) = stdout.split_once("\nunreachable").unwrap();
+    assert_eq!(reachable.matches("Roles").count(), 2, "name and path: {stdout}");
+    assert!(reachable.contains("cruxible.pi"), "{stdout}");
+    assert!(unreachable.contains("strataglyph.pi"), "{stdout}");
+    assert!(stdout.contains("1 anchor reachable, 1 unreachable\n"), "{stdout}");
+
+    let (_, stderr, code) = fixture.run(&["check"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("duplicate-export"), "{stderr}");
+}
+
+#[test]
 fn reach_follows_imports_and_reports_paths_by_default() {
     let fixture = full_project("reach-imports", "        - {ClaudeCodeAdapter}");
     fixture.write(
@@ -1541,4 +1603,8 @@ fn the_language_server_accepts_the_stdio_flag() {
     let _ = child.kill();
     let response = String::from_utf8_lossy(&response);
     assert!(response.contains("\"capabilities\""), "{response}");
+    // Compiled outputs are shown in hover and code lenses. As document links
+    // they spanned whole anchor bodies, so an editor underlined the body as
+    // navigable and stacked one tooltip per adapter on every hover.
+    assert!(!response.contains("documentLinkProvider"), "{response}");
 }
