@@ -78,6 +78,29 @@ fn apply(text: &str, edits: &[TextEdit]) -> String {
 }
 
 #[test]
+fn duplicate_exports_reach_the_editor() {
+    let fixture = Fixture::new("duplicate-exports");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write("spec/cruxible.pi", "export anchor Roles:\n    v: 1\n");
+    fixture.write("spec/strataglyph.pi", "export anchor Roles:\n    v: 2\n");
+    fixture.write(
+        "spec/index.pi",
+        "from ./cruxible export *\nfrom ./strataglyph export *\n",
+    );
+
+    let world = fixture.world();
+    let reported = codes(&world, "spec/index.pi", &fixture);
+    assert_eq!(
+        reported.iter().filter(|code| *code == "duplicate-export").count(),
+        1,
+        "both modules export Roles: {reported:?}"
+    );
+}
+
+#[test]
 fn unused_duplicate_and_broad_imports_are_reported_and_cleaned() {
     let fixture = Fixture::new("imports");
     fixture.write(

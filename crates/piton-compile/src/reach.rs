@@ -47,6 +47,15 @@ pub struct Reached {
     pub via: Option<EdgeKind>,
 }
 
+/// A source file nothing imports.
+#[derive(Debug, Clone)]
+pub struct Unloaded {
+    pub path: PathBuf,
+    /// How many anchors the file declares. It is parsed for this, never
+    /// compiled, so these anchors have no id and count as unreachable.
+    pub anchors: usize,
+}
+
 /// The result of a reachability query.
 #[derive(Debug, Clone, Default)]
 pub struct Reachability {
@@ -58,7 +67,7 @@ pub struct Reachability {
     /// Modules that were loaded but carry nothing the roots reach.
     pub unreachable_modules: Vec<PathBuf>,
     /// Source files nothing imports, so compilation never even opened them.
-    pub unloaded_modules: Vec<PathBuf>,
+    pub unloaded_modules: Vec<Unloaded>,
     /// How many modules of the specbase were loaded, packages aside.
     pub loaded: usize,
 }
@@ -68,6 +77,16 @@ impl Reachability {
         self.reached.iter().any(|entry| entry.anchor == anchor)
     }
 
+    /// Anchors declared in files nothing imports.
+    pub fn unloaded_anchors(&self) -> usize {
+        self.unloaded_modules.iter().map(|module| module.anchors).sum()
+    }
+
+    /// Every unreachable anchor: the loaded ones the walk missed and the ones
+    /// in files nothing imports.
+    pub fn unreachable_anchors(&self) -> usize {
+        self.unreachable.len() + self.unloaded_anchors()
+    }
 }
 
 /// Computes reachability from a set of root anchors, following references,
@@ -101,7 +120,7 @@ pub fn from_roots_with_imports(
 pub fn from_entry_with_imports(compilation: &Compilation) -> Reachability {
     let roots = compilation.entry_exports();
     let mut result = traverse(compilation, &roots, &[compilation.resolution.entry]);
-    result.unloaded_modules = unloaded_sources(compilation);
+    result.unloaded_modules = unloaded(compilation);
     result
 }
 
@@ -365,8 +384,33 @@ fn embedded_modules(compilation: &Compilation) -> HashSet<ModuleId> {
 pub fn from_entry(compilation: &Compilation) -> Reachability {
     let roots = compilation.entry_exports();
     let mut result = from_roots(compilation, &roots);
-    result.unloaded_modules = unloaded_sources(compilation);
+    result.unloaded_modules = unloaded(compilation);
     result
+}
+
+/// Source files nothing imports, each with the number of anchors it declares.
+fn unloaded(compilation: &Compilation) -> Vec<Unloaded> {
+    unloaded_sources(compilation)
+        .into_iter()
+        .map(|path| {
+            let anchors = declared_anchor_count(&path);
+            Unloaded { path, anchors }
+        })
+        .collect()
+}
+
+/// How many anchors a file declares, read from its syntax alone. A file that
+/// cannot be read declares none that anyone could count.
+fn declared_anchor_count(path: &std::path::Path) -> usize {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return 0;
+    };
+    piton_syntax::parser::parse(&source, path)
+        .file
+        .items
+        .iter()
+        .filter(|item| matches!(item, piton_syntax::ast::Item::Anchor(_)))
+        .count()
 }
 
 /// Source files beneath the project root that no import chain reaches.

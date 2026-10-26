@@ -18,6 +18,20 @@ enum ExportTarget {
     Forwarded { module: ModuleId, name: String },
 }
 
+/// One place a module exports from: a declaration, an explicit re-export, or
+/// an `export *`.
+#[derive(Debug, Clone)]
+struct ExportSite {
+    /// The exported name, or `None` for `export *`, which exports whatever the
+    /// glob's module does.
+    name: Option<String>,
+    target: ExportTarget,
+    span: Span,
+    /// How the source reads in a message: the module path as written, or
+    /// "this file" for a declaration.
+    source: String,
+}
+
 /// Everything known about one module's names.
 #[derive(Default)]
 pub struct ModuleScope {
@@ -29,6 +43,9 @@ pub struct ModuleScope {
     exports: IndexMap<String, ExportTarget>,
     /// Modules whose exports are re-exported wholesale.
     export_globs: Vec<ModuleId>,
+    /// Every way a name leaves this module, in precedence order, so that two
+    /// exports under one name can be reported rather than one silently lost.
+    export_sites: Vec<ExportSite>,
     /// Modules named by `use`, which contribute keywords.
     pub used: Vec<ModuleId>,
     /// Keywords usable in this module: keyword text to the anchor it aliases.
@@ -377,6 +394,9 @@ pub fn resolve_from_roots(
         let items: Vec<Item> = graph.get(*id).ast().items.clone();
         let mut edge_cursor = 0usize;
         let mut scope = scopes.remove(id).unwrap_or_default();
+        // `export *` comes after every named export in precedence, whatever
+        // line it is written on.
+        let mut globs: Vec<ExportSite> = Vec::new();
 
         for item in &items {
             match item {
@@ -406,14 +426,27 @@ pub fn resolve_from_roots(
                         FromKind::Export => {
                             if decl.star {
                                 scope.export_globs.push(target);
+                                globs.push(ExportSite {
+                                    name: None,
+                                    target: ExportTarget::Forwarded {
+                                        module: target,
+                                        name: String::new(),
+                                    },
+                                    span: decl.path.span,
+                                    source: format!("`{}`", decl.path.text),
+                                });
                             } else {
                                 for entry in &decl.items {
-                                    scope.exports.insert(
-                                        entry.local_name().to_string(),
-                                        ExportTarget::Forwarded {
-                                            module: target,
-                                            name: entry.name.clone(),
-                                        },
+                                    let forwarded = ExportTarget::Forwarded {
+                                        module: target,
+                                        name: entry.name.clone(),
+                                    };
+                                    export(
+                                        &mut scope,
+                                        entry.local_name(),
+                                        forwarded,
+                                        entry.span,
+                                        format!("`{}`", decl.path.text),
                                     );
                                 }
                             }
@@ -422,17 +455,21 @@ pub fn resolve_from_roots(
                 }
                 Item::ReExport(decl) => {
                     if let Some(symbol) = scope.declarations.get(&decl.name) {
-                        scope
-                            .exports
-                            .insert(decl.name.clone(), ExportTarget::Local(*symbol));
-                    } else if let Some((source, original, _)) = scope.imports.get(&decl.name) {
-                        scope.exports.insert(
-                            decl.name.clone(),
-                            ExportTarget::Forwarded {
-                                module: *source,
-                                name: original.clone(),
-                            },
+                        let local = ExportTarget::Local(*symbol);
+                        export(
+                            &mut scope,
+                            &decl.name,
+                            local,
+                            decl.name_span,
+                            "this file".to_string(),
                         );
+                    } else if let Some((source, original, _)) = scope.imports.get(&decl.name) {
+                        let forwarded = ExportTarget::Forwarded {
+                            module: *source,
+                            name: original.clone(),
+                        };
+                        let source = import_source_label(&items, *source, &module_edges);
+                        export(&mut scope, &decl.name, forwarded, decl.name_span, source);
                     } else {
                         diagnostics.push(Diagnostic::error(
                             "unresolved-export",
@@ -445,6 +482,7 @@ pub fn resolve_from_roots(
                 _ => {}
             }
         }
+        scope.export_sites.extend(globs);
         scopes.insert(*id, scope);
     }
 
@@ -458,6 +496,7 @@ pub fn resolve_from_roots(
     };
 
     check_imports_resolve(&mut resolution, &module_ids);
+    check_duplicate_exports(&mut resolution, &module_ids);
     populate_keywords(&mut resolution, &module_ids);
     resolve_inheritance(&mut resolution, &module_ids);
     build_slots(&mut resolution);
@@ -521,6 +560,149 @@ fn declare(
         scope
             .exports
             .insert(name.to_string(), ExportTarget::Local(symbol));
+        scope.export_sites.push(ExportSite {
+            name: Some(name.to_string()),
+            target: ExportTarget::Local(symbol),
+            span,
+            source: "this file".to_string(),
+        });
+    }
+}
+
+/// Records a named export. The first export of a name is the one the module
+/// keeps; a later one is still recorded as a site so it can be reported.
+fn export(scope: &mut ModuleScope, name: &str, target: ExportTarget, span: Span, source: String) {
+    scope
+        .exports
+        .entry(name.to_string())
+        .or_insert_with(|| target.clone());
+    scope.export_sites.push(ExportSite {
+        name: Some(name.to_string()),
+        target,
+        span,
+        source,
+    });
+}
+
+/// How `export Name` reads when `Name` was imported: the module path written
+/// on the import that brought it in.
+fn import_source_label(
+    items: &[Item],
+    source: ModuleId,
+    edges: &[(String, Option<ModuleId>, Span)],
+) -> String {
+    let mut cursor = 0usize;
+    for item in items {
+        if let Item::Use(_) | Item::From(_) = item {
+            if let (Item::From(decl), Some((_, Some(target), _))) = (item, edges.get(cursor)) {
+                if *target == source {
+                    return format!("`{}`", decl.path.text);
+                }
+            }
+            cursor += 1;
+        }
+    }
+    "an import".to_string()
+}
+
+/// Reports a name a module exports twice with two different meanings.
+///
+/// Lookup keeps the first site in precedence order -- a declaration, then an
+/// explicit export, then the first `export *` -- so every later site that means
+/// something else is the one reported, and it is the one that was dropped.
+fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
+    let mut diagnostics = Vec::new();
+    for id in modules {
+        let module = resolution.graph.get(*id);
+        if module.is_package() {
+            continue;
+        }
+        let module_path = module.path.clone();
+
+        // Every (name, meaning, site) this module exports, in precedence order.
+        let mut candidates: Vec<(String, Symbol, &ExportSite)> = Vec::new();
+        for site in &resolution.scope(*id).export_sites {
+            match (&site.name, &site.target) {
+                (Some(name), ExportTarget::Local(symbol)) => {
+                    candidates.push((name.clone(), *symbol, site));
+                }
+                (Some(name), ExportTarget::Forwarded { module, name: original }) => {
+                    // An export that does not resolve is reported elsewhere.
+                    if let Some(symbol) =
+                        resolution.lookup_export(*module, original, &mut HashSet::new())
+                    {
+                        candidates.push((name.clone(), symbol, site));
+                    }
+                }
+                (None, ExportTarget::Forwarded { module, .. }) => {
+                    for name in resolution.exported_names(*module) {
+                        if let Some(symbol) =
+                            resolution.lookup_export(*module, &name, &mut HashSet::new())
+                        {
+                            candidates.push((name, symbol, site));
+                        }
+                    }
+                }
+                (None, ExportTarget::Local(_)) => {}
+            }
+        }
+
+        let mut kept: HashMap<&str, (Symbol, &ExportSite)> = HashMap::new();
+        for (name, symbol, site) in &candidates {
+            let Some((first_symbol, first_site)) = kept.get(name.as_str()) else {
+                kept.insert(name, (*symbol, site));
+                continue;
+            };
+            if first_symbol == symbol {
+                continue;
+            }
+            let alias = format!("{}{name}", alias_prefix(&site.source));
+            let help = if site.name.is_none() {
+                format!(
+                    "list what {} exports instead of `export *`, leaving `{name}` out or aliasing it (`{name} {alias}`)",
+                    site.source
+                )
+            } else {
+                format!("export one of them under an alias (`{name} {alias}`)")
+            };
+            diagnostics.push(
+                Diagnostic::error(
+                    "duplicate-export",
+                    format!(
+                        "`{name}` is exported from both {} and {}",
+                        first_site.source, site.source
+                    ),
+                    &module_path,
+                    site.span,
+                )
+                .with_label(Label::new(
+                    module_path.clone(),
+                    first_site.span,
+                    format!("`{name}` from {} is the one exported", first_site.source),
+                ))
+                .with_help(help),
+            );
+        }
+    }
+    resolution.diagnostics.extend(diagnostics);
+}
+
+/// A prefix for a suggested alias, taken from the module it comes from:
+/// `./strataglyph` suggests `StrataglyphRoles`.
+fn alias_prefix(source: &str) -> String {
+    if !source.starts_with('`') {
+        return "Other".to_string();
+    }
+    let segment = source
+        .trim_matches('`')
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty() && *segment != "." && *segment != "..")
+        .unwrap_or_default()
+        .trim_end_matches(".pi");
+    let mut chars = segment.chars().filter(|c| c.is_alphanumeric());
+    match chars.next() {
+        Some(first) if first.is_alphabetic() => first.to_uppercase().chain(chars).collect(),
+        _ => "Other".to_string(),
     }
 }
 

@@ -1,4 +1,5 @@
 from ./CircularImports import CircularImports
+from ./DuplicateExports import DuplicateExports
 from ./ImportExport import ImportExport
 from ./ImportLineBreaks import ImportLineBreaks
 from ./Modules import Modules
@@ -12,5 +13,6 @@ export anchor Reuse:
     importExport: @{ImportExport}
     importLineBreaks: @{ImportLineBreaks}
     modules: @{Modules}
+    duplicateExports: @{DuplicateExports}
     use: @{Use}
     circularImports: @{CircularImports}

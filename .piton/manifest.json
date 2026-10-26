@@ -53,6 +53,7 @@
     ".claude/reference/scope/language/overview/Whitespace.md",
     ".claude/reference/scope/language/overview/index.md",
     ".claude/reference/scope/language/reuse/CircularImports.md",
+    ".claude/reference/scope/language/reuse/DuplicateExports.md",
     ".claude/reference/scope/language/reuse/ImportExport.md",
     ".claude/reference/scope/language/reuse/ImportLineBreaks.md",
     ".claude/reference/scope/language/reuse/Modules.md",

@@ -1,0 +1,43 @@
+export anchor DuplicateExports:
+    description:
+        A module exports each name once. There are four ways a name can leave
+        a module. It can be a declaration marked export, `export Name`,
+        `from ./X export Name`, or `from ./X export *`, which hands on
+        everything X exports.
+        When two of them export the same name and it means two different
+        things, that is a compile error, `duplicate-export`. It doesn't matter
+        whether the exports are written out or come in through `export *`.
+
+        ```piton fragment
+        \\\
+        from ./cruxible export *
+        from ./strataglyph export *
+        \\\
+        ```
+
+        If both modules export an anchor called Roles, nobody importing Roles
+        from this index can tell which one they would get, so the second line
+        is an error. The error names the clashing name and both modules it
+        comes from. To fix it, export one of them under an alias, or replace
+        `export *` with an explicit list that leaves one out or renames it.
+
+        ```piton fragment
+        \\\
+        from ./cruxible export *
+        from ./strataglyph export Roles StrataglyphRoles, Glyphs
+        \\\
+        ```
+
+        Exporting the same thing twice under one name isn't a collision. Two
+        `export *` lines that both end up at the same anchor (say, because both
+        modules re-export it from a shared file) export one thing, and that's
+        fine.
+
+        A duplicate export is still an error, but the compiler keeps one of
+        the two so the rest of the program can resolve and every other problem
+        gets reported in the same run. A declaration marked export wins
+        first, then the other named exports in the order they are written,
+        then the `export *` lines in the order they are written. The one that
+        isn't kept isn't exported by the module, so if nothing else reaches it,
+        `piton reach` reports it as unreachable. The language server reports
+        the same error, since it shares the compiler's diagnostics.

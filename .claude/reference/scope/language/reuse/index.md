@@ -16,6 +16,10 @@ Fundamental to Piton is the ability to compose a larger codebase from smaller fo
 
 [Modules](./Modules.md#modules)
 
+## Duplicate Exports
+
+[DuplicateExports](./DuplicateExports.md#duplicate-exports)
+
 ## Use
 
 [Use](./Use.md#use)

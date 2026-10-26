@@ -857,6 +857,90 @@ fn importing_something_unexported_is_reported_with_a_suggestion() {
     assert_eq!(found.help.as_deref(), Some("did you mean `MyAnchor`?"));
 }
 
+fn duplicate_exports(compilation: &Compilation) -> Vec<&piton_core::Diagnostic> {
+    compilation
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "duplicate-export")
+        .collect()
+}
+
+#[test]
+fn two_globs_exporting_one_name_is_a_duplicate_export() {
+    let sandbox = Sandbox::new("duplicate-globs");
+    sandbox
+        .file("cruxible.pi", "export anchor Roles:\n    from: cruxible\nexport anchor Only:\n    v: 1\n")
+        .file("strataglyph.pi", "export anchor Roles:\n    from: strataglyph\n")
+        .file("main.pi", "from ./cruxible export *\nfrom ./strataglyph export *\n");
+    let compilation = sandbox.compile("main.pi");
+    let found = duplicate_exports(&compilation);
+    assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
+    let diagnostic = found[0];
+    assert!(diagnostic.is_error());
+    assert!(diagnostic.message.contains("`Roles`"), "{}", diagnostic.message);
+    assert!(diagnostic.message.contains("`./cruxible`"), "{}", diagnostic.message);
+    assert!(diagnostic.message.contains("`./strataglyph`"), "{}", diagnostic.message);
+    // Reported on the line that lost, with the line that won as a label.
+    let source = std::fs::read_to_string(sandbox.dir.join("main.pi")).unwrap();
+    assert_eq!(&source[diagnostic.span.start..diagnostic.span.end], "./strataglyph");
+    assert_eq!(diagnostic.labels.len(), 1);
+    let help = diagnostic.help.as_deref().unwrap_or_default();
+    assert!(help.contains("Roles StrataglyphRoles"), "{help}");
+
+    // The first glob is kept so the rest of the program still resolves.
+    let roles = compilation
+        .entry_exports()
+        .into_iter()
+        .find(|id| compilation.store().anchor(*id).name == "Roles")
+        .expect("Roles is exported");
+    assert!(json::value(&Value::Anchor(roles), &compilation).contains("cruxible"));
+}
+
+#[test]
+fn explicit_exports_of_one_name_collide_too() {
+    let sandbox = Sandbox::new("duplicate-explicit");
+    sandbox
+        .file("a.pi", "export anchor Roles:\n    v: 1\n")
+        .file("b.pi", "export anchor Roles:\n    v: 2\n")
+        .file("main.pi", "from ./a export Roles\nfrom ./b export Roles\n");
+    let compilation = sandbox.compile("main.pi");
+    let found = duplicate_exports(&compilation);
+    assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
+    assert!(found[0].message.contains("`./a` and `./b`"), "{}", found[0].message);
+
+    // A declaration in the file collides with a glob that brings the same name.
+    let sandbox = Sandbox::new("duplicate-local");
+    sandbox
+        .file("a.pi", "export anchor Roles:\n    v: 1\n")
+        .file("main.pi", "from ./a export *\n\nexport anchor Roles:\n    v: 2\n");
+    let compilation = sandbox.compile("main.pi");
+    let found = duplicate_exports(&compilation);
+    assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
+    assert!(found[0].message.contains("this file and `./a`"), "{}", found[0].message);
+}
+
+#[test]
+fn exporting_one_anchor_by_two_routes_is_not_a_duplicate() {
+    let sandbox = Sandbox::new("duplicate-same");
+    sandbox
+        .file("shared.pi", "export anchor Roles:\n    v: 1\n")
+        .file("a.pi", "from ./shared export *\n")
+        .file("b.pi", "from ./shared export *\n")
+        .file("main.pi", "from ./a export *\nfrom ./b export *\n");
+    let compilation = sandbox.compile("main.pi");
+    assert!(duplicate_exports(&compilation).is_empty(), "{:#?}", compilation.diagnostics);
+
+    // An alias resolves the clash.
+    let sandbox = Sandbox::new("duplicate-aliased");
+    sandbox
+        .file("a.pi", "export anchor Roles:\n    v: 1\n")
+        .file("b.pi", "export anchor Roles:\n    v: 2\n")
+        .file("main.pi", "from ./a export *\nfrom ./b export Roles BRoles\n");
+    let compilation = sandbox.compile("main.pi");
+    assert!(duplicate_exports(&compilation).is_empty(), "{:#?}", compilation.diagnostics);
+    assert_eq!(compilation.entry_exports().len(), 2);
+}
+
 #[test]
 fn use_brings_in_keywords_but_not_symbols() {
     let sandbox = Sandbox::new("use");

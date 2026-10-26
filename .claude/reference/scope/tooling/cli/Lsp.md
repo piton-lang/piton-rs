@@ -56,6 +56,7 @@ resolvedValueInspection: Allow the editor to show the final resolved value of a 
 provenanceInspection: For any resolved value, show exactly where it came from: its original declaration, inheritance path, composition step, override, or expression.
 compiledOutputPreview: Allow a Piton construct or file to be previewed as its compiled representation, such as Markdown, JSON, agent instructions, or another Belay target.
 sourceToOutputMapping: Maintain mappings between Piton source and compiled output so an editor can identify which source construct produced a particular section of generated output.
+  The mapping is shown in the hover, under Compiled to, and in a code lens on the construct's first line. It is never offered as document links. A construct's range is its whole body, and it usually compiles to one file per adapter, so links would mark the whole body as navigable and stack one tooltip per adapter on every hover.
 unusedSymbolDetection: Warn about anchors, imports, properties, exports, or other declarations that are never referenced or contribute nothing to the compiled result.
 duplicateRedundantDefinitionDetection: Identify declarations that unnecessarily repeat inherited or composed values and could be removed without changing the resolved specification.
 documentationIntegration: Surface documentation comments and descriptions through hover, completion, symbol search, and hierarchy views so the specbase remains understandable while navigating it.

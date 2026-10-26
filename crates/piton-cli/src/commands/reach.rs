@@ -191,11 +191,17 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         }
 
         for module in &reachability.unloaded_modules {
-            // Nothing imports these, so compilation never opened them.
+            // Nothing imports these, so compilation never opened them; they
+            // are parsed only to count what they declare.
+            let detail = format!(
+                "(never imported, {} {})",
+                module.anchors,
+                report::plural(module.anchors, "anchor", "anchors"),
+            );
             println!(
                 "  {}  {}",
-                paint(style::WARNING, project::display(module, &root)),
-                paint(style::DIM, "(never imported)")
+                paint(style::WARNING, project::display(&module.path, &root)),
+                paint(style::DIM, detail)
             );
         }
     }
@@ -203,13 +209,23 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     // Every line printed above is counted here, and counted once. Anchors and
     // modules are tallied apart because they are different questions: a dead
     // anchor is something to delete, a dead module is a file to delete, and a
-    // file nothing imports was never read at all.
-    let anchors = format!(
+    // file nothing imports was never read at all. Its anchors still count as
+    // unreachable, so the headline cannot read clean while files are listed
+    // as dead.
+    let mut anchors = format!(
         "{} {} reachable, {} unreachable",
         reachability.reached.len(),
         report::plural(reachability.reached.len(), "anchor", "anchors"),
-        reachability.unreachable.len(),
+        reachability.unreachable_anchors(),
     );
+    let never_imported = reachability.unloaded_modules.len();
+    if never_imported > 0 {
+        anchors.push_str(&format!(
+            " ({} in {never_imported} never-imported {})",
+            reachability.unloaded_anchors(),
+            report::plural(never_imported, "file", "files"),
+        ));
+    }
     let modules = format!(
         "{} {} loaded, {} carrying nothing reachable, {} never imported",
         reachability.loaded,
