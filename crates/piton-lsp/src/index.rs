@@ -31,6 +31,19 @@ pub enum Target {
     Unresolved(String),
 }
 
+/// Where the type's name sits in a constraint: `extends Base[]` is written
+/// around it, and only the name is a reference.
+fn type_name_span(source: &str, constraint: &ast::TypeConstraint, name: &str) -> Span {
+    let text = source.get(constraint.span.start..constraint.span.end).unwrap_or("");
+    let mut at = 0;
+    if constraint.extends {
+        let rest = text.strip_prefix("extends").unwrap_or(text);
+        at = text.len() - rest.trim_start().len();
+    }
+    let start = constraint.span.start + at;
+    Span::new(start, start + name.len())
+}
+
 /// Whether an occurrence declares the thing or merely mentions it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -169,7 +182,12 @@ impl Builder<'_> {
                     );
                     for entry in &decl.items {
                         let target = self.resolve(entry.local_name());
-                        self.push(entry.name_span, target, Role::Reference, &entry.name);
+                        self.push(entry.name_span, target.clone(), Role::Reference, &entry.name);
+                        // The alias is the name the file uses; it names the
+                        // same thing, under its own spelling.
+                        if let Some(alias) = &entry.alias {
+                            self.push(alias.span, target, Role::Reference, &alias.value);
+                        }
                     }
                     self.index
                         .structures
@@ -189,7 +207,12 @@ impl Builder<'_> {
                     for constraint in &decl.constraints {
                         if let ast::TypeName::Named(name) = &constraint.name {
                             let target = self.resolve(name);
-                            self.push(constraint.span, target, Role::Reference, name);
+                            self.push(
+                                type_name_span(&self.compilation.graph().get(self.module).source, constraint, name),
+                                target,
+                                Role::Reference,
+                                name,
+                            );
                         }
                     }
                     self.walk_value(&decl.value, None, &Place::Unaddressable);
@@ -275,7 +298,12 @@ impl Builder<'_> {
                     for constraint in &property.constraints {
                         if let ast::TypeName::Named(name) = &constraint.name {
                             let target = self.resolve(name);
-                            self.push(constraint.span, target, Role::Reference, name);
+                            self.push(
+                                type_name_span(&self.compilation.graph().get(self.module).source, constraint, name),
+                                target,
+                                Role::Reference,
+                                name,
+                            );
                         }
                     }
                     self.index

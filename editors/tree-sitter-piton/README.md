@@ -20,9 +20,10 @@ with nothing after its colon). The other Enter rule — a blank line inside a
 block dedents the next line — is not something a query over this
 line-oriented grammar can express.
 
-Injections matter more here than in most languages: a Piton value can hold a
-fenced code block in another language, and the injection query is what makes
-that block highlight as what it is.
+A code fence protects nothing in Piton — the lines inside it are parsed like
+any others — so the grammar treats a fence line as text. The usual way to show
+an example is an escape block directly inside a fence, and the injection query
+highlights that block as the language the fence names.
 
 ## Generating the parser
 

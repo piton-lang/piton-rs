@@ -64,9 +64,9 @@ untouched, as `initialize` options and as the answer to
 
 | | |
 | --- | --- |
-| `languages/piton/highlights.scm` | tokens: keywords, keys, sigils, prose, fences |
-| `languages/piton/injections.scm` | a fenced block is highlighted as its own language |
-| `languages/piton/brackets.scm` | matching `[ ]`, an interpolation and its brace, a fence and its close |
+| `languages/piton/highlights.scm` | tokens: keywords, names, keys, literals, expressions, escapes; prose is plain |
+| `languages/piton/injections.scm` | an escape block inside a fence is highlighted as the fence's language |
+| `languages/piton/brackets.scm` | matching `[ ]`, an interpolation and its brace |
 | `languages/piton/outline.scm` | the outline panel and the breadcrumbs |
 | `languages/piton/overrides.scm` | scopes where auto-closing is turned off |
 | `languages/piton/textobjects.scm` | `gc` in vim mode |

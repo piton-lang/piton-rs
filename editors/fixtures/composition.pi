@@ -1,0 +1,16 @@
+anchor Base:
+    items:
+        - A
+        - B
+    description: Base text.
+
+anchor Child extends Base:
+    items:
+        + {super.items}
+        - C
+    description:
+        Child text.
+        ++ {super.description}
+    nested:
+        - Level 1
+            - Level 2

@@ -12,6 +12,17 @@
  * The consequence is that no external scanner is needed. There is no INDENT or
  * DEDENT token, so leading whitespace is ordinary and the grammar stays small
  * enough to reason about.
+ *
+ * What the grammar has to get right is what every byte is, and the parser is
+ * the judge of that: `editors/fixtures/*.expected` is written from it, and
+ * `crates/piton-syntax/tests/highlight_corpus.rs` runs `queries/highlights.scm`
+ * over the same fixtures and compares. Two rules keep the queries simple enough
+ * that every editor reads them the same way. No pattern needs a predicate, so
+ * Emacs (which reads `#match?` differently, if at all) can load the file as it
+ * is; and no node is captured by two patterns, so it does not matter that
+ * Neovim lets the last pattern win and tree-sitter-highlight the first. Both
+ * follow from the shape of the tree: a capitalised name and a lowercase one are
+ * different tokens, and a name's role is the node it sits in.
  */
 
 const TYPES = [
@@ -19,20 +30,24 @@ const TYPES = [
   "anchor", "reference", "any", "simple", "complex",
 ];
 
+// The whole-value number: exactly the compiler's `is_number_literal`. A
+// decimal needs its leading digit, and `_` separates digits.
+const NUMBER = /-?[0-9](_?[0-9])*(\.[0-9](_?[0-9])*)?/;
+
+// A word at the start of a line, written once so that the keyword tokens below
+// can say "this word, then a space".
+const keywordThenSpace = (word) => alias(token(prec(1, seq(word, /[ \t]+/))), word);
+
 module.exports = grammar({
   name: "piton",
 
   extras: () => [/[ \t]/],
 
-
-  // Keyword extraction. Lexical precedence outranks match length in
-  // tree-sitter, so `use` would otherwise win against the longer `useWhen:`
-  // and every property whose name begins with a keyword would break. Naming
-  // the word token makes tree-sitter lex the whole word first and only then
-  // ask whether it is a keyword.
-  word: ($) => $.identifier,
-
-
+  // There is deliberately no `word` token. Keyword extraction would lex every
+  // word with it first, including the first word of a value, where no name is
+  // valid and the word has to be text. Every keyword has the same lexical
+  // precedence as a name, so the longer match wins without it: `password` is
+  // a name, and `pass` is the keyword.
 
   rules: {
     // Every line ends at its newline. Without that anchor a line rule ending
@@ -57,33 +72,36 @@ module.exports = grammar({
     // what may follow depends on it: imports and declarations are top-level
     // only, so an indented `use the spec` or `export the result` is prose in a
     // string, which is what the compiler makes of it. A token that can start
-    // with a space wins over the extra, so this only has to be valid here.
-    _indent: () => token(/[ \t]+/),
+    // with a space wins over the extra, so this only has to be valid here. It
+    // also has to outrank the keywords that carry their own trailing space
+    // (`use `), or an indented `use the spec` would skip its indentation as an
+    // extra and lex as an import.
+    _indent: () => token(prec(3, /[ \t]+/)),
 
-    // Everything that occupies a line without consuming the newline ending it.
-    // An escape block is not here: its closing delimiter takes its own.
+    // What a line at the margin can be. Prose is not one of them: text at the
+    // margin is a compile error, and admitting it here is what used to let
+    // `anchor Other extends Base:` parse as a sentence. An escape block is not
+    // here either: its closing delimiter takes its own newline.
     _statement: ($) =>
       choice(
         $.comment,
-        $.fence,
         $.use_declaration,
         $.from_declaration,
+        $.reexport_declaration,
         $.anchor_declaration,
-        $.pass_statement,
         // Still a `property` node, with `export` inside it as before, so
         // queries written against the grammar keep their shape.
         alias($._exported_property, $.property),
         $.property,
         $.list_item,
-        $.merge_item,
-        $.prose
+        $.merge_item
       ),
 
     // What an indented line can be: a block's contents, never a declaration.
     _block_statement: ($) =>
       choice(
         $.comment,
-        $.fence,
+        $.fence_open,
         $.pass_statement,
         $.property,
         $.list_item,
@@ -101,20 +119,16 @@ module.exports = grammar({
     // line admits a comment, and `text` runs straight through the slashes.
     comment: () => token(seq("//", /[^\n]*/)),
 
-    // Fenced content is verbatim: nothing inside is scanned.
-    // A fence runs to its closing marker, which is required for the same
-    // reason an escape block's is: an optional ending can end anywhere, and
-    // every line after it becomes ambiguous.
-    fence: ($) =>
+    // A code fence protects nothing: the compiler parses the lines inside it
+    // like any others, so the grammar does too, and the fence is one line of
+    // text that opens nothing. The closing marker is the same line without a
+    // language. What a fence is good for is naming the language of the escape
+    // block that follows it, which `injections.scm` reads.
+    fence_open: ($) =>
       seq(
-        field("open", $.fence_marker),
+        $.fence_marker,
         optional(field("language", $.fence_language)),
-        optional(field("info", $.fence_info)),
-        $._newline,
-        // An escape block inside a fence is the usual way to show source, and
-        // what it holds is literal: a ``` in it doesn't close the fence.
-        repeat(choice($.fence_content, $.escape_block)),
-        field("close", $.fence_marker)
+        optional(field("info", $.fence_info))
       ),
     // Three or more backticks. Written out because tree-sitter reads `{3,}`
     // as exactly three, which would split a ```` marker.
@@ -122,9 +136,6 @@ module.exports = grammar({
     fence_language: () => /[A-Za-z0-9_+-]+/,
     // Whatever follows the language on the opening line: ```piton fragment.
     fence_info: () => /[^\n]+/,
-    // A whole line, newline included, so that a blank line inside a fence is
-    // content rather than a line break the outer grammar could claim.
-    fence_content: () => token(prec(-1, /[^\n]*\r?\n/)),
 
     // A line of backslashes delimits a block whose contents are literal. The
     // compiler opens a block on a line that is nothing but backslashes and
@@ -141,69 +152,103 @@ module.exports = grammar({
     // lex as a marker, since lexical precedence outranks match length.
     //
     // The cost is a closing marker on the last line of a file with no trailing
-    // newline, which leaves the block unclosed. `close` is optional, so that
-    // parses as an unterminated block rather than an error.
+    // newline, which leaves the block unclosed.
     escape_marker: () => token(prec(2, /\\+[ \t]*\r?\n/)),
     // Contents are literal, so a line inside a block may start with anything.
     // A marker line still wins, on precedence.
     escape_content: () => token(prec(-1, /[^\n]*\r?\n/)),
 
-    use_declaration: ($) => seq("use", field("path", $.module_path)),
+    // `use`, `from`, `export` and `abstract` take the space after them into the
+    // token. Each is also a perfectly good key (`use: text`), and the only
+    // thing that tells `use ./keywords` from `use: text` is the character after
+    // the word; without the space, the keyword would be lexed first and the
+    // key would be a syntax error.
+    use_declaration: ($) => seq(keywordThenSpace("use"), field("path", $.module_path)),
 
     from_declaration: ($) =>
       seq(
-        "from",
+        keywordThenSpace("from"),
         field("path", $.module_path),
         field("direction", choice("import", "export")),
         optional(field("names", choice("*", $.import_list)))
       ),
 
-    import_list: ($) => seq($.import_item, repeat(seq(",", optional($._newline), $.import_item))),
+    // A long import list continues on indented lines:
+    //
+    //     from ./file import
+    //         First,
+    //         Second
+    //
+    // The break is one token, newline and indentation together, so that the
+    // parser can tell it from the newline that ends the declaration by looking
+    // one token ahead.
+    import_list: ($) =>
+      seq(
+        optional($._continuation),
+        $.import_item,
+        repeat(seq(",", optional($._continuation), $.import_item))
+      ),
+    _continuation: () => token(seq(/\r?\n/, /[ \t]+/)),
     // A second name renames the import locally.
-    import_item: ($) => seq(field("name", $.identifier), optional(field("alias", $.identifier))),
+    import_item: ($) =>
+      seq(field("name", $._name), optional(field("alias", $._name))),
+
+    // `export Name` re-exports something declared or imported.
+    reexport_declaration: ($) => seq(keywordThenSpace("export"), field("name", $._name)),
 
     module_path: () => /[@.\/][^\s]*|[A-Za-z_][^\s]*/,
 
     anchor_declaration: ($) =>
       seq(
-        optional("export"),
-        optional("abstract"),
-        field("keyword", $.declaration_keyword),
-        field("name", $.identifier),
+        optional(keywordThenSpace("export")),
+        optional(keywordThenSpace("abstract")),
+        // `anchor`, or a user-defined keyword: lowercase, optionally
+        // kebab-case. It is the same token as a key, because at the margin
+        // `anchor Name:` and `anchor: a description` differ only in what
+        // follows the word.
+        field("keyword", alias($.name, $.declaration_keyword)),
+        field("name", $._name),
         // `extends Construct as skill` -- bases first, then the keyword the
         // anchor introduces, which is the order the language is written in.
         optional(seq("extends", field("bases", $.base_list))),
-        optional(seq("as", field("alias", $.keyword_name))),
+        optional(seq("as", field("alias", alias($.name, $.keyword_name)))),
         ":"
       ),
 
-    // `anchor`, or a user-defined keyword: lowercase, optionally kebab-case.
-    declaration_keyword: () => token(prec(-3, /[a-z][a-z0-9]*(-[a-z0-9]+)*/)),
-    keyword_name: () => /[a-z][a-z0-9]*(-[a-z0-9]+)*/,
-    base_list: ($) => seq($.identifier, repeat(seq(",", $.identifier))),
+    base_list: ($) => seq($._name, repeat(seq(",", $._name))),
 
-    // A key is any text without spaces. Keywords are keys here too: the colon
-    // is what separates `anchor Name:` from `anchor: a description`.
+    // A name, split by capitalisation. Nothing a highlighter can see says
+    // whether a bare name is an anchor, but the convention is that anchors are
+    // capitalised, and two tokens let a query say so without a predicate.
+    // A hyphen belongs to the name, as it does in a key and in an expression
+    // (`{config.foo-bar}`); subtraction needs spaces.
+    _name: ($) => choice($.name, $.type_name),
+    name: () => /[a-z_][A-Za-z0-9_-]*/,
+    type_name: () => /[A-Z][A-Za-z0-9_-]*/,
+
     property: ($) => $._property_body,
-    _exported_property: ($) => seq("export", $._property_body),
+    _exported_property: ($) => seq(keywordThenSpace("export"), $._property_body),
     _property_body: ($) =>
       seq(
         field("name", $.key),
+        token.immediate(":"),
         repeat(field("constraint", $.type_constraint)),
-        optional(field("value", $._inline))
+        optional(field("value", $._value))
       ),
 
-    // The colon is part of the name token, and is the whole reason the lexer
-    // can tell a property from prose: `title: a book` and `The title is long`
-    // begin the same way, and nothing but the colon separates them. A name
-    // cannot contain a colon, so this always takes exactly one -- which leaves
-    // the second colon of `name:: string` to begin the type constraint.
-    key: () => token(/[^\s:{}\[\]#@$][^\s:]*:/),
+    // The key is the word before the colon. It is the same token as the first
+    // word of a sentence, and the colon straight after it is what makes it a
+    // key: `title: a book` and `The title is long` differ only there, and the
+    // parser decides on that one token of lookahead.
+    //
+    // `pass` is lexed as the keyword wherever a body could be empty, so a key
+    // spelled `pass` is admitted as that token too, and the colon decides.
+    key: ($) => choice($._name, alias("pass", $.name)),
 
-    // `name:: string: a description` -- the name token took the first colon,
-    // so a constraint opens on the second and closes on the one before the
-    // value. Constraints chain: `p:: dictionary:: null: null`. An abstract
-    // anchor's required property has no value, and so no closing colon:
+    // `name:: string: a description` -- the key took the first colon, so a
+    // constraint opens on the second and closes on the one before the value.
+    // Constraints chain: `p:: dictionary:: null: null`. An abstract anchor's
+    // required property has no value, and so no closing colon:
     // `title:: string`.
     //
     // A colon after the type always closes it: the next constraint opens on
@@ -213,7 +258,7 @@ module.exports = grammar({
         seq(
           ":",
           optional("extends"),
-          field("type", choice($.builtin_type, $.identifier)),
+          field("type", choice($.builtin_type, $._name)),
           optional($.list_suffix),
           optional(":")
         )
@@ -224,17 +269,44 @@ module.exports = grammar({
     // `pass` is an intentionally empty body.
     pass_statement: () => "pass",
 
-    list_item: ($) => seq("-", optional(field("value", $._inline))),
-    // `+` merges and deduplicates; `++` keeps duplicates.
+    list_item: ($) => seq("-", optional(field("value", $._value))),
+    // `+` merges and deduplicates; `++` keeps duplicates. A merge line's value
+    // is never a whole-value literal: `+ 3` is the text `3`.
     merge_item: ($) => seq(field("operator", choice("++", "+")), optional(field("value", $._inline))),
+
+    // A property or list item's value. When the whole value is a number,
+    // `true`, `false` or `null`, it is that literal; otherwise it is text.
+    // Without lookahead the grammar cannot see "the whole value", so a
+    // leading literal is always lexed as one -- `3 apples` is `3` and then
+    // text -- and the highlight query colours it only when nothing follows it
+    // on the line, which is the compiler's rule.
+    _value: ($) => choice(seq($.value_literal, optional($._inline_text)), $._inline),
+    value_literal: ($) =>
+      choice(
+        alias(token(prec(1, NUMBER)), $.number),
+        alias(token(prec(1, /true|false|null/)), $.constant)
+      ),
 
     // A list literal is a list only when it opens the value: `[x, y]` is a
     // list, `see [x, y] there` and `[x](./x.md)` are strings. Text after a
     // leading list is admitted so that the link form still parses.
     _inline: ($) => choice(seq($.inline_list, optional($._inline_text)), $._inline_text),
-    _inline_text: ($) => repeat1(choice($.interpolation, $.text, $.punctuation)),
+    _inline_text: ($) => repeat1($._text_part),
+    _text_part: ($) => choice($.interpolation, $.inline_escape, $.text, $.punctuation),
 
     inline_list: ($) => seq("[", optional(seq($._inline, repeat(seq(",", $._inline)))), "]"),
+
+    // `\ {1 + 2} \` is the text `{1 + 2}`: an inline escape opens nothing, so
+    // no interpolation is found inside it. The opening delimiter is a
+    // backslash and a space; the closing one is the next lone backslash.
+    // Tree-sitter cannot count, so the doubled form `\\ \ {x} \ \\` closes
+    // at its first single backslash, which `gaps.toml` records.
+    inline_escape: ($) =>
+      seq($.escape_open, repeat(choice($.escape_text, $.backslash_run)), $.escape_close),
+    escape_open: () => token(seq("\\", " ")),
+    escape_text: () => token(prec(1, /[^\\\n]+/)),
+    backslash_run: () => /\\\\+/,
+    escape_close: () => "\\",
 
     interpolation: ($) =>
       seq(
@@ -247,31 +319,57 @@ module.exports = grammar({
 
     _expression: ($) => repeat1(choice($.interpolation, $._expression_token)),
     _expression_token: ($) =>
-      choice($.constant, $.self_reference, $.number, $.string, $.operator, $.identifier, "[", "]", "(", ")", ","),
+      choice(
+        $.constant,
+        $.self_reference,
+        $.number,
+        $.string,
+        $.operator,
+        $.member,
+        $._name,
+        "[",
+        "]",
+        "(",
+        ")",
+        ","
+      ),
 
     constant: () => choice("true", "false", "null"),
     self_reference: () => choice("this", "self", "super"),
-    // A leading zero is required for a decimal; underscores may separate digits.
-    number: () => /\d[\d_]*(\.[\d_]+)?/,
+    // Minus is never a prefix in an expression: `{0 - 1}`, not `{-1}`.
+    number: () => /[0-9](_?[0-9])*(\.[0-9](_?[0-9])*)?/,
     string: () => seq('"', repeat(choice(/[^"\\]+/, /\\./)), '"'),
-    operator: () => choice("++", "==", "!=", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "!", "?", ":", "."),
+    operator: () => choice("++", "==", "!=", "<=", ">=", "&&", "||", "+", "-", "*", "/", "%", "<", ">", "!", "?", ":"),
+    // `.name`: the dot and the key after it. A member is a key whatever its
+    // capitalisation, which is why it is a node of its own.
+    member: ($) => seq(".", field("name", $._name)),
 
-    identifier: () => /[A-Za-z_][A-Za-z0-9_]*/,
-
-    // Anything the rules above do not claim is prose, which in Piton is a value
-    // rather than a syntax error.
-    prose: ($) => repeat1(choice($.interpolation, $.text, $.punctuation)),
+    // A line of a block that is not a key, a list item or a composition line
+    // is prose, which in Piton is a value rather than a syntax error. It can
+    // start with a word: that word is the token a key would be, and the
+    // missing colon is what makes it the first word of a sentence.
+    prose: ($) =>
+      choice(seq($._name, repeat($._text_part)), repeat1($._text_part)),
 
     // A sigil character that opens nothing. `@piton/config`, `$x-<name>` and a
     // backtick quoting a word in prose are all ordinary text, but the
     // characters have to be kept out of `text` so that `@{` can open an
-    // interpolation and ``` can open a fence. Lowest precedence, so it only
-    // applies where nothing longer matched.
-    punctuation: () => token(prec(-3, /[`$#@{}\[\]]/)),
+    // interpolation and ``` can open a fence. So is a backslash before a space
+    // that opens no escape. Lowest precedence, so it only applies where nothing
+    // longer matched.
+    punctuation: () => token(prec(-3, choice(/[`$#@{}\[\]]/, /\\+/))),
     // Text may not begin with whitespace. Indentation is an extra, and a
     // token that can start with a space matches from column zero -- which
     // beats every token that begins at the first real character, so an
     // indented ``` would be claimed as prose before it could open a fence.
-    text: () => token(prec(-2, /[^\s`{}$#@\[\]][^\n{}$#@\[\]]*/)),
+    // A backslash followed by a space is left out, because it opens an
+    // inline escape; any other backslash is text (`\:` is literal).
+    text: () =>
+      token(
+        prec(
+          -2,
+          /([^\s`{}$#@\[\]\\]|\\+[^\s\\`{}$#@\[\]])([^\n{}$#@\[\]\\]|\\+[^ \t\n\\{}$#@\[\]])*/
+        )
+      ),
   },
 });

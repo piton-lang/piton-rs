@@ -96,7 +96,7 @@ fn collisions(compilation: &Compilation, options: &Options, plan: &mut Draft) {
             && files.iter().all(|file| file.kind == OutputKind::Instruction);
         if per_target.len() > 1
             && !shared_instruction
-            && !files.iter().all(|file| file.contents == first.contents)
+            && !files.iter().all(|file| file.data() == first.data())
         {
             plan.diagnostics.push(
                 error_at(

@@ -70,6 +70,24 @@ pub fn is_config_file(path: &Path) -> bool {
         .is_some_and(|name| name == language::CONFIG_FILE)
 }
 
+/// What the client said it can do, read once at `initialize`. Everything
+/// defaults to off, which is what a client that says nothing supports.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ClientCaps {
+    /// `textDocument.definition.linkSupport`: answer with `LocationLink`.
+    pub link_support: bool,
+    /// `workspace.workspaceEdit.documentChanges`: versioned edits.
+    pub document_changes: bool,
+    /// `completionItem.insertReplaceSupport`.
+    pub insert_replace: bool,
+    /// `workspace.semanticTokens.refreshSupport`.
+    pub semantic_refresh: bool,
+    /// `workspace.inlayHint.refreshSupport`.
+    pub inlay_refresh: bool,
+    /// `workspace.codeLens.refreshSupport`.
+    pub lens_refresh: bool,
+}
+
 pub struct World {
     /// The workspace folder the server was pointed at, so the configuration
     /// can be read again when it changes.
@@ -81,6 +99,13 @@ pub struct World {
     pub config_diagnostics: Vec<Diagnostic>,
     /// Unsaved editor buffers, keyed by path.
     pub documents: HashMap<PathBuf, String>,
+    /// The version the client gave each open buffer.
+    pub versions: HashMap<PathBuf, i32>,
+    /// What the client supports.
+    pub caps: ClientCaps,
+    /// Counts compilations, so an answer prepared against one can tell it is
+    /// being asked about after another.
+    pub generation: u64,
     pub compilation: Option<Compilation>,
     pub index: Index,
     /// Import, composition, conflict, and source-map analysis of `compilation`.
@@ -88,8 +113,9 @@ pub struct World {
     /// Paths that had diagnostics last time, so cleared files get an empty
     /// publish rather than stale squiggles.
     pub last_reported: Vec<PathBuf>,
-    /// The buffers `compilation` was built from.
+    /// The buffers `compilation` was built from, and their versions.
     compiled_documents: HashMap<PathBuf, String>,
+    compiled_versions: HashMap<PathBuf, i32>,
     /// Set when something outside the buffers changed: the configuration, a
     /// file on disk, a closed buffer.
     stale: bool,
@@ -108,11 +134,15 @@ impl World {
             output,
             config_diagnostics: diagnostics.iter().cloned().collect(),
             documents: HashMap::new(),
+            versions: HashMap::new(),
+            caps: ClientCaps::default(),
+            generation: 0,
             compilation: None,
             index: Index::default(),
             analysis: Analysis::default(),
             last_reported: Vec::new(),
             compiled_documents: HashMap::new(),
+            compiled_versions: HashMap::new(),
             stale: true,
             focus: None,
         }
@@ -136,8 +166,26 @@ impl World {
         self.documents.insert(path, text);
     }
 
+    /// An open buffer at the version the client numbered it.
+    pub fn open_document(&mut self, path: PathBuf, text: String, version: i32) {
+        self.versions.insert(path.clone(), version);
+        self.set_document(path, text);
+    }
+
+    /// The version of the buffer the current compilation read, for a file
+    /// that was open then.
+    pub fn compiled_version(&self, path: &Path) -> Option<i32> {
+        self.compiled_versions.get(path).copied()
+    }
+
+    /// The version of an open buffer now.
+    pub fn version(&self, path: &Path) -> Option<i32> {
+        self.versions.get(path).copied()
+    }
+
     pub fn close_document(&mut self, path: &Path) {
         self.documents.remove(path);
+        self.versions.remove(path);
         if self.focus.as_deref() == Some(path) {
             self.focus = None;
         }
@@ -223,6 +271,8 @@ impl World {
         self.analysis = crate::analysis::analyze(&compilation, &self.index, &self.output);
         self.compilation = Some(compilation);
         self.compiled_documents = self.documents.clone();
+        self.compiled_versions = self.versions.clone();
+        self.generation += 1;
         self.stale = false;
     }
 

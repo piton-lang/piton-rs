@@ -63,7 +63,7 @@ pub fn parse(source: &str, path: &Path) -> Parse {
 /// contents are literal. The delimiters are syntax and are consumed; a run
 /// embedded in a line of text keeps the inline meaning instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EscapeRole {
+pub(crate) enum EscapeRole {
     None,
     /// The opening line, carrying the length of the backslash run.
     Open(usize),
@@ -74,20 +74,20 @@ enum EscapeRole {
 }
 
 #[derive(Debug, Clone)]
-struct Line {
-    indent: usize,
+pub(crate) struct Line {
+    pub(crate) indent: usize,
     /// Offset of the first non-whitespace character.
-    content_start: usize,
+    pub(crate) content_start: usize,
     /// Offset just past the last character, excluding the line terminator.
-    end: usize,
+    pub(crate) end: usize,
     /// Offset of the start of the line, including indentation.
-    start: usize,
+    pub(crate) start: usize,
     /// Source text with indentation and any trailing comment removed.
-    code: String,
+    pub(crate) code: String,
     /// Span of `code` within the file.
-    code_span: Span,
-    blank: bool,
-    escape: EscapeRole,
+    pub(crate) code_span: Span,
+    pub(crate) blank: bool,
+    pub(crate) escape: EscapeRole,
 }
 
 impl Line {
@@ -96,12 +96,12 @@ impl Line {
     }
 }
 
-struct ScannedLines {
-    lines: Vec<Line>,
-    diagnostics: Vec<Diagnostic>,
+pub(crate) struct ScannedLines {
+    pub(crate) lines: Vec<Line>,
+    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
-fn scan_lines(source: &str, path: &Path) -> ScannedLines {
+pub(crate) fn scan_lines(source: &str, path: &Path) -> ScannedLines {
     let mut lines = Vec::new();
     let mut diagnostics = Vec::new();
 
@@ -365,10 +365,18 @@ impl<'a> Parser<'a> {
             );
         }
         self.pos += 1;
-        // Consume any indented body so the error does not cascade.
-        while self.more_below(line.indent) {
-            self.pos += 1;
+        // The line is kept in the tree as an error, and so is any body under
+        // it: an anchor whose header is half-written still has properties an
+        // editor can fold, select and complete. Only the tree keeps them; the
+        // program does not, so the error does not cascade.
+        self.enter(SyntaxKind::ERROR, line.start);
+        if self.more_below(line.indent) {
+            let reported = self.diagnostics.len();
+            let _ = self.parse_block(line.indent);
+            self.diagnostics.truncate(reported);
         }
+        let end = self.lines[..self.pos].last().map_or(line.end, |last| last.end);
+        self.leave(end.max(line.end));
         None
     }
 
@@ -407,11 +415,12 @@ impl<'a> Parser<'a> {
     fn parse_from(&mut self, line: &Line) -> Option<Item> {
         let start_line = line.clone();
         self.pos += 1;
-        let mut joined = start_line.code.trim_start().to_string();
-        let mut segments = vec![(
-            start_line.content_start + leading_len(&start_line.code),
-            start_line.code.trim_start().to_string(),
-        )];
+        // The lines are read as one, joined with a space. Each piece remembers
+        // where it starts in the joined text and in the file, so a position in
+        // one can be carried to the other.
+        let first = start_line.code.trim_start().to_string();
+        let mut joined = first.clone();
+        let mut pieces = vec![(0usize, start_line.content_start + leading_len(&start_line.code))];
         let mut end = start_line.end;
         while let Some(next) = self.peek() {
             if next.blank || next.indent == 0 {
@@ -419,59 +428,70 @@ impl<'a> Parser<'a> {
             }
             let next = self.advance().expect("peeked");
             joined.push(' ');
-            joined.push_str(next.code.trim());
-            segments.push((next.code_span.start, next.code.trim().to_string()));
+            let code = next.code.trim();
+            pieces.push((joined.len(), next.code_span.start + leading_len(&next.code)));
+            joined.push_str(code);
             end = next.end;
         }
+        let at = |offset: usize| -> usize {
+            let (joined_start, file_start) = pieces
+                .iter()
+                .rev()
+                .find(|(joined_start, _)| *joined_start <= offset)
+                .copied()
+                .unwrap_or((0, start_line.content_start));
+            file_start + (offset - joined_start)
+        };
+        let span_of = |from: usize, to: usize| Span::new(at(from), at(from) + (to - from));
 
         self.enter(SyntaxKind::FROM_DECL, start_line.start);
-        self.token(
-            SyntaxKind::KW_FROM,
-            Span::new(start_line.content_start, start_line.content_start + "from".len()),
-        );
+        self.token(SyntaxKind::KW_FROM, span_of(0, "from".len()));
 
         let span = Span::new(start_line.start, end);
-        let rest = joined["from".len()..].trim_start();
-        let Some((path_text, after_path)) = rest.split_once(char::is_whitespace) else {
-            self.leave(end);
-            self.error(
+        let invalid = |parser: &mut Parser<'_>| {
+            parser.leave(end);
+            parser.error(
                 "invalid-import",
                 "expected `import` or `export` after the module path",
                 span,
             );
-            return None;
+            None
         };
-        let path_start = locate(&segments, path_text).unwrap_or(start_line.content_start);
-        let path_span = Span::new(path_start, path_start + path_text.len());
+
+        let path_start = skip_spaces(&joined, "from".len());
+        let path_end = word_end(&joined, path_start);
+        let direction_start = skip_spaces(&joined, path_end);
+        if path_end == path_start || direction_start == path_end {
+            return invalid(self);
+        }
+        let path_text = joined[path_start..path_end].to_string();
+        let path_span = span_of(path_start, path_end);
         self.token(SyntaxKind::PATH, path_span);
 
-        let after_path = after_path.trim_start();
-        let (kind, list_text) = if let Some(rest) = after_path.strip_prefix("import") {
-            (FromKind::Import, rest)
-        } else if let Some(rest) = after_path.strip_prefix("export") {
-            (FromKind::Export, rest)
+        let after_path = &joined[direction_start..];
+        let kind = if after_path.starts_with("import") {
+            FromKind::Import
+        } else if after_path.starts_with("export") {
+            FromKind::Export
         } else {
-            self.leave(end);
-            self.error(
-                "invalid-import",
-                "expected `import` or `export` after the module path",
-                span,
-            );
-            return None;
+            return invalid(self);
         };
+        let direction_end = direction_start + "import".len();
         self.token(
             match kind {
                 FromKind::Import => SyntaxKind::KW_IMPORT,
                 FromKind::Export => SyntaxKind::KW_EXPORT,
             },
-            Span::empty(path_span.end),
+            span_of(direction_start, direction_end),
         );
 
-        let list_text = list_text.trim();
+        let list_start = skip_spaces(&joined, direction_end);
+        let list_text = joined[list_start..].trim_end().to_string();
         let mut star = false;
         let mut items = Vec::new();
         if list_text == "*" {
             star = true;
+            self.token(SyntaxKind::STAR, span_of(list_start, list_start + 1));
             if kind == FromKind::Import {
                 self.error(
                     "invalid-import",
@@ -482,34 +502,50 @@ impl<'a> Parser<'a> {
         } else if list_text.is_empty() {
             self.error("invalid-import", "import list is empty", span);
         } else {
-            self.enter(SyntaxKind::IMPORT_LIST, path_span.end);
-            for entry in list_text.split(',') {
-                let entry = entry.trim();
-                if entry.is_empty() {
-                    continue;
+            self.enter(SyntaxKind::IMPORT_LIST, at(list_start));
+            let mut entry_start = list_start;
+            for (index, entry) in list_text.split(',').enumerate() {
+                if index > 0 {
+                    // The comma that ended the previous entry.
+                    self.token(SyntaxKind::COMMA, span_of(entry_start - 1, entry_start));
                 }
-                let mut words = entry.split_whitespace();
-                let name = words.next().unwrap_or_default().to_string();
-                let alias = words.next().map(|s| s.to_string());
-                if words.next().is_some() {
+                let this_start = entry_start;
+                entry_start += entry.len() + 1;
+                let mut words = Vec::new();
+                let mut cursor = this_start;
+                loop {
+                    let word_start = skip_spaces(&joined, cursor);
+                    let word_stop = word_end(&joined, word_start).min(this_start + entry.len());
+                    if word_stop <= word_start {
+                        break;
+                    }
+                    words.push((word_start, word_stop));
+                    cursor = word_stop;
+                }
+                let Some(&(name_start, name_end)) = words.first() else {
+                    continue;
+                };
+                if words.len() > 2 {
                     self.error(
                         "invalid-import",
-                        format!("`{entry}` has more than a name and an alias"),
+                        format!("`{}` has more than a name and an alias", entry.trim()),
                         span,
                     );
                 }
-                let name_start = locate(&segments, &name).unwrap_or(path_span.end);
-                let name_span = Span::new(name_start, name_start + name.len());
+                let name_span = span_of(name_start, name_end);
+                let alias = words
+                    .get(1)
+                    .map(|&(from, to)| Spanned::new(span_of(from, to), joined[from..to].to_string()));
+                let item_end = alias.as_ref().map_or(name_span.end, |alias| alias.span.end);
                 self.enter(SyntaxKind::IMPORT_ITEM, name_span.start);
                 self.token(SyntaxKind::IDENT, name_span);
-                self.leave(name_span.end);
-                let alias = alias.map(|alias| {
-                    let at = locate(&segments, &alias).unwrap_or(name_span.end);
-                    Spanned::new(Span::new(at, at + alias.len()), alias)
-                });
+                if let Some(alias) = &alias {
+                    self.token(SyntaxKind::IDENT, alias.span);
+                }
+                self.leave(item_end);
                 items.push(ImportItem {
-                    span: name_span,
-                    name,
+                    span: Span::new(name_span.start, item_end),
+                    name: joined[name_start..name_end].to_string(),
                     name_span,
                     alias,
                 });
@@ -522,7 +558,7 @@ impl<'a> Parser<'a> {
             span,
             path: ModulePath {
                 span: path_span,
-                text: path_text.to_string(),
+                text: path_text,
             },
             kind,
             star,
@@ -569,7 +605,10 @@ impl<'a> Parser<'a> {
                 Span::new(line.content_start, line.content_start + "export".len()),
             );
         }
-        self.enter(SyntaxKind::ANCHOR_HEADER, header.keyword_span.start);
+        let header_start = header
+            .abstract_span
+            .map_or(header.keyword_span.start, |span| span.start);
+        self.enter(SyntaxKind::ANCHOR_HEADER, header_start);
         if let Some(span) = header.abstract_span {
             self.token(SyntaxKind::KW_ABSTRACT, span);
         }
@@ -582,21 +621,40 @@ impl<'a> Parser<'a> {
             header.keyword_span,
         );
         self.token(SyntaxKind::IDENT, header.name_span);
-        if let Some(alias) = &header.alias {
-            self.enter(SyntaxKind::KEYWORD_ALIAS, alias.span.start);
-            self.token(SyntaxKind::IDENT, alias.span);
-            self.leave(alias.span.end);
-        }
-        if !header.extends.is_empty() {
-            let start = header.extends[0].span.start;
-            let end = header.extends.last().expect("non-empty").span.end;
-            self.enter(SyntaxKind::EXTENDS_CLAUSE, start);
-            for base in &header.extends {
-                self.token(SyntaxKind::IDENT, base.span);
+
+        // `as` and `extends` may come in either order, and the tree has to
+        // follow the source.
+        let mut cursor = header.name_span.end;
+        let alias_start = header.alias.as_ref().map(|alias| alias.span.start);
+        let extends_start = header.extends.first().map(|base| base.span.start);
+        let mut parts: Vec<usize> = alias_start.into_iter().chain(extends_start).collect();
+        parts.sort_unstable();
+        for part in parts {
+            self.gap(cursor, part);
+            if Some(part) == alias_start {
+                let alias = header.alias.as_ref().expect("alias");
+                self.enter(SyntaxKind::KEYWORD_ALIAS, alias.span.start);
+                self.token(SyntaxKind::IDENT, alias.span);
+                self.leave(alias.span.end);
+                cursor = alias.span.end;
+            } else {
+                let end = header.extends.last().expect("non-empty").span.end;
+                self.enter(SyntaxKind::EXTENDS_CLAUSE, part);
+                let mut previous = part;
+                for base in &header.extends {
+                    self.gap(previous, base.span.start);
+                    self.token(SyntaxKind::IDENT, base.span);
+                    previous = base.span.end;
+                }
+                self.leave(end);
+                cursor = end;
             }
-            self.leave(end);
         }
-        self.token(SyntaxKind::COLON, Span::empty(line.code_span.end));
+        let colon = self.source[..line.code_span.end]
+            .rfind(':')
+            .unwrap_or(line.code_span.end);
+        self.gap(cursor, colon);
+        self.token(SyntaxKind::COLON, Span::new(colon, colon + 1));
         self.leave(line.end);
 
         let body = self.parse_block(line.indent);
@@ -805,7 +863,18 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     let text = &self.source[line.start..line.end];
                     lines.push(strip_indent(text, base_indent));
-                    self.token(SyntaxKind::ESCAPE_TEXT, Span::new(line.start, line.end));
+                    // The block's own indentation is layout; what is past it
+                    // is the literal text.
+                    let indent: usize = text
+                        .chars()
+                        .take(base_indent)
+                        .take_while(|c| *c == ' ' || *c == '\t')
+                        .map(char::len_utf8)
+                        .sum();
+                    self.token(
+                        SyntaxKind::ESCAPE_TEXT,
+                        Span::new(line.start + indent, line.end),
+                    );
                     end = line.end;
                 }
                 EscapeRole::Close => {
@@ -857,8 +926,11 @@ impl<'a> Parser<'a> {
             },
             Span::new(marker_start, marker_start + rest_offset.min(2)),
         );
-        let text = line.code[leading + rest_offset..].trim();
-        let text_start = marker_start + rest_offset;
+        let operand = &line.code[leading + rest_offset..];
+        let text = operand.trim();
+        // The operand's spans count from its first character, so the space
+        // after the operator, which `trim` drops, still has to be counted.
+        let text_start = marker_start + rest_offset + leading_len(operand);
         let (prose_line, mut diagnostics) = prose::scan_line(text, text_start, &self.file);
         self.diagnostics.append(&mut diagnostics);
         self.emit_prose_tokens(&prose_line);
@@ -866,6 +938,7 @@ impl<'a> Parser<'a> {
         MergeItem {
             span: line.span(),
             op,
+            op_span: Span::new(marker_start, marker_start + rest_offset.min(2)),
             value: prose_line,
         }
     }
@@ -879,15 +952,23 @@ impl<'a> Parser<'a> {
     ) -> Property {
         self.pos += 1;
         self.token(SyntaxKind::IDENT, header.name_span);
+        let mut cursor = header.name_span.end;
         for constraint in &header.constraints {
-            self.enter(SyntaxKind::TYPE_CONSTRAINT, constraint.span.start);
-            self.token(SyntaxKind::COLON_COLON, Span::empty(constraint.span.start));
-            self.token(SyntaxKind::IDENT, constraint.span);
+            let marker = self.source[cursor..constraint.span.start]
+                .find("::")
+                .map_or(constraint.span.start, |at| cursor + at);
+            self.enter(SyntaxKind::TYPE_CONSTRAINT, marker);
+            self.token(SyntaxKind::COLON_COLON, Span::new(marker, marker + 2));
+            self.constraint_tokens(constraint.span);
             self.leave(constraint.span.end);
+            cursor = constraint.span.end;
         }
 
         let value = if header.has_value_colon {
-            self.token(SyntaxKind::COLON, Span::empty(header.value_start));
+            self.token(
+                SyntaxKind::COLON,
+                Span::new(header.value_start - 1, header.value_start),
+            );
             // `value_offset` is relative to the header text, which may start
             // partway into the line (after `export`), so index from the line's
             // own start instead.
@@ -942,7 +1023,14 @@ impl<'a> Parser<'a> {
                 prose::scan_line(trimmed, trimmed_start, &self.file);
             self.diagnostics.append(&mut diagnostics);
             self.enter(SyntaxKind::PROSE_LINE, prose_line.span.start);
-            self.emit_prose_tokens(&prose_line);
+            // A value that is exactly `42`, `true` or `null` is that value,
+            // not a sentence, which is what the evaluator infers too.
+            let plain = prose_line.escapes.is_empty()
+                && matches!(prose_line.segments.as_slice(), [ProseSegment::Text(_)]);
+            match crate::literal::whole_value_kind(trimmed) {
+                Some(kind) if plain => self.token(kind, prose_line.span),
+                _ => self.emit_prose_tokens(&prose_line),
+            }
             self.leave(prose_line.span.end);
             inline = Some(prose_line);
         }
@@ -1014,18 +1102,37 @@ impl<'a> Parser<'a> {
     }
 
     fn emit_prose_tokens(&mut self, line: &ProseLine) {
-        let mut cursor = line.span.start;
+        // What interrupts the text, in order: escape delimiters and
+        // interpolations. Everything between them is prose.
+        enum Mark<'a> {
+            Escape(Span),
+            Interpolation(&'a Interpolation),
+        }
+        let mut marks: Vec<(usize, Mark<'_>)> = line
+            .escapes
+            .iter()
+            .map(|span| (span.start, Mark::Escape(*span)))
+            .collect();
         for segment in &line.segments {
-            match segment {
-                ProseSegment::Text(_) | ProseSegment::Literal(_) => {}
-                ProseSegment::Interpolation(interp) => {
-                    if interp.span.start > cursor {
-                        self.token(SyntaxKind::PROSE, Span::new(cursor, interp.span.start));
-                    }
-                    self.enter(SyntaxKind::INTERPOLATION, interp.span.start);
-                    self.token(SyntaxKind::PROSE, interp.span);
-                    self.leave(interp.span.end);
-                    cursor = interp.span.end;
+            if let ProseSegment::Interpolation(interpolation) = segment {
+                marks.push((interpolation.span.start, Mark::Interpolation(interpolation)));
+            }
+        }
+        marks.sort_by_key(|(start, _)| *start);
+
+        let mut cursor = line.span.start;
+        for (start, mark) in marks {
+            if start > cursor {
+                self.token(SyntaxKind::PROSE, Span::new(cursor, start));
+            }
+            match mark {
+                Mark::Escape(span) => {
+                    self.token(SyntaxKind::BACKSLASH, span);
+                    cursor = span.end;
+                }
+                Mark::Interpolation(interpolation) => {
+                    self.emit_interpolation(interpolation);
+                    cursor = interpolation.span.end;
                 }
             }
         }
@@ -1033,19 +1140,155 @@ impl<'a> Parser<'a> {
             self.token(SyntaxKind::PROSE, Span::new(cursor, line.span.end));
         }
     }
+
+    /// The sigil, every token of the expression, and the closing brace.
+    fn emit_interpolation(&mut self, interpolation: &Interpolation) {
+        let span = interpolation.span;
+        let open = interpolation.sigil.prefix().len();
+        self.enter(SyntaxKind::INTERPOLATION, span.start);
+        self.token(
+            match interpolation.sigil {
+                Sigil::Standard => SyntaxKind::L_CURLY,
+                Sigil::Stringify => SyntaxKind::DOLLAR_CURLY,
+                Sigil::Numeric => SyntaxKind::HASH_CURLY,
+                Sigil::Reference => SyntaxKind::AT_CURLY,
+            },
+            Span::new(span.start, span.start + open),
+        );
+        let inner = &self.source[span.start + open..span.end - 1];
+        let (tokens, _) = crate::expr::lex(inner, span.start + open);
+        for (token, range) in tokens {
+            self.token(expression_kind(&token), Span::new(range.start, range.end));
+        }
+        self.token(SyntaxKind::R_CURLY, Span::new(span.end - 1, span.end));
+        self.leave(span.end);
+    }
+
+    /// The tokens between two known ones on a header or import line: the
+    /// keywords and punctuation that join the names. A word that is not one
+    /// of those is left to the trivia pass, which makes it prose.
+    fn gap(&mut self, from: usize, to: usize) {
+        if to <= from {
+            return;
+        }
+        let text = &self.source[from..to];
+        let mut index = 0;
+        while index < text.len() {
+            let rest = &text[index..];
+            let ch = rest.chars().next().expect("non-empty");
+            let (kind, len) = if ch.is_whitespace() {
+                (None, ch.len_utf8())
+            } else if rest.starts_with("::") {
+                (Some(SyntaxKind::COLON_COLON), 2)
+            } else {
+                match ch {
+                    ',' => (Some(SyntaxKind::COMMA), 1),
+                    ':' => (Some(SyntaxKind::COLON), 1),
+                    '*' => (Some(SyntaxKind::STAR), 1),
+                    '[' => (Some(SyntaxKind::L_BRACKET), 1),
+                    ']' => (Some(SyntaxKind::R_BRACKET), 1),
+                    _ => {
+                        let len = rest
+                            .find(|c: char| c.is_whitespace() || ",:*[]".contains(c))
+                            .unwrap_or(rest.len());
+                        let kind = match &rest[..len] {
+                            "as" => Some(SyntaxKind::KW_AS),
+                            "extends" => Some(SyntaxKind::KW_EXTENDS),
+                            "import" => Some(SyntaxKind::KW_IMPORT),
+                            "export" => Some(SyntaxKind::KW_EXPORT),
+                            _ => None,
+                        };
+                        (kind, len)
+                    }
+                }
+            };
+            if let Some(kind) = kind {
+                self.token(kind, Span::new(from + index, from + index + len));
+            }
+            index += len;
+        }
+    }
+
+    /// `extends Name[]` after a `::`: the keyword, the type, the brackets.
+    fn constraint_tokens(&mut self, span: Span) {
+        let raw = &self.source[span.start..span.end];
+        let mut at = 0;
+        if let Some(rest) = raw.strip_prefix("extends") {
+            if rest.starts_with(char::is_whitespace) {
+                self.token(SyntaxKind::KW_EXTENDS, Span::new(span.start, span.start + 7));
+                at = 7 + (rest.len() - rest.trim_start().len());
+            }
+        }
+        let body = &raw[at..];
+        let name_len = body
+            .find(|c: char| c.is_whitespace() || c == '[')
+            .unwrap_or(body.len());
+        self.token(
+            SyntaxKind::IDENT,
+            Span::new(span.start + at, span.start + at + name_len),
+        );
+        let after = span.start + at + name_len;
+        self.gap(after, span.end);
+    }
+}
+
+/// The syntax kind of one token of an expression.
+fn expression_kind(token: &crate::expr::ExprToken) -> SyntaxKind {
+    use crate::expr::ExprTokenKind as T;
+    match token.kind {
+        T::Ident => match token.text.as_str() {
+            "true" => SyntaxKind::KW_TRUE,
+            "false" => SyntaxKind::KW_FALSE,
+            "null" => SyntaxKind::KW_NULL,
+            "this" => SyntaxKind::KW_THIS,
+            "self" => SyntaxKind::KW_SELF,
+            "super" => SyntaxKind::KW_SUPER,
+            _ => SyntaxKind::IDENT,
+        },
+        T::Number => SyntaxKind::NUMBER,
+        T::Quoted => SyntaxKind::QUOTED_STRING,
+        T::Dot => SyntaxKind::DOT,
+        T::Comma => SyntaxKind::COMMA,
+        T::Plus => SyntaxKind::PLUS,
+        T::PlusPlus => SyntaxKind::PLUS_PLUS,
+        T::Minus => SyntaxKind::DASH,
+        T::Star => SyntaxKind::STAR,
+        T::Slash => SyntaxKind::SLASH,
+        T::Percent => SyntaxKind::PERCENT,
+        T::Bang => SyntaxKind::BANG,
+        T::Question => SyntaxKind::QUESTION,
+        T::Colon => SyntaxKind::COLON,
+        T::EqEq => SyntaxKind::EQ_EQ,
+        T::BangEq => SyntaxKind::BANG_EQ,
+        T::Lt => SyntaxKind::LT,
+        T::LtEq => SyntaxKind::LT_EQ,
+        T::Gt => SyntaxKind::GT,
+        T::GtEq => SyntaxKind::GT_EQ,
+        T::AmpAmp => SyntaxKind::AMP_AMP,
+        T::PipePipe => SyntaxKind::PIPE_PIPE,
+        T::LParen => SyntaxKind::L_PAREN,
+        T::RParen => SyntaxKind::R_PAREN,
+        T::LBracket => SyntaxKind::L_BRACKET,
+        T::RBracket => SyntaxKind::R_BRACKET,
+        T::DollarBrace => SyntaxKind::DOLLAR_CURLY,
+        T::HashBrace => SyntaxKind::HASH_CURLY,
+        T::AtBrace => SyntaxKind::AT_CURLY,
+        T::RBrace => SyntaxKind::R_CURLY,
+        T::Unknown => SyntaxKind::ERROR,
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Header recognition
 // ---------------------------------------------------------------------------
 
-struct PropertyHeader {
-    name: String,
-    name_span: Span,
-    constraints: Vec<TypeConstraint>,
-    has_value_colon: bool,
+pub(crate) struct PropertyHeader {
+    pub(crate) name: String,
+    pub(crate) name_span: Span,
+    pub(crate) constraints: Vec<TypeConstraint>,
+    pub(crate) has_value_colon: bool,
     /// Absolute offset of the value text.
-    value_start: usize,
+    pub(crate) value_start: usize,
 }
 
 struct DeclarationHeader {
@@ -1069,7 +1312,7 @@ struct DeclarationHeader {
 /// declaration and `anchor: a description` a property is the colon, not the
 /// word. Only a leading `-` or `+` is excluded, because those open a list item
 /// and a merge.
-fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
+pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
     let name_len = text
         .char_indices()
         .take_while(|(i, c)| {
@@ -1287,6 +1530,18 @@ fn backslash_run(text: &str) -> Option<usize> {
     Some(text.chars().count())
 }
 
+/// The first offset at or after `from` that is not a space.
+fn skip_spaces(text: &str, from: usize) -> usize {
+    from + (text[from..].len() - text[from..].trim_start().len())
+}
+
+/// Where the word starting at `from` ends: at whitespace or a comma.
+fn word_end(text: &str, from: usize) -> usize {
+    text[from..]
+        .find(|c: char| c.is_whitespace() || c == ',')
+        .map_or(text.len(), |at| from + at)
+}
+
 fn leading_len(text: &str) -> usize {
     text.len() - text.trim_start().len()
 }
@@ -1300,7 +1555,7 @@ fn is_identifier(text: &str) -> bool {
 }
 
 /// Returns the offset of the item text after a `- ` marker.
-fn list_marker(code: &str) -> Option<usize> {
+pub(crate) fn list_marker(code: &str) -> Option<usize> {
     if code == "-" {
         return Some(1);
     }
@@ -1313,7 +1568,7 @@ fn list_marker(code: &str) -> Option<usize> {
 }
 
 /// Returns the merge operator and the offset of its operand.
-fn merge_marker(code: &str) -> Option<(MergeOp, usize)> {
+pub(crate) fn merge_marker(code: &str) -> Option<(MergeOp, usize)> {
     if let Some(rest) = code.strip_prefix("++") {
         if rest.is_empty() || rest.starts_with(' ') {
             return Some((MergeOp::Concat, 2));
@@ -1367,36 +1622,6 @@ fn strip_indent(text: &str, indent: usize) -> String {
     text[offset..].trim_end_matches(['\n', '\r']).to_string()
 }
 
-/// Finds `needle` as a whole word in the joined declaration segments, returning
-/// its absolute offset.
-fn locate(segments: &[(usize, String)], needle: &str) -> Option<usize> {
-    if needle.is_empty() {
-        return None;
-    }
-    for (base, text) in segments {
-        let mut from = 0;
-        while let Some(found) = text[from..].find(needle) {
-            let at = from + found;
-            let before_ok = at == 0
-                || !text[..at]
-                    .chars()
-                    .next_back()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_');
-            let after = at + needle.len();
-            let after_ok = after >= text.len()
-                || !text[after..]
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_');
-            if before_ok && after_ok {
-                return Some(base + at);
-            }
-            from = at + needle.len();
-        }
-    }
-    None
-}
-
 // ---------------------------------------------------------------------------
 // Green tree construction
 // ---------------------------------------------------------------------------
@@ -1413,14 +1638,27 @@ fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>
             return;
         }
         let text = &source[*cursor..to];
-        for piece in split_trivia(text) {
-            let kind = match piece.chars().next() {
+        for whole in split_trivia(text) {
+            // Indentation is whitespace, whatever follows it on the line.
+            let content = whole.trim_start_matches([' ', '\t']);
+            let indent = &whole[..whole.len() - content.len()];
+            if !indent.is_empty() {
+                builder.token(SyntaxKind::WHITESPACE.into(), indent);
+            }
+            if content.is_empty() {
+                continue;
+            }
+            let body = content.trim_end_matches([' ', '\t']);
+            let kind = match content.chars().next() {
                 Some('\n') | Some('\r') => SyntaxKind::NEWLINE,
-                Some('/') => SyntaxKind::COMMENT,
-                _ if piece.trim().is_empty() => SyntaxKind::WHITESPACE,
+                _ if body.starts_with("//") => SyntaxKind::COMMENT,
+                _ if body.trim().is_empty() => SyntaxKind::WHITESPACE,
                 _ => SyntaxKind::PROSE,
             };
-            builder.token(kind.into(), piece);
+            builder.token(kind.into(), body);
+            if body.len() < content.len() {
+                builder.token(SyntaxKind::WHITESPACE.into(), &content[body.len()..]);
+            }
         }
         *cursor = to;
     };
@@ -1819,6 +2057,228 @@ mod tests {
             })
             .collect();
         assert_eq!(ops, vec![MergeOp::Merge, MergeOp::Concat]);
+    }
+
+    /// The kind and text of every token that is not whitespace.
+    fn tokens(source: &str) -> Vec<(SyntaxKind, String)> {
+        parse_str(source)
+            .syntax()
+            .descendants_with_tokens()
+            .filter_map(|element| element.into_token())
+            .filter(|token| !matches!(token.kind(), SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE))
+            .map(|token| (token.kind(), token.text().to_string()))
+            .collect()
+    }
+
+    fn kind_of(source: &str, text: &str) -> Vec<SyntaxKind> {
+        tokens(source)
+            .into_iter()
+            .filter(|(_, written)| written == text)
+            .map(|(kind, _)| kind)
+            .collect()
+    }
+
+    #[test]
+    fn import_names_are_found_after_the_keyword() {
+        let parse = parse_str("from ./Base import Base, helper
+from ./a/b import b B2
+");
+        let spans: Vec<(usize, usize)> = parse
+            .file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::From(from) => Some(from),
+                _ => None,
+            })
+            .flat_map(|from| {
+                from.items.iter().flat_map(|import| {
+                    std::iter::once(import.name_span)
+                        .chain(import.alias.iter().map(|alias| alias.span))
+                })
+            })
+            .map(|span| (span.start, span.end))
+            .collect();
+        assert_eq!(spans, vec![(19, 23), (25, 31), (50, 51), (52, 54)]);
+    }
+
+    #[test]
+    fn a_continued_import_places_each_name_on_its_line() {
+        let source = "from ./x import\n    First,\n    Second\n";
+        let parse = parse_str(source);
+        assert_clean(&parse);
+        let Item::From(from) = &parse.file.items[0] else {
+            panic!("expected an import")
+        };
+        let names: Vec<&str> = from
+            .items
+            .iter()
+            .map(|import| &source[import.name_span.start..import.name_span.end])
+            .collect();
+        assert_eq!(names, vec!["First", "Second"]);
+        assert_eq!(kind_of(source, ","), vec![SyntaxKind::COMMA]);
+    }
+
+    #[test]
+    fn header_words_are_keywords() {
+        let source = "export abstract anchor Thing extends A, B as thing:\n    pass\n";
+        assert_eq!(
+            tokens(source)[..12].iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+            vec![
+                SyntaxKind::KW_EXPORT,
+                SyntaxKind::KW_ABSTRACT,
+                SyntaxKind::KW_ANCHOR,
+                SyntaxKind::IDENT,
+                SyntaxKind::KW_EXTENDS,
+                SyntaxKind::IDENT,
+                SyntaxKind::COMMA,
+                SyntaxKind::IDENT,
+                SyntaxKind::KW_AS,
+                SyntaxKind::IDENT,
+                SyntaxKind::COLON,
+                SyntaxKind::KW_PASS,
+            ]
+        );
+        // The alias may come first, and the tree still follows the source.
+        let flipped = "anchor T as t extends B:\n    pass\n";
+        assert_eq!(kind_of(flipped, "B"), vec![SyntaxKind::IDENT]);
+        assert_eq!(kind_of(flipped, "extends"), vec![SyntaxKind::KW_EXTENDS]);
+    }
+
+    #[test]
+    fn a_constraint_is_punctuation_and_a_type() {
+        let source = "abstract anchor A:\n    items:: extends Base[]\n";
+        let kinds: Vec<SyntaxKind> = tokens(source)[4..].iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                SyntaxKind::IDENT,
+                SyntaxKind::COLON_COLON,
+                SyntaxKind::KW_EXTENDS,
+                SyntaxKind::IDENT,
+                SyntaxKind::L_BRACKET,
+                SyntaxKind::R_BRACKET,
+            ]
+        );
+        assert_eq!(kind_of("anchor A:\n    n:: number: 3\n", ":"), vec![
+            SyntaxKind::COLON,
+            SyntaxKind::COLON,
+        ]);
+    }
+
+    #[test]
+    fn whole_value_literals_are_tokens() {
+        let cases = [
+            ("n: 3", "3", Some(SyntaxKind::NUMBER)),
+            ("n: -1_000.50", "-1_000.50", Some(SyntaxKind::NUMBER)),
+            ("flag: true", "true", Some(SyntaxKind::KW_TRUE)),
+            ("n: 3 apples", "3 apples", Some(SyntaxKind::PROSE)),
+            ("n: .5", ".5", Some(SyntaxKind::PROSE)),
+            ("n: 1e3", "1e3", Some(SyntaxKind::PROSE)),
+        ];
+        for (line, text, kind) in cases {
+            let source = format!("anchor A:\n    {line}\n");
+            assert_eq!(kind_of(&source, text).first().copied(), kind, "{line}");
+        }
+        assert_eq!(kind_of("anchor A:\n    l:\n        - null\n", "null"), vec![SyntaxKind::KW_NULL]);
+        // An inline list holds prose, and so does a composition line.
+        assert_eq!(kind_of("anchor A:\n    l: [1, 2]\n", "1"), vec![SyntaxKind::PROSE]);
+        assert_eq!(kind_of("anchor A:\n    l:\n        + 3\n", "3"), vec![SyntaxKind::PROSE]);
+    }
+
+    #[test]
+    fn an_inline_escape_is_backslashes_around_prose() {
+        let all = tokens("anchor A:\n    v: a \\ {x} \\ b\n");
+        let kinds: Vec<SyntaxKind> = all[5..].iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                SyntaxKind::PROSE,
+                SyntaxKind::BACKSLASH,
+                SyntaxKind::PROSE,
+                SyntaxKind::BACKSLASH,
+                SyntaxKind::PROSE,
+            ]
+        );
+        assert!(!all.iter().any(|(kind, _)| *kind == SyntaxKind::L_CURLY));
+    }
+
+    #[test]
+    fn expressions_are_tokens() {
+        let source = "anchor A:\n    v: ${this.count + 1}\n";
+        let kinds: Vec<SyntaxKind> = tokens(source)[5..].iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                SyntaxKind::DOLLAR_CURLY,
+                SyntaxKind::KW_THIS,
+                SyntaxKind::DOT,
+                SyntaxKind::IDENT,
+                SyntaxKind::PLUS,
+                SyntaxKind::NUMBER,
+                SyntaxKind::R_CURLY,
+            ]
+        );
+    }
+
+    #[test]
+    fn escape_text_starts_past_the_block_indentation() {
+        let source = "anchor A:\n    v:\n        \\\\\\\n          kept: {x}\n        \\\\\\\n";
+        let text: Vec<String> = parse_str(source)
+            .syntax()
+            .descendants_with_tokens()
+            .filter_map(|element| element.into_token())
+            .filter(|token| token.kind() == SyntaxKind::ESCAPE_TEXT)
+            .map(|token| token.text().to_string())
+            .collect();
+        assert_eq!(text, vec!["  kept: {x}"]);
+    }
+
+    #[test]
+    fn an_indented_comment_is_a_comment() {
+        assert_eq!(
+            kind_of("anchor A:\n    // note\n    v: 1\n", "// note"),
+            vec![SyntaxKind::COMMENT]
+        );
+    }
+
+    #[test]
+    fn a_broken_header_keeps_its_body_in_the_tree() {
+        let parse = parse_str("anchor Foo extends\n    title: Hi\n");
+        let error = parse
+            .syntax()
+            .descendants()
+            .find(|node| node.kind() == SyntaxKind::ERROR)
+            .expect("an error node");
+        assert!(error.descendants().any(|node| node.kind() == SyntaxKind::PROPERTY));
+        assert!(parse.file.items.is_empty());
+        assert_eq!(parse.diagnostics.iter().filter(|d| d.is_error()).count(), 1);
+    }
+
+    #[test]
+    fn a_merge_operand_keeps_its_own_offsets() {
+        let source = "anchor A:\n    items:\n        + {super.items}\n        ++   {other}\n";
+        let parse = parse_str(source);
+        assert_clean(&parse);
+        let anchor = parse.file.anchors().next().expect("anchor");
+        let block = anchor.body.properties().next().expect("property").value.block.clone();
+        let spans: Vec<&str> = block
+            .expect("block")
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                BlockItem::Merge(merge) => merge.value.segments.iter().find_map(|segment| {
+                    match segment {
+                        ProseSegment::Interpolation(interpolation) => {
+                            Some(&source[interpolation.span.start..interpolation.span.end])
+                        }
+                        _ => None,
+                    }
+                }),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(spans, vec!["{super.items}", "{other}"]);
     }
 
     #[test]

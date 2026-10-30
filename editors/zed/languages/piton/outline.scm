@@ -8,10 +8,8 @@
   "export"? @context
   "abstract"? @context
   keyword: (declaration_keyword) @context
-  name: (identifier) @name) @item
+  name: (_) @name) @item
 
-; A key carries its colon, because the colon is the token that makes it a key
-; rather than the first word of a sentence.
 (property
   "export"? @context
   name: (key) @name) @item

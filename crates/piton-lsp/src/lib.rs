@@ -25,17 +25,16 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use world::World;
 
 /// Semantic token types, in the order the client is told about them.
+///
+/// The server colours what only the resolved program knows: what a name is.
+/// Comments, keywords, literals, operators and prose are the syntax
+/// definition's, so they have no type here.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::CLASS,    // anchors
-    SemanticTokenType::PROPERTY, // properties
-    SemanticTokenType::VARIABLE, // variables
-    SemanticTokenType::KEYWORD,  // language and user keywords
-    SemanticTokenType::COMMENT,
-    SemanticTokenType::STRING, // prose
-    SemanticTokenType::NUMBER,
-    SemanticTokenType::OPERATOR,
+    SemanticTokenType::CLASS,     // anchors
+    SemanticTokenType::PROPERTY,  // properties and dictionary keys
+    SemanticTokenType::VARIABLE,  // file-level variables
+    SemanticTokenType::KEYWORD,   // user keywords
     SemanticTokenType::NAMESPACE, // module paths
-    SemanticTokenType::TYPE,      // type constraints
 ];
 
 /// Semantic token modifiers. The last three are Piton's own: a property whose
@@ -43,13 +42,194 @@ pub const TOKEN_TYPES: &[SemanticTokenType] = &[
 /// declared in another file.
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DECLARATION,
-    SemanticTokenModifier::DEFINITION,
     SemanticTokenModifier::ABSTRACT,
     SemanticTokenModifier::DEFAULT_LIBRARY,
     SemanticTokenModifier::new("inherited"),
     SemanticTokenModifier::new("exported"),
     SemanticTokenModifier::new("imported"),
 ];
+
+/// Why the server is recompiling, which decides whether other open files
+/// have to be told to ask again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trigger {
+    /// Typing in a buffer. The client asks again for that buffer itself.
+    Edit,
+    /// A save, a file changed on disk, a closed buffer, a new configuration:
+    /// anything another file's tokens, hints and lenses may depend on.
+    Elsewhere,
+}
+
+/// Whether a recompile for `trigger` should ask the client to refresh the
+/// semantic tokens, inlay hints and code lenses of every open file.
+///
+/// Not after an edit: the client re-requests the buffer being edited on its
+/// own, and refreshing every other file on each keystroke would make them
+/// flicker. Cross-file effects appear when the edit is saved.
+pub fn refreshes_after(trigger: Trigger) -> bool {
+    trigger == Trigger::Elsewhere
+}
+
+/// The folder the server works in: the first workspace folder, else the
+/// deprecated root URI that older clients still send, else the directory it
+/// was started in.
+pub fn workspace_root(params: &InitializeParams) -> Option<PathBuf> {
+    params
+        .workspace_folders
+        .as_ref()
+        .and_then(|folders| folders.first())
+        .and_then(|folder| convert::url_to_path(&folder.uri))
+        .or_else(|| {
+            #[allow(deprecated)]
+            params.root_uri.as_ref().and_then(convert::url_to_path)
+        })
+}
+
+/// What the client can do, read from its capabilities.
+pub fn client_caps(capabilities: &ClientCapabilities) -> world::ClientCaps {
+    let text = capabilities.text_document.as_ref();
+    let workspace = capabilities.workspace.as_ref();
+    world::ClientCaps {
+        link_support: text
+            .and_then(|text| text.definition.as_ref())
+            .and_then(|definition| definition.link_support)
+            .unwrap_or(false),
+        document_changes: workspace
+            .and_then(|workspace| workspace.workspace_edit.as_ref())
+            .and_then(|edit| edit.document_changes)
+            .unwrap_or(false),
+        insert_replace: text
+            .and_then(|text| text.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|item| item.insert_replace_support)
+            .unwrap_or(false),
+        semantic_refresh: workspace
+            .and_then(|workspace| workspace.semantic_tokens.as_ref())
+            .and_then(|tokens| tokens.refresh_support)
+            .unwrap_or(false),
+        inlay_refresh: workspace
+            .and_then(|workspace| workspace.inlay_hint.as_ref())
+            .and_then(|hints| hints.refresh_support)
+            .unwrap_or(false),
+        lens_refresh: workspace
+            .and_then(|workspace| workspace.code_lens.as_ref())
+            .and_then(|lenses| lenses.refresh_support)
+            .unwrap_or(false),
+    }
+}
+
+/// Everything the server offers, in one place so a test can hold it to the
+/// design.
+pub fn server_capabilities() -> ServerCapabilities {
+    let pi_files = FileOperationRegistrationOptions {
+        filters: vec![
+            FileOperationFilter {
+                scheme: Some("file".into()),
+                pattern: FileOperationPattern {
+                    glob: format!("**/*.{}", language::EXTENSION),
+                    matches: Some(FileOperationPatternKind::File),
+                    options: None,
+                },
+            },
+            FileOperationFilter {
+                scheme: Some("file".into()),
+                pattern: FileOperationPattern {
+                    glob: "**".into(),
+                    matches: Some(FileOperationPatternKind::Folder),
+                    options: None,
+                },
+            },
+        ],
+    };
+    ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::FULL),
+                save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                ..Default::default()
+            },
+        )),
+        completion_provider: Some(CompletionOptions {
+            trigger_characters: Some(vec![
+                "{".into(),
+                "$".into(),
+                "@".into(),
+                "#".into(),
+                ".".into(),
+                ":".into(),
+                "/".into(),
+            ]),
+            // The list is built on every keystroke and the description of an
+            // anchor renders its whole compiled value, so the description is
+            // built later, for the one item the cursor settles on.
+            resolve_provider: Some(true),
+            ..Default::default()
+        }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        definition_provider: Some(OneOf::Left(true)),
+        type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
+        implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
+        references_provider: Some(OneOf::Left(true)),
+        document_highlight_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: Default::default(),
+        })),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
+        document_formatting_provider: Some(OneOf::Left(true)),
+        // Pressing enter after a line that ends in a colon should land inside
+        // the block it opened. The grammar cannot say that -- indentation is
+        // not in it -- so the server does.
+        document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
+            first_trigger_character: "\n".into(),
+            more_trigger_character: None,
+        }),
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            code_action_kinds: Some(vec![
+                CodeActionKind::QUICKFIX,
+                CodeActionKind::REFACTOR,
+                CodeActionKind::SOURCE,
+                CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+            ]),
+            work_done_progress_options: Default::default(),
+            resolve_provider: Some(false),
+        })),
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: Some(false),
+        }),
+        inlay_hint_provider: Some(OneOf::Left(true)),
+        execute_command_provider: Some(ExecuteCommandOptions {
+            commands: vec![
+                features::SOURCE_TO_OUTPUT.into(),
+                features::SHOW_LOCATION.into(),
+            ],
+            work_done_progress_options: Default::default(),
+        }),
+        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+            SemanticTokensOptions {
+                legend: SemanticTokensLegend {
+                    token_types: TOKEN_TYPES.to_vec(),
+                    token_modifiers: TOKEN_MODIFIERS.to_vec(),
+                },
+                full: Some(SemanticTokensFullOptions::Bool(true)),
+                range: None,
+                ..Default::default()
+            },
+        )),
+        workspace: Some(WorkspaceServerCapabilities {
+            workspace_folders: None,
+            file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+                will_rename: Some(pi_files),
+                ..Default::default()
+            }),
+        }),
+        ..Default::default()
+    }
+}
 
 /// How long typing has to pause before the server recompiles on its own.
 ///
@@ -73,8 +253,8 @@ pub struct Backend {
 
 /// Recompiles if anything changed and publishes diagnostics for every file
 /// that has or had them.
-async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>) {
-    let published = {
+async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>, trigger: Trigger) {
+    let (published, caps) = {
         let mut world = world.write().await;
         if !world.refresh(focus.as_deref()) {
             return;
@@ -83,7 +263,7 @@ async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>)
         world.last_reported = grouped.keys().cloned().collect();
 
         let text_of = |path: &std::path::Path| world.text(path);
-        grouped
+        let published = grouped
             .into_iter()
             .filter_map(|(path, diagnostics)| {
                 let url = convert::path_to_url(&path)?;
@@ -92,13 +272,29 @@ async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>)
                     .iter()
                     .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text, &text_of))
                     .collect::<Vec<_>>();
-                Some((url, items))
+                // The version of the buffer these were computed from, so a
+                // client can drop them if the buffer has moved on since.
+                Some((url, items, world.compiled_version(&path)))
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        (published, world.caps)
     };
 
-    for (url, diagnostics) in published {
-        client.publish_diagnostics(url, diagnostics, None).await;
+    for (url, diagnostics, version) in published {
+        client.publish_diagnostics(url, diagnostics, version).await;
+    }
+    if refreshes_after(trigger) {
+        // A failure only means the client did not take the request; the
+        // next request it makes is answered from the new compilation anyway.
+        if caps.semantic_refresh {
+            let _ = client.semantic_tokens_refresh().await;
+        }
+        if caps.inlay_refresh {
+            let _ = client.inlay_hint_refresh().await;
+        }
+        if caps.lens_refresh {
+            let _ = client.code_lens_refresh().await;
+        }
     }
 }
 
@@ -121,7 +317,7 @@ impl Backend {
     /// the spans in the compilation.
     async fn fresh(&self) -> tokio::sync::RwLockReadGuard<'_, World> {
         if self.world.read().await.needs_compile() {
-            publish(&self.client, &self.world, None).await;
+            publish(&self.client, &self.world, None, Trigger::Edit).await;
         }
         self.world.read().await
     }
@@ -206,8 +402,17 @@ impl Backend {
     }
 
     /// Recompiles, if anything changed, and republishes diagnostics.
-    async fn refresh(&self, focus: Option<PathBuf>) {
-        publish(&self.client, &self.world, focus).await;
+    async fn refresh(&self, focus: Option<PathBuf>, trigger: Trigger) {
+        publish(&self.client, &self.world, focus, trigger).await;
+    }
+
+    /// The buffer as it is now, for the requests that only need its syntax:
+    /// formatting, folding, selection. They never wait for a compile, so they
+    /// keep working while the file is half-written.
+    async fn buffer(&self, uri: &Url) -> Option<(PathBuf, String)> {
+        let path = convert::url_to_path(uri)?;
+        let text = self.world.read().await.text(&path)?;
+        Some((path, text))
     }
 
     /// Recompiles after typing pauses, unless another edit arrives first.
@@ -219,7 +424,7 @@ impl Backend {
         tokio::spawn(async move {
             tokio::time::sleep(DEBOUNCE).await;
             if generation.load(Ordering::SeqCst) == ticket {
-                publish(&client, &world, Some(focus)).await;
+                publish(&client, &world, Some(focus), Trigger::Edit).await;
             }
         });
     }
@@ -228,14 +433,12 @@ impl Backend {
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        if let Some(folder) = params
-            .workspace_folders
-            .as_ref()
-            .and_then(|folders| folders.first())
-            .and_then(|folder| convert::url_to_path(&folder.uri))
         {
             let mut world = self.world.write().await;
-            *world = World::new(&folder);
+            if let Some(folder) = workspace_root(&params) {
+                *world = World::new(&folder);
+            }
+            world.caps = client_caps(&params.capabilities);
         }
 
         let dynamic = params
@@ -260,91 +463,14 @@ impl LanguageServer for Backend {
                 name: "piton-lsp".into(),
                 version: Some(VERSION.get().copied().unwrap_or(env!("CARGO_PKG_VERSION")).into()),
             }),
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
-                completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec![
-                        "{".into(),
-                        "$".into(),
-                        "@".into(),
-                        "#".into(),
-                        ".".into(),
-                        ":".into(),
-                        "/".into(),
-                    ]),
-                    // The list is built on every keystroke and the description
-                    // of an anchor renders its whole compiled value, so the
-                    // description is built later, for the one item the cursor
-                    // settles on.
-                    resolve_provider: Some(true),
-                    ..Default::default()
-                }),
-                hover_provider: Some(HoverProviderCapability::Simple(true)),
-                definition_provider: Some(OneOf::Left(true)),
-                implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
-                references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Right(RenameOptions {
-                    prepare_provider: Some(true),
-                    work_done_progress_options: Default::default(),
-                })),
-                document_symbol_provider: Some(OneOf::Left(true)),
-                workspace_symbol_provider: Some(OneOf::Left(true)),
-                document_formatting_provider: Some(OneOf::Left(true)),
-                // Pressing enter after a line that ends in a colon should land
-                // inside the block it opened. The grammar cannot say that --
-                // indentation is not in it -- so the server does.
-                document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
-                    first_trigger_character: "\n".into(),
-                    more_trigger_character: None,
-                }),
-                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
-                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
-                code_action_provider: Some(CodeActionProviderCapability::Options(
-                    CodeActionOptions {
-                        code_action_kinds: Some(vec![
-                            CodeActionKind::QUICKFIX,
-                            CodeActionKind::REFACTOR,
-                            CodeActionKind::SOURCE,
-                            CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
-                        ]),
-                        work_done_progress_options: Default::default(),
-                        resolve_provider: Some(false),
-                    },
-                )),
-                code_lens_provider: Some(CodeLensOptions {
-                    resolve_provider: Some(false),
-                }),
-                inlay_hint_provider: Some(OneOf::Left(true)),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![
-                        features::SOURCE_TO_OUTPUT.into(),
-                        features::SHOW_LOCATION.into(),
-                    ],
-                    work_done_progress_options: Default::default(),
-                }),
-                semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(
-                        SemanticTokensOptions {
-                            legend: SemanticTokensLegend {
-                                token_types: TOKEN_TYPES.to_vec(),
-                                token_modifiers: TOKEN_MODIFIERS.to_vec(),
-                            },
-                            full: Some(SemanticTokensFullOptions::Bool(true)),
-                            ..Default::default()
-                        },
-                    ),
-                ),
-                ..Default::default()
-            },
+            capabilities: server_capabilities(),
         })
     }
 
     async fn initialized(&self, _: InitializedParams) {
         self.watch_sources().await;
         self.offer_type_hierarchy().await;
-        self.refresh(None).await;
+        self.refresh(None, Trigger::Elsewhere).await;
         self.client
             .log_message(MessageType::INFO, "piton language server ready")
             .await;
@@ -360,9 +486,13 @@ impl LanguageServer for Backend {
         };
         {
             let mut world = self.world.write().await;
-            world.set_document(path.clone(), params.text_document.text);
+            world.open_document(
+                path.clone(),
+                params.text_document.text,
+                params.text_document.version,
+            );
         }
-        self.refresh(Some(path)).await;
+        self.refresh(Some(path), Trigger::Edit).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -374,7 +504,7 @@ impl LanguageServer for Backend {
         };
         {
             let mut world = self.world.write().await;
-            world.set_document(path.clone(), change.text);
+            world.open_document(path.clone(), change.text, params.text_document.version);
         }
         self.schedule(path);
     }
@@ -386,7 +516,7 @@ impl LanguageServer for Backend {
             // output goes; the saved version is the one the compiler reads.
             self.world.write().await.reload_project();
         }
-        self.refresh(path).await;
+        self.refresh(path, Trigger::Elsewhere).await;
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
@@ -427,7 +557,7 @@ impl LanguageServer for Backend {
             }
         }
         if news {
-            self.refresh(None).await;
+            self.refresh(None, Trigger::Elsewhere).await;
         }
     }
 
@@ -439,7 +569,7 @@ impl LanguageServer for Backend {
             let mut world = self.world.write().await;
             world.close_document(&path);
         }
-        self.refresh(None).await;
+        self.refresh(None, Trigger::Elsewhere).await;
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -461,6 +591,35 @@ impl LanguageServer for Backend {
             &params.text_document_position_params.text_document.uri,
             params.text_document_position_params.position,
         ))
+    }
+
+    async fn goto_type_definition(
+        &self,
+        params: request::GotoTypeDefinitionParams,
+    ) -> Result<Option<request::GotoTypeDefinitionResponse>> {
+        let world = self.fresh().await;
+        Ok(features::type_definition(
+            &world,
+            &params.text_document_position_params.text_document.uri,
+            params.text_document_position_params.position,
+        ))
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let world = self.fresh().await;
+        Ok(features::document_highlight(
+            &world,
+            &params.text_document_position_params.text_document.uri,
+            params.text_document_position_params.position,
+        ))
+    }
+
+    async fn will_rename_files(&self, params: RenameFilesParams) -> Result<Option<WorkspaceEdit>> {
+        let world = self.fresh().await;
+        Ok(features::will_rename_files(&world, &params.files))
     }
 
     async fn goto_implementation(
@@ -518,21 +677,19 @@ impl LanguageServer for Backend {
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
         let world = self.fresh().await;
-        Ok(features::prepare_rename(
-            &world,
-            &params.text_document.uri,
-            params.position,
-        ))
+        features::prepare_rename(&world, &params.text_document.uri, params.position)
+            .map_err(request_failed)
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let world = self.fresh().await;
-        Ok(features::rename(
+        features::rename(
             &world,
             &params.text_document_position.text_document.uri,
             params.text_document_position.position,
             &params.new_name,
-        ))
+        )
+        .map_err(request_failed)
     }
 
     async fn document_symbol(
@@ -569,38 +726,42 @@ impl LanguageServer for Backend {
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-        let world = self.fresh().await;
-        Ok(features::formatting(&world, &params.text_document.uri))
+        let Some((path, text)) = self.buffer(&params.text_document.uri).await else {
+            return Ok(None);
+        };
+        Ok(Some(features::formatting(&text, &path)))
     }
 
     async fn on_type_formatting(
         &self,
         params: DocumentOnTypeFormattingParams,
     ) -> Result<Option<Vec<TextEdit>>> {
-        let world = self.fresh().await;
+        let Some((_, text)) = self.buffer(&params.text_document_position.text_document.uri).await
+        else {
+            return Ok(None);
+        };
         Ok(features::on_type_formatting(
-            &world,
-            &params.text_document_position.text_document.uri,
+            &text,
             params.text_document_position.position,
             &params.ch,
         ))
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
-        let world = self.fresh().await;
-        Ok(features::folding(&world, &params.text_document.uri))
+        let Some((path, text)) = self.buffer(&params.text_document.uri).await else {
+            return Ok(None);
+        };
+        Ok(Some(features::folding(&text, &path)))
     }
 
     async fn selection_range(
         &self,
         params: SelectionRangeParams,
     ) -> Result<Option<Vec<SelectionRange>>> {
-        let world = self.fresh().await;
-        Ok(features::selection_ranges(
-            &world,
-            &params.text_document.uri,
-            &params.positions,
-        ))
+        let Some((path, text)) = self.buffer(&params.text_document.uri).await else {
+            return Ok(None);
+        };
+        Ok(Some(features::selection_ranges(&text, &path, &params.positions)))
     }
 
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
@@ -660,7 +821,15 @@ impl LanguageServer for Backend {
     }
 }
 
-/// Runs the language server over stdio.
+/// A request the server cannot carry out, with the reason the editor shows.
+fn request_failed(message: String) -> tower_lsp::jsonrpc::Error {
+    tower_lsp::jsonrpc::Error {
+        code: tower_lsp::jsonrpc::ErrorCode::ServerError(-32803),
+        message: message.into(),
+        data: None,
+    }
+}
+
 /// The version the server reports to the editor: the binary's, which
 /// [`serve`] is given, rather than this crate's.
 static VERSION: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();

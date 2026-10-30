@@ -1,0 +1,25 @@
+use ./keywords
+use @piton/belay
+
+anchor Plain:
+    pass
+
+export anchor Exported:
+    title: Exported
+
+abstract anchor Construct:
+    description:: string
+
+export abstract anchor Skill extends Construct as skill:
+    useWhen:: string
+
+anchor Child extends Plain, Exported:
+    title: Child
+
+skill Review:
+    description: Reviews code
+    useWhen: Asked for a review
+
+skill Other extends Plain:
+    description: Another skill
+    useWhen: Never

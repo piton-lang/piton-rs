@@ -196,7 +196,9 @@ fn composition_hover_shows_how_inputs_combine() {
 
     let world = fixture.world();
     let uri = fixture.uri("spec/index.pi");
-    let hover = features::hover(&world, &uri, fixture.position("spec/index.pi", "+ {extra}"))
+    let text = world.text(&fixture.path("spec/index.pi")).expect("text");
+    let operator = text.find("+ {extra}").expect("the merge line");
+    let hover = features::hover(&world, &uri, offset_to_position(&text, operator))
         .expect("hover on the merge");
     let HoverContents::Markup(markup) = hover.contents else {
         panic!("expected markup");
@@ -231,9 +233,11 @@ fn composition_hover_shows_how_inputs_combine() {
             _ => String::new(),
         })
         .collect();
+    // The operator is already on the line, and the hover explains it; an
+    // inlay repeating it would say nothing the source does not.
     assert!(
-        labels.iter().any(|label| label.contains("merge")),
-        "a merge should be marked inline: {labels:?}"
+        !labels.iter().any(|label| label.contains("merge")),
+        "a merge is not repeated inline: {labels:?}"
     );
 }
 
@@ -544,7 +548,7 @@ fn a_list_merged_with_a_dictionary_is_the_compilers_error_to_report() {
         !reported.iter().any(|code| code == "composition-conflict"),
         "the editor does not repeat the compiler: {reported:?}"
     );
-    let hover = hover_text(&world, &fixture, "spec/index.pi", "items + bag");
+    let hover = operator_hover(&world, &fixture, "spec/index.pi", "items + bag", "+");
     assert!(hover.contains("cannot combine list and dictionary"), "{hover}");
 }
 
@@ -575,12 +579,25 @@ fn action_titles(world: &World, uri: &Url, position: Position) -> Vec<String> {
     titles_of(&actions)
 }
 
-fn hover_text(world: &World, fixture: &Fixture, relative: &str, needle: &str) -> String {
-    let hover = features::hover(world, &fixture.uri(relative), fixture.position(relative, needle))
-        .unwrap_or_else(|| panic!("no hover at `{needle}`"));
+/// The hover on the operator `operator` inside the first `needle`. A
+/// composition is explained on its operator alone.
+fn operator_hover(world: &World, fixture: &Fixture, relative: &str, needle: &str, operator: &str) -> String {
+    let text = std::fs::read_to_string(fixture.path(relative)).expect("readable");
+    let offset = text
+        .find(needle)
+        .unwrap_or_else(|| panic!("`{needle}` not in {relative}"))
+        + needle.find(operator).expect("the operator is in the needle");
+    let hover = features::hover(world, &fixture.uri(relative), offset_to_position(&text, offset))
+        .unwrap_or_else(|| panic!("no hover on `{operator}` in `{needle}`"));
     let HoverContents::Markup(markup) = hover.contents else {
         panic!("expected markup");
     };
+    let range = hover.range.expect("a range");
+    assert_eq!(
+        range.end.character - range.start.character,
+        operator.len() as u32,
+        "the hover covers the operator alone"
+    );
     markup.value
 }
 
@@ -609,12 +626,12 @@ fn string_blocks_join_rather_than_merge() {
     );
     let world = fixture.world();
 
-    let plus = hover_text(&world, &fixture, "spec/index.pi", "+ {super.d}");
+    let plus = operator_hover(&world, &fixture, "spec/index.pi", "+ {super.d}", "+");
     assert!(plus.contains("joins the strings with nothing in between"), "{plus}");
     assert!(plus.contains("Child text.Base text."), "{plus}");
     assert!(!plus.contains("duplicates"), "strings are not merged: {plus}");
 
-    let double = hover_text(&world, &fixture, "spec/index.pi", "++ {super.d}");
+    let double = operator_hover(&world, &fixture, "spec/index.pi", "++ {super.d}", "++");
     assert!(double.contains("line break"), "{double}");
 }
 
@@ -627,7 +644,7 @@ fn super_in_a_block_reads_every_base() {
         "export anchor Left:\n    items:\n        - a\n\nexport anchor Right:\n    other: x\n\nexport anchor Child extends Left, Right:\n    items:\n        + {super.items}\n        - b\n",
     );
     let world = fixture.world();
-    let hover = hover_text(&world, &fixture, "spec/index.pi", "+ {super.items}");
+    let hover = operator_hover(&world, &fixture, "spec/index.pi", "+ {super.items}", "+");
     // `Right` has no `items`, so `super.items` comes from `Left`.
     assert!(hover.contains("[\"a\"]"), "{hover}");
     assert!(hover.contains("- a") && hover.contains("- b"), "{hover}");
@@ -642,9 +659,9 @@ fn dictionaries_merge_shallowly_with_plus_and_deeply_with_double_plus() {
         "left:\n    outer:\n        a: 1\n\nright:\n    outer:\n        b: 2\n\nexport anchor D:\n    deep: {left ++ right}\n    shallow: {left + right}\n",
     );
     let world = fixture.world();
-    let deep = hover_text(&world, &fixture, "spec/index.pi", "left ++ right");
+    let deep = operator_hover(&world, &fixture, "spec/index.pi", "left ++ right", "++");
     assert!(deep.contains("deeply"), "{deep}");
-    let shallow = hover_text(&world, &fixture, "spec/index.pi", "left + right");
+    let shallow = operator_hover(&world, &fixture, "spec/index.pi", "left + right", "+");
     assert!(shallow.contains("shallowly"), "{shallow}");
 }
 
@@ -732,8 +749,12 @@ fn the_configuration_is_a_project_config_not_a_regular_file() {
         Some(CompletionResponse::Array(items)) => items.into_iter().map(|item| item.label).collect(),
         _ => Vec::new(),
     };
-    for key in ["root", "entry", "output", "renderer", "frameworks"] {
+    for key in ["output", "renderer", "frameworks"] {
         assert!(labels.contains(&key.to_string()), "{key} missing: {labels:?}");
+    }
+    // What the configuration already sets is not offered again.
+    for key in ["root", "entry"] {
+        assert!(!labels.contains(&key.to_string()), "{key} offered twice: {labels:?}");
     }
 }
 

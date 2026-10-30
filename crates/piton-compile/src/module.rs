@@ -160,10 +160,17 @@ impl ModuleGraph {
 /// import, since the point of that is to reach somewhere the project does not
 /// reach yet.
 ///
-/// Bounded, because callers run it on a keystroke. A tree with more files than
-/// this is one where walking to the end helps nobody.
+/// Unbounded: formatting, checking and indexing all answer for every file, and
+/// stopping early would pass a tree on the strength of whichever files the
+/// directory listing happened to return first.
 pub fn sources(root: &Path) -> Vec<PathBuf> {
-    const LIMIT: usize = 5000;
+    sources_up_to(root, usize::MAX)
+}
+
+/// The first `limit` Piton source files beneath a directory, for callers that
+/// run on a keystroke. A tree with more files than that is one where walking to
+/// the end helps nobody, so which ones are kept is unspecified.
+pub fn sources_up_to(root: &Path, limit: usize) -> Vec<PathBuf> {
     // Build output and dependency directories hold no source anyone edits.
     //
     // `tethers` is the interesting one: an installed package *is* Piton source,
@@ -180,7 +187,7 @@ pub fn sources(root: &Path) -> Vec<PathBuf> {
             continue;
         };
         for entry in entries.flatten() {
-            if found.len() >= LIMIT {
+            if found.len() >= limit {
                 found.sort();
                 return found;
             }

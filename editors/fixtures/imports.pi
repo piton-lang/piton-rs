@@ -1,0 +1,12 @@
+from ./FirstFile import pi, MyAnchor
+from ./FirstFile import pi SliceOf, MyAnchor Alias
+from /subdir/file import AnAnchor
+from .. import Something
+from my-package import MyAnchor2
+from @piton/belay import ClaudeCodeAdapter
+from ./file import
+    First,
+    second
+from ./Base export *
+from ./Base export Base AliasBase, helper
+export pi

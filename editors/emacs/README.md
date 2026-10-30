@@ -12,9 +12,11 @@
 ## Highlighting
 
 The specification lists Emacs as `["tree-sitter", "lsp"]`. `piton-ts-mode`
-highlights with the tree-sitter grammar through `treesit-font-lock-rules` that
-mirror `tree-sitter-piton/queries/highlights.scm`; the server adds semantic
-tokens on top where eglot supports them. Install the grammar and use the mode:
+highlights with the tree-sitter grammar, reading `queries/highlights.scm` beside
+`piton-mode.el` — a byte-identical copy of the grammar's own query, so Emacs
+colours a file exactly as Zed, Helix and Neovim do. Each capture is shown in the
+face `piton-ts-capture-faces` gives it. The server adds semantic tokens on top
+where eglot supports them. Install the grammar and use the mode:
 
 ```elisp
 (add-to-list 'treesit-language-source-alist
@@ -26,7 +28,9 @@ tokens on top where eglot supports them. Install the grammar and use the mode:
 That is the published grammar repository the Zed extension pins. Emacs clones
 a branch rather than a commit (`git clone --branch`), so this names `main`, the
 branch `cargo xtask publish-grammar` pushes. Without the grammar,
-`piton-ts-mode` falls back to the regex highlighting of `piton-mode`.
+`piton-ts-mode` is `piton-mode`, which does not highlight: it provides the
+indentation and comment rules, and says once that highlighting needs the
+grammar.
 
 ## Editor behaviour
 

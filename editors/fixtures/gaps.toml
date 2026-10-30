@@ -1,0 +1,41 @@
+# Where a syntax definition is allowed to disagree with the parser.
+#
+# Each entry excuses one line of one fixture for one format, and says why the
+# format cannot, or by design should not, do what the parser does. The corpus
+# runner (`crates/piton-syntax/tests/highlight_corpus.rs`) fails an entry whose
+# line now matches, so this list only ever holds deviations that are real.
+#
+#     [[gap]]
+#     format = "textmate"   # tree-sitter, textmate, sublime, kate, vim
+#     fixture = "escapes"   # the fixture's name, without `.pi`
+#     line = 14             # 1-based
+#     reason = "..."
+
+# An escape block directly inside a fence that names a language is shown as
+# that language, which the parser has no notion of: to it the block is
+# verbatim. The specification allows it (`stringsStayStrings`), and it is the
+# point of the fence. Tree-sitter does the same through `injections.scm`, which
+# the highlight query does not see, so it has no entry here.
+[[gap]]
+format = "textmate"
+fixture = "escapes"
+line = 14
+reason = "an escape block inside a ```piton fence is highlighted as Piton (embedded source.piton), by design"
+
+[[gap]]
+format = "textmate"
+fixture = "escapes"
+line = 15
+reason = "an escape block inside a ```piton fence is highlighted as Piton (embedded source.piton), by design"
+
+[[gap]]
+format = "sublime"
+fixture = "escapes"
+line = 14
+reason = "an escape block inside a ```piton fence is highlighted as Piton (embed scope:source.piton), by design"
+
+[[gap]]
+format = "sublime"
+fixture = "escapes"
+line = 15
+reason = "an escape block inside a ```piton fence is highlighted as Piton (embed scope:source.piton), by design"

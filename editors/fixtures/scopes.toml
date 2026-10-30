@@ -1,0 +1,173 @@
+# The highlighting classes and what each syntax definition calls them.
+#
+# This is the one table every highlighter is tested against. A class is what
+# the parser says a byte is (`piton_syntax::highlight::Class`, which writes
+# `editors/fixtures/*.expected`); each row names the scope, capture, item or
+# group that a format uses for it. The corpus runner in
+# `crates/piton-syntax/tests/highlight_corpus.rs` reads a tool's output back
+# through this table, so a name has to be unique within its format, and a byte
+# whose name is not listed here is plain text.
+#
+# Prose is plain everywhere, and has no row: it is most of every file, and the
+# structure around it is what should stand out. Flipping that decision is one
+# row per format here, and a re-bless of the expectations.
+#
+# Columns:
+#   tm       TextMate (VS Code) and Sublime scope
+#   ts       tree-sitter capture (Zed, Helix, Neovim, Emacs)
+#   kate     Kate itemData name, and the default style it uses
+#   vim      Vim syntax group, and the default group it links to
+#   emacs    the face `piton-ts-capture-faces` gives the capture
+
+[Comment]
+tm = "comment.line.double-slash.piton"
+ts = "comment"
+kate = "Comment"
+kate_style = "dsComment"
+vim = "pitonComment"
+vim_link = "Comment"
+emacs = "font-lock-comment-face"
+
+[Keyword]
+tm = "keyword.control.piton"
+ts = "keyword"
+kate = "Keyword"
+kate_style = "dsKeyword"
+vim = "pitonKeyword"
+vim_link = "Keyword"
+emacs = "font-lock-keyword-face"
+
+[TypeDecl]
+tm = "entity.name.type.declaration.piton"
+ts = "type.definition"
+kate = "Declared Type"
+kate_style = "dsDataType"
+vim = "pitonTypeDecl"
+vim_link = "Type"
+emacs = "font-lock-type-face"
+
+[TypeRef]
+tm = "entity.name.type.piton"
+ts = "type"
+kate = "Type"
+kate_style = "dsDataType"
+vim = "pitonTypeRef"
+vim_link = "Type"
+emacs = "font-lock-type-face"
+
+[Variable]
+tm = "variable.other.piton"
+ts = "variable"
+kate = "Variable"
+kate_style = "dsVariable"
+vim = "pitonVariable"
+vim_link = "Identifier"
+emacs = "font-lock-variable-use-face"
+
+[Key]
+tm = "variable.other.property.piton"
+ts = "property"
+kate = "Key"
+kate_style = "dsAttribute"
+vim = "pitonKey"
+vim_link = "Identifier"
+emacs = "font-lock-property-name-face"
+
+[ModulePath]
+tm = "string.unquoted.module-path.piton"
+ts = "string.special.path"
+kate = "Path"
+kate_style = "dsImport"
+vim = "pitonPath"
+vim_link = "String"
+emacs = "font-lock-string-face"
+
+[BuiltinType]
+tm = "support.type.builtin.piton"
+ts = "type.builtin"
+kate = "Builtin Type"
+kate_style = "dsBuiltIn"
+vim = "pitonBuiltinType"
+vim_link = "Type"
+emacs = "font-lock-builtin-face"
+
+[Number]
+tm = "constant.numeric.piton"
+ts = "number"
+kate = "Number"
+kate_style = "dsDecVal"
+vim = "pitonNumber"
+vim_link = "Number"
+emacs = "font-lock-number-face"
+
+[Constant]
+tm = "constant.language.piton"
+ts = "constant.builtin"
+kate = "Constant"
+kate_style = "dsConstant"
+vim = "pitonConstant"
+vim_link = "Constant"
+emacs = "font-lock-constant-face"
+
+[String]
+tm = "string.quoted.double.piton"
+ts = "string"
+kate = "String"
+kate_style = "dsString"
+vim = "pitonString"
+vim_link = "String"
+emacs = "font-lock-string-face"
+
+[ExprKeyword]
+tm = "variable.language.piton"
+ts = "variable.builtin"
+kate = "Self"
+kate_style = "dsBuiltIn"
+vim = "pitonSelf"
+vim_link = "Special"
+emacs = "font-lock-builtin-face"
+
+[Operator]
+tm = "keyword.operator.piton"
+ts = "operator"
+kate = "Operator"
+kate_style = "dsOperator"
+vim = "pitonOperator"
+vim_link = "Operator"
+emacs = "font-lock-operator-face"
+
+[ListMarker]
+tm = "punctuation.definition.list.begin.piton"
+ts = "punctuation.list_marker"
+kate = "List Marker"
+kate_style = "dsSpecialChar"
+vim = "pitonListMarker"
+vim_link = "Special"
+emacs = "font-lock-misc-punctuation-face"
+
+[Sigil]
+tm = "punctuation.section.embedded.piton"
+ts = "punctuation.special"
+kate = "Sigil"
+kate_style = "dsSpecialChar"
+vim = "pitonSigil"
+vim_link = "Special"
+emacs = "font-lock-misc-punctuation-face"
+
+[Escape]
+tm = "constant.character.escape.piton"
+ts = "string.escape"
+kate = "Escape"
+kate_style = "dsSpecialChar"
+vim = "pitonEscape"
+vim_link = "SpecialChar"
+emacs = "font-lock-escape-face"
+
+[Verbatim]
+tm = "string.unquoted.verbatim.piton"
+ts = "string.special"
+kate = "Verbatim"
+kate_style = "dsVerbatimString"
+vim = "pitonVerbatim"
+vim_link = "String"
+emacs = "font-lock-string-face"

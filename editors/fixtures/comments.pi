@@ -1,0 +1,7 @@
+// A comment at the margin.
+anchor Commented:
+    // An indented comment.
+    title: Title // not a comment
+    //no space still a comment
+    body:
+        \ // \ escaped comment

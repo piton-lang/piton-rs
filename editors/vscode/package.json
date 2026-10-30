@@ -113,7 +113,49 @@
         "editor.insertSpaces": true,
         "editor.detectIndentation": false
       }
-    }
+    },
+    "semanticTokenModifiers": [
+      {
+        "id": "inherited",
+        "description": "A value a base anchor supplies"
+      },
+      {
+        "id": "exported",
+        "description": "Importable from other modules"
+      },
+      {
+        "id": "imported",
+        "description": "Declared in another module"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "piton",
+        "scopes": {
+          "class": [
+            "entity.name.type.piton"
+          ],
+          "class.declaration": [
+            "entity.name.type.declaration.piton"
+          ],
+          "class.defaultLibrary": [
+            "support.class.piton"
+          ],
+          "property": [
+            "variable.other.property.piton"
+          ],
+          "variable": [
+            "variable.other.piton"
+          ],
+          "keyword": [
+            "keyword.control.piton"
+          ],
+          "namespace": [
+            "string.unquoted.module-path.piton"
+          ]
+        }
+      }
+    ]
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -122,5 +164,9 @@
     "version:sync": "node scripts/sync-version.js",
     "package": "node scripts/sync-version.js && npx @vscode/vsce package",
     "publish": "node scripts/sync-version.js && npx @vscode/vsce publish"
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
   }
 }
