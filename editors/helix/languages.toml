@@ -28,4 +28,4 @@ name = "piton"
 # in editors/zed/extension.toml. It holds the grammar and the generated parser
 # at its root, and the revision has to be a real commit -- `HEAD` is not
 # something Helix can check out reproducibly.
-source = { git = "https://github.com/piton-lang/tree-sitter-piton", rev = "bd3abaf298e9f3bd2fa9b3293f3354a0721ae14f" }
+source = { git = "https://github.com/piton-lang/tree-sitter-piton", rev = "f5364a960df6c876e2137d7870bf6fd116290d17" }
