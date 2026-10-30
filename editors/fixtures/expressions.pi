@@ -1,0 +1,20 @@
+from ./Other import Other, helper
+
+total: {1 + 2 * 3}
+label: ${helper} and #{2 - 1}
+link: @{Other.color}
+check: {this.flag && !false}
+compare: {count >= 3 ? "many" : "few"}
+nested: ${Other.a.b}
+
+anchor Base:
+    name: Base
+    flag: true
+    a: ${this.name}
+    b: ${self.name}
+    c: {null == null}
+    list: {["A"] + ["B"]}
+
+anchor Mid extends Base:
+    a: over ${super.a}
+    joined: {(1 + 2) % 3}

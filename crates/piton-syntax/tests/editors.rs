@@ -82,17 +82,25 @@ fn missing<'a>(text: &str, words: impl IntoIterator<Item = &'a &'a str>) -> Vec<
         .collect()
 }
 
+/// The syntax definitions with rules of their own. Emacs is not one: it reads
+/// the tree-sitter grammar's `highlights.scm`, which
+/// `emacs_highlights_match_the_grammars_own` holds it to.
+const DEFINITIONS: &[&str] = &[
+    "vscode/syntaxes/piton.tmLanguage.json",
+    "tree-sitter-piton/grammar.js",
+    "vim/syntax/piton.vim",
+    "sublime/Piton.sublime-syntax",
+    "kate/piton.xml",
+];
+
 /// Every definition has to know every word that carries meaning.
+///
+/// This is a cheap early signal. Whether each word is coloured where it means
+/// something, and only there, is the highlighter corpus's question
+/// (`tests/highlight_corpus.rs`).
 #[test]
 fn every_definition_covers_the_keywords() {
-    let definitions = [
-        "vscode/syntaxes/piton.tmLanguage.json",
-        "tree-sitter-piton/grammar.js",
-        "vim/syntax/piton.vim",
-        "emacs/piton-mode.el",
-        "sublime/Piton.sublime-syntax",
-        "kate/piton.xml",
-    ];
+    let definitions = DEFINITIONS;
 
     let mut problems = Vec::new();
     for definition in definitions {
@@ -109,14 +117,7 @@ fn every_definition_covers_the_keywords() {
 /// prose in the editor while the compiler treats it as a reference.
 #[test]
 fn every_definition_covers_the_sigils() {
-    for definition in [
-        "vscode/syntaxes/piton.tmLanguage.json",
-        "tree-sitter-piton/grammar.js",
-        "vim/syntax/piton.vim",
-        "emacs/piton-mode.el",
-        "sublime/Piton.sublime-syntax",
-        "kate/piton.xml",
-    ] {
+    for definition in DEFINITIONS {
         let text = read(definition);
         for sigil in ["${", "#{", "@{"] {
             // Some formats escape the `$`, `#` or `@`, so the brace and the
@@ -383,6 +384,20 @@ fn every_query_matches_a_node_the_grammar_defines() {
             }
         }
     }
+    // `alias(rule, $.name)` gives a node a name no rule has, which is how a
+    // name token becomes a `declaration_keyword` where it declares one.
+    for piece in body.split("alias(").skip(1) {
+        let Some(at) = piece.find(", $.") else {
+            continue;
+        };
+        let name: String = piece[at + 4..]
+            .chars()
+            .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+            .collect();
+        if !name.is_empty() {
+            defined.push(name);
+        }
+    }
     assert!(defined.contains(&"source_file".to_string()), "{defined:?}");
 
     for relative in QUERY_FILES {
@@ -419,7 +434,8 @@ fn node_names(query: &str) -> Vec<String> {
         {
             cursor += 1;
         }
-        if cursor > start {
+        // `(_)` is the wildcard, which matches any named node.
+        if cursor > start && !(cursor == start + 1 && bytes[start] == '_') {
             names.push(bytes[start..cursor].iter().collect());
         }
         index += 1;
@@ -544,6 +560,175 @@ fn quoted_tokens(query: &str) -> Vec<String> {
     out.sort();
     out.dedup();
     out
+}
+
+// ---------------------------------------------------------------------------
+// Highlighting names
+// ---------------------------------------------------------------------------
+
+/// `editors/fixtures/scopes.toml`: for each highlighting class, its name in
+/// every format.
+fn scopes() -> toml::Table {
+    read("fixtures/scopes.toml")
+        .parse()
+        .expect("editors/fixtures/scopes.toml is TOML")
+}
+
+/// The names one column of `scopes.toml` gives, in row order.
+fn scope_column(column: &str) -> Vec<(String, String)> {
+    scopes()
+        .iter()
+        .map(|(class, row)| {
+            let name = row
+                .get(column)
+                .and_then(|value| value.as_str())
+                .unwrap_or_else(|| panic!("scopes.toml: `{class}` has no `{column}`"));
+            (class.clone(), name.to_string())
+        })
+        .collect()
+}
+
+/// A tool's output is read back to a class through these names, so within a
+/// format no two classes may share one. (The default styles and faces they
+/// map to may repeat: that is a colour, not an identity.)
+#[test]
+fn scopes_toml_names_are_unique_per_format() {
+    for column in ["tm", "ts", "kate", "vim"] {
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for (class, name) in scope_column(column) {
+            if let Some((other, _)) = seen.iter().find(|(_, seen_name)| *seen_name == name) {
+                panic!("scopes.toml gives `{name}` to both {other} and {class} in `{column}`");
+            }
+            seen.push((class, name));
+        }
+    }
+}
+
+/// A canonical name a definition never uses is a class that format cannot
+/// show, which is either a missing rule or a renamed one.
+#[test]
+fn every_canonical_name_appears_in_its_definition() {
+    for (column, definitions) in [
+        ("tm", &["vscode/syntaxes/piton.tmLanguage.json", "sublime/Piton.sublime-syntax"][..]),
+        ("kate", &["kate/piton.xml"][..]),
+        ("vim", &["vim/syntax/piton.vim"][..]),
+    ] {
+        for definition in definitions {
+            let text = read(definition);
+            for (class, name) in scope_column(column) {
+                let quoted = [format!("\"{name}\""), format!(" {name}\n"), format!(" {name} ")];
+                assert!(
+                    text.contains(&name) && (column != "tm" || quoted.iter().any(|q| text.contains(q.as_str()))),
+                    "{definition} never uses `{name}`, the {column} name for {class}"
+                );
+            }
+        }
+    }
+    // The tree-sitter query is the one place every capture is written.
+    let query = read("tree-sitter-piton/queries/highlights.scm");
+    let used = captures(&query);
+    for (class, name) in scope_column("ts") {
+        assert!(
+            used.contains(&name),
+            "highlights.scm never captures `@{name}`, the tree-sitter name for {class}"
+        );
+    }
+    for capture in &used {
+        assert!(
+            scope_column("ts").iter().any(|(_, name)| name == capture),
+            "highlights.scm captures `@{capture}`, which is not a canonical name in scopes.toml"
+        );
+    }
+}
+
+/// No pattern in the highlights query has a predicate.
+///
+/// Capitalisation is a token of its own in the grammar, so nothing needs
+/// `#match?`; and a predicate-free query is one Emacs, Neovim, Helix and Zed
+/// all read the same way.
+#[test]
+fn highlights_have_no_predicates() {
+    let query = read("tree-sitter-piton/queries/highlights.scm");
+    for (number, line) in query.lines().enumerate() {
+        let code = line.split(';').next().unwrap_or("");
+        assert!(
+            !code.contains("(#"),
+            "highlights.scm:{}: `{}` uses a predicate",
+            number + 1,
+            line.trim()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Emacs
+// ---------------------------------------------------------------------------
+
+/// `piton-ts-mode` reads the grammar's highlights query from a copy shipped
+/// next to `piton-mode.el`, so the copy has to be the query.
+#[test]
+fn emacs_highlights_match_the_grammars_own() {
+    assert_eq!(
+        read("tree-sitter-piton/queries/highlights.scm"),
+        read("emacs/queries/highlights.scm"),
+        "`emacs/queries/highlights.scm` has drifted from the grammar's own \
+         `queries/highlights.scm`. It is a copy and has to stay byte for byte \
+         the same."
+    );
+}
+
+/// Every capture the query uses has a face in `piton-ts-capture-faces`, and
+/// it is the face `scopes.toml` names. A capture with no entry is dropped by
+/// the mode, which shows as text that is coloured in every other editor and
+/// plain in Emacs.
+#[test]
+fn emacs_maps_every_capture() {
+    let mode = read("emacs/piton-mode.el");
+    let start = mode
+        .find("(defconst piton-ts-capture-faces")
+        .expect("piton-mode.el defines piton-ts-capture-faces");
+    let alist = &mode[start..];
+    let alist = &alist[..alist.find("\"Face for each").expect("the alist's docstring")];
+    let mut faces: Vec<(String, String)> = Vec::new();
+    for entry in alist.split("(\"").skip(1) {
+        let (capture, rest) = entry.split_once('"').expect("a quoted capture");
+        let face = rest
+            .trim_start()
+            .trim_start_matches('.')
+            .trim()
+            .split(')')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        faces.push((capture.to_string(), face));
+    }
+
+    let expected: Vec<(String, String)> = scope_column("ts")
+        .into_iter()
+        .zip(scope_column("emacs"))
+        .map(|((_, capture), (_, face))| (capture, face))
+        .collect();
+    for capture in captures(&read("emacs/queries/highlights.scm")) {
+        let face = faces
+            .iter()
+            .find(|(name, _)| *name == capture)
+            .unwrap_or_else(|| panic!("piton-ts-capture-faces has no entry for `@{capture}`"));
+        let wanted = expected
+            .iter()
+            .find(|(name, _)| *name == capture)
+            .map(|(_, face)| face.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            face.1, wanted,
+            "piton-ts-capture-faces shows `@{capture}` in `{}`, but scopes.toml says `{wanted}`",
+            face.1
+        );
+    }
+    assert!(
+        !mode.contains("piton-font-lock-keywords"),
+        "piton-mode.el highlights with regexps again; highlighting is the grammar's"
+    );
 }
 
 // ---------------------------------------------------------------------------

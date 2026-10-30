@@ -1,0 +1,19 @@
+title: A title
+export version: 1.0
+count:: number: 42
+tags:: string[]: [foo, bar]
+config:: dictionary:
+    a:: number: 1
+    foo-bar: kebab
+x:: simple: 1
+y:: complex: [1]
+z:: any: 1
+operators:: extends Operator[]: []
+first:: number:: string: 42
+abstract anchor Card:
+    title:: string
+    subtitle:: string:: null
+    footer:: string:: null: null
+    owner:: Card: {Card}
+use: text
+null: text

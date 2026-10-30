@@ -171,6 +171,7 @@ fn rendered_files(compilation: &Compilation, renderer: Adapter) -> Vec<OutputFil
             target: renderer.as_str(),
             origin: project::display(&source, &project.root),
             sources: vec![source],
+            copied: None,
         });
     }
     files

@@ -279,7 +279,7 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
     std::fs::remove_file(fixture.path("spec/index.pi")).expect("remove the entry");
     fixture.write(
         "spec/Page.pi",
-        "export abstract anchor Page as page:\n    title:: string\n",
+        "export abstract anchor Page as page:\n    title:: string\n    path:: string: /\n",
     );
     fixture.write(
         "spec/Home.pi",
@@ -316,5 +316,8 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
         Some(CompletionResponse::List(list)) => list.items.into_iter().map(|item| item.label).collect(),
         None => Vec::new(),
     };
-    assert!(labels.contains(&"title".to_string()), "{labels:?}");
+    // `title` is written already, so it is not offered a second time; what
+    // the page still lacks is.
+    assert!(labels.contains(&"path".to_string()), "{labels:?}");
+    assert!(!labels.contains(&"title".to_string()), "{labels:?}");
 }

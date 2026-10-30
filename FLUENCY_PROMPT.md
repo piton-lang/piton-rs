@@ -613,9 +613,9 @@ sections after the prompt.
 | Keyword | Extra required | Meaning / output |
 | --- | --- | --- |
 | `instruction` | — | Scoped guidance; **placement is meaning**. Mapped from `shapeRoot` to `codeRoot` (11.3); same-scope instructions combine into one file per target; also kept in the shape-reference tree. |
-| `skill` | `useWhen:: string` | Selectively loaded. Discovery description = `<description> Use when <useWhen>`; body = prompt then extras. |
+| `skill` | `useWhen:: string` (unless vendored) | Selectively loaded. Discovery description = `<description> Use when <useWhen>`; body = prompt then extras. |
 | `command` | — | Explicit entrypoint, named `x-<normalized name>`. Native or translated per adapter. |
-| `agent` | `role:: string` | Kebab-case name; body starts `You are a <role>`, then prompt, extras. |
+| `agent` | `role:: string` (unless vendored) | Kebab-case name; body starts `You are a <role>`, then prompt, extras. |
 
 - Required fields are checked on concrete constructs after inheritance.
 - Missing description/prompt are omitted, but a target that needs a
@@ -641,6 +641,29 @@ export skill AnswerSpecQuestions:
 `allowed-tools`, `mode`, `permission`, `agent`, `model_reasoning_effort`,
 `sandbox_mode`. Unsupported on a target → `unsupported-option`; bad value →
 `invalid-option`. Their typing is an open decision (11.7).
+
+
+**Vendored files.** A skill's `files` names a folder copied beside its
+`SKILL.md`: scripts, data, reference documents, byte for byte, execute bit
+kept. When the folder holds a `SKILL.md`, that file *is* the skill and the
+anchor may set nothing else (`vendored-conflict`); its `name` must match the
+anchor's (`vendored-name-mismatch`), and `useWhen` is then not required. An
+agent's `file` names its native definition (`.md`, or `.toml` for Codex), used
+as it is. Either takes one path, or a dictionary from target id to path for a
+tool-specific build; a built target the dictionary leaves out is
+`missing-vendored-target`, and `null` emits nothing for that target. Paths resolve from the declaring `.pi` file (or the
+source root with a leading `/`), so a tethered package can carry an upstream
+skill unconverted:
+
+```piton
+use @piton/belay
+
+export skill Impeccable:
+    files:
+        claude-code: ./vendor/claude/impeccable
+        codex: ./vendor/codex/impeccable
+        opencode: ./vendor/opencode/impeccable
+```
 
 ### 11.3 Shape mapping
 
@@ -853,7 +876,9 @@ status, compiled value), go-to-definition, find-references, workspace rename,
 auto-import and import organization (unused, duplicate, invalid, overly broad),
 code actions (import symbol, create anchor, add export, qualify reference,
 resolve simple inheritance conflict), document/workspace symbols, semantic
-highlighting, inlay hints (types, inherited origins, composition sources),
+highlighting (resolved names and module paths only; everything lexical is the
+syntax highlighter's), inlay hints (an unconstrained `{}` value's inferred type
+written as `:: type`, and `← Owner` after a member another anchor supplies),
 formatting, folding, selection ranges, hierarchy and provenance views,
 compiled-output preview, source-to-output mapping, unused/redundant detection,
 cycle detection (self-inheritance shown; circular imports not reported), and
@@ -863,10 +888,16 @@ Completion: never suggest things that don't exist; nothing on an empty value
 (`property: `) or after `.` in a string; **each thing once** — a re-exported
 name is offered once, imported from the shortest path, while distinct
 same-named anchors (e.g. a project copy and the bundled one) are each offered,
-naming their module.
+naming their module. Keys a body already has are not offered again, `pass` only
+in an empty body, and nothing inside an escape. Implementing a required
+property is not overriding it. Rename refuses invalid or colliding names;
+moving a file rewrites the paths that name it.
 
 Editors must: indent one level after Enter on a colon opening a block; dedent
 one level on Enter from a blank line in a block; optionally format on save.
+Highlighters show prose in the plain text style, values that are exactly a
+number/boolean/null as that type, and code fences as ordinary Piton; each is
+tested against the parser's own classification (`editors/fixtures/`).
 Supported (under `editors/`): VS Code (TextMate), Emacs, Helix, Zed
 (tree-sitter), Neovim/Vim (vim syntax), JetBrains, Sublime, Kate; all with full
 LSP.

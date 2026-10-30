@@ -1647,28 +1647,7 @@ fn infer(text: Text, single_line: bool) -> Evaluated {
 /// A leading 0 is mandatory for decimals, so `.5` is not a number, and there is
 /// no exponent notation.
 fn parse_number_literal(text: &str) -> Option<f64> {
-    let text = text.trim();
-    let digits = text.strip_prefix('-').unwrap_or(text);
-    let mut chars = digits.chars();
-    if !chars.next().is_some_and(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    let mut seen_dot = false;
-    let mut previous = ' ';
-    for ch in digits.chars() {
-        match ch {
-            '0'..='9' => {}
-            '_' if previous.is_ascii_digit() => {}
-            '.' if !seen_dot && previous.is_ascii_digit() => seen_dot = true,
-            _ => return None,
-        }
-        previous = ch;
-    }
-    if !previous.is_ascii_digit() {
-        return None;
-    }
-    let cleaned: String = text.chars().filter(|c| *c != '_').collect();
-    cleaned.parse::<f64>().ok()
+    piton_syntax::literal::parse_number_literal(text)
 }
 
 fn equal(a: &Value, b: &Value) -> bool {

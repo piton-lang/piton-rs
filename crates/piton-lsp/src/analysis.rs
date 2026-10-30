@@ -42,12 +42,11 @@ pub struct Mapping {
 pub struct Composition {
     pub module: ModuleId,
     pub span: Span,
-    /// The spans a hover explains it on: the expression, or each `+`/`++`
-    /// line of a block, never the prose between them.
+    /// The spans a hover explains it on: the operator of the expression, or
+    /// the `+`/`++` of each line of a block. Never the operands, which are
+    /// names with hovers of their own, and never the prose between them.
     pub targets: Vec<Span>,
     pub summary: String,
-    /// A short inlay, e.g. `+ merge`.
-    pub hint: String,
 }
 
 /// One place a name is bound in a module: a declaration, or an import entry.
@@ -1135,12 +1134,16 @@ impl Composer<'_, '_> {
             ),
             None => {}
         }
+        // The operator alone is what the hover explains, so that hovering a
+        // name inside the expression still describes the name.
+        let gap = &source[left.span.end..right.span.start];
+        let operator_start = left.span.end + (gap.len() - gap.trim_start().len());
+        let operator = Span::new(operator_start, operator_start + gap.trim().len());
         self.analysis.compositions.push(Composition {
             module: self.module,
             span: whole.span,
-            targets: vec![whole.span],
+            targets: vec![operator],
             summary: out,
-            hint: rule.hint,
         });
     }
 
@@ -1219,7 +1222,7 @@ impl Composer<'_, '_> {
             .items
             .iter()
             .filter_map(|item| match item {
-                BlockItem::Merge(merge) => Some(merge.span),
+                BlockItem::Merge(merge) => Some(merge.op_span),
                 _ => None,
             })
             .collect();
@@ -1233,7 +1236,6 @@ impl Composer<'_, '_> {
             span,
             targets,
             summary: out,
-            hint: hints.join(", "),
         });
     }
 }

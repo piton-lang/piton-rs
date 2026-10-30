@@ -10,9 +10,10 @@
 
 (string) @string
 
-; A fenced block and an escape block are verbatim: their contents are not Piton
-; and the editor should not be closing Piton's brackets inside them.
+; An escape is verbatim: what it holds is not Piton, and the editor should not
+; be closing Piton's brackets inside it. A code fence is not one -- the lines
+; inside it are Piton like any others.
 [
-  (fence_content)
   (escape_content)
+  (escape_text)
 ] @verbatim

@@ -7,11 +7,17 @@
 
 ;;; Commentary:
 
-;; Piton is whitespace-structured and most of its content is prose, so this
-;; mode highlights the structure and leaves the prose alone.  The spec lists
-;; Emacs as using tree-sitter and LSP together: `piton-ts-mode' highlights
-;; with the grammar in ../tree-sitter-piton when it is installed, and both
+;; The spec lists Emacs as using tree-sitter and LSP together.
+;; `piton-ts-mode' highlights with the grammar in ../tree-sitter-piton, reading
+;; the grammar's own `highlights.scm' (shipped next to this file as
+;; queries/highlights.scm, a byte-identical copy) rather than a second set of
+;; rules, so Emacs colours a file exactly as Zed, Helix and Neovim do.  Both
 ;; modes talk to `piton lsp' through eglot for everything beyond highlighting.
+;;
+;; `piton-mode' on its own does not highlight.  There used to be a set of
+;; regexps here, and they were a seventh approximation of the parser that
+;; nothing tested; without the grammar, the mode provides indentation and
+;; comments, and says once that highlighting needs it.
 ;;
 ;; Editor behaviour, per the specification:
 ;;
@@ -50,80 +56,6 @@ else that is commented."
   :type 'boolean
   :group 'piton)
 
-(defconst piton--constants '("true" "false" "null")
-  "Literal values.")
-
-(defconst piton--type-names
-  '("string" "number" "boolean" "null" "list" "dictionary"
-    "anchor" "reference" "any" "simple" "complex")
-  "Type names usable in a `::' constraint.")
-
-(defvar piton-font-lock-keywords
-  `(
-    ;; Comments are syntactic: see `piton--syntax-propertize'.
-
-    ;; Declarations: `[export] [abstract] <keyword> Name [extends ...] [as kw]:'.
-    ;; Declarations and imports are top-level only, so they start at column 0
-    ;; and a declaration ends at its colon: an indented `use the spec' is
-    ;; prose, and a word in prose is never a keyword.
-    ("^\\(?:\\(export\\)[ \t]+\\)?\\(?:\\(abstract\\)[ \t]+\\)?\\([a-z][a-z0-9-]*\\)[ \t]+\\([A-Za-z_][A-Za-z0-9_]*\\)\\(?:[ \t]+\\(as\\)[ \t]+\\([a-z][a-z0-9-]*\\)\\)?\\(?:[ \t]+\\(extends\\)[ \t]+\\([^:\n]*?\\)\\)?\\(?:[ \t]+\\(as\\)[ \t]+\\([a-z][a-z0-9-]*\\)\\)?[ \t]*:[ \t]*$"
-     (1 font-lock-keyword-face nil t)
-     (2 font-lock-keyword-face nil t)
-     (3 font-lock-builtin-face)
-     (4 font-lock-type-face)
-     (5 font-lock-keyword-face nil t)
-     (6 font-lock-function-name-face nil t)
-     (7 font-lock-keyword-face nil t)
-     (8 font-lock-type-face nil t)
-     (9 font-lock-keyword-face nil t)
-     (10 font-lock-function-name-face nil t))
-
-    ;; Imports
-    ("^\\(use\\)[ \t]+\\(\\S-+\\)"
-     (1 font-lock-keyword-face)
-     (2 font-lock-string-face))
-    ("^\\(from\\)[ \t]+\\(\\S-+\\)[ \t]+\\(import\\|export\\)\\_>"
-     (1 font-lock-keyword-face)
-     (2 font-lock-string-face)
-     (3 font-lock-keyword-face))
-    ;; `export Name' re-exports; `export name: value' exports a variable.
-    ("^\\(export\\)[ \t]" 1 font-lock-keyword-face)
-
-    ;; A key is any text without spaces followed by a colon.  Keywords are keys
-    ;; here too: the colon is what separates the two readings.
-    ("^[ \t]*\\([^ \t:]+\\)\\(?:::[^:\n]*\\)*:\\(?:[ \t]\\|$\\)" 1 font-lock-variable-name-face)
-    (,(concat "::[ \t]*\\(?:extends[ \t]+\\)?\\(" (regexp-opt piton--type-names 'symbols) "\\)")
-     1 font-lock-type-face)
-
-    ;; `pass` is an intentionally empty body.
-    ("^[ \t]*\\(pass\\)[ \t]*$" 1 font-lock-keyword-face)
-
-    ;; Structure markers
-    ("^[ \t]*\\(-\\)\\(?:[ \t]\\|$\\)" 1 font-lock-negation-char-face)
-    ("^[ \t]*\\(\\+\\+?\\)\\(?:[ \t]\\|$\\)" 1 font-lock-keyword-face)
-
-    ;; Interpolation.  Four sigils: intrinsic, string, numeric, reference.
-    ("\\(\\(?:\\$\\|#\\|@\\)?{\\)\\([^}\n]*\\)\\(}\\)"
-     (1 font-lock-preprocessor-face)
-     (2 font-lock-constant-face)
-     (3 font-lock-preprocessor-face))
-    ;; Constants and `this', `self', `super' only mean something inside an
-    ;; interpolation; in prose they are part of the string.
-    ("\\(?:\\$\\|#\\|@\\)?{"
-     (,(regexp-opt piton--constants 'symbols)
-      (save-excursion (if (search-forward "}" (line-end-position) t) (point) (line-end-position)))
-      nil
-      (0 font-lock-constant-face t)))
-    ("\\(?:\\$\\|#\\|@\\)?{"
-     ("\\_<\\(this\\|self\\|super\\)\\_>"
-      (save-excursion (if (search-forward "}" (line-end-position) t) (point) (line-end-position)))
-      nil
-      (1 font-lock-builtin-face t)))
-
-    ;; A line of backslashes delimits a literal block.
-    ("^[ \t]*\\(\\\\+\\)[ \t]*$" 1 font-lock-preprocessor-face))
-  "Font lock rules for `piton-mode'.")
-
 (defvar piton-mode-syntax-table
   (let ((table (make-syntax-table)))
     ;; A slash is punctuation: `//' only opens a comment at the start of a
@@ -143,28 +75,22 @@ else that is commented."
 ;; characters are `//'.  At the end of a line of code `//' is just text, so
 ;; `url: https://example.com // note' is the string
 ;; `https://example.com // note'.  The lines of an escape block (between two
-;; lines of the same run of backslashes) and of a fence are literal, so a `//'
-;; line inside one is not a comment either.
+;; lines of the same run of backslashes) are literal, so a `//' line inside
+;; one is not a comment either.  A code fence protects nothing: the compiler
+;; reads a `//' line inside one as a comment, and so does this.
 
 (defconst piton--escape-open-regexp "[ \t]*\\(\\\\+\\)[ \t]*$"
   "A line of backslashes, which opens or closes an escape block.")
 
-(defconst piton--fence-open-regexp "[ \t]*```+[ \t]*[A-Za-z0-9_+-]*[ \t]*$"
-  "A line that opens a fence.")
-
-(defconst piton--fence-close-regexp "[ \t]*```+[ \t]*$"
-  "A line that closes a fence.")
-
 (defun piton--verbatim-step (close)
   "The literal-block state after the line at point.
-CLOSE is the regexp for the line that ends the escape block or fence the
-line at point is in, or nil when it is in neither.  Return the same for
-the next line."
+CLOSE is the regexp for the line that ends the escape block the line at
+point is in, or nil when it is in none.  Return the same for the next
+line."
   (cond
    (close (if (looking-at close) nil close))
    ((looking-at piton--escape-open-regexp)
     (concat "[ \t]*" (regexp-quote (match-string 1)) "[ \t]*$"))
-   ((looking-at piton--fence-open-regexp) piton--fence-close-regexp)
    (t nil)))
 
 (defun piton--verbatim-state-at (pos)
@@ -182,7 +108,7 @@ See `piton--verbatim-step'."
 (defun piton--syntax-propertize (start end)
   "Mark the whole-line comments between START and END.
 The first slash of a line's leading `//' gets comment-start syntax,
-unless the line is inside an escape block or a fence."
+unless the line is inside an escape block."
   (goto-char start)
   (beginning-of-line)
   (let ((close (piton--verbatim-state-at (point))))
@@ -337,11 +263,29 @@ after `//' and touches nothing else that is commented."
 
 ;;;; Modes
 
+(defvar piton--highlighting-notice-shown nil
+  "Whether this session has been told highlighting needs the grammar.")
+
+(defun piton--notice-no-highlighting (buffer)
+  "Say once that BUFFER is not highlighted without the tree-sitter grammar."
+  (when (and (buffer-live-p buffer)
+             (not piton--highlighting-notice-shown)
+             (with-current-buffer buffer
+               (not (and (eq major-mode 'piton-ts-mode)
+                         (fboundp 'treesit-ready-p)
+                         (treesit-ready-p 'piton t)))))
+    (setq piton--highlighting-notice-shown t)
+    (message "Piton: highlighting needs the tree-sitter grammar; see `piton-ts-mode'")))
+
+
 ;;;###autoload
 (define-derived-mode piton-mode prog-mode "Piton"
   "Major mode for editing Piton sources."
   :syntax-table piton-mode-syntax-table
-  (setq-local font-lock-defaults '(piton-font-lock-keywords))
+  ;; No highlighting without the grammar: see the commentary.  KEYWORDS-ONLY
+  ;; with no keywords, so the syntax table does not colour quoted prose as a
+  ;; string either.
+  (setq-local font-lock-defaults '(nil t))
   (setq-local syntax-propertize-function #'piton--syntax-propertize)
   (setq-local comment-start "// ")
   (setq-local comment-start-skip "//+[ \t]*")
@@ -359,101 +303,83 @@ after `//' and touches nothing else that is commented."
   (setq-local fill-paragraph-function #'ignore)
   ;; Autoformat on save is an option: the hook is buffer-local and does
   ;; nothing unless `piton-format-on-save' is non-nil at save time.
-  (add-hook 'before-save-hook #'piton--format-on-save nil t))
+  (add-hook 'before-save-hook #'piton--format-on-save nil t)
+  ;; Checked once the mode (or `piton-ts-mode', which runs this body first)
+  ;; has finished setting up.
+  (unless piton--highlighting-notice-shown
+    (run-with-idle-timer 0 nil #'piton--notice-no-highlighting (current-buffer))))
 
 ;;;; Tree-sitter
+
+;; The faces each capture in highlights.scm is shown in.  The captures are the
+;; canonical tree-sitter names in editors/fixtures/scopes.toml and these faces
+;; are its `emacs' column; crates/piton-syntax/tests/editors.rs checks that
+;; every capture the query uses has an entry here.
+(defconst piton-ts-capture-faces
+  '(("comment" . font-lock-comment-face)
+    ("keyword" . font-lock-keyword-face)
+    ("type.definition" . font-lock-type-face)
+    ("type" . font-lock-type-face)
+    ("variable" . font-lock-variable-use-face)
+    ("property" . font-lock-property-name-face)
+    ("string.special.path" . font-lock-string-face)
+    ("type.builtin" . font-lock-builtin-face)
+    ("number" . font-lock-number-face)
+    ("constant.builtin" . font-lock-constant-face)
+    ("string" . font-lock-string-face)
+    ("variable.builtin" . font-lock-builtin-face)
+    ("operator" . font-lock-operator-face)
+    ("punctuation.list_marker" . font-lock-misc-punctuation-face)
+    ("punctuation.special" . font-lock-misc-punctuation-face)
+    ("string.escape" . font-lock-escape-face)
+    ("string.special" . font-lock-string-face))
+  "Face for each capture name in the shared highlights query.")
+
+(defconst piton-ts--highlights-file
+  (expand-file-name "queries/highlights.scm"
+                    (file-name-directory (or load-file-name buffer-file-name)))
+  "The grammar's highlights query, shipped next to this file.")
+
+(defun piton-ts--highlights-query ()
+  "The shared highlights query with each capture rewritten to its face.
+Emacs reads a capture name as the face to use, where other editors read it
+as a theme key, so `@keyword' becomes `@font-lock-keyword-face'.  A capture
+with no entry in `piton-ts-capture-faces' is dropped rather than guessed."
+  (with-temp-buffer
+    (insert-file-contents piton-ts--highlights-file)
+    (goto-char (point-min))
+    (while (re-search-forward "@\\([A-Za-z_][A-Za-z0-9_.]*\\)" nil t)
+      (let ((face (cdr (assoc (match-string 1) piton-ts-capture-faces))))
+        (replace-match (if face (concat "@" (symbol-name face)) "") t t)))
+    (buffer-string)))
 
 (defvar piton-ts--font-lock-settings nil
   "Tree-sitter font-lock settings for `piton-ts-mode', built on first use.")
 
 (defun piton-ts--font-lock-settings ()
-  "Font-lock rules mirroring ../tree-sitter-piton/queries/highlights.scm."
+  "Font-lock rules read from the grammar's own highlights query."
   (or piton-ts--font-lock-settings
       (setq piton-ts--font-lock-settings
             (treesit-font-lock-rules
              :language 'piton
-             :feature 'comment
-             '((comment) @font-lock-comment-face)
-
-             :language 'piton
-             :feature 'string
-             '((text) @font-lock-string-face
-               ;; Sigil characters that open nothing are part of the string.
-               (punctuation) @font-lock-string-face
-               (string) @font-lock-string-face
-               (fence) @font-lock-string-face
-               (escape_block) @font-lock-string-face
-               (module_path) @font-lock-string-face)
-
-             :language 'piton
-             :feature 'keyword
+             :feature 'piton
+             ;; No node is captured twice, so the order of the patterns does
+             ;; not matter; an inner capture overrides an outer one.
              :override t
-             '(["export" "abstract" "as" "extends" "use" "from" "import"]
-               @font-lock-keyword-face
-               (pass_statement) @font-lock-keyword-face
-               (from_declaration direction: _ @font-lock-keyword-face)
-               (anchor_declaration
-                keyword: (declaration_keyword) @font-lock-keyword-face))
-
-             :language 'piton
-             :feature 'definition
-             :override t
-             '((anchor_declaration name: (identifier) @font-lock-type-face)
-               ;; A user keyword is sugar for `extends'.
-               (anchor_declaration alias: (keyword_name) @font-lock-function-name-face)
-               (base_list (identifier) @font-lock-type-face)
-               (import_item name: (identifier) @font-lock-variable-name-face)
-               (import_item alias: (identifier) @font-lock-variable-name-face))
-
-             :language 'piton
-             :feature 'property
-             :override t
-             '((property name: (key) @font-lock-property-name-face))
-
-             :language 'piton
-             :feature 'type
-             :override t
-             '((builtin_type) @font-lock-type-face
-               (type_constraint type: (identifier) @font-lock-type-face)
-               (type_constraint "extends" @font-lock-keyword-face)
-               (type_constraint ":" @font-lock-delimiter-face)
-               (list_suffix) @font-lock-bracket-face)
-
-             :language 'piton
-             :feature 'structure
-             :override t
-             '((list_item "-" @font-lock-punctuation-face)
-               (merge_item operator: _ @font-lock-operator-face)
-               (fence_marker) @font-lock-punctuation-face
-               (fence_language) @font-lock-preprocessor-face
-               (escape_marker) @font-lock-punctuation-face)
-
-             :language 'piton
-             :feature 'interpolation
-             :override t
-             '((interpolation (sigil) @font-lock-preprocessor-face)
-               (interpolation "}" @font-lock-preprocessor-face)
-               (constant) @font-lock-constant-face
-               (self_reference) @font-lock-builtin-face
-               (number) @font-lock-number-face
-               (operator) @font-lock-operator-face
-               ((identifier) @font-lock-type-face
-                (:match "\\`[A-Z]" @font-lock-type-face)))))))
+             (piton-ts--highlights-query)))))
 
 ;;;###autoload
 (when (and (fboundp 'treesit-available-p) (treesit-available-p))
   (define-derived-mode piton-ts-mode piton-mode "Piton[ts]"
     "Major mode for editing Piton sources, using tree-sitter for highlighting.
-Falls back to `piton-mode' highlighting when the grammar is not installed.
+Without the grammar installed this is `piton-mode', which does not
+highlight.
 Indentation stays with `piton--indent-line': the grammar is line-oriented
 and cannot express the Enter rules."
     (when (treesit-ready-p 'piton)
       (treesit-parser-create 'piton)
       (setq-local treesit-font-lock-settings (piton-ts--font-lock-settings))
-      (setq-local treesit-font-lock-feature-list
-                  '((comment definition)
-                    (keyword string property type)
-                    (structure interpolation)))
+      (setq-local treesit-font-lock-feature-list '((piton)))
       (treesit-major-mode-setup)
       ;; `treesit-major-mode-setup' leaves indentation alone when there are no
       ;; `treesit-simple-indent-rules', but make the intent explicit.

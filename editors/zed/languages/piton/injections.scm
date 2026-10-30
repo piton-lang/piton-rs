@@ -1,14 +1,17 @@
-; A fenced block's language tag selects a parser for its contents, so a `json`
-; example inside a specification is highlighted as JSON.
+; A code fence is text, and the lines inside it are Piton like any others. The
+; one thing a fence can do is name the language of an escape block directly
+; inside it, which is how a specification shows an example, so that block is
+; highlighted as the language the fence names:
+;
+;     ```json
+;     \\\
+;     {"a": 1}
+;     \\\
+;     ```
 
-((fence
-   language: (fence_language) @injection.language
-   (fence_content) @injection.content)
- (#set! injection.include-children))
-
-; The usual form in a specification wraps the example in an escape block so the
-; compiler reads it literally; its lines are the code.
-((fence
-   language: (fence_language) @injection.language
-   (escape_block (escape_content) @injection.content))
+((fence_open
+   language: (fence_language) @injection.language)
+ .
+ (escape_block
+   (escape_content) @injection.content)
  (#set! injection.combined))

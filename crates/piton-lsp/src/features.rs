@@ -17,7 +17,8 @@ use tower_lsp::lsp_types::*;
 use crate::world::OutputSettings;
 use piton_emit::Adapter;
 use crate::convert::{
-    offset_to_position, path_to_url, position_to_offset, span_to_range, url_to_path,
+    offset_to_position, path_to_url, position_to_offset, span_to_range, url_to_path, Encoding,
+    LineIndex,
 };
 use crate::index::{Role, Target};
 use crate::world::World;
@@ -117,22 +118,34 @@ fn file_context<'a>(world: &'a World, uri: &Url) -> Option<Cursor<'a>> {
 pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
     let cursor = cursor(world, uri, position)?;
     let index = world.index.get(cursor.module)?;
-    let occurrence = index.at(cursor.offset);
+    let occurrence = index
+        .at(cursor.offset)
+        .filter(|occurrence| !matches!(occurrence.target, Target::Unresolved(_)));
     let mut parts = Vec::new();
+    let mut range = None;
     if let Some(occurrence) = occurrence {
-        if let Some(markdown) = describe(cursor.compilation, &world.output, &occurrence.target) {
+        if let Some(markdown) = describe(world, &cursor.path, &occurrence.target) {
             parts.push(markdown);
+            range = Some(occurrence.span);
         }
+    } else if let Some((span, markdown)) = describe_self_reference(&cursor) {
+        parts.push(markdown);
+        range = Some(span);
     }
     // A composition is explained on its own operator, even though `+` is not
     // a named occurrence. Plain text gets nothing: a string is a string.
     let compositions = world.analysis.compositions_at(cursor.module, cursor.offset);
-    if !compositions.is_empty() {
-        let mut seen = HashSet::new();
-        for composition in &compositions {
-            if seen.insert(composition.span) {
-                parts.push(composition.summary.clone());
-            }
+    let mut seen = HashSet::new();
+    for composition in &compositions {
+        if seen.insert(composition.span) {
+            parts.push(composition.summary.clone());
+        }
+        if range.is_none() {
+            range = composition
+                .targets
+                .iter()
+                .find(|target| target.contains(cursor.offset))
+                .copied();
         }
     }
     // Where a construct compiles to is a fact about its declaration, so it is
@@ -146,9 +159,6 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
     if parts.is_empty() {
         return None;
     }
-    let range = occurrence
-        .map(|item| item.span)
-        .or_else(|| compositions.first().map(|composition| composition.span));
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
@@ -156,6 +166,77 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
         }),
         range: range.map(|span| span_to_range(&cursor.text, span)),
     })
+}
+
+/// `this`, `self` or `super` under the cursor, and what it stands for there.
+fn describe_self_reference(cursor: &Cursor<'_>) -> Option<(Span, String)> {
+    let parse = &cursor.compilation.graph().get(cursor.module).parse;
+    let token = parse
+        .syntax()
+        .token_at_offset(rowan::TextSize::from(cursor.offset as u32))
+        .find(|token| {
+            matches!(
+                token.kind(),
+                SyntaxKind::KW_THIS | SyntaxKind::KW_SELF | SyntaxKind::KW_SUPER
+            )
+        })?;
+    let range = token.text_range();
+    let span = Span::new(usize::from(range.start()), usize::from(range.end()));
+    let store = cursor.compilation.store();
+    let anchor = store.anchor(enclosing_anchor(cursor)?);
+    let markdown = match token.kind() {
+        SyntaxKind::KW_THIS => format!(
+            "`this` is `{}`, the anchor this expression is written in.",
+            anchor.name
+        ),
+        SyntaxKind::KW_SELF => format!(
+            "`self` is the anchor being compiled: `{}` or an anchor that extends it.",
+            anchor.name
+        ),
+        _ => {
+            let bases: Vec<String> = anchor
+                .bases
+                .iter()
+                .map(|base| format!("`{}`", store.anchor(*base).name))
+                .collect();
+            match bases.as_slice() {
+                [] => return None,
+                [only] => format!("`super` is {only}."),
+                _ => format!(
+                    "`super` is the merge of {}; the right-most wins.",
+                    bases.join(", ")
+                ),
+            }
+        }
+    };
+    Some((span, markdown))
+}
+
+/// A path as the person reading it would write it: relative to the
+/// workspace, with `/` between the parts. A bundled package keeps its `@`
+/// path.
+fn shown_path(world: &World, path: &Path) -> String {
+    match path.strip_prefix(&world.root) {
+        Ok(relative) => slash_path(relative),
+        Err(_) => path.to_string_lossy().replace('\\', "/"),
+    }
+}
+
+/// `[`spec/Base.pi:2`](file:///.../spec/Base.pi#L2)`, a link to the line a
+/// span starts on. A bundled package has no file to open, so it is named
+/// without a link.
+fn source_link(world: &World, path: &Path, span: Span) -> String {
+    let shown = shown_path(world, path);
+    if path.to_string_lossy().starts_with('@') {
+        return format!("`{shown}`");
+    }
+    let line = world
+        .text(path)
+        .map_or(1, |text| offset_to_position(&text, span.start).line + 1);
+    match path_to_url(path) {
+        Some(url) => format!("[`{shown}:{line}`]({url}#L{line})"),
+        None => format!("`{shown}:{line}`"),
+    }
 }
 
 fn mapping_note(
@@ -223,143 +304,139 @@ pub fn summary(compilation: &Compilation, anchor: AnchorId) -> Option<String> {
 }
 
 /// Builds the documentation shown for a target: what it is, where it came
-/// from, its inheritance chain, and the value it resolves to.
-fn describe(compilation: &Compilation, output: &OutputSettings, target: &Target) -> Option<String> {
+/// from, its inheritance chain, and the value it resolves to. Sections are
+/// separated by a blank line and left out when they would be empty.
+fn describe(world: &World, from: &Path, target: &Target) -> Option<String> {
+    let compilation = world.compilation.as_ref()?;
+    let output = &world.output;
+    let store = compilation.store();
+    let constrained = |constraints: &[ast::TypeConstraint]| -> Option<String> {
+        (!constraints.is_empty()).then(|| {
+            let names: Vec<String> = constraints
+                .iter()
+                .map(piton_compile::eval::constraint_label)
+                .collect();
+            format!("Constrained to: {}", names.join(" or "))
+        })
+    };
+    let mut sections: Vec<String> = Vec::new();
     match target {
         Target::Anchor(anchor) => {
-            let def = compilation.store().anchor(*anchor);
-            let mut out = String::new();
-            out.push_str("```piton\n");
+            let def = store.anchor(*anchor);
+            let mut header = String::new();
             if def.exported {
-                out.push_str("export ");
+                header.push_str("export ");
             }
             if def.is_abstract {
-                out.push_str("abstract ");
+                header.push_str("abstract ");
             }
-            out.push_str(&def.keyword);
-            out.push(' ');
-            out.push_str(&def.name);
+            header.push_str(&format!("{} {}", def.keyword, def.name));
+            let module = compilation.graph().get(def.module);
+            if let Item::Anchor(decl) = &module.ast().items[def.item] {
+                if !decl.extends.is_empty() {
+                    let bases: Vec<&str> = decl.extends.iter().map(|base| base.value.as_str()).collect();
+                    header.push_str(&format!(" extends {}", bases.join(", ")));
+                }
+            }
             if let Some(alias) = &def.alias {
-                out.push_str(&format!(" as {alias}"));
+                header.push_str(&format!(" as {alias}"));
             }
-            out.push_str("\n```\n\n");
-            if let Some(summary) = summary(compilation, *anchor) {
-                out.push_str(&format!("{summary}\n\n"));
-            }
+            sections.push(format!("```piton\n{header}\n```"));
+            sections.extend(summary(compilation, *anchor));
 
-            let chain: Vec<String> = compilation
-                .store()
+            let chain: Vec<String> = store
                 .base_chain(*anchor)
                 .into_iter()
                 .filter(|id| *id != *anchor)
-                .map(|id| compilation.store().anchor(id).name.clone())
+                .map(|id| store.anchor(id).name.clone())
                 .collect();
             if !chain.is_empty() {
-                out.push_str(&format!("Inherits: {}\n\n", chain.join(" \u{2192} ")));
+                sections.push(format!("Inherits: {}", chain.join(" \u{2192} ")));
             }
-            out.push_str(&format!(
-                "Declared in `{}`\n\n",
-                compilation.anchor_module_path(*anchor).display()
-            ));
+            let mut declared = format!(
+                "Declared in {}",
+                source_link(world, &compilation.anchor_module_path(*anchor), def.name_span)
+            );
             if !def.exported {
-                out.push_str("_Not exported; only this file can use it._\n\n");
+                declared.push_str(" \u{b7} not exported");
             }
+            sections.push(declared);
 
             if !def.properties.is_empty() && !def.is_abstract {
                 // The compiled interpretation is often the real question.
-                out.push_str(&rendered(
-                    compilation,
-                    output,
-                    &piton_core::Value::Anchor(*anchor),
-                ));
+                sections.push(rendered(compilation, output, &piton_core::Value::Anchor(*anchor)));
             }
-            Some(out)
         }
         Target::Variable(variable) => {
-            let def = compilation.store().variable(*variable);
-            let mut out = format!(
-                "```piton\n{}{}\n```\n\n",
+            let def = store.variable(*variable);
+            sections.push(format!(
+                "```piton\n{}{}\n```",
                 if def.exported { "export " } else { "" },
                 def.name
-            );
-            if !def.constraints.is_empty() {
-                let names: Vec<String> = def
-                    .constraints
-                    .iter()
-                    .map(piton_compile::eval::constraint_label)
-                    .collect();
-                out.push_str(&format!("Constrained to: {}\n\n", names.join(" or ")));
-            }
+            ));
+            sections.extend(constrained(&def.constraints));
+            sections.push(format!(
+                "Declared in {}",
+                source_link(world, &compilation.graph().get(def.module).path, def.name_span)
+            ));
             if let Some(value) = &def.value {
-                out.push_str(&rendered(compilation, output, value));
+                sections.push(rendered(compilation, output, value));
             }
-            Some(out)
         }
         Target::Property(anchor, name) => {
-            let def = compilation.store().anchor(*anchor);
+            let def = store.anchor(*anchor);
             let slot = def.slots.get(name)?;
-            let owner = compilation.store().anchor(slot.owner);
-            let mut out = format!("`{}` on `{}`\n\n", name, def.name);
+            sections.push(format!("`{name}` on `{}`", def.name));
             if slot.owner != *anchor {
                 // Knowing which base contributed a value is the whole point of
                 // structural inheritance being visible.
-                out.push_str(&format!("Inherited from `{}`\n\n", owner.name));
-            } else if let Some(replaced) = overridden(compilation, *anchor, name) {
-                out.push_str(&format!(
-                    "Overrides `{}.{name}`\n\n",
-                    compilation.store().anchor(replaced).name
-                ));
+                sections.push(format!("Inherited from `{}`", store.anchor(slot.owner).name));
+            } else if let Some(replaced) = replaces_value(compilation, *anchor, name) {
+                sections.push(format!("Overrides `{}.{name}`", store.anchor(replaced).name));
+            } else if let Some(required) = overridden(compilation, *anchor, name) {
+                sections.push(format!("Implements `{}.{name}`", store.anchor(required).name));
             }
-            if !slot.constraints.is_empty() {
-                let names: Vec<String> = slot
-                    .constraints
-                    .iter()
-                    .map(piton_compile::eval::constraint_label)
-                    .collect();
-                out.push_str(&format!("Constrained to: {}\n\n", names.join(" or ")));
-            }
+            sections.extend(constrained(&slot.constraints));
             if !slot.has_value {
-                out.push_str("_Abstract: an implementing anchor must define it._\n\n");
+                sections.push("_Required: an implementing anchor must define it._".into());
             }
             if let Some(value) = def.properties.get(name) {
-                out.push_str(&rendered(compilation, output, value));
+                sections.push(rendered(compilation, output, value));
             }
-            Some(out)
         }
         Target::Key(anchor, path) => {
-            let def = compilation.store().anchor(*anchor);
+            let def = store.anchor(*anchor);
             let (last, parents) = path.split_last()?;
-            let mut out = format!(
-                "`{last}` in `{}.{}`\n\n_A key of that dictionary, not a property of `{}`._\n\n",
-                def.name,
-                parents.join("."),
+            sections.push(format!("`{last}` in `{}.{}`", def.name, parents.join(".")));
+            sections.push(format!(
+                "_A key of that dictionary, not a property of `{}`._",
                 def.name
-            );
+            ));
             if let Some(value) = key_value(compilation, *anchor, path) {
-                out.push_str(&rendered(compilation, output, value));
+                sections.push(rendered(compilation, output, value));
             }
-            Some(out)
         }
         Target::Keyword(keyword, anchor) => {
-            let mut out = format!("Keyword `{keyword}`\n\n");
-            match anchor {
-                Some(anchor) => {
-                    let def = compilation.store().anchor(*anchor);
-                    out.push_str(&format!(
-                        "Shorthand for `extends {}`, declared in `{}`.\n\nA user keyword's anchor is always the last base, so it wins any collision with what is in `extends`.",
-                        def.name,
-                        compilation.anchor_module_path(*anchor).display()
-                    ));
-                }
-                None => out.push_str(
-                    "Not in scope. Add a `use` declaration for the module that exports it.",
-                ),
-            }
-            Some(out)
+            let def = store.anchor((*anchor)?);
+            sections.push(format!(
+                "Keyword `{keyword}`: shorthand for `extends {}`, declared in {}.",
+                def.name,
+                source_link(world, &compilation.anchor_module_path(def.id), def.name_span)
+            ));
         }
-        Target::Module(path) => Some(format!("Module `{}`", path.display())),
-        Target::Unresolved(name) => Some(format!("`{name}` is not in scope.")),
+        Target::Module(written) => {
+            let path = resolve_module_path(world, from, written)?;
+            let shown = shown_path(world, &path);
+            sections.push(match path_to_url(&path) {
+                Some(url) if !shown.starts_with('@') => {
+                    format!("Module `{}` \u{2192} [`{shown}`]({url})", written.display())
+                }
+                _ => format!("Module `{}` \u{2192} `{shown}`", written.display()),
+            });
+        }
+        Target::Unresolved(_) => return None,
     }
+    Some(sections.join("\n\n"))
 }
 
 /// The resolved value at a nested key.
@@ -374,6 +451,21 @@ fn key_value<'a>(
         value = value.property(segment, compilation)?;
     }
     Some(value)
+}
+
+/// The base whose value of `name` an anchor's own declaration replaces: the
+/// right-most base that has it, when that base gave it a value. Writing a
+/// property an abstract base only requires is implementing it, not
+/// overriding it.
+pub fn replaces_value(compilation: &Compilation, anchor: AnchorId, name: &str) -> Option<AnchorId> {
+    let base = overridden(compilation, anchor, name)?;
+    compilation
+        .store()
+        .anchor(base)
+        .slots
+        .get(name)
+        .is_some_and(|slot| slot.has_value)
+        .then_some(base)
 }
 
 /// The base whose declaration of `name` an anchor's own declaration replaces:
@@ -468,37 +560,167 @@ fn key_declaration(
     Some((module.path.clone(), property.name_span))
 }
 
-/// The location of the declaration an anchor's own property replaces.
-fn overridden_location(world: &World, anchor: AnchorId, name: &str) -> Option<Location> {
-    let compilation = world.compilation.as_ref()?;
-    let base = overridden(compilation, anchor, name)?;
-    definition_location(world, &Target::Property(base, name.to_string()))
-}
-
 pub fn definition(world: &World, uri: &Url, position: Position) -> Option<GotoDefinitionResponse> {
     let cursor = cursor(world, uri, position)?;
     let index = world.index.get(cursor.module)?;
     let occurrence = index.at(cursor.offset)?;
+    let origin = span_to_range(&cursor.text, occurrence.span);
 
-    // On the declaration of a property that overrides an inherited one, the
+    // On the declaration of a property that replaces an inherited one, the
     // interesting place to go is the declaration it replaces.
-    if let (Target::Property(anchor, name), Role::Definition) = (&occurrence.target, occurrence.role)
-    {
-        if let Some(location) = overridden_location(world, *anchor, name) {
-            return Some(GotoDefinitionResponse::Scalar(location));
+    let target = match (&occurrence.target, occurrence.role) {
+        (Target::Property(anchor, name), Role::Definition) => {
+            match overridden(cursor.compilation, *anchor, name) {
+                Some(base) => Target::Property(base, name.clone()),
+                None => occurrence.target.clone(),
+            }
         }
-    }
+        (target, _) => target.clone(),
+    };
 
     // A module path navigates to the module's own file.
-    if let Target::Module(written) = &occurrence.target {
+    let (location, whole) = if let Target::Module(written) = &target {
         let resolved = resolve_module_path(world, &cursor.path, written)?;
-        return Some(GotoDefinitionResponse::Scalar(Location {
+        let location = Location {
             uri: path_to_url(&resolved)?,
             range: Range::default(),
-        }));
-    }
+        };
+        (location.clone(), location.range)
+    } else {
+        let location = definition_location(world, &target)?;
+        let whole = declaration_range(world, &target).unwrap_or(location.range);
+        (location, whole)
+    };
 
-    definition_location(world, &occurrence.target).map(GotoDefinitionResponse::Scalar)
+    Some(if world.caps.link_support {
+        GotoDefinitionResponse::Link(vec![LocationLink {
+            origin_selection_range: Some(origin),
+            target_uri: location.uri,
+            target_range: whole,
+            target_selection_range: location.range,
+        }])
+    } else {
+        GotoDefinitionResponse::Scalar(location)
+    })
+}
+
+/// The whole declaration a target names, for an editor that shows it: an
+/// anchor's or a variable's from its first line to the end of its body.
+fn declaration_range(world: &World, target: &Target) -> Option<Range> {
+    let compilation = world.compilation.as_ref()?;
+    let (path, span) = match target {
+        Target::Anchor(anchor) => {
+            let def = compilation.store().anchor(*anchor);
+            let module = compilation.graph().get(def.module);
+            let Item::Anchor(decl) = &module.ast().items[def.item] else {
+                return None;
+            };
+            (module.path.clone(), trimmed(&module.source, decl.span))
+        }
+        Target::Variable(variable) => {
+            let def = compilation.store().variable(*variable);
+            let module = compilation.graph().get(def.module);
+            let span = module.ast().items.iter().find_map(|item| match item {
+                Item::Variable(decl) if decl.name_span == def.name_span => Some(decl.span),
+                _ => None,
+            })?;
+            (module.path.clone(), trimmed(&module.source, span))
+        }
+        _ => return None,
+    };
+    let text = world.text(&path)?;
+    Some(span_to_range(&text, span))
+}
+
+/// A span without the blank lines and whitespace at its ends.
+fn trimmed(source: &str, span: Span) -> Span {
+    let text = &source[span.start..span.end.min(source.len())];
+    let start = span.start + (text.len() - text.trim_start().len());
+    Span::new(start, (span.start + text.trim_end().len()).max(start))
+}
+
+/// The anchors a name's type names, for `textDocument/typeDefinition`.
+///
+/// On a property or a variable, the anchors its constraints name, in the
+/// order they are written; on an anchor, the anchor itself. A built-in type
+/// is nowhere to go.
+pub fn type_definition(
+    world: &World,
+    uri: &Url,
+    position: Position,
+) -> Option<request::GotoTypeDefinitionResponse> {
+    let cursor = cursor(world, uri, position)?;
+    let index = world.index.get(cursor.module)?;
+    let occurrence = index.at(cursor.offset)?;
+    let compilation = cursor.compilation;
+    let store = compilation.store();
+
+    let mut anchors: Vec<AnchorId> = Vec::new();
+    match &occurrence.target {
+        Target::Anchor(anchor) => anchors.push(*anchor),
+        Target::Property(anchor, name) => {
+            let slot = store.anchor(*anchor).slots.get(name)?;
+            for constraint in &slot.constraints {
+                if let ast::TypeName::Named(written) = &constraint.name {
+                    if let Some(found) = constraint_type(&cursor, *anchor, slot, written) {
+                        anchors.push(found);
+                    }
+                }
+            }
+        }
+        Target::Variable(variable) => {
+            let def = store.variable(*variable);
+            for constraint in &def.constraints {
+                if let ast::TypeName::Named(written) = &constraint.name {
+                    if let Some(Symbol::Anchor(found)) =
+                        compilation.resolution.lookup(def.module, written)
+                    {
+                        anchors.push(found);
+                    }
+                }
+            }
+        }
+        _ => return None,
+    }
+    let mut seen = HashSet::new();
+    anchors.retain(|anchor| seen.insert(*anchor));
+    let locations: Vec<Location> = anchors
+        .into_iter()
+        .filter_map(|anchor| definition_location(world, &Target::Anchor(anchor)))
+        .collect();
+    (!locations.is_empty()).then_some(request::GotoTypeDefinitionResponse::Array(locations))
+}
+
+/// Every occurrence in this file of what is under the cursor. A declaration
+/// is where it is written; anything else is where it is read.
+pub fn document_highlight(
+    world: &World,
+    uri: &Url,
+    position: Position,
+) -> Option<Vec<DocumentHighlight>> {
+    let cursor = cursor(world, uri, position)?;
+    let index = world.index.get(cursor.module)?;
+    let target = index.at(cursor.offset)?.target.clone();
+    if matches!(target, Target::Unresolved(_) | Target::Module(_)) {
+        return None;
+    }
+    let related = related_to(cursor.compilation, &target);
+    let lines = LineIndex::new(&cursor.text, Encoding::Utf16);
+    let mut out: Vec<DocumentHighlight> = index
+        .occurrences
+        .iter()
+        .filter(|occurrence| related(&occurrence.target))
+        .map(|occurrence| DocumentHighlight {
+            range: lines.range(occurrence.span),
+            kind: Some(match occurrence.role {
+                Role::Definition => DocumentHighlightKind::WRITE,
+                Role::Reference => DocumentHighlightKind::READ,
+            }),
+        })
+        .collect();
+    out.sort_by_key(|highlight| (highlight.range.start.line, highlight.range.start.character));
+    out.dedup_by_key(|highlight| highlight.range);
+    Some(out)
 }
 
 fn resolve_module_path(world: &World, from: &Path, written: &Path) -> Option<PathBuf> {
@@ -549,6 +771,7 @@ pub fn references(
                 .cmp(&(b.range.start.line, b.range.start.character)),
         )
     });
+    out.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
     Some(out)
 }
 
@@ -591,21 +814,141 @@ fn related_to<'a>(
 // Rename
 // ---------------------------------------------------------------------------
 
+/// Whether a target is declared in a bundled package, which the user cannot
+/// edit.
+fn in_package(compilation: &Compilation, target: &Target) -> Option<String> {
+    let module = match target {
+        Target::Anchor(anchor) | Target::Keyword(_, Some(anchor)) | Target::Property(anchor, _) => {
+            let store = compilation.store();
+            let owner = match target {
+                Target::Property(_, name) => store
+                    .anchor(*anchor)
+                    .slots
+                    .get(name)
+                    .map_or(*anchor, |slot| slot.owner),
+                _ => *anchor,
+            };
+            store.anchor(owner).module
+        }
+        Target::Variable(variable) => compilation.store().variable(*variable).module,
+        _ => return None,
+    };
+    let path = compilation.graph().get(module).path.to_string_lossy().to_string();
+    path.starts_with('@').then(|| {
+        // `@piton/belay/anchors/Skill.pi` is in the package `@piton/belay`.
+        path.split('/').take(2).collect::<Vec<_>>().join("/")
+    })
+}
+
+/// Checks that something can be renamed, and says why not when it cannot.
+fn renameable(compilation: &Compilation, occurrence: &crate::index::Occurrence) -> Result<(), String> {
+    match &occurrence.target {
+        Target::Module(_) => Err("A module path is renamed by moving its file.".into()),
+        Target::Unresolved(_) => Err(format!("`{}` is not declared anywhere.", occurrence.text)),
+        target => match in_package(compilation, target) {
+            Some(package) => Err(format!(
+                "`{}` is declared in `{package}` and cannot be renamed.",
+                occurrence.text
+            )),
+            None => Ok(()),
+        },
+    }
+}
+
 pub fn prepare_rename(
     world: &World,
     uri: &Url,
     position: Position,
-) -> Option<PrepareRenameResponse> {
-    let cursor = cursor(world, uri, position)?;
-    let index = world.index.get(cursor.module)?;
-    let occurrence = index.at(cursor.offset)?;
-    if matches!(occurrence.target, Target::Module(_)) {
-        return None;
-    }
-    Some(PrepareRenameResponse::RangeWithPlaceholder {
+) -> Result<Option<PrepareRenameResponse>, String> {
+    let Some(cursor) = cursor(world, uri, position) else {
+        return Ok(None);
+    };
+    let Some(occurrence) = world
+        .index
+        .get(cursor.module)
+        .and_then(|index| index.at(cursor.offset))
+    else {
+        return Ok(None);
+    };
+    renameable(cursor.compilation, occurrence)?;
+    Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
         range: span_to_range(&cursor.text, occurrence.span),
         placeholder: occurrence.text.clone(),
+    }))
+}
+
+/// Whether `name` can be written where `target` is declared.
+fn valid_new_name(target: &Target, name: &str) -> Result<(), String> {
+    let key_characters = !name.is_empty()
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        && name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-');
+    let ok = match target {
+        Target::Anchor(_) => {
+            name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                && !piton_core::names::is_reserved(name)
+        }
+        Target::Variable(_) => key_characters && !piton_core::names::is_reserved(name),
+        Target::Property(..) | Target::Key(..) => key_characters,
+        Target::Keyword(..) => {
+            piton_core::names::is_valid_keyword(name) && !piton_core::names::is_reserved(name)
+        }
+        Target::Module(_) | Target::Unresolved(_) => false,
+    };
+    if ok {
+        return Ok(());
+    }
+    Err(match target {
+        Target::Anchor(_) => format!(
+            "`{name}` is not an anchor name: it starts with a letter or `_`, holds only letters, digits and `_`, and is not a reserved word."
+        ),
+        Target::Keyword(..) => format!(
+            "`{name}` is not a keyword: keywords are lowercase, may be kebab-case, and are not reserved words."
+        ),
+        Target::Variable(_) => format!(
+            "`{name}` is not a variable name: it holds only letters, digits, `_` and `-`, and is not a reserved word."
+        ),
+        _ => format!("`{name}` is not a key: keys hold only letters, digits, `_` and `-`."),
     })
+}
+
+/// Where `name` would collide with something already there: a top-level
+/// name in a module the rename touches, or a property of an anchor in the
+/// renamed property's family.
+fn collision(
+    compilation: &Compilation,
+    target: &Target,
+    modules: &[piton_compile::ModuleId],
+    name: &str,
+) -> Option<String> {
+    let store = compilation.store();
+    match target {
+        Target::Anchor(_) | Target::Variable(_) => modules.iter().find_map(|module| {
+            compilation.resolution.lookup(*module, name).map(|_| {
+                format!(
+                    "`{name}` is already defined in `{}`.",
+                    compilation.graph().get(*module).path.display()
+                )
+            })
+        }),
+        Target::Property(anchor, _) => store
+            .anchors
+            .iter()
+            .filter(|def| {
+                store.inherits_from(def.id, *anchor) || store.inherits_from(*anchor, def.id)
+            })
+            .find(|def| def.slots.contains_key(name))
+            .map(|def| format!("`{}` already has a property `{name}`.", def.name)),
+        Target::Keyword(..) => store
+            .anchors
+            .iter()
+            .find(|def| def.alias.as_deref() == Some(name))
+            .map(|def| format!("`{name}` is already the keyword of `{}`.", def.name)),
+        _ => None,
+    }
 }
 
 pub fn rename(
@@ -613,21 +956,30 @@ pub fn rename(
     uri: &Url,
     position: Position,
     new_name: &str,
-) -> Option<WorkspaceEdit> {
-    let cursor = cursor(world, uri, position)?;
-    let index = world.index.get(cursor.module)?;
-    let target = index.at(cursor.offset)?.target.clone();
-    if matches!(target, Target::Module(_)) {
-        return None;
-    }
+) -> Result<Option<WorkspaceEdit>, String> {
+    let Some(cursor) = cursor(world, uri, position) else {
+        return Ok(None);
+    };
+    let Some(occurrence) = world
+        .index
+        .get(cursor.module)
+        .and_then(|index| index.at(cursor.offset))
+    else {
+        return Ok(None);
+    };
     let compilation = cursor.compilation;
+    renameable(compilation, occurrence)?;
+    let target = occurrence.target.clone();
+    let written = occurrence.text.clone();
+    if new_name == written {
+        return Ok(None);
+    }
+    valid_new_name(&target, new_name)?;
 
-    let index = world.index.get(cursor.module)?;
-    let written = index.at(cursor.offset)?.text.clone();
     let related = related_to(compilation, &target);
-
-    let mut edits: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+    let mut edits: HashMap<PathBuf, Vec<TextEdit>> = HashMap::new();
     let mut texts: HashMap<PathBuf, String> = HashMap::new();
+    let mut touched = Vec::new();
     for (module, occurrence) in world.index.matching(|candidate| related(candidate)) {
         // Only rewrite occurrences spelled the same way. A keyword alias and an
         // aliased import bind other names for the same thing, and renaming one
@@ -637,32 +989,214 @@ pub fn rename(
         }
         let path = compilation.graph().get(module).path.clone();
         if path.to_string_lossy().starts_with('@') {
-            // A bundled package is not the user's to rename.
-            return None;
+            continue;
+        }
+        if !touched.contains(&module) {
+            touched.push(module);
         }
         let text = texts
             .entry(path.clone())
             .or_insert_with(|| world.text(&path).unwrap_or_default());
-        let Some(url) = path_to_url(&path) else {
-            continue;
-        };
-        // An aliased import binds a different local name; renaming the local
-        // name must not rewrite the exported one.
-        edits.entry(url).or_default().push(TextEdit {
+        edits.entry(path).or_default().push(TextEdit {
             range: span_to_range(text, occurrence.span),
             new_text: new_name.to_string(),
         });
+    }
+    if let Some(problem) = collision(compilation, &target, &touched, new_name) {
+        return Err(problem);
     }
 
     for list in edits.values_mut() {
         list.sort_by_key(|edit| (edit.range.start.line, edit.range.start.character));
         list.dedup_by_key(|edit| (edit.range.start.line, edit.range.start.character));
     }
+    Ok(Some(workspace_edit(world, edits)))
+}
 
-    Some(WorkspaceEdit {
-        changes: Some(edits),
-        ..Default::default()
+/// A set of edits in the form the client asked for: versioned per document
+/// when it supports that, so an edit computed against an old buffer is
+/// refused rather than applied in the wrong place.
+pub fn workspace_edit(world: &World, edits: HashMap<PathBuf, Vec<TextEdit>>) -> WorkspaceEdit {
+    let mut paths: Vec<PathBuf> = edits.keys().cloned().collect();
+    paths.sort();
+    if world.caps.document_changes {
+        let changes = paths
+            .into_iter()
+            .filter_map(|path| {
+                let uri = path_to_url(&path)?;
+                let version = world.version(&path);
+                let list = edits.get(&path)?.clone();
+                Some(TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
+                    edits: list.into_iter().map(OneOf::Left).collect(),
+                })
+            })
+            .collect();
+        WorkspaceEdit {
+            document_changes: Some(DocumentChanges::Edits(changes)),
+            ..Default::default()
+        }
+    } else {
+        WorkspaceEdit {
+            changes: Some(
+                paths
+                    .into_iter()
+                    .filter_map(|path| Some((path_to_url(&path)?, edits.get(&path)?.clone())))
+                    .collect(),
+            ),
+            ..Default::default()
+        }
+    }
+}
+
+/// The same edit, in the form the client asked for (see [`workspace_edit`]).
+fn versioned(world: &World, edit: WorkspaceEdit) -> WorkspaceEdit {
+    let Some(changes) = edit.changes else {
+        return edit;
+    };
+    let by_path = changes
+        .into_iter()
+        .filter_map(|(uri, edits)| Some((url_to_path(&uri)?, edits)))
+        .collect();
+    workspace_edit(world, by_path)
+}
+
+/// Rewrites the module paths a file move breaks, before the move happens.
+///
+/// Every `use` and `from` path that resolves into a moved file or folder is
+/// pointed at its new place, and a moved file's own relative paths are
+/// pointed back at what they named. A path keeps its style: rooted stays
+/// rooted, relative stays relative, `.pi` stays written or left off, and a
+/// path to a folder's index stays a path to the folder. Package paths never
+/// change.
+pub fn will_rename_files(world: &World, files: &[FileRename]) -> Option<WorkspaceEdit> {
+    let compilation = world.compilation.as_ref()?;
+    let moves: Vec<(PathBuf, PathBuf)> = files
+        .iter()
+        .filter_map(|file| {
+            let old = url_to_path(&Url::parse(&file.old_uri).ok()?)?;
+            let new = url_to_path(&Url::parse(&file.new_uri).ok()?)?;
+            Some((old, new))
+        })
+        .collect();
+    if moves.is_empty() {
+        return None;
+    }
+    // Where a path ends up, if a move takes it somewhere.
+    let moved = |path: &Path| -> Option<PathBuf> {
+        moves.iter().find_map(|(old, new)| {
+            if path == old {
+                Some(new.clone())
+            } else {
+                path.strip_prefix(old).ok().map(|rest| new.join(rest))
+            }
+        })
+    };
+
+    let mut edits: HashMap<PathBuf, Vec<TextEdit>> = HashMap::new();
+    for module in compilation.graph().iter() {
+        if module.is_package() {
+            continue;
+        }
+        let file = module.path.clone();
+        let file_after = moved(&file).unwrap_or_else(|| file.clone());
+        let Some(text) = world.text(&file) else {
+            continue;
+        };
+        for item in &module.ast().items {
+            let path = match item {
+                Item::Use(decl) => &decl.path,
+                Item::From(decl) => &decl.path,
+                _ => continue,
+            };
+            let written = path.text.as_str();
+            if !(written.starts_with('.') || written.starts_with('/')) {
+                continue;
+            }
+            let Some(target) = module_path_from(&world.project, &file, written) else {
+                continue;
+            };
+            let target_after = moved(&target);
+            if target_after.is_none() && file_after == file {
+                continue;
+            }
+            let target_after = target_after.unwrap_or(target.clone());
+            let Some(rewritten) =
+                rewrite_module_path(&world.project, written, &target_after, &file_after)
+            else {
+                continue;
+            };
+            if rewritten != written {
+                edits.entry(file.clone()).or_default().push(TextEdit {
+                    range: span_to_range(&text, path.span),
+                    new_text: rewritten,
+                });
+            }
+        }
+    }
+    if edits.is_empty() {
+        return None;
+    }
+    Some(workspace_edit(world, edits))
+}
+
+/// The text of a module path that names `target` from a file at `from`, in
+/// the style `written` was in.
+fn rewrite_module_path(project: &Project, written: &str, target: &Path, from: &Path) -> Option<String> {
+    let index = format!("index.{}", piton_syntax::language::EXTENSION);
+    let names_folder = target.file_name().is_some_and(|name| name == index.as_str())
+        && !written.trim_end_matches('/').ends_with(&index)
+        && !written.ends_with(&format!(".{}", piton_syntax::language::EXTENSION));
+    let keeps_extension = written.ends_with(&format!(".{}", piton_syntax::language::EXTENSION));
+    let mut target = target.to_path_buf();
+    if names_folder {
+        target.pop();
+    } else if !keeps_extension {
+        target.set_extension("");
+    }
+
+    if written.starts_with('/') {
+        let relative = target.strip_prefix(&project.source_root).ok()?;
+        return Some(format!("/{}", slash_path(relative)));
+    }
+    let relative = relative_path(from.parent()?, &target)?;
+    let text = slash_path(&relative);
+    Some(if text.is_empty() {
+        ".".into()
+    } else if text == ".." || text.starts_with("../") {
+        text
+    } else {
+        format!("./{text}")
     })
+}
+
+fn slash_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `to` as a path relative to the directory `from`.
+fn relative_path(from: &Path, to: &Path) -> Option<PathBuf> {
+    let from: Vec<_> = from.components().collect();
+    let to_parts: Vec<_> = to.components().collect();
+    let common = from
+        .iter()
+        .zip(&to_parts)
+        .take_while(|(a, b)| a == b)
+        .count();
+    if common == 0 {
+        return None;
+    }
+    let mut out = PathBuf::new();
+    for _ in common..from.len() {
+        out.push("..");
+    }
+    for part in &to_parts[common..] {
+        out.push(part.as_os_str());
+    }
+    Some(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -685,21 +1219,7 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
                     .iter()
                     .find(|def| def.module == cursor.module && def.item == item_index)
                     .and_then(|def| summary(cursor.compilation, def.id));
-                let children: Vec<DocumentSymbol> = decl
-                    .body
-                    .properties()
-                    .map(|property| {
-                        symbol(
-                            &property.name,
-                            SymbolKind::PROPERTY,
-                            property.span,
-                            property.name_span,
-                            text,
-                            None,
-                            Vec::new(),
-                        )
-                    })
-                    .collect();
+                let children = property_symbols(&decl.body, text, SymbolKind::PROPERTY);
                 let mut detail = if decl.is_abstract {
                     format!("abstract {}", decl.keyword)
                 } else {
@@ -717,7 +1237,7 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
                     } else {
                         SymbolKind::CLASS
                     },
-                    decl.span,
+                    trimmed(text, decl.span),
                     decl.name_span,
                     text,
                     detail,
@@ -727,16 +1247,57 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
             Item::Variable(decl) => symbols.push(symbol(
                 &decl.name,
                 SymbolKind::VARIABLE,
-                decl.span,
+                trimmed(text, decl.span),
                 decl.name_span,
                 text,
-                None,
-                Vec::new(),
+                constraint_text(text, &decl.constraints),
+                decl.value
+                    .block
+                    .as_ref()
+                    .map(|block| property_symbols(block, text, SymbolKind::FIELD))
+                    .unwrap_or_default(),
             )),
             _ => {}
         }
     }
     Some(DocumentSymbolResponse::Nested(symbols))
+}
+
+/// The properties of a block as symbols, each with the keys of its own
+/// dictionary beneath it. List items are values, not names, and are left out.
+fn property_symbols(block: &ast::Block, text: &str, kind: SymbolKind) -> Vec<DocumentSymbol> {
+    block
+        .properties()
+        .map(|property| {
+            let children = property
+                .value
+                .block
+                .as_ref()
+                .map(|block| property_symbols(block, text, SymbolKind::FIELD))
+                .unwrap_or_default();
+            symbol(
+                &property.name,
+                kind,
+                trimmed(text, property.span),
+                property.name_span,
+                text,
+                constraint_text(text, &property.constraints),
+                children,
+            )
+        })
+        .collect()
+}
+
+/// The constraints as they are written, `string` or `Foo[]`, joined the way
+/// they chain.
+fn constraint_text(text: &str, constraints: &[ast::TypeConstraint]) -> Option<String> {
+    (!constraints.is_empty()).then(|| {
+        constraints
+            .iter()
+            .map(|constraint| text[constraint.span.start..constraint.span.end].to_string())
+            .collect::<Vec<_>>()
+            .join(":: ")
+    })
 }
 
 #[allow(deprecated)]
@@ -762,77 +1323,99 @@ fn symbol(
 }
 
 #[allow(deprecated)]
+/// How well a name matches a query: 0 for the same name, 1 for a prefix, 2
+/// for a substring, 3 for the query's letters in order. Case is ignored.
+pub fn match_tier(name: &str, query: &str) -> Option<u8> {
+    let name = name.to_lowercase();
+    let query = query.to_lowercase();
+    if name == query {
+        return Some(0);
+    }
+    if name.starts_with(&query) {
+        return Some(1);
+    }
+    if name.contains(&query) {
+        return Some(2);
+    }
+    let mut letters = name.chars();
+    query
+        .chars()
+        .all(|wanted| letters.any(|letter| letter == wanted))
+        .then_some(3)
+}
+
+/// The most symbols one search returns.
+const WORKSPACE_SYMBOL_LIMIT: usize = 256;
+
+#[allow(deprecated)]
 pub fn workspace_symbols(world: &World, query: &str) -> Option<Vec<SymbolInformation>> {
     let compilation = world.compilation.as_ref()?;
-    let query = query.to_lowercase();
-    let mut out = Vec::new();
-    let mut texts: HashMap<PathBuf, String> = HashMap::new();
-
-    for def in &compilation.store().anchors {
-        if !query.is_empty() && !def.name.to_lowercase().contains(&query) {
-            continue;
-        }
-        let path = compilation.anchor_module_path(def.id);
-        if path.to_string_lossy().starts_with('@') {
-            continue;
-        }
-        let text = texts
-            .entry(path.clone())
-            .or_insert_with(|| world.text(&path).unwrap_or_default());
-        let Some(uri) = path_to_url(&path) else {
-            continue;
-        };
-        out.push(SymbolInformation {
-            name: def.name.clone(),
-            kind: if def.is_abstract {
+    let store = compilation.store();
+    let mut candidates: Vec<(u8, String, PathBuf, Span, SymbolKind)> = Vec::new();
+    let anchors = store.anchors.iter().map(|def| {
+        (
+            def.name.clone(),
+            compilation.anchor_module_path(def.id),
+            def.name_span,
+            if def.is_abstract {
                 SymbolKind::INTERFACE
             } else {
                 SymbolKind::CLASS
             },
-            tags: None,
-            deprecated: None,
-            location: Location {
-                uri,
-                range: span_to_range(text, def.name_span),
-            },
-            // The protocol has no detail field for a workspace symbol; the
-            // container name is what editors show beside it, so the summary
-            // of its description rides along there.
-            container_name: Some(match summary(compilation, def.id) {
-                Some(described) => format!("{} \u{2014} {described}", def.keyword),
-                None => def.keyword.clone(),
-            }),
-        });
-    }
-
-    for def in &compilation.store().variables {
-        if !query.is_empty() && !def.name.to_lowercase().contains(&query) {
-            continue;
-        }
-        let path = compilation.graph().get(def.module).path.clone();
+        )
+    });
+    let variables = store.variables.iter().map(|def| {
+        (
+            def.name.clone(),
+            compilation.graph().get(def.module).path.clone(),
+            def.name_span,
+            SymbolKind::VARIABLE,
+        )
+    });
+    for (name, path, span, kind) in anchors.chain(variables) {
+        // A bundled package has no file the editor could open.
         if path.to_string_lossy().starts_with('@') {
             continue;
         }
-        let text = texts
-            .entry(path.clone())
-            .or_insert_with(|| world.text(&path).unwrap_or_default());
-        let Some(uri) = path_to_url(&path) else {
-            continue;
+        let tier = if query.is_empty() {
+            Some(0)
+        } else {
+            match_tier(&name, query)
         };
-        out.push(SymbolInformation {
-            name: def.name.clone(),
-            kind: SymbolKind::VARIABLE,
-            tags: None,
-            deprecated: None,
-            location: Location {
-                uri,
-                range: span_to_range(text, def.name_span),
-            },
-            container_name: None,
-        });
+        if let Some(tier) = tier {
+            candidates.push((tier, name, path, span, kind));
+        }
     }
+    candidates.sort_by(|a, b| {
+        (a.0, a.1.len(), &a.1, &a.2).cmp(&(b.0, b.1.len(), &b.1, &b.2))
+    });
+    candidates.truncate(WORKSPACE_SYMBOL_LIMIT);
 
-    out.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut texts: HashMap<PathBuf, String> = HashMap::new();
+    let out = candidates
+        .into_iter()
+        .filter_map(|(_, name, path, span, kind)| {
+            let text = texts
+                .entry(path.clone())
+                .or_insert_with(|| world.text(&path).unwrap_or_default());
+            let range = span_to_range(text, span);
+            let mut container = shown_path(world, &path);
+            if let Some(stripped) = container.strip_suffix(&format!(".{}", piton_syntax::language::EXTENSION)) {
+                container = stripped.to_string();
+            }
+            Some(SymbolInformation {
+                name,
+                kind,
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: path_to_url(&path)?,
+                    range,
+                },
+                container_name: Some(container),
+            })
+        })
+        .collect();
     Some(out)
 }
 
@@ -880,32 +1463,54 @@ enum Context<'a> {
 }
 
 pub fn completion(world: &World, uri: &Url, position: Position) -> Option<CompletionResponse> {
+    use piton_syntax::cursor::{site_at, Site};
     let cursor = cursor(world, uri, position)?;
-    let line_start = cursor.text[..cursor.offset]
-        .rfind('\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    let prefix = &cursor.text[line_start..cursor.offset];
-
-    let context = if verbatim_at(&cursor.text, line_start) {
-        Context::Nothing
-    } else {
-        context(prefix)
+    let site = site_at(&cursor.text, cursor.offset);
+    let sigil_text = |sigil: ast::Sigil| match sigil {
+        ast::Sigil::Standard => "{",
+        ast::Sigil::Stringify => "${",
+        ast::Sigil::Numeric => "#{",
+        ast::Sigil::Reference => "@{",
+    };
+    let context = match &site {
+        Site::Inert => Context::Nothing,
+        Site::ModulePath => Context::ModulePath,
+        Site::ImportDirection => Context::ImportDirection,
+        Site::ImportName { path, .. } => Context::ImportName { module: path },
+        Site::DeclarationHead {
+            exported,
+            is_abstract,
+        } => Context::Declaration {
+            exported: *exported,
+            is_abstract: *is_abstract,
+        },
+        Site::Base => Context::Bases,
+        Site::Constraint => Context::TypeConstraint,
+        Site::Expression { sigil, member_of } => Context::Expression {
+            sigil: sigil_text(*sigil),
+            member_of: member_of.as_deref(),
+        },
+        Site::Key { .. } => Context::Body,
+        Site::Value { key } => Context::Value { key: key.as_deref() },
     };
 
     // Selecting a candidate takes the place of what the cursor is in the middle
     // of writing rather than being appended to it: `anc` becomes `anchor`, not
     // `ancanchor`. Every item the context offers replaces the same span, so it
     // is computed once here.
-    let replace = Range {
-        start: offset_to_position(
-            &cursor.text,
-            replace_start(&context, &cursor.text, cursor.offset),
-        ),
-        end: offset_to_position(&cursor.text, cursor.offset),
-    };
+    let lines = LineIndex::new(&cursor.text, Encoding::Utf16);
+    let start = replace_start(&context, &cursor.text, cursor.offset);
+    let word_end = cursor.offset
+        + cursor.text[cursor.offset..]
+            .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
+            .unwrap_or(cursor.text.len() - cursor.offset);
+    let insert = lines.range(Span::new(start, cursor.offset));
+    let replace = lines.range(Span::new(start, word_end));
+    // A key completed where its colon is already written keeps that colon
+    // rather than gaining a second one.
+    let colon_follows = cursor.text[word_end..].starts_with(':');
 
-    let items = match context {
+    let mut items = match context {
         Context::Nothing => Vec::new(),
         Context::ModulePath => module_paths(&cursor),
         Context::ImportDirection => keywords(&["import", "export"]),
@@ -923,21 +1528,34 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         Context::Expression { sigil, member_of } => expression(&cursor, sigil, member_of),
         // A list item holds the value of the key above it, so that key's
         // constraints are what say which values belong in it.
-        Context::Value { key } => {
-            // The key has to be one of the anchor's own properties for its
-            // constraints to say anything; a key nested in a dictionary only
-            // shares a name with them.
-            let key = match key {
-                Some(key) => (!in_nested_block(&cursor.text, cursor.offset)).then_some(key),
-                None => enclosing_key(&cursor.text, line_start).and_then(|(key, at)| {
-                    (!in_nested_block(&cursor.text, at)).then_some(key)
-                }),
-            };
-            values(&cursor, key)
-        }
+        Context::Value { key } => values(&cursor, key),
         Context::Body => body(&cursor),
     };
 
+    match &site {
+        Site::Key {
+            block_keys,
+            block_has_items,
+        } => {
+            // A key the body already has is not offered again, and `pass` only
+            // says something in a body with nothing else in it.
+            items.retain(|item| {
+                if item.label == "pass" {
+                    return !block_has_items;
+                }
+                !block_keys.contains(&item.label)
+            });
+            if colon_follows {
+                for item in &mut items {
+                    item.insert_text = None;
+                }
+            }
+        }
+        Site::ImportName { listed, .. } => items.retain(|item| !listed.contains(&item.label)),
+        _ => {}
+    }
+
+    let generation = world.generation;
     let items: Vec<CompletionItem> = items
         .into_iter()
         .map(|mut item| {
@@ -949,10 +1567,23 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
                 .insert_text
                 .clone()
                 .unwrap_or_else(|| item.label.clone());
-            item.text_edit = Some(CompletionTextEdit::Edit(TextEdit {
-                range: replace,
-                new_text: written,
-            }));
+            item.text_edit = Some(if world.caps.insert_replace {
+                CompletionTextEdit::InsertAndReplace(InsertReplaceEdit {
+                    new_text: written,
+                    insert,
+                    replace,
+                })
+            } else {
+                CompletionTextEdit::Edit(TextEdit {
+                    range: insert,
+                    new_text: written,
+                })
+            });
+            // The compilation the item was made from, so resolving it after
+            // another compile does not describe something else.
+            if let Some(serde_json::Value::Object(data)) = &mut item.data {
+                data.insert("gen".into(), serde_json::json!(generation));
+            }
             item
         })
         .collect();
@@ -1015,10 +1646,22 @@ pub fn resolve_completion(world: &World, mut item: CompletionItem) -> Completion
     let Some(compilation) = world.compilation.as_ref() else {
         return item;
     };
+    let current = item
+        .data
+        .as_ref()
+        .and_then(|data| data.get("gen"))
+        .and_then(serde_json::Value::as_u64)
+        == Some(world.generation);
+    if !current {
+        // Made from an earlier compilation: the ids it carries may name
+        // something else now, and no description beats a wrong one.
+        return item;
+    }
     let Some(target) = item.data.as_ref().and_then(target_from_data) else {
         return item;
     };
-    if let Some(markdown) = describe(compilation, &world.output, &target) {
+    let _ = compilation;
+    if let Some(markdown) = describe(world, &world.root, &target) {
         item.documentation = Some(Documentation::MarkupContent(MarkupContent {
             kind: MarkupKind::Markdown,
             value: markdown,
@@ -1075,312 +1718,6 @@ fn verbatim_at(text: &str, line_start: usize) -> bool {
     escape.is_some()
 }
 
-/// Classifies the line up to the cursor.
-fn context(prefix: &str) -> Context<'_> {
-    if in_comment(prefix) {
-        return Context::Nothing;
-    }
-
-    // An interpolation wins over whatever it is written inside: `key: {x` is an
-    // expression, not a value.
-    if let Some((sigil, open)) = open_interpolation(prefix) {
-        let inside = &prefix[open..];
-        // A string is text, and text has no members. `${"a sentence.` has
-        // nothing to offer, and offering anything there would be inventing it.
-        if in_string(inside) {
-            return Context::Nothing;
-        }
-        return Context::Expression {
-            sigil,
-            member_of: member_path(inside),
-        };
-    }
-
-    let indented = prefix.starts_with([' ', '\t']);
-    let trimmed = prefix.trim_start();
-
-    // Imports are only ever written unindented.
-    if !indented {
-        if word_after(trimmed, "use").is_some() {
-            return Context::ModulePath;
-        }
-        if let Some(rest) = word_after(trimmed, "from") {
-            let rest = rest.trim_start();
-            let Some((module, after)) = rest.split_once(char::is_whitespace) else {
-                // Still writing the path.
-                return Context::ModulePath;
-            };
-            let after = after.trim_start();
-            return match word_after(after, "import").or_else(|| word_after(after, "export")) {
-                Some(_) => Context::ImportName { module },
-                None => Context::ImportDirection,
-            };
-        }
-    }
-
-    // A list item and a merge item both hold a value, and neither names a key
-    // whose constraints could narrow it.
-    if let Some(written) = trimmed
-        .strip_prefix("++")
-        .or_else(|| trimmed.strip_prefix('+'))
-        .or_else(|| trimmed.strip_prefix('-'))
-    {
-        return value_context(None, written);
-    }
-
-    // A key takes the first colon on the line, so what follows it is a chain of
-    // `:: type :` constraints and then the value.
-    if let Some((key, after)) = split_key(trimmed) {
-        return match key_tail(after) {
-            KeyTail::Constraint => Context::TypeConstraint,
-            KeyTail::Value(written) => value_context(Some(key), written),
-        };
-    }
-
-    if indented {
-        // A key cannot contain a space, so a line that already has one is
-        // prose, and prose is a value rather than something to complete.
-        return if is_prose(trimmed) {
-            Context::Nothing
-        } else {
-            Context::Body
-        };
-    }
-
-    // `anchor Name extends B as k:` -- the bases come after `extends` and the
-    // keyword the author is inventing comes after `as`, so whichever was
-    // written last is the one the cursor is past.
-    match (
-        word_position(trimmed, "extends"),
-        word_position(trimmed, "as"),
-    ) {
-        // A keyword the author is inventing is not the editor's to guess, and
-        // neither is the name after the declaration keyword.
-        (Some(extends), Some(alias)) if alias > extends => return Context::Nothing,
-        (Some(_), _) => return Context::Bases,
-        (None, Some(_)) => return Context::Nothing,
-        (None, None) => {}
-    }
-
-    let mut written: Vec<&str> = trimmed.split_whitespace().collect();
-    if !prefix.ends_with(char::is_whitespace) {
-        // The last word is still being typed, so it is what to complete rather
-        // than something already said.
-        written.pop();
-    }
-    let mut exported = false;
-    let mut is_abstract = false;
-    for word in written {
-        match word {
-            "export" => exported = true,
-            "abstract" => is_abstract = true,
-            _ => return Context::Nothing,
-        }
-    }
-    Context::Declaration {
-        exported,
-        is_abstract,
-    }
-}
-
-/// Whether the cursor is past a `//` that begins a comment.
-///
-/// A comment only begins after whitespace, which is what keeps the `//` in a
-/// URL written in prose from swallowing the rest of the line.
-fn in_comment(prefix: &str) -> bool {
-    let bytes = prefix.as_bytes();
-    (0..bytes.len().saturating_sub(1)).any(|index| {
-        bytes[index] == b'/'
-            && bytes[index + 1] == b'/'
-            && prefix[..index]
-                .chars()
-                .next_back()
-                .is_none_or(char::is_whitespace)
-    })
-}
-
-/// The innermost interpolation the cursor is inside: its sigil, and the offset
-/// just past the opening brace.
-fn open_interpolation(prefix: &str) -> Option<(&'static str, usize)> {
-    let mut stack: Vec<(&'static str, usize)> = Vec::new();
-    for (index, character) in prefix.char_indices() {
-        match character {
-            '}' => {
-                stack.pop();
-            }
-            '{' => {
-                let sigil = match prefix[..index].chars().next_back() {
-                    Some('$') => "${",
-                    Some('#') => "#{",
-                    Some('@') => "@{",
-                    _ => "{",
-                };
-                stack.push((sigil, index + 1));
-            }
-            _ => {}
-        }
-    }
-    stack.pop()
-}
-
-/// The path written before a trailing `.`, if the cursor is completing a member.
-///
-/// `self.`, `Anchor.`, `Anchor.nested.par` -- everything up to the last dot,
-/// with whatever has been typed after it left off.
-fn member_path(inside: &str) -> Option<&str> {
-    let start = inside
-        // A hyphen inside a name is part of it: `config.foo-bar.` reads the
-        // key `foo-bar`.
-        .rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '-'))
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    let token = &inside[start..];
-    let dot = token.rfind('.')?;
-    Some(&token[..dot])
-}
-
-/// What follows `word`, if `text` begins with that whole word.
-fn word_after<'a>(text: &'a str, word: &str) -> Option<&'a str> {
-    let rest = text.strip_prefix(word)?;
-    rest.chars()
-        .next()
-        .is_none_or(char::is_whitespace)
-        .then_some(rest)
-}
-
-/// Where `word` last appears as a whole word.
-fn word_position(text: &str, word: &str) -> Option<usize> {
-    let mut search = text.len();
-    while let Some(index) = text[..search].rfind(word) {
-        let before = text[..index].chars().next_back();
-        let after = text[index + word.len()..].chars().next();
-        if before.is_none_or(char::is_whitespace) && after.is_none_or(char::is_whitespace) {
-            return Some(index);
-        }
-        search = index;
-    }
-    None
-}
-
-/// Splits `name:` off the front of a line, returning the name and the rest.
-///
-/// The colon is the whole reason a line can be told apart from prose: `title: a
-/// book` and `The title is long` begin the same way. A key cannot contain a
-/// colon, so the first one always ends it.
-fn split_key(trimmed: &str) -> Option<(&str, &str)> {
-    let colon = trimmed.find(':')?;
-    let name = &trimmed[..colon];
-    if name.is_empty() || name.contains(char::is_whitespace) {
-        return None;
-    }
-    if name.starts_with(['{', '[', '#', '@', '$']) {
-        return None;
-    }
-    Some((name, &trimmed[colon + 1..]))
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum KeyTail<'a> {
-    /// A `::` constraint is open and its type is being written.
-    Constraint,
-    /// Every constraint has closed, and this is the value written after them.
-    Value(&'a str),
-}
-
-/// Where the text after a key leaves the cursor.
-///
-/// `name:: string: a description` -- the key took the first colon, so a
-/// constraint opens on the next and closes on the one after it. Constraints
-/// chain, so the state flips on every colon until the value begins.
-fn key_tail(after_key: &str) -> KeyTail<'_> {
-    if !after_key.starts_with(':') {
-        return KeyTail::Value(after_key);
-    }
-    let mut open = false;
-    for (index, character) in after_key.char_indices() {
-        if character == ':' {
-            open = !open;
-        } else if !open && !character.is_whitespace() {
-            // The value has started, and a colon inside a value is prose.
-            return KeyTail::Value(&after_key[index..]);
-        }
-    }
-    if open {
-        KeyTail::Constraint
-    } else {
-        KeyTail::Value("")
-    }
-}
-
-/// A value is either something to choose or something to write.
-///
-/// Piton values are prose, so most of what goes here is a sentence. Offering a
-/// list of anchors part-way through one is offering things that have nothing to
-/// do with what is being written, which is why a value only completes while it
-/// is still short enough to be a name.
-fn value_context<'a>(key: Option<&'a str>, written: &str) -> Context<'a> {
-    // Nothing written yet is nothing to complete on: after `property: ` the
-    // likely intent is to write prose, and a list popping up is in the way.
-    if written.trim().is_empty() || is_prose(written) {
-        Context::Nothing
-    } else {
-        Context::Value { key }
-    }
-}
-
-/// Whether what has been written is prose rather than a name being completed.
-///
-/// A name has no spaces in it, and it has no full stop: a `.` outside an
-/// expression is punctuation, and there is nothing to complete on the end of a
-/// sentence.
-fn is_prose(written: &str) -> bool {
-    let written = written.trim_start();
-    written.contains(char::is_whitespace) || written.contains('.')
-}
-
-/// The key a more-indented line belongs to.
-///
-/// `frameworks:` followed by `- {BelayConfiguration}` -- the list item carries
-/// the value of the key above it, and the key is where the constraints saying
-/// what may go in it were written.
-/// Returns the key and the offset of the line it is on.
-fn enclosing_key(text: &str, line_start: usize) -> Option<(&str, usize)> {
-    let indent = indent_width(&text[line_start..]);
-    let mut end = line_start;
-    while end > 0 {
-        let start = text[..end - 1].rfind('\n').map(|index| index + 1).unwrap_or(0);
-        let line = &text[start..end - 1];
-        end = start;
-        if line.trim().is_empty() || indent_width(line) >= indent {
-            continue;
-        }
-        // The first less-indented line is the one this belongs to, whether or
-        // not it turns out to be a key.
-        return split_key(line.trim_start()).map(|(key, _)| (key, start + indent_width(line)));
-    }
-    None
-}
-
-fn indent_width(line: &str) -> usize {
-    line.len() - line.trim_start_matches([' ', '\t']).len()
-}
-
-/// Whether the cursor sits inside a string literal in an expression.
-fn in_string(inside: &str) -> bool {
-    let mut open = false;
-    let mut escaped = false;
-    for character in inside.chars() {
-        if escaped {
-            escaped = false;
-        } else if character == '\\' && open {
-            escaped = true;
-        } else if character == '"' {
-            open = !open;
-        }
-    }
-    open
-}
-
 // --- Building the list ------------------------------------------------------
 
 fn keywords(words: &[&str]) -> Vec<CompletionItem> {
@@ -1434,7 +1771,8 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         offer(name.clone(), Some("installed package".into()), &mut items);
     }
 
-    let mut files = piton_compile::module::sources(source_root);
+    // Completion runs on a keystroke, so the walk is bounded.
+    let mut files = piton_compile::module::sources_up_to(source_root, 5000);
     // A module already in the graph may sit outside the source root -- an
     // installed package does -- and is worth offering even so.
     files.extend(
@@ -2006,34 +2344,12 @@ fn constants(words: &[&str]) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Whether the line the cursor is on sits inside a property's dictionary
-/// rather than directly in an anchor body.
-///
-/// The first less-indented line above is what the line belongs to: the
-/// declaration (at the margin) for a body line, a key for a nested one.
-fn in_nested_block(text: &str, offset: usize) -> bool {
-    let line_start = text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
-    let indent = indent_width(&text[line_start..]);
-    for line in text[..line_start].lines().rev() {
-        if line.trim().is_empty() || indent_width(line) >= indent {
-            continue;
-        }
-        return indent_width(line) > 0;
-    }
-    false
-}
-
 /// The keys that belong in the anchor body the cursor is inside.
 fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let Some(anchor) = enclosing_anchor(cursor) else {
         return Vec::new();
     };
-    // Inside a nested dictionary the anchor's own properties are not what
-    // goes there, and nothing says what does.
-    if in_nested_block(&cursor.text, cursor.offset) {
-        return Vec::new();
-    }
     let def = compilation.store().anchor(anchor);
 
     let mut items = Vec::new();
@@ -2148,24 +2464,55 @@ fn returns_to_column_zero(text: &str, from: usize, to: usize) -> bool {
 // Formatting, folding, selection
 // ---------------------------------------------------------------------------
 
-pub fn formatting(world: &World, uri: &Url) -> Option<Vec<TextEdit>> {
-    let path = url_to_path(uri)?;
-    let text = world.text(&path)?;
+pub fn formatting(text: &str, path: &Path) -> Vec<TextEdit> {
     // The editor's formatting path is autoformat: it normalizes structure but
     // never rewrites commented content, because that is what a save-time format
     // must not do. The explicit `piton format` command is the one that
     // normalizes comments.
-    let formatted = format::autoformat(&text, &path);
-    if formatted == text {
-        return Some(Vec::new());
+    let formatted = format::autoformat(text, path);
+    line_edits(text, &formatted)
+}
+
+/// The edits that turn `old` into `new`, one per run of changed lines.
+///
+/// A single edit replacing the whole document would do the same to the text,
+/// but an editor applying it loses the cursor, the selections and the marks
+/// in every line, changed or not. Not every client works out the smaller edit
+/// for itself, so the server sends it.
+fn line_edits(old: &str, new: &str) -> Vec<TextEdit> {
+    if old == new {
+        return Vec::new();
     }
-    Some(vec![TextEdit {
-        range: Range {
-            start: Position::default(),
-            end: offset_to_position(&text, text.len()),
-        },
-        new_text: formatted,
-    }])
+    let lines = LineIndex::new(old, Encoding::Utf16);
+    let diff = similar::TextDiff::from_lines(old, new);
+    let old_lines: Vec<&str> = old.split_inclusive('\n').collect();
+    let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
+    let line_offset = |line: usize| -> usize {
+        old_lines[..line.min(old_lines.len())].iter().map(|line| line.len()).sum()
+    };
+
+    let mut edits = Vec::new();
+    for op in diff.ops() {
+        let (old_range, new_range) = match *op {
+            similar::DiffOp::Equal { .. } => continue,
+            similar::DiffOp::Delete { old_index, old_len, new_index } => {
+                (old_index..old_index + old_len, new_index..new_index)
+            }
+            similar::DiffOp::Insert { old_index, new_index, new_len } => {
+                (old_index..old_index, new_index..new_index + new_len)
+            }
+            similar::DiffOp::Replace { old_index, old_len, new_index, new_len } => {
+                (old_index..old_index + old_len, new_index..new_index + new_len)
+            }
+        };
+        let start = line_offset(old_range.start);
+        let end = line_offset(old_range.end);
+        edits.push(TextEdit {
+            range: lines.range(Span::new(start, end)),
+            new_text: new_lines[new_range].concat(),
+        });
+    }
+    edits
 }
 
 /// The indentation a new line should carry, after the newline that opened it.
@@ -2179,21 +2526,13 @@ pub fn formatting(world: &World, uri: &Url) -> Option<Vec<TextEdit>> {
 /// grammar cannot say it. Indentation is deliberately outside the grammar, so
 /// no node spans a body for a tree-sitter indent query to measure, and the
 /// editors that have no tree-sitter at all have nothing else to go on.
-pub fn on_type_formatting(
-    world: &World,
-    uri: &Url,
-    position: Position,
-    typed: &str,
-) -> Option<Vec<TextEdit>> {
+pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option<Vec<TextEdit>> {
     // Only the newline is interesting. A client may send others if it asks for
     // them; nothing else changes the indentation of a line.
     if typed != "\n" && typed != "\r\n" {
         return None;
     }
-
-    let path = url_to_path(uri)?;
-    let text = world.text(&path)?;
-    let offset = position_to_offset(&text, position);
+    let offset = position_to_offset(text, position);
 
     let line_start = text[..offset]
         .rfind('\n')
@@ -2203,16 +2542,16 @@ pub fn on_type_formatting(
         // Nothing above to take the indentation from.
         return None;
     }
-    let previous = previous_line(&text, line_start);
+    let previous = previous_line(text, line_start);
 
     // Inside a fenced block or an escape block the text is verbatim, and
     // reindenting it would change what it says.
-    if verbatim_at(&text, line_start) {
+    if verbatim_at(text, line_start) {
         return None;
     }
 
     let indent = if previous.is_empty() {
-        indent_after_emptied_lines(&text, line_start)
+        indent_after_emptied_lines(text, line_start)
     } else {
         wanted_indent(previous)
     };
@@ -2228,15 +2567,13 @@ pub fn on_type_formatting(
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
     let existing = &text[line_start..line_start + indent_bytes(&text[line_start..], written)];
+    let lines = LineIndex::new(text, Encoding::Utf16);
     if existing == indent {
         return None;
     }
 
     Some(vec![TextEdit {
-        range: Range {
-            start: offset_to_position(&text, line_start),
-            end: offset_to_position(&text, line_start + existing.len()),
-        },
+        range: lines.range(Span::new(line_start, line_start + existing.len())),
         new_text: indent,
     }])
 }
@@ -2305,44 +2642,10 @@ fn wanted_indent(previous: &str) -> String {
     " ".repeat(width)
 }
 
-/// Whether the line ends by opening a block for the lines beneath it.
-///
-/// A declaration or a key that ends in its colon opens one: `anchor A:`,
-/// `frameworks:`, `config:: dictionary:`. A colon inside a value opens
-/// nothing -- `prompt: Careful: ` ends a sentence, not a property, and
-/// indenting after it would push the next line a level deeper than it
-/// belongs. And a comment is not structure whatever it happens to end with.
+/// Whether the line ends by opening a block for the lines beneath it. The
+/// parser decides; see [`piton_syntax::cursor::opens_block`].
 fn opens_a_block(line: &str) -> bool {
-    let code = strip_comment(line).trim_end();
-    if !code.ends_with(':') {
-        return false;
-    }
-
-    // A list item is never a key, colon or not -- `- Settings:` is just the
-    // string `Settings:` -- and a `+`/`++` line holds a value to combine, so
-    // neither opens a block.
-    let trimmed = code.trim_start();
-    if trimmed == "-" || trimmed.starts_with("- ") || trimmed.starts_with('+') {
-        return false;
-    }
-
-    match split_key(trimmed) {
-        // The line ends where the value would begin: nothing has been
-        // written after the colon that opens it.
-        Some((_, after)) => {
-            matches!(key_tail(after), KeyTail::Value(value) if value.trim().is_empty())
-        }
-        // No key on the line. A declaration sits at the margin and opens;
-        // indented text without a key is prose, and prose opens nothing.
-        None => !code.starts_with([' ', '\t']),
-    }
-}
-
-/// The line with its comment removed. A comment is a whole line, so this is
-/// either the line or nothing but its indentation.
-fn strip_comment(line: &str) -> &str {
-    // A comment has to be on its own line; after code, `//` is just text.
-    piton_syntax::prose::split_comment(line).0
+    piton_syntax::cursor::opens_block(line)
 }
 
 /// How many bytes `chars` characters of leading whitespace occupy.
@@ -2353,111 +2656,283 @@ fn indent_bytes(line: &str, chars: usize) -> usize {
         .unwrap_or(line.len())
 }
 
-pub fn folding(world: &World, uri: &Url) -> Option<Vec<FoldingRange>> {
-    let cursor = file_context(world, uri)?;
-    let index = world.index.get(cursor.module)?;
-    let mut out = Vec::new();
-    for (span, _) in &index.structures {
-        let start = offset_to_position(&cursor.text, span.start);
-        let end = offset_to_position(&cursor.text, span.end);
-        if end.line <= start.line {
-            continue;
-        }
-        out.push(FoldingRange {
-            start_line: start.line,
-            end_line: end.line,
-            kind: Some(FoldingRangeKind::Region),
-            ..Default::default()
-        });
-    }
-    // Comment blocks fold too.
-    let syntax = cursor.compilation.graph().get(cursor.module).parse.syntax();
-    let mut comment_start: Option<u32> = None;
-    let mut previous: Option<u32> = None;
-    for token in syntax
-        .descendants_with_tokens()
-        .filter_map(|element| element.into_token())
-    {
-        if token.kind() != SyntaxKind::COMMENT {
-            continue;
-        }
-        let line = offset_to_position(&cursor.text, usize::from(token.text_range().start())).line;
-        match (comment_start, previous) {
-            (Some(start), Some(last)) if line == last + 1 => {
-                previous = Some(line);
-                let _ = start;
-            }
-            _ => {
-                if let (Some(start), Some(last)) = (comment_start, previous) {
-                    if last > start {
-                        out.push(FoldingRange {
-                            start_line: start,
-                            end_line: last,
-                            kind: Some(FoldingRangeKind::Comment),
-                            ..Default::default()
-                        });
-                    }
-                }
-                comment_start = Some(line);
-                previous = Some(line);
-            }
-        }
-    }
-    if let (Some(start), Some(last)) = (comment_start, previous) {
-        if last > start {
-            out.push(FoldingRange {
-                start_line: start,
-                end_line: last,
-                kind: Some(FoldingRangeKind::Comment),
-                ..Default::default()
-            });
-        }
-    }
-    Some(out)
+/// The line a span ends on, not counting the blank lines it takes in after
+/// its last line of content.
+fn last_content_line(lines: &LineIndex<'_>, span: Span) -> u32 {
+    let text = &lines.text()[span.start..span.end.min(lines.text().len())];
+    lines.position(span.start + text.trim_end().len()).line
 }
 
-pub fn selection_ranges(
-    world: &World,
-    uri: &Url,
-    positions: &[Position],
-) -> Option<Vec<SelectionRange>> {
-    let cursor = file_context(world, uri)?;
-    let index = world.index.get(cursor.module)?;
+fn fold(start: u32, end: u32, kind: Option<FoldingRangeKind>) -> FoldingRange {
+    FoldingRange {
+        start_line: start,
+        end_line: end,
+        kind,
+        ..Default::default()
+    }
+}
+
+/// Folding ranges, from the buffer's own syntax.
+///
+/// Declarations, properties whose value is a block, escape blocks, and runs of
+/// comment or import lines fold. An escape block sitting directly inside a
+/// code fence folds with the fence, which is how it reads. Every range is
+/// whole lines, so a client folding by line loses nothing.
+pub fn folding(text: &str, path: &Path) -> Vec<FoldingRange> {
+    let parse = piton_syntax::parser::parse(text, path);
+    let lines = LineIndex::new(text, Encoding::Utf16);
     let mut out = Vec::new();
 
-    for position in positions {
-        let offset = position_to_offset(&cursor.text, *position);
-        // Expanding selection should move from a value to its property, to the
-        // declaration, to the file: widest last.
-        let mut spans: Vec<Span> = index
-            .structures
-            .iter()
-            .map(|(span, _)| *span)
-            .filter(|span| span.contains(offset) || span.end == offset)
-            .collect();
-        if let Some(occurrence) = index.at(offset) {
-            spans.push(occurrence.span);
+    for node in parse.syntax().descendants() {
+        let range = node.text_range();
+        let span = Span::new(usize::from(range.start()), usize::from(range.end()));
+        let foldable = match node.kind() {
+            SyntaxKind::ANCHOR_DECL | SyntaxKind::ERROR => true,
+            SyntaxKind::PROPERTY | SyntaxKind::VARIABLE_DECL => node
+                .descendants()
+                .any(|child| child.kind() == SyntaxKind::BLOCK),
+            _ => false,
+        };
+        if foldable {
+            let start = lines.position(span.start).line;
+            let end = last_content_line(&lines, span);
+            if end > start {
+                out.push(fold(start, end, None));
+            }
         }
-        spans.push(Span::new(0, cursor.text.len()));
-        spans.sort_by_key(|span| span.len());
-        spans.dedup();
-
-        let mut range: Option<SelectionRange> = None;
-        for span in spans.into_iter().rev() {
-            range = Some(SelectionRange {
-                range: span_to_range(&cursor.text, span),
-                parent: range.map(Box::new),
-            });
+        if node.kind() == SyntaxKind::ESCAPE_BLOCK {
+            let mut start = lines.position(span.start).line;
+            let mut end = last_content_line(&lines, span);
+            let is_fence = |line: u32| lines.line_text(line as usize).trim_start().starts_with("```");
+            if start > 0 && is_fence(start - 1) {
+                start -= 1;
+                if is_fence(end + 1) {
+                    end += 1;
+                }
+            }
+            if end > start {
+                out.push(fold(start, end, None));
+            }
         }
-        out.push(range.unwrap_or(SelectionRange {
-            range: Range {
-                start: *position,
-                end: *position,
-            },
-            parent: None,
-        }));
     }
-    Some(out)
+
+    // Runs of whole-line comments, and runs of imports.
+    let mut runs: Vec<(u32, u32, FoldingRangeKind)> = Vec::new();
+    let extend = |line: u32, last: u32, kind: FoldingRangeKind, runs: &mut Vec<_>| {
+        match runs.last_mut() {
+            Some((_, end, previous)) if *previous == kind && *end + 1 >= line => *end = last,
+            _ => runs.push((line, last, kind)),
+        }
+    };
+    for element in parse.syntax().descendants_with_tokens() {
+        match element.kind() {
+            SyntaxKind::COMMENT => {
+                let line = lines.position(usize::from(element.text_range().start())).line;
+                extend(line, line, FoldingRangeKind::Comment, &mut runs);
+            }
+            SyntaxKind::USE_DECL | SyntaxKind::FROM_DECL => {
+                let range = element.text_range();
+                let span = Span::new(usize::from(range.start()), usize::from(range.end()));
+                let line = lines.position(span.start).line;
+                extend(line, last_content_line(&lines, span), FoldingRangeKind::Imports, &mut runs);
+            }
+            _ => {}
+        }
+    }
+    for (start, end, kind) in runs {
+        if end > start {
+            out.push(fold(start, end, Some(kind)));
+        }
+    }
+
+    out.sort_by_key(|range| (range.start_line, std::cmp::Reverse(range.end_line)));
+    out.dedup_by_key(|range| (range.start_line, range.end_line));
+    out
+}
+
+/// Spans that grow outward from `offset`: the word, each enclosing
+/// expression, the interpolation, the value, the property, each enclosing
+/// block, the declaration, the file.
+fn selection_spans(parse: &piton_syntax::parser::Parse, text: &str, offset: usize) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    // The word, or the operator, under the cursor.
+    let token = parse
+        .syntax()
+        .token_at_offset(rowan::TextSize::from(offset as u32))
+        .left_biased()
+        .filter(|token| !matches!(token.kind(), SyntaxKind::WHITESPACE | SyntaxKind::NEWLINE));
+    let word_char = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
+    let start = text[..offset]
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| word_char(*c))
+        .last()
+        .map_or(offset, |(at, _)| at);
+    let end = offset
+        + text[offset..]
+            .find(|c: char| !word_char(c))
+            .unwrap_or(text.len() - offset);
+    if end > start {
+        spans.push(Span::new(start, end));
+    } else if let Some(token) = &token {
+        let range = token.text_range();
+        spans.push(Span::new(usize::from(range.start()), usize::from(range.end())));
+    }
+
+    // Expressions, innermost first.
+    let mut expressions = Vec::new();
+    for item in &parse.file.items {
+        let mut values: Vec<&ast::ValueNode> = Vec::new();
+        match item {
+            Item::Anchor(decl) => collect_values(&decl.body, &mut values),
+            Item::Variable(decl) => values.push(&decl.value),
+            _ => {}
+        }
+        for value in values {
+            for line in value.inline.iter() {
+                expressions_in_line(line, offset, &mut expressions);
+            }
+            if let Some(block) = &value.block {
+                for entry in &block.items {
+                    match entry {
+                        ast::BlockItem::Merge(merge) => {
+                            expressions_in_line(&merge.value, offset, &mut expressions)
+                        }
+                        ast::BlockItem::Prose(paragraph) => {
+                            for line in &paragraph.lines {
+                                expressions_in_line(line, offset, &mut expressions);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    expressions.sort_by_key(|span: &Span| span.len());
+    spans.extend(expressions);
+
+    // The syntax around it.
+    if let Some(token) = token {
+        for node in token.parent_ancestors() {
+            let wanted = matches!(
+                node.kind(),
+                SyntaxKind::INTERPOLATION
+                    | SyntaxKind::PROSE_LINE
+                    | SyntaxKind::VALUE
+                    | SyntaxKind::PROPERTY
+                    | SyntaxKind::VARIABLE_DECL
+                    | SyntaxKind::LIST_ITEM
+                    | SyntaxKind::MERGE_ITEM
+                    | SyntaxKind::BLOCK
+                    | SyntaxKind::ANCHOR_DECL
+                    | SyntaxKind::USE_DECL
+                    | SyntaxKind::FROM_DECL
+                    | SyntaxKind::ERROR
+            );
+            if wanted {
+                let range = node.text_range();
+                spans.push(trimmed(
+                    text,
+                    Span::new(usize::from(range.start()), usize::from(range.end())),
+                ));
+            }
+        }
+    }
+    spans.push(trimmed(text, Span::new(0, text.len())));
+
+    // Each step has to be wider than the last.
+    let mut out: Vec<Span> = Vec::new();
+    for span in spans {
+        let widens = out
+            .last()
+            .is_none_or(|last| span.start <= last.start && span.end >= last.end && span != *last);
+        if widens {
+            out.push(span);
+        }
+    }
+    out
+}
+
+fn collect_values<'a>(block: &'a ast::Block, out: &mut Vec<&'a ast::ValueNode>) {
+    for entry in &block.items {
+        let value = match entry {
+            ast::BlockItem::Property(property) => &property.value,
+            ast::BlockItem::ListItem(item) => &item.value,
+            _ => continue,
+        };
+        out.push(value);
+        for nested in value.inline_list.iter().flatten() {
+            out.push(nested);
+        }
+        if let Some(block) = &value.block {
+            collect_values(block, out);
+        }
+    }
+}
+
+fn expressions_in_line(line: &ast::ProseLine, offset: usize, out: &mut Vec<Span>) {
+    for segment in &line.segments {
+        if let ast::ProseSegment::Interpolation(interpolation) = segment {
+            if interpolation.span.contains(offset) {
+                expressions_in(&interpolation.expr, offset, out);
+            }
+        }
+    }
+}
+
+fn expressions_in(expr: &Expr, offset: usize, out: &mut Vec<Span>) {
+    if !(expr.span.contains(offset) || expr.span.end == offset) {
+        return;
+    }
+    out.push(expr.span);
+    match &expr.kind {
+        ExprKind::Field(base, _) => expressions_in(base, offset, out),
+        ExprKind::Unary(_, operand) | ExprKind::Paren(operand) | ExprKind::Nested(_, operand) => {
+            expressions_in(operand, offset, out)
+        }
+        ExprKind::Binary(_, left, right) => {
+            expressions_in(left, offset, out);
+            expressions_in(right, offset, out);
+        }
+        ExprKind::Ternary(condition, yes, no) => {
+            for part in [condition, yes, no] {
+                expressions_in(part, offset, out);
+            }
+        }
+        ExprKind::List(items) => {
+            for item in items {
+                expressions_in(item, offset, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub fn selection_ranges(text: &str, path: &Path, positions: &[Position]) -> Vec<SelectionRange> {
+    let parse = piton_syntax::parser::parse(text, path);
+    let lines = LineIndex::new(text, Encoding::Utf16);
+    positions
+        .iter()
+        .map(|position| {
+            let offset = lines.offset(*position);
+            let mut range: Option<SelectionRange> = None;
+            for span in selection_spans(&parse, text, offset).into_iter().rev() {
+                range = Some(SelectionRange {
+                    range: lines.range(span),
+                    parent: range.map(Box::new),
+                });
+            }
+            range.unwrap_or(SelectionRange {
+                range: Range {
+                    start: *position,
+                    end: *position,
+                },
+                parent: None,
+            })
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -2606,21 +3081,27 @@ pub fn code_actions_for(
         }));
     }
 
-    if requested(&CodeActionKind::SOURCE)
-        && formatting(world, uri).is_some_and(|edits| !edits.is_empty())
-    {
+    let format_edits = formatting(&cursor.text, &cursor.path);
+    if requested(&CodeActionKind::SOURCE) && !format_edits.is_empty() {
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: "Format this file".into(),
             kind: Some(CodeActionKind::SOURCE),
-            edit: Some(WorkspaceEdit {
-                changes: Some(HashMap::from([(
-                    uri.clone(),
-                    formatting(world, uri).unwrap_or_default(),
-                )])),
-                ..Default::default()
-            }),
+            edit: Some(workspace_edit(
+                world,
+                HashMap::from([(cursor.path.clone(), format_edits)]),
+            )),
             ..Default::default()
         }));
+    }
+
+    // Every edit goes out versioned when the client takes that, so a fix
+    // computed against an older buffer is refused rather than misapplied.
+    for action in &mut actions {
+        if let CodeActionOrCommand::CodeAction(action) = action {
+            if let Some(edit) = action.edit.take() {
+                action.edit = Some(versioned(world, edit));
+            }
+        }
     }
 
     Some(actions)
@@ -2977,93 +3458,291 @@ fn insertion_point(
 // Inlay hints
 // ---------------------------------------------------------------------------
 
+/// Inlay hints: only what the source does not already say.
+///
+/// Two kinds. After a name whose value is a single `{...}` and that no
+/// constraint types, the type it turns out to have, written the way a
+/// constraint is (`:: number`), so accepting the hint makes it explicit.
+/// And after a member read through `this`, `super` or an anchor, `← Owner`
+/// when the value comes from an anchor other than the one named.
 pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHint>> {
     let cursor = file_context(world, uri)?;
     let compilation = cursor.compilation;
-    let start = position_to_offset(&cursor.text, range.start);
-    let end = position_to_offset(&cursor.text, range.end);
+    let store = compilation.store();
+    let lines = LineIndex::new(&cursor.text, Encoding::Utf16);
+    let window = lines.span(range);
+    let visible = |span: Span| span.end >= window.start && span.start <= window.end;
     let mut out = Vec::new();
 
     let ast = compilation.graph().get(cursor.module).ast();
     for (item_index, item) in ast.items.iter().enumerate() {
-        let Item::Anchor(decl) = item else { continue };
-        let Some(anchor) = compilation
-            .store()
-            .anchors
-            .iter()
-            .find(|def| def.module == cursor.module && def.item == item_index)
-            .map(|def| def.id)
-        else {
-            continue;
-        };
-        let def = compilation.store().anchor(anchor);
-
-        for property in decl.body.properties() {
-            if property.name_span.end < start || property.name_span.start > end {
-                continue;
-            }
-            let Some(slot) = def.slots.get(&property.name) else {
-                continue;
-            };
-            let mut labels = Vec::new();
-            // The inferred type is the thing you cannot see from the source.
-            if let Some(value) = def.properties.get(&property.name) {
-                labels.push(value.kind().to_string());
-            }
-            if slot.owner != anchor {
-                labels.push(format!(
-                    "from {}",
-                    compilation.store().anchor(slot.owner).name
-                ));
-            } else if property.constraints.is_empty() {
-                if let Some(inherited) = def.bases.iter().rev().find(|base| {
-                    compilation
-                        .store()
-                        .anchor(**base)
+        match item {
+            Item::Anchor(decl) => {
+                let Some(anchor) = store
+                    .anchors
+                    .iter()
+                    .find(|def| def.module == cursor.module && def.item == item_index)
+                    .map(|def| def.id)
+                else {
+                    continue;
+                };
+                let def = store.anchor(anchor);
+                for property in decl.body.properties() {
+                    if !visible(property.name_span) {
+                        continue;
+                    }
+                    let typed = def
                         .slots
-                        .contains_key(&property.name)
-                }) {
-                    labels.push(format!(
-                        "overrides {}",
-                        compilation.store().anchor(*inherited).name
-                    ));
+                        .get(&property.name)
+                        .is_none_or(|slot| !slot.constraints.is_empty());
+                    if typed || !is_sole_expression(&property.value) {
+                        continue;
+                    }
+                    if let Some(value) = def.properties.get(&property.name) {
+                        out.extend(type_hint(world, &cursor, &lines, property.name_span, value));
+                    }
+                }
+                let mut prose = Vec::new();
+                prose_lines(&decl.body, &mut prose);
+                for line in prose {
+                    if visible(line.span) {
+                        supplier_hints(world, &cursor, &lines, anchor, line, &mut out);
+                    }
                 }
             }
-            if labels.is_empty() {
+            Item::Variable(decl) => {
+                if !visible(decl.name_span) || !is_sole_expression(&decl.value) {
+                    continue;
+                }
+                let Some(variable) = store
+                    .variables
+                    .iter()
+                    .find(|def| def.module == cursor.module && def.name_span == decl.name_span)
+                else {
+                    continue;
+                };
+                if !variable.constraints.is_empty() {
+                    continue;
+                }
+                if let Some(value) = &variable.value {
+                    out.extend(type_hint(world, &cursor, &lines, decl.name_span, value));
+                }
+            }
+            _ => {}
+        }
+    }
+    out.sort_by_key(|hint| (hint.position.line, hint.position.character));
+    Some(out)
+}
+
+/// Whether a value is one `{...}` and nothing else: the form whose type is
+/// not written anywhere. `${...}`, `#{...}` and `@{...}` say theirs.
+fn is_sole_expression(value: &ast::ValueNode) -> bool {
+    value.block.is_none()
+        && value.inline_list.is_none()
+        && value
+            .inline
+            .as_ref()
+            .and_then(ast::ProseLine::sole_interpolation)
+            .is_some_and(|interpolation| interpolation.sigil == ast::Sigil::Standard)
+}
+
+/// The type a value has, as a constraint would name it, and the anchor when
+/// it is one.
+fn inferred_type(compilation: &Compilation, value: &piton_core::Value) -> (String, Option<AnchorId>) {
+    use piton_core::Value;
+    let simple = |value: &Value| -> Option<&'static str> {
+        Some(match value {
+            Value::Str(_) => "string",
+            Value::Number(_) => "number",
+            Value::Bool(_) => "boolean",
+            _ => return None,
+        })
+    };
+    match value {
+        Value::Null => ("null".into(), None),
+        Value::Dict(_) => ("dictionary".into(), None),
+        Value::Reference(_) => ("reference".into(), None),
+        Value::Anchor(anchor) => (compilation.store().anchor(*anchor).name.clone(), Some(*anchor)),
+        Value::List(items) => {
+            let kinds: HashSet<Option<&str>> = items.iter().map(simple).collect();
+            match kinds.into_iter().collect::<Vec<_>>().as_slice() {
+                [Some(kind)] if !items.is_empty() => (format!("{kind}[]"), None),
+                _ => ("list".into(), None),
+            }
+        }
+        Value::Mixed(_) => ("list".into(), None),
+        other => (simple(other).unwrap_or("string").into(), None),
+    }
+}
+
+fn type_hint(
+    world: &World,
+    cursor: &Cursor<'_>,
+    lines: &LineIndex<'_>,
+    name: Span,
+    value: &piton_core::Value,
+) -> Option<InlayHint> {
+    let compilation = cursor.compilation;
+    let (kind, anchor) = inferred_type(compilation, value);
+    let text = format!(":: {kind}");
+    let position = lines.position(name.end);
+    // Writing the hint in only works where the name it uses means that anchor.
+    let writable = match anchor {
+        Some(anchor) => matches!(
+            compilation.resolution.lookup(cursor.module, &kind),
+            Some(Symbol::Anchor(found)) if found == anchor
+        ),
+        None => true,
+    };
+    let label = match anchor.and_then(|anchor| definition_location(world, &Target::Anchor(anchor))) {
+        Some(location) => InlayHintLabel::LabelParts(vec![InlayHintLabelPart {
+            value: text.clone(),
+            location: Some(location),
+            ..Default::default()
+        }]),
+        None => InlayHintLabel::String(text.clone()),
+    };
+    Some(InlayHint {
+        position,
+        label,
+        kind: Some(InlayHintKind::TYPE),
+        text_edits: writable.then(|| {
+            vec![TextEdit {
+                range: Range {
+                    start: position,
+                    end: position,
+                },
+                new_text: text,
+            }]
+        }),
+        tooltip: None,
+        padding_left: Some(false),
+        padding_right: Some(false),
+        data: None,
+    })
+}
+
+/// Every line of prose in a block, at any depth: values, list items,
+/// composition lines, paragraphs.
+fn prose_lines<'a>(block: &'a ast::Block, out: &mut Vec<&'a ast::ProseLine>) {
+    fn value<'a>(node: &'a ast::ValueNode, out: &mut Vec<&'a ast::ProseLine>) {
+        out.extend(node.inline.iter());
+        for item in node.inline_list.iter().flatten() {
+            value(item, out);
+        }
+        if let Some(block) = &node.block {
+            prose_lines(block, out);
+        }
+    }
+    for entry in &block.items {
+        match entry {
+            ast::BlockItem::Property(property) => value(&property.value, out),
+            ast::BlockItem::ListItem(item) => value(&item.value, out),
+            ast::BlockItem::Merge(merge) => out.push(&merge.value),
+            ast::BlockItem::Prose(paragraph) => out.extend(paragraph.lines.iter()),
+            _ => {}
+        }
+    }
+}
+
+/// `← Owner` after each member whose value comes from an anchor other than
+/// the one it is read through.
+fn supplier_hints(
+    world: &World,
+    cursor: &Cursor<'_>,
+    lines: &LineIndex<'_>,
+    anchor: AnchorId,
+    line: &ast::ProseLine,
+    out: &mut Vec<InlayHint>,
+) {
+    fn walk<'a>(expr: &'a Expr, out: &mut Vec<(&'a Expr, &'a piton_syntax::ast::Spanned<String>)>) {
+        match &expr.kind {
+            ExprKind::Field(base, field) => {
+                out.push((base, field));
+                walk(base, out);
+            }
+            ExprKind::Unary(_, inner) | ExprKind::Paren(inner) | ExprKind::Nested(_, inner) => {
+                walk(inner, out)
+            }
+            ExprKind::Binary(_, left, right) => {
+                walk(left, out);
+                walk(right, out);
+            }
+            ExprKind::Ternary(a, b, c) => {
+                walk(a, out);
+                walk(b, out);
+                walk(c, out);
+            }
+            ExprKind::List(items) => items.iter().for_each(|item| walk(item, out)),
+            _ => {}
+        }
+    }
+    let compilation = cursor.compilation;
+    let store = compilation.store();
+    for segment in &line.segments {
+        let ast::ProseSegment::Interpolation(interpolation) = segment else {
+            continue;
+        };
+        let mut fields = Vec::new();
+        walk(&interpolation.expr, &mut fields);
+        for (base, field) in fields {
+            // The anchor the member is read through, and the one that supplies
+            // it. `self` is whichever anchor is being compiled, so it has no
+            // one answer to give.
+            let (named, supplier) = match &base.kind {
+                ExprKind::This => {
+                    let Some(slot) = store.anchor(anchor).slots.get(&field.value) else {
+                        continue;
+                    };
+                    (Some(anchor), slot.owner)
+                }
+                ExprKind::Super => {
+                    let Some(base) = store
+                        .anchor(anchor)
+                        .bases
+                        .iter()
+                        .rev()
+                        .find(|base| store.anchor(**base).slots.contains_key(&field.value))
+                    else {
+                        continue;
+                    };
+                    (None, store.anchor(*base).slots[&field.value].owner)
+                }
+                ExprKind::Name(name) => {
+                    let Some(Symbol::Anchor(found)) = compilation.resolution.lookup(cursor.module, name)
+                    else {
+                        continue;
+                    };
+                    let Some(slot) = store.anchor(found).slots.get(&field.value) else {
+                        continue;
+                    };
+                    (Some(found), slot.owner)
+                }
+                _ => continue,
+            };
+            if named == Some(supplier) {
                 continue;
             }
+            let owner = store.anchor(supplier);
+            let location =
+                definition_location(world, &Target::Property(supplier, field.value.clone()));
             out.push(InlayHint {
-                position: offset_to_position(&cursor.text, property.name_span.end),
-                label: InlayHintLabel::String(format!(": {}", labels.join(", "))),
-                kind: Some(InlayHintKind::TYPE),
+                position: lines.position(field.span.end),
+                label: InlayHintLabel::LabelParts(vec![InlayHintLabelPart {
+                    value: format!("\u{2190} {}", owner.name),
+                    location,
+                    ..Default::default()
+                }]),
+                kind: None,
                 text_edits: None,
                 tooltip: None,
-                padding_left: Some(false),
+                padding_left: Some(true),
                 padding_right: Some(false),
                 data: None,
             });
         }
     }
-
-    for composition in &world.analysis.compositions {
-        if composition.module != cursor.module {
-            continue;
-        }
-        if composition.span.end < start || composition.span.start > end {
-            continue;
-        }
-        out.push(InlayHint {
-            position: offset_to_position(&cursor.text, composition.span.end),
-            label: InlayHintLabel::String(format!(" {}", composition.hint)),
-            kind: Some(InlayHintKind::PARAMETER),
-            text_edits: None,
-            tooltip: Some(InlayHintTooltip::String(composition.summary.clone())),
-            padding_left: Some(true),
-            padding_right: Some(false),
-            data: None,
-        });
-    }
-    Some(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -3076,243 +3755,37 @@ mod token {
     pub const PROPERTY: u32 = 1;
     pub const VARIABLE: u32 = 2;
     pub const KEYWORD: u32 = 3;
-    pub const COMMENT: u32 = 4;
-    pub const STRING: u32 = 5;
-    pub const NUMBER: u32 = 6;
-    pub const OPERATOR: u32 = 7;
-    pub const NAMESPACE: u32 = 8;
-    pub const TYPE: u32 = 9;
+    pub const NAMESPACE: u32 = 4;
 }
 
 /// Token modifier bits, in the order of [`TOKEN_MODIFIERS`].
 mod modifier {
     pub const DECLARATION: u32 = 1 << 0;
-    pub const DEFINITION: u32 = 1 << 1;
-    pub const ABSTRACT: u32 = 1 << 2;
-    pub const DEFAULT_LIBRARY: u32 = 1 << 3;
-    pub const INHERITED: u32 = 1 << 4;
-    pub const EXPORTED: u32 = 1 << 5;
-    pub const IMPORTED: u32 = 1 << 6;
+    pub const ABSTRACT: u32 = 1 << 1;
+    pub const DEFAULT_LIBRARY: u32 = 1 << 2;
+    pub const INHERITED: u32 = 1 << 3;
+    pub const EXPORTED: u32 = 1 << 4;
+    pub const IMPORTED: u32 = 1 << 5;
 }
 
-/// One candidate token. Where two overlap at the same start, the lower
-/// priority wins: a type constraint over the anchor it names, a resolved name
-/// over the raw keyword token.
-struct RawToken {
-    span: Span,
-    kind: u32,
-    modifiers: u32,
-    priority: u8,
-}
-
-/// Collects the tokens the syntax tree cannot give: type constraints, and
-/// everything inside an interpolation, which the tree keeps as one run of text.
-struct TokenWalker<'a> {
-    source: &'a str,
-    out: Vec<RawToken>,
-}
-
-impl TokenWalker<'_> {
-    fn push(&mut self, span: Span, kind: u32, priority: u8) {
-        if !span.is_empty() && span.end <= self.source.len() {
-            self.out.push(RawToken {
-                span,
-                kind,
-                modifiers: 0,
-                priority,
-            });
-        }
-    }
-
-    fn constraints(&mut self, constraints: &[ast::TypeConstraint]) {
-        for constraint in constraints {
-            self.push(constraint.span, token::TYPE, 0);
-        }
-    }
-
-    fn value(&mut self, value: &ast::ValueNode) {
-        if let Some(line) = &value.inline {
-            self.line(line);
-        }
-        for item in value.inline_list.iter().flatten() {
-            self.value(item);
-        }
-        if let Some(block) = &value.block {
-            self.block(block);
-        }
-    }
-
-    fn block(&mut self, block: &ast::Block) {
-        for item in &block.items {
-            match item {
-                ast::BlockItem::Property(property) => {
-                    self.constraints(&property.constraints);
-                    self.value(&property.value);
-                }
-                ast::BlockItem::ListItem(entry) => self.value(&entry.value),
-                ast::BlockItem::Merge(merge) => {
-                    let marker = match merge.op {
-                        ast::MergeOp::Merge => 1,
-                        ast::MergeOp::Concat => 2,
-                    };
-                    self.push(
-                        Span::new(merge.span.start, merge.span.start + marker),
-                        token::OPERATOR,
-                        0,
-                    );
-                    self.line(&merge.value);
-                }
-                ast::BlockItem::Prose(paragraph) => {
-                    for line in &paragraph.lines {
-                        self.line(line);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn line(&mut self, line: &ast::ProseLine) {
-        for segment in &line.segments {
-            if let ast::ProseSegment::Interpolation(interpolation) = segment {
-                let open = interpolation.sigil.prefix().len();
-                let span = interpolation.span;
-                self.push(Span::new(span.start, span.start + open), token::OPERATOR, 0);
-                self.push(Span::new(span.end.saturating_sub(1), span.end), token::OPERATOR, 0);
-                self.expr(&interpolation.expr);
-            }
-        }
-    }
-
-    /// The operator written between two spans, found in the source.
-    fn between(&mut self, from: usize, to: usize) {
-        let Some(gap) = self.source.get(from..to) else {
-            return;
-        };
-        let trimmed = gap.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        let offset = from + (gap.len() - gap.trim_start().len());
-        self.push(Span::new(offset, offset + trimmed.len()), token::OPERATOR, 0);
-    }
-
-    fn expr(&mut self, expr: &Expr) {
-        match &expr.kind {
-            ExprKind::Quoted(_) => self.push(expr.span, token::STRING, 0),
-            ExprKind::Number(_) => self.push(expr.span, token::NUMBER, 0),
-            ExprKind::Bool(_)
-            | ExprKind::Null
-            | ExprKind::This
-            | ExprKind::SelfRef
-            | ExprKind::Super => self.push(expr.span, token::KEYWORD, 2),
-            ExprKind::Field(base, field) => {
-                self.expr(base);
-                self.between(base.span.end, field.span.start);
-            }
-            ExprKind::Unary(_, operand) => {
-                self.between(expr.span.start, operand.span.start);
-                self.expr(operand);
-            }
-            ExprKind::Binary(_, left, right) => {
-                self.expr(left);
-                self.between(left.span.end, right.span.start);
-                self.expr(right);
-            }
-            ExprKind::Ternary(condition, consequent, alternative) => {
-                self.expr(condition);
-                self.between(condition.span.end, consequent.span.start);
-                self.expr(consequent);
-                self.between(consequent.span.end, alternative.span.start);
-                self.expr(alternative);
-            }
-            ExprKind::List(items) => {
-                for item in items {
-                    self.expr(item);
-                }
-            }
-            ExprKind::Paren(inner) => self.expr(inner),
-            ExprKind::Nested(sigil, inner) => {
-                let open = sigil.prefix().len();
-                self.push(
-                    Span::new(expr.span.start, expr.span.start + open),
-                    token::OPERATOR,
-                    0,
-                );
-                self.push(
-                    Span::new(expr.span.end.saturating_sub(1), expr.span.end),
-                    token::OPERATOR,
-                    0,
-                );
-                self.expr(inner);
-            }
-            _ => {}
-        }
-    }
-}
-
+/// The semantic tokens of a file: one per resolved name and module path.
+///
+/// Everything else -- comments, keywords, literals, operators, prose -- is the
+/// syntax definition's to colour, and the server says nothing about it. That
+/// keeps the two layers from disagreeing: a token arriving can only refine a
+/// name with what resolving it found, never repaint text the grammar already
+/// coloured.
 pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult> {
     let cursor = file_context(world, uri)?;
     let index = world.index.get(cursor.module)?;
     let compilation = cursor.compilation;
-    let module = compilation.graph().get(cursor.module);
-
-    let mut raw: Vec<RawToken> = Vec::new();
-
-    // Syntax-level tokens the index does not carry.
-    let syntax = module.parse.syntax();
-    for token in syntax
-        .descendants_with_tokens()
-        .filter_map(|element| element.into_token())
-    {
-        let span = Span::new(
-            usize::from(token.text_range().start()),
-            usize::from(token.text_range().end()),
-        );
-        let kind = token.kind();
-        let index_of = if kind == SyntaxKind::COMMENT {
-            token::COMMENT
-        } else if kind.is_keyword() {
-            token::KEYWORD
-        } else if kind == SyntaxKind::NUMBER {
-            token::NUMBER
-        } else if kind == SyntaxKind::ESCAPE_TEXT {
-            token::STRING
-        } else {
-            continue;
-        };
-        raw.push(RawToken {
-            span,
-            kind: index_of,
-            modifiers: 0,
-            priority: 5,
-        });
-    }
-
-    // Constraints and the insides of interpolations.
-    let mut walker = TokenWalker {
-        source: &cursor.text,
-        out: Vec::new(),
-    };
-    for item in &module.ast().items {
-        match item {
-            Item::Anchor(decl) => walker.block(&decl.body),
-            Item::Variable(decl) => {
-                walker.constraints(&decl.constraints);
-                walker.value(&decl.value);
-            }
-            _ => {}
-        }
-    }
-    raw.extend(walker.out);
-
-    // Semantic tokens from the resolved program.
     let store = compilation.store();
     let is_package = |module: piton_compile::ModuleId| compilation.graph().get(module).is_package();
+
+    let mut raw: Vec<(Span, u32, u32)> = Vec::new();
     for occurrence in &index.occurrences {
-        let definition = occurrence.role == Role::Definition;
-        let declared = if definition {
-            modifier::DECLARATION | modifier::DEFINITION
+        let declared = if occurrence.role == Role::Definition {
+            modifier::DECLARATION
         } else {
             0
         };
@@ -3338,7 +3811,7 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
                 let mut modifiers = declared;
                 // A property read through `self`, `super` or an anchor whose
                 // value a base supplies is an inherited value.
-                if !definition
+                if occurrence.role == Role::Reference
                     && store
                         .anchor(*anchor)
                         .slots
@@ -3362,7 +3835,7 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
                 (token::VARIABLE, modifiers)
             }
             Target::Keyword(_, aliased) => {
-                let mut modifiers = if definition { modifier::DECLARATION } else { 0 };
+                let mut modifiers = declared;
                 if let Some(anchor) = aliased {
                     let def = store.anchor(*anchor);
                     if def.module != cursor.module {
@@ -3384,53 +3857,55 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
             ),
             Target::Unresolved(_) => continue,
         };
-        raw.push(RawToken {
-            span: occurrence.span,
-            kind,
-            modifiers,
-            priority: 1,
-        });
+        raw.push((occurrence.span, kind, modifiers));
     }
 
-    raw.sort_by_key(|token| (token.span.start, token.priority, token.span.len()));
-    // Overlapping tokens confuse clients; keep the first at each start.
-    let mut filtered: Vec<RawToken> = Vec::new();
-    let mut cursor_offset = 0usize;
+    // Where two occurrences overlap, the innermost names the text.
+    raw.sort_by_key(|(span, _, _)| (span.start, span.len()));
+    let mut kept: Vec<(Span, u32, u32)> = Vec::new();
     for entry in raw {
-        if entry.span.start < cursor_offset || entry.span.is_empty() {
+        if entry.0.is_empty() {
             continue;
         }
-        cursor_offset = entry.span.end;
-        filtered.push(entry);
+        match kept.last() {
+            Some(last) if last.0.end > entry.0.start => {
+                if entry.0.len() < last.0.len() {
+                    kept.pop();
+                    kept.push(entry);
+                }
+            }
+            _ => kept.push(entry),
+        }
     }
 
+    let lines = LineIndex::new(&cursor.text, Encoding::Utf16);
     let mut data = Vec::new();
-    let mut previous_line = 0u32;
-    let mut previous_start = 0u32;
-    for entry in filtered {
-        let start = offset_to_position(&cursor.text, entry.span.start);
-        let end = offset_to_position(&cursor.text, entry.span.end);
+    let mut previous = Position::default();
+    for (span, kind, modifiers) in kept {
+        let start = lines.position(span.start);
+        let end = lines.position(span.end);
+        // A name cannot hold a line break, so a token spanning lines is a
+        // span gone wrong; dropping it beats telling the client nonsense.
         if end.line != start.line {
+            debug_assert!(false, "a semantic token spans lines: {span:?}");
             continue;
         }
-        let delta_line = start.line - previous_line;
-        let delta_start = if delta_line == 0 {
-            start.character.saturating_sub(previous_start)
-        } else {
-            start.character
-        };
+        let delta_line = start.line - previous.line;
         data.push(SemanticToken {
             delta_line,
-            delta_start,
+            delta_start: if delta_line == 0 {
+                start.character - previous.character
+            } else {
+                start.character
+            },
             length: end.character - start.character,
-            token_type: entry.kind,
-            token_modifiers_bitset: entry.modifiers,
+            token_type: kind,
+            token_modifiers_bitset: modifiers,
         });
-        previous_line = start.line;
-        previous_start = start.character;
+        previous = start;
     }
 
-    debug_assert!(TOKEN_TYPES.len() > token::TYPE as usize && TOKEN_MODIFIERS.len() >= 7);
+    debug_assert!(TOKEN_TYPES.len() > token::NAMESPACE as usize && TOKEN_MODIFIERS.len() == 6);
     Some(SemanticTokensResult::Tokens(SemanticTokens {
         result_id: None,
         data,
@@ -3498,10 +3973,14 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
                 continue;
             };
             for property in decl.body.properties() {
-                let Some(base) = overridden(compilation, def.id, &property.name) else {
+                // Writing what an abstract base requires is implementing it;
+                // only replacing a value is worth a line of its own.
+                let Some(base) = replaces_value(compilation, def.id, &property.name) else {
                     continue;
                 };
-                let Some(location) = overridden_location(world, def.id, &property.name) else {
+                let Some(location) =
+                    definition_location(world, &Target::Property(base, property.name.clone()))
+                else {
                     continue;
                 };
                 lenses.push(CodeLens {
@@ -3652,189 +4131,6 @@ pub fn output_to_source(world: &World, params: &serde_json::Value) -> serde_json
 fn paths_equal(left: &Path, right: &Path) -> bool {
     left == right
         || left.to_string_lossy().replace('\\', "/") == right.to_string_lossy().replace('\\', "/")
-}
-
-#[cfg(test)]
-mod completion_tests {
-    use super::*;
-
-    #[test]
-    fn the_head_of_an_unindented_line_declares() {
-        assert_eq!(
-            context(""),
-            Context::Declaration {
-                exported: false,
-                is_abstract: false
-            }
-        );
-        assert_eq!(
-            context("export "),
-            Context::Declaration {
-                exported: true,
-                is_abstract: false
-            }
-        );
-        assert_eq!(
-            context("export abstract "),
-            Context::Declaration {
-                exported: true,
-                is_abstract: true
-            }
-        );
-        // The word being typed is what to complete, not something already said.
-        assert_eq!(
-            context("expo"),
-            Context::Declaration {
-                exported: false,
-                is_abstract: false
-            }
-        );
-        // Past the declaration keyword comes a name, which is the author's.
-        assert_eq!(context("anchor "), Context::Nothing);
-    }
-
-    #[test]
-    fn a_declaration_head_knows_its_clauses() {
-        assert_eq!(context("anchor A extends "), Context::Bases);
-        assert_eq!(context("anchor A extends Ba"), Context::Bases);
-        // `as` names a keyword the author is inventing.
-        assert_eq!(context("anchor A extends B as "), Context::Nothing);
-        // `extends` inside a word is not the clause.
-        assert_eq!(context("anchor Bases "), Context::Nothing);
-    }
-
-    #[test]
-    fn imports_complete_by_part() {
-        assert_eq!(context("use "), Context::ModulePath);
-        assert_eq!(context("use ./oper"), Context::ModulePath);
-        assert_eq!(context("from ./x"), Context::ModulePath);
-        assert_eq!(context("from ./x "), Context::ImportDirection);
-        assert_eq!(context("from ./x imp"), Context::ImportDirection);
-        assert_eq!(
-            context("from ./x import "),
-            Context::ImportName { module: "./x" }
-        );
-        assert_eq!(
-            context("from ./x export Na"),
-            Context::ImportName { module: "./x" }
-        );
-    }
-
-    #[test]
-    fn a_key_takes_the_first_colon_and_the_constraints_take_the_rest() {
-        assert_eq!(context("    ti"), Context::Body);
-        // Nothing written after the colon is nothing to complete on.
-        assert_eq!(context("    title:"), Context::Nothing);
-        assert_eq!(context("    title: "), Context::Nothing);
-        assert_eq!(
-            context("    title: t"),
-            Context::Value { key: Some("title") }
-        );
-        assert_eq!(context("    name:: "), Context::TypeConstraint);
-        assert_eq!(context("    name:: str"), Context::TypeConstraint);
-        assert_eq!(context("    name:: string: "), Context::Nothing);
-        assert_eq!(
-            context("    name:: string: n"),
-            Context::Value { key: Some("name") }
-        );
-        // Constraints chain, and the state flips on every colon.
-        assert_eq!(context("    p:: dictionary:: "), Context::TypeConstraint);
-        assert_eq!(
-            context("    p:: dictionary:: null: nu"),
-            Context::Value { key: Some("p") }
-        );
-    }
-
-    #[test]
-    fn a_list_item_holds_a_value() {
-        assert_eq!(context("    - t"), Context::Value { key: None });
-        assert_eq!(context("    ++ t"), Context::Value { key: None });
-        // An empty item proposes nothing, like an empty value.
-        assert_eq!(context("    - "), Context::Nothing);
-    }
-
-    #[test]
-    fn an_interpolation_knows_its_sigil() {
-        assert_eq!(
-            context("    a: {x"),
-            Context::Expression {
-                sigil: "{",
-                member_of: None
-            }
-        );
-        assert_eq!(
-            context("    a: @{"),
-            Context::Expression {
-                sigil: "@{",
-                member_of: None
-            }
-        );
-        assert_eq!(
-            context("    a: ${self.na"),
-            Context::Expression {
-                sigil: "${",
-                member_of: Some("self")
-            }
-        );
-        assert_eq!(
-            context("    a: {A.b.c"),
-            Context::Expression {
-                sigil: "{",
-                member_of: Some("A.b")
-            }
-        );
-        // A closed interpolation is behind the cursor, not around it.
-        assert_eq!(context("    a: {x} and "), Context::Nothing);
-    }
-
-    #[test]
-    fn a_string_has_nothing_to_complete() {
-        // The specification is explicit about this one: a `.` typed in the
-        // middle of a string has nothing to complete on, because a string has
-        // no members.
-        assert_eq!(context(r#"    a: ${"a sentence."#), Context::Nothing);
-        assert_eq!(
-            context(r#"    a: ${"in a string" + "#),
-            Context::Expression {
-                sigil: "${",
-                member_of: None
-            }
-        );
-        assert!(in_string(r#""open"#));
-        assert!(!in_string(r#""closed""#));
-        assert!(in_string(r#""an escaped \" quote"#));
-    }
-
-    #[test]
-    fn prose_is_written_rather_than_completed() {
-        // A value that has become a sentence is not a name being completed.
-        assert_eq!(context("    a: the quick brown"), Context::Nothing);
-        assert_eq!(context("    a: The end."), Context::Nothing);
-        assert_eq!(context("    a: tru"), Context::Value { key: Some("a") });
-        // And neither is a line of prose inside a body.
-        assert_eq!(context("    the quick brown"), Context::Nothing);
-    }
-
-    #[test]
-    fn a_comment_has_nothing_to_complete() {
-        assert_eq!(context("    // a note"), Context::Nothing);
-        assert_eq!(context("a: see https://example.com/"), Context::Nothing);
-        // A `//` that does not follow whitespace is not a comment, so the line
-        // is still a value -- and a URL is prose, so there is nothing to offer.
-        assert!(!in_comment("a: see https://example.com"));
-    }
-
-    #[test]
-    fn escape_blocks_are_not_piton() {
-        // A code fence is just text, so it isn't verbatim.
-        let fenced = "a:\n    ```json\n    { \"k\": 1 }\n";
-        assert!(!verbatim_at(fenced, fenced.len()));
-
-        let escaped = "a:\n\\\\\\\\\nliteral {text}\n";
-        assert!(verbatim_at(escaped, escaped.len()));
-        let unescaped = "a:\n\\\\\\\\\nliteral\n\\\\\\\\\n";
-        assert!(!verbatim_at(unescaped, unescaped.len()));
-    }
 }
 
 // ---------------------------------------------------------------------------

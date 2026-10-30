@@ -1,0 +1,9 @@
+1:0-27 Comment // A comment at the margin.
+2:0-6 Keyword anchor
+2:7-16 TypeDecl Commented
+3:4-27 Comment // An indented comment.
+4:4-9 Key title
+5:4-30 Comment //no space still a comment
+6:4-8 Key body
+7:8-9 Escape \
+7:13-14 Escape \

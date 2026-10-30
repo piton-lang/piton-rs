@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use piton_lsp::convert::{offset_to_position, path_to_url, position_to_offset};
 use piton_lsp::features;
 use piton_lsp::world::World;
-use piton_lsp::TOKEN_TYPES;
 use tower_lsp::lsp_types::*;
 
 fn repo_root() -> PathBuf {
@@ -140,6 +139,7 @@ fn rename_rewrites_every_occurrence() {
         fixture.position_of(file, "Escaping:"),
         "EscapeRules",
     )
+    .expect("a valid rename")
     .expect("rename");
     let changes = edit.changes.expect("changes");
     assert!(
@@ -206,77 +206,35 @@ fn completion_inside_an_anchor_offers_inherited_properties() {
 }
 
 #[test]
-fn inlay_hints_name_the_contributing_base() {
+fn inlay_hints_on_the_specification_are_only_the_two_kinds() {
     let fixture = Fixture::new();
     let file = "spec/scope/language/operators/arithmetic/AdditionOperator.pi";
     let uri = fixture.uri(file);
-    let path = fixture.root.join(file);
-    let text = std::fs::read_to_string(&path).expect("readable");
     let whole = Range {
         start: Position::default(),
-        end: offset_to_position(&text, text.len()),
+        end: Position::new(u32::MAX, 0),
     };
-    let hints = features::inlay_hints(&fixture.world, &uri, whole).expect("hints");
-    assert!(
-        !hints.is_empty(),
-        "expected hints for resolved property types"
-    );
-    let labels: Vec<String> = hints
-        .iter()
-        .map(|hint| match &hint.label {
+    for hint in features::inlay_hints(&fixture.world, &uri, whole).expect("hints") {
+        let label = match &hint.label {
             InlayHintLabel::String(text) => text.clone(),
-            _ => String::new(),
-        })
-        .collect();
-    // The inferred type is shown, and a property that replaces an inherited
-    // declaration says which one it replaces.
-    assert!(
-        labels.iter().any(|label| label.contains("string")),
-        "{labels:?}"
-    );
-    assert!(
-        labels
-            .iter()
-            .any(|label| label.contains("overrides ArithmeticOperator")),
-        "{labels:?}"
-    );
+            InlayHintLabel::LabelParts(parts) => parts.iter().map(|part| part.value.clone()).collect(),
+        };
+        // An inferred type written as a constraint, or the anchor that
+        // supplies a value; nothing the source already says.
+        assert!(
+            label.starts_with(":: ") || label.starts_with('\u{2190}'),
+            "{label}"
+        );
+    }
 }
 
-#[test]
-fn inlay_hints_mark_inherited_values() {
-    let fixture = Fixture::new();
-    let file = "spec/scope/language/types/Strings.pi";
-    let uri = fixture.uri(file);
-    let path = fixture.root.join(file);
-    let text = std::fs::read_to_string(&path).expect("readable");
-    let whole = Range {
-        start: Position::default(),
-        end: offset_to_position(&text, text.len()),
-    };
-    let labels: Vec<String> = features::inlay_hints(&fixture.world, &uri, whole)
-        .expect("hints")
-        .iter()
-        .map(|hint| match &hint.label {
-            InlayHintLabel::String(text) => text.clone(),
-            _ => String::new(),
-        })
-        .collect();
-    // `description` in Strings is an implicit mixed list, not a plain string.
-    assert!(
-        labels.iter().any(|label| label.contains("list")),
-        "{labels:?}"
-    );
-    assert!(
-        labels.iter().any(|label| label.contains("overrides Type")),
-        "{labels:?}"
-    );
-}
 
 #[test]
 fn folding_covers_every_declaration() {
     let fixture = Fixture::new();
-    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
-    let ranges = features::folding(&fixture.world, &uri).expect("folding");
+    let path = fixture.root.join("spec/scope/language/types/Strings.pi");
+    let text = fixture.world.text(&path).expect("text");
+    let ranges = features::folding(&text, &path);
     assert!(!ranges.is_empty());
     assert!(ranges.iter().all(|range| range.end_line > range.start_line));
 }
@@ -285,9 +243,10 @@ fn folding_covers_every_declaration() {
 fn selection_ranges_widen_outward() {
     let fixture = Fixture::new();
     let file = "spec/scope/language/types/Strings.pi";
-    let uri = fixture.uri(file);
+    let path = fixture.root.join(file);
+    let text = fixture.world.text(&path).expect("text");
     let position = fixture.position_of(file, "supportedOperators");
-    let ranges = features::selection_ranges(&fixture.world, &uri, &[position]).expect("ranges");
+    let ranges = features::selection_ranges(&text, &path, &[position]);
     let mut current = ranges.into_iter().next().expect("one range");
     let mut widths = vec![span_width(&current.range)];
     while let Some(parent) = current.parent {
@@ -324,8 +283,8 @@ fn semantic_tokens_are_produced_in_order() {
 #[test]
 fn formatting_reports_no_change_for_canonical_files() {
     let fixture = Fixture::new();
-    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
-    let edits = features::formatting(&fixture.world, &uri).expect("edits");
+    let path = fixture.root.join("spec/scope/language/types/Strings.pi");
+    let edits = features::formatting(&fixture.world.text(&path).expect("text"), &path);
     assert!(
         edits.is_empty(),
         "the specification is canonically formatted; got {edits:?}"
@@ -347,9 +306,8 @@ fn formatting_leaves_comments_alone() {
     );
     fixture.world.recompile(Some(&path));
 
-    let uri = fixture.uri("spec/scope/language/types/Strings.pi");
-    let edits = features::formatting(&fixture.world, &uri).expect("edits");
     let text = fixture.world.text(&path).expect("text");
+    let edits = features::formatting(&text, &path);
     let mut formatted = text.clone();
     for edit in edits.iter().rev() {
         let start = piton_lsp::convert::position_to_offset(&formatted, edit.range.start);
@@ -614,8 +572,7 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
         "export type N:\n    a:: string\n"
     );
 
-    // The `-` that opens a list item is the item's, not the value's -- even
-    // written against it with no space.
+    // The `-` that opens a list item is the item's, not the value's.
     let item = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - nu<|>\n",
@@ -624,14 +581,13 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
         item.accept("null"),
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - null\n"
     );
+    // Without its space the dash opens no list item -- the parser reads `-nu`
+    // as a sentence -- so there is nothing to complete.
     let glued = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        -nu<|>\n",
     );
-    assert_eq!(
-        glued.accept("null"),
-        "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        -null\n"
-    );
+    assert!(glued.labels().is_empty(), "{:?}", glued.labels());
 
     // With nothing written yet there is nothing to replace, so the edit
     // inserts where the cursor is.
@@ -877,7 +833,7 @@ fn after_enter(marked: &str) -> String {
     let buffer = Buffer::over(NULL, marked);
     let path = repo_root().join(NULL);
     let text = buffer.world.text(&path).expect("text");
-    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n")
+    let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n")
         .unwrap_or_default();
 
     let mut out = text.clone();
@@ -969,7 +925,7 @@ fn enter_replaces_indentation_the_cursor_has_not_reached() {
 fn enter_when_the_client_already_indented_changes_nothing() {
     // Same indent as the one wanted: there is nothing to correct.
     let buffer = Buffer::over(NULL, "export type N:\n    frameworks:\n        <|>");
-    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
+    let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
 }
 
@@ -981,7 +937,7 @@ fn enter_inside_an_escape_block_changes_nothing() {
         NULL,
         "export type N:\n    a:\n        \\\\\\\n        key:\n<|>",
     );
-    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
+    let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
 }
 
@@ -1030,7 +986,7 @@ fn enter_on_a_blank_line_at_the_margin_stays_there() {
     // a no-op rather than wrapping to a negative depth. Here the line above the
     // cursor is itself blank and at column zero.
     let buffer = Buffer::over(NULL, "anchor A:\n\n<|>");
-    let edits = features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, "\n");
+    let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
 }
 
@@ -1038,7 +994,7 @@ fn enter_on_a_blank_line_at_the_margin_stays_there() {
 fn only_the_newline_triggers_a_reindent() {
     let buffer = Buffer::over(NULL, "export type N:\n<|>");
     assert!(
-        features::on_type_formatting(&buffer.world, &buffer.uri, buffer.position, ":").is_none(),
+        features::on_type_formatting(&buffer.text, buffer.position, ":").is_none(),
         "nothing but a newline changes which line the cursor is on"
     );
 }
@@ -1224,79 +1180,17 @@ fn a_nested_dictionary_is_not_offered_the_anchors_properties() {
     assert!(body.labels().contains(&"description".to_string()));
 }
 
-#[test]
-fn semantic_tokens_mark_types_and_expression_operators() {
-    let buffer = Buffer::over(
-        NULL,
-        "<|>use ./lib/Type\n\nexport type Null:\n    n:: number: {1 + 2}\n    s: ${\"a\" ++ \"b\"}\n",
-    );
-    let Some(SemanticTokensResult::Tokens(tokens)) =
-        features::semantic_tokens(&buffer.world, &buffer.uri)
-    else {
-        panic!("tokens");
-    };
-    // Decode to (line, column, length, type).
-    let mut decoded = Vec::new();
-    let (mut line, mut column) = (0u32, 0u32);
-    for token in &tokens.data {
-        if token.delta_line > 0 {
-            line += token.delta_line;
-            column = token.delta_start;
-        } else {
-            column += token.delta_start;
-        }
-        decoded.push((line, column, token.length, token.token_type));
-    }
-    let lines: Vec<&str> = buffer.text.lines().collect();
-    let text_of = |(line, column, length, _): &(u32, u32, u32, u32)| -> String {
-        lines[*line as usize]
-            .chars()
-            .skip(*column as usize)
-            .take(*length as usize)
-            .collect()
-    };
-    let kind = |wanted: &str| -> Vec<u32> {
-        decoded
-            .iter()
-            .filter(|token| text_of(token) == wanted)
-            .map(|token| token.3)
-            .collect()
-    };
-    let type_index = TOKEN_TYPES
-        .iter()
-        .position(|kind| *kind == SemanticTokenType::TYPE)
-        .unwrap() as u32;
-    let operator = TOKEN_TYPES
-        .iter()
-        .position(|kind| *kind == SemanticTokenType::OPERATOR)
-        .unwrap() as u32;
-    let string = TOKEN_TYPES
-        .iter()
-        .position(|kind| *kind == SemanticTokenType::STRING)
-        .unwrap() as u32;
-    assert!(kind("number").contains(&type_index), "{decoded:?}");
-    assert!(kind("+").contains(&operator), "{decoded:?}");
-    assert!(kind("++").contains(&operator), "{decoded:?}");
-    assert!(kind("\"a\"").contains(&string), "{decoded:?}");
-    assert!(kind("${").contains(&operator), "{decoded:?}");
-}
 
 #[test]
-fn workspace_symbols_carry_their_description() {
+fn workspace_symbols_name_the_module_they_are_in() {
     let fixture = Fixture::new();
     let symbols = features::workspace_symbols(&fixture.world, "Strings").expect("symbols");
     let strings = symbols
         .iter()
         .find(|symbol| symbol.name == "Strings")
         .expect("Strings");
-    assert!(
-        strings
-            .container_name
-            .as_deref()
-            .is_some_and(|container| container.contains("Strings are not quoted")),
-        "{:?}",
-        strings.container_name
-    );
+    assert_eq!(strings.container_name.as_deref(), Some("spec/scope/language/types/Strings"));
+    assert_eq!(symbols[0].name, "Strings", "the exact match comes first");
 }
 
 #[test]

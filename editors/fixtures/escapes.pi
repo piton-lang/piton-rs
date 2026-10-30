@@ -1,0 +1,21 @@
+anchor Escapes:
+    inline: \ {1 + 2} \ is literal
+    colon: \ : \ too
+    nested: \\ \ {x} \ \\
+    lone: a \: is literal
+    block:
+        \\\
+        anchor Example:
+            value: {1 + 2}
+        \\\
+    fenced:
+        ```piton
+        \\\
+        anchor Example:
+            value: {1 + 2}
+        \\\
+        ```
+    unescaped:
+        ```yaml
+        name: {1 + 2}
+        ```

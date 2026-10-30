@@ -1,0 +1,20 @@
+anchor Values:
+    whole: 42
+    negative: -5
+    decimal: 1_200_000.50
+    yes: true
+    no: false
+    nothing: null
+    apples: 3 apples
+    half: .5
+    exponent: 1e3
+    story: true story
+    quoted: "false"
+    list: [1, true, null]
+    items:
+        - 7
+        - true
+        - null
+        - 7 days
+    merged:
+        + 3

@@ -627,3 +627,197 @@ fn a_reference_to_a_construct_links_to_its_own_output() {
         "a construct is not copied into the reference directory"
     );
 }
+
+const CLAUDE_AND_CODEX: &[&str] = &["ClaudeCodeAdapter", "CodexAdapter"];
+
+fn executable(sandbox: &Sandbox, relative: &str) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = sandbox.dir.join(relative);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    let _ = (sandbox, relative);
+}
+
+#[test]
+fn a_vendored_skill_is_copied_as_it_is_for_each_target() {
+    let sandbox = Sandbox::new("vendored-skill");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write(
+            "spec/vendor/claude/SKILL.md",
+            "---\nname: designer\ndescription: Designs for Claude.\nallowed-tools: Bash(x *)\n---\n\nRun {{scripts}} as it is.\n",
+        )
+        .write("spec/vendor/claude/reference/a.md", "# A\n\n[b](./b.md)\n")
+        .write("spec/vendor/claude/scripts/run", "#!/bin/sh\necho hi\n")
+        .write(
+            "spec/vendor/codex/SKILL.md",
+            "---\nname: designer\ndescription: Designs for Codex.\n---\n\nCodex body.\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Designer:\n    files:\n        claude-code: ./vendor/claude\n        codex: ./vendor/codex\n",
+        );
+    executable(&sandbox, "spec/vendor/claude/scripts/run");
+    std::fs::write(sandbox.dir.join("spec/vendor/claude/scripts/blob.bin"), [0u8, 159, 146, 150]).expect("blob");
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert_eq!(
+        built.file(".claude/skills/designer/SKILL.md"),
+        "---\nname: designer\ndescription: Designs for Claude.\nallowed-tools: Bash(x *)\n---\n\nRun {{scripts}} as it is.\n"
+    );
+    assert!(built.file(".claude/skills/designer/reference/a.md").contains("[b](./b.md)"));
+    assert!(built.file(".agents/skills/designer/SKILL.md").contains("Codex body."));
+    assert!(!built.has(".agents/skills/designer/scripts/run"), "{:?}", built.paths());
+
+    let script = built
+        .plan
+        .files
+        .iter()
+        .find(|file| file.path == PathBuf::from(".claude/skills/designer/scripts/run"))
+        .expect("script planned");
+    assert_eq!(script.kind, piton_belay::OutputKind::SkillFile);
+    #[cfg(unix)]
+    assert!(script.copied.as_ref().is_some_and(|copied| copied.executable));
+    let blob = built
+        .plan
+        .files
+        .iter()
+        .find(|file| file.path == PathBuf::from(".claude/skills/designer/scripts/blob.bin"))
+        .expect("blob planned");
+    assert_eq!(blob.data(), &[0u8, 159, 146, 150]);
+
+    // Writing keeps the bytes and the execute permission, and records the
+    // copies so a later build can remove them.
+    piton_belay::write(&built.plan, &sandbox.dir).expect("write");
+    assert_eq!(
+        std::fs::read(sandbox.dir.join(".claude/skills/designer/scripts/blob.bin")).expect("read"),
+        vec![0u8, 159, 146, 150]
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(sandbox.dir.join(".claude/skills/designer/scripts/run"))
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "{mode:o}");
+    }
+    let manifest = std::fs::read_to_string(sandbox.dir.join(piton_belay::MANIFEST)).expect("manifest");
+    assert!(manifest.contains(".claude/skills/designer/scripts/run"), "{manifest}");
+}
+
+#[test]
+fn a_folder_without_a_skill_file_is_copied_beside_the_rendered_one() {
+    let sandbox = Sandbox::new("vendored-support");
+    sandbox
+        .configure(CLAUDE, "")
+        .write("spec/tools/check.sh", "#!/bin/sh\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Checker:\n    useWhen: asked to check\n    prompt: Run ./check.sh.\n    files: ./tools\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let skill = built.file(".claude/skills/checker/SKILL.md");
+    assert!(skill.contains("Run ./check.sh."), "{skill}");
+    assert!(!skill.contains("# Files"), "{skill}");
+    assert_eq!(built.file(".claude/skills/checker/check.sh"), "#!/bin/sh\n");
+}
+
+#[test]
+fn a_vendored_skill_cannot_also_set_what_its_file_defines() {
+    let sandbox = Sandbox::new("vendored-conflict");
+    sandbox
+        .configure(CLAUDE, "")
+        .write("spec/v/SKILL.md", "---\nname: other\ndescription: D.\n---\n\nBody.\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Vendored:\n    prompt: Ignored.\n    files: ./v\n",
+        );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("vendored-conflict").message.contains("Vendored.prompt"));
+    assert!(built.diagnostic("vendored-name-mismatch").message.contains("`other`"));
+}
+
+#[test]
+fn per_target_paths_must_cover_the_built_targets() {
+    let sandbox = Sandbox::new("vendored-targets");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write("spec/v/SKILL.md", "---\nname: partial\ndescription: D.\n---\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Partial:\n    files:\n        claude-code: ./v\n        cursor: ./v\n",
+        );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("missing-vendored-target").message.contains("codex"));
+    assert!(built.diagnostic("unknown-vendored-target").message.contains("cursor"));
+}
+
+#[test]
+fn a_missing_folder_and_a_missing_use_when_are_errors() {
+    let sandbox = Sandbox::new("vendored-missing");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Gone:\n    files: ./nowhere\n\nexport skill Bare:\n    prompt: No useWhen.\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("missing-vendored-files").message.contains("nowhere"));
+    assert!(built.diagnostic("missing-use-when").message.contains("Bare"));
+}
+
+#[test]
+fn a_vendored_agent_is_used_as_it_is() {
+    let sandbox = Sandbox::new("vendored-agent");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write(
+            "spec/agents/reviewer.md",
+            "---\nname: reviewer\ndescription: Reviews.\ntools: Read, Grep\nmodel: inherit\n---\n\nYou review.\n",
+        )
+        .write(
+            "spec/agents/reviewer.toml",
+            "name = \"reviewer\"\ndescription = \"Reviews.\"\ndeveloper_instructions = \"You review.\"\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: ./agents/reviewer.toml\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.file(".claude/agents/reviewer.md").contains("tools: Read, Grep"));
+    assert!(built.file(".codex/agents/reviewer.toml").starts_with("name = \"reviewer\""));
+}
+
+#[test]
+fn a_vendored_agent_must_match_the_target_format() {
+    let sandbox = Sandbox::new("vendored-agent-format");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport agent Reviewer:\n    role: reviewer\n    file: ./agents/reviewer.md\n",
+        );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("vendored-format-mismatch").message.contains(".toml"));
+    assert!(built.diagnostic("vendored-conflict").message.contains("Reviewer.role"));
+}
+
+#[test]
+fn a_null_entry_leaves_the_construct_out_of_that_target() {
+    let sandbox = Sandbox::new("vendored-null");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n\nYou review.\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: null\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.has(".claude/agents/reviewer.md"));
+    assert!(!built.has(".codex/agents/reviewer.toml"), "{:?}", built.paths());
+}

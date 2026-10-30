@@ -1237,9 +1237,9 @@ preserved and serialized as Markdown after the prompt.
 | Keyword | Extra required field | Meaning | Output |
 | --- | --- | --- | --- |
 | `instruction` | none | Persistent guidance tied to a code scope. **Its placement is part of its meaning.** | Mapped from `shapeRoot` to the matching `codeRoot` directory (11.3). Instructions for the same scope combine into one guidance file per target. Each is also kept in the compiled shape-reference tree. |
-| `skill` | `useWhen:: string` | Instructions the agent loads selectively for one kind of work. | Name from the anchor through the adapter's naming rules. Discovery description is `<description> Use when <useWhen>`. Body is `prompt`, then the extra properties. The platform decides when to load it. |
+| `skill` | `useWhen:: string` (unless vendored) | Instructions the agent loads selectively for one kind of work. | Name from the anchor through the adapter's naming rules. Discovery description is `<description> Use when <useWhen>`. Body is `prompt`, then the extra properties. The platform decides when to load it. |
 | `command` | none | An explicit entrypoint that invokes a prompt or directs work through skills. | Name is `x-` plus the normalized name. A native command, or the explicit-invocation equivalent the adapter defines. |
-| `agent` | `role:: string` | A role and the instructions for performing it. | Identity is the kebab-case anchor name, unless the target needs another form. The body starts with `You are a <role>`, then the prompt, then the extra properties. |
+| `agent` | `role:: string` (unless vendored) | A role and the instructions for performing it. | Identity is the kebab-case anchor name, unless the target needs another form. The body starts with `You are a <role>`, then the prompt, then the extra properties. |
 
 - Abstract constructs can supply shared structure. Required fields
   (`useWhen`, `role`) are checked only on concrete constructs, after
@@ -1276,6 +1276,29 @@ and are never serialized into the body: `tools`, `model`, `allowed-tools`,
 Each adapter supports a subset (11.5). An option the target cannot represent
 is `unsupported-option`, and an invalid value is `invalid-option`. How these
 are typed is still an open decision (11.7).
+
+
+**Vendored files.** A skill's `files` names a folder copied beside its
+`SKILL.md`: scripts, data, reference documents, byte for byte, execute bit
+kept. When the folder holds a `SKILL.md`, that file *is* the skill and the
+anchor may set nothing else (`vendored-conflict`); its `name` must match the
+anchor's (`vendored-name-mismatch`), and `useWhen` is then not required. An
+agent's `file` names its native definition (`.md`, or `.toml` for Codex), used
+as it is. Either takes one path, or a dictionary from target id to path for a
+tool-specific build; a built target the dictionary leaves out is
+`missing-vendored-target`, and `null` emits nothing for that target. Paths resolve from the declaring `.pi` file (or the
+source root with a leading `/`), so a tethered package can carry an upstream
+skill unconverted:
+
+```piton
+use @piton/belay
+
+export skill Impeccable:
+    files:
+        claude-code: ./vendor/claude/impeccable
+        codex: ./vendor/codex/impeccable
+        opencode: ./vendor/opencode/impeccable
+```
 
 ### 11.3 Shape mapping (instructions)
 
@@ -1599,9 +1622,19 @@ and `namedArguments`.
 - Auto-import, import organization, and code actions: import a missing
   symbol, create an unresolved anchor, add an export, qualify an ambiguous
   reference, resolve a simple inheritance conflict.
-- Document and workspace symbols, semantic highlighting, inlay hints
-  (resolved types, inherited origins, composition sources), formatting,
-  folding and selection ranges.
+- Document and workspace symbols, semantic highlighting (resolved names and
+  module paths only; everything lexical is the syntax highlighter's), inlay
+  hints (an unconstrained `{}` value's inferred type written as `:: type`, and
+  `← Owner` after a member another anchor supplies), formatting, folding and
+  selection ranges.
+- Completion offers the keys a body still lacks, `pass` only in an empty body,
+  and nothing inside an escape. Implementing a required property is not
+  overriding it. Rename refuses invalid or colliding names; moving a file
+  rewrites the paths that name it.
+- Highlighters show prose in the plain text style, a value that is exactly a
+  number, boolean or null as that type, and code fences as ordinary Piton;
+  each is tested against the parser's own classification
+  (`editors/fixtures/`).
 - Inheritance, composition (`+`, `++`), override and conflict resolution;
   reference resolution; validation and type information for expressions in
   `{}`, `${}`, `#{}` and `@{}`; export validation; module resolution; cycle

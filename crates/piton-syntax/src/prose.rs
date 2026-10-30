@@ -29,6 +29,7 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
     let mut diagnostics = Vec::new();
     let mut buffer = String::new();
     let mut literal = false;
+    let mut escapes = Vec::new();
 
     let bytes: Vec<(usize, char)> = text.char_indices().collect();
     let mut i = 0usize;
@@ -48,6 +49,7 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
         let (_, ch) = bytes[i];
 
         if ch == '\\' {
+            let delimiter = Span::new(base + bytes[i].0, base + bytes[i].0 + 1);
             let mut run = 0usize;
             while i + run < bytes.len() && bytes[i + run].1 == '\\' {
                 run += 1;
@@ -64,6 +66,7 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                     buffer.pop();
                     flush(&mut buffer, &mut segments, true);
                     literal = false;
+                    escapes.push(delimiter);
                 } else {
                     buffer.push('\\');
                 }
@@ -71,6 +74,7 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                 // Opening delimiter: `\ ` -- the space is part of the wrapper.
                 flush(&mut buffer, &mut segments, false);
                 literal = true;
+                escapes.push(delimiter);
                 i += 1;
             } else {
                 // Wrapping is the only way to escape, so a backslash that
@@ -136,6 +140,7 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
         ProseLine {
             span: Span::new(base, base + text.len()),
             segments,
+            escapes,
         },
         diagnostics,
     )
@@ -279,6 +284,15 @@ mod tests {
             })
             .collect();
         assert_eq!(sigils, vec![Sigil::Reference, Sigil::Reference]);
+    }
+
+    #[test]
+    fn escape_delimiters_are_recorded() {
+        let (line, _) = scan_line(r"a \ {x} \ b", 10, Path::new("t.pi"));
+        assert_eq!(line.escapes, vec![Span::new(12, 13), Span::new(18, 19)]);
+        // A run of two is an escaped backslash, not a delimiter.
+        let (line, _) = scan_line(r"a \\ b", 0, Path::new("t.pi"));
+        assert!(line.escapes.is_empty());
     }
 
     #[test]

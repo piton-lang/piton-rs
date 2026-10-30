@@ -24,6 +24,11 @@ against the code or by running `piton`.
   server's on-type formatting, so it depends on the client asking for it.
 - [ ] **JetBrains** has no native `jetbrains` highlighter. It uses the VS Code
   TextMate bundle plus LSP4IJ; a real plugin is still to do.
+- [ ] **Zed** reads the rewritten tree-sitter grammar only once it is
+  published (`cargo xtask publish-grammar`) and the commit in
+  `editors/zed/extension.toml` is bumped.
+- [ ] **Emacs** `piton-ts-mode` maps the shared highlight query to faces, but
+  no Emacs was available to run it; the corpus has no Emacs runner.
 
 ## Open — packages/vite-plugin-piton
 

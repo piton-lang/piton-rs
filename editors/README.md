@@ -7,7 +7,7 @@ Every editor the specification names, and what each one needs.
 | VS Code | TextMate | bundled client | [`vscode`](vscode) |
 | Zed | tree-sitter | WebAssembly extension | [`zed`](zed) |
 | Helix | tree-sitter | built in | [`helix`](helix) |
-| Emacs | tree-sitter or regex | eglot | [`emacs`](emacs) |
+| Emacs | tree-sitter (the grammar's own `highlights.scm`) | eglot | [`emacs`](emacs) |
 | Neovim | Vim syntax (tree-sitter optional) | built-in `vim.lsp` or lspconfig | [`neovim`](neovim) |
 | Vim | Vim syntax | vim-lsp / coc / ALE | [`vim`](vim) |
 | Sublime Text | sublime-syntax | LSP package | [`sublime`](sublime) |
@@ -20,7 +20,9 @@ because a Zed extension reads them from its own `languages/piton/` directory.
 Some of them are the same query — `highlights.scm` and `injections.scm`, which a
 test holds byte for byte identical — and the rest are not, because Zed's capture
 vocabulary is its own, and it has queries for brackets, the outline and vim's
-text objects that the others have no equivalent of.
+text objects that the others have no equivalent of. Emacs ships a third copy of
+`highlights.scm` in [`emacs/queries`](emacs/queries), also held identical, and
+maps each capture to a face rather than keeping rules of its own.
 
 Indentation is the query that differs most. The grammar's `indents.scm` is
 written for nvim-treesitter (`@indent.begin`); Helix reads `@indent` and
@@ -87,17 +89,54 @@ definition for tokens, a server for meaning.
 
 ## Keeping the definitions honest
 
-Nine syntax definitions describing one language is nine chances to disagree with
-it. `crates/piton-syntax/src/language.rs` holds the keyword lists, and
-`crates/piton-syntax/tests/editors.rs` checks every definition in this directory
-against them, so a keyword added to the compiler cannot be quietly missing from
-an editor.
+Six syntax definitions describing one language is six chances to disagree with
+it, so none of them is taken on trust. The parser decides what every byte of a
+file is, and the definitions are tested against that.
+
+- **The classes.** [`fixtures/scopes.toml`](fixtures/scopes.toml) lists the
+  highlighting classes — comment, keyword, declared type, type reference,
+  variable, key, module path, built-in type, number, constant, string,
+  `this`/`self`/`super`, operator, list marker, sigil, escape, verbatim — and
+  the one name each format uses for each: a TextMate and Sublime scope, a
+  tree-sitter capture, a Kate item, a Vim group, an Emacs face. Anything else is
+  plain text, and that includes prose: it is shown in the editor's plain text
+  style everywhere, so the structure around it stands out. A code fence is
+  text too; only an escape block directly inside a fence that names a language
+  may be highlighted as that language.
+- **The answer.** `piton_syntax::highlight::classify` reads the class of every
+  token off the parser's syntax tree, and writes
+  [`fixtures/*.expected`](fixtures) for the fixtures beside them: valid Piton
+  covering declarations, imports, properties, literal values and their prose
+  look-alikes, prose pitfalls, expressions, escapes and fences, composition and
+  comments. `PITON_BLESS=1 cargo test -p piton-syntax --test highlight_corpus`
+  rewrites them, and the review is the diff.
+- **The comparison.** `crates/piton-syntax/tests/highlight_corpus.rs` runs each
+  definition over the fixtures with the tool that runs it — the tree-sitter CLI
+  on the grammar and `highlights.scm`; VS Code's own `vscode-textmate` engine
+  (`vscode/scripts/tokenize.mjs`, after `npm ci` in `vscode/`); syntect for
+  the Sublime syntax; `vim`; `ksyntaxhighlighter6` — and compares the class of
+  every non-blank byte with the parser's. A runner whose tool is not installed
+  says so and passes, unless `PITON_REQUIRE_EDITOR_TOOLS=1`.
+- **The exceptions.** Where a format cannot, or by design does not, do what the
+  parser does, [`fixtures/gaps.toml`](fixtures/gaps.toml) names the line and
+  says why. An entry whose line starts matching fails the test, so the list
+  only holds deviations that are real.
+
+`crates/piton-syntax/tests/editors.rs` adds the cheap static checks: the keyword
+lists in `crates/piton-syntax/src/language.rs`, that the copies of the queries
+are identical, that the highlights query has no predicates (so every editor
+reads it the same way), and that every name in `scopes.toml` is used by its
+format. `crates/piton-lsp/tests/editors.rs` checks that VS Code maps each
+semantic token type to the very scope the grammar uses for the same class, so
+the colour only changes when the server's resolution adds something.
 
 ## On the tree-sitter grammar
 
 It is a line-oriented grammar with no external scanner: it recognises lines and
 the tokens in them, and leaves indentation alone. Structure comes from the
-language server, which has the resolved program.
+language server, which has the resolved program. Capitalised and lowercase
+names are different tokens, so the highlights query needs no predicates and
+captures no node twice.
 
 That is a deliberate trade. An indentation-sensitive grammar needs a C scanner
 tracking INDENT and DEDENT, and it would duplicate — imperfectly — what the
@@ -105,4 +144,6 @@ compiler already does. Since every editor using this grammar also runs the
 server, the grammar only has to be right about tokens.
 
 `src/parser.c` is generated, not committed. Run `tree-sitter generate` in
-`tree-sitter-piton` to build it.
+`tree-sitter-piton` to build it. Zed fetches the grammar from the published
+`tree-sitter-piton` repository at the commit in `zed/extension.toml`, so a
+grammar change reaches Zed after `cargo xtask publish-grammar`.

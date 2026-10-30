@@ -33,9 +33,9 @@ impl ConstructKind {
     pub fn primary_properties(self) -> &'static [&'static str] {
         match self {
             ConstructKind::Instruction => &["description", "prompt"],
-            ConstructKind::Skill => &["description", "prompt", "useWhen"],
+            ConstructKind::Skill => &["description", "prompt", "useWhen", "files"],
             ConstructKind::Command => &["description", "prompt"],
-            ConstructKind::Agent => &["description", "role", "prompt"],
+            ConstructKind::Agent => &["description", "role", "prompt", "file"],
         }
     }
 }

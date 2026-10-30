@@ -1,0 +1,14 @@
+anchor Prose:
+    description:
+        This is prose with use, from, import, anchor and extends in it.
+        It mentions true, false, null and 42 without being literals.
+        Money is $5, issue #3, the package @piton/belay and a `word`.
+        **Note**: bold text and a [link](./x.md) are plain.
+        use the spec
+        export the result
+    url: https://example.com // note
+    list:
+        - Settings:
+        - plain item
+    inputs:
+        Inputs: none

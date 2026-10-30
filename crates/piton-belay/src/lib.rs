@@ -20,6 +20,7 @@ pub mod references;
 pub mod render;
 pub mod shape;
 mod validate;
+pub mod vendored;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -42,6 +43,8 @@ pub use manifest::MANIFEST;
 pub enum OutputKind {
     Instruction,
     Skill,
+    /// A file a skill brings from its vendored folder, beside its `SKILL.md`.
+    SkillFile,
     Command,
     CommandPolicy,
     Agent,
@@ -54,6 +57,7 @@ impl OutputKind {
         match self {
             OutputKind::Instruction => "instruction",
             OutputKind::Skill => "skill",
+            OutputKind::SkillFile => "skill file",
             OutputKind::Command => "command",
             OutputKind::CommandPolicy => "command policy",
             OutputKind::Agent => "agent",
@@ -77,6 +81,19 @@ pub struct OutputFile {
     pub origin: String,
     /// The `.pi` files that contributed to this output, for provenance.
     pub sources: Vec<PathBuf>,
+    /// Set when the file is copied as it is from a construct's vendored
+    /// files rather than rendered: nothing in it is rewritten.
+    pub copied: Option<vendored::Copied>,
+}
+
+impl OutputFile {
+    /// The bytes written for this file.
+    pub fn data(&self) -> &[u8] {
+        match self.copied.as_ref().and_then(|copied| copied.bytes.as_ref()) {
+            Some(bytes) => bytes,
+            None => self.contents.as_bytes(),
+        }
+    }
 }
 
 /// A complete, validated output plan.
@@ -163,6 +180,9 @@ pub fn plan_with(compilation: &Compilation, config: &BelayConfig, options: &Opti
     let emission = Emission::collect(compilation, config, &mut plan);
     let closure = references::close(compilation, &emission.roots());
     report_references(compilation, &emission, &closure, &mut plan);
+    for item in &emission.constructs {
+        vendored::check_targets(compilation, item, &mut plan);
+    }
 
     let targets = planned_targets(options);
     let sharing = Sharing {
@@ -746,6 +766,7 @@ fn build_target(
                     .collect::<Vec<_>>()
                     .join(", "),
                 sources,
+                copied: None,
             },
             anchors.clone(),
         );
@@ -757,8 +778,10 @@ fn build_target(
         match item.kind {
             // A skill the tool already discovers in another target's
             // directory isn't written again.
-            ConstructKind::Skill if sharing.skill_source(target).is_some() => {}
-            ConstructKind::Skill => render_skill(&context, item, plan),
+            ConstructKind::Skill => match sharing.skill_source(target) {
+                Some(peer) => vendored::report_unused(compilation, item, target, peer, plan),
+                None => render_skill(&context, item, plan),
+            },
             ConstructKind::Command if sharing.command_source(target).is_some() => {}
             ConstructKind::Command => render_command(&context, item, plan),
             ConstructKind::Agent if !target.base.supports_agents => {
@@ -812,6 +835,7 @@ fn build_target(
                     .collect::<Vec<_>>()
                     .join(", "),
                 sources: sections.iter().map(|s| s.source.clone()).collect(),
+                copied: None,
             },
             sections.iter().map(|s| s.anchor).collect(),
         );
@@ -846,7 +870,7 @@ fn build_target(
     // markers resolved. Doing it here rather than at each construction is what
     // keeps a skill and a reference document agreeing about where `.claude` is.
     let markers = target_locations(compilation, config, target);
-    for file in &mut plan.files[first_file..] {
+    for file in plan.files[first_file..].iter_mut().filter(|file| file.copied.is_none()) {
         file.file.contents = resolve_location_markers(&file.contents, &markers, &file.path);
     }
 
@@ -979,11 +1003,107 @@ fn require_description(
     );
 }
 
+/// Reports a description the target requires that a vendored definition
+/// lacks.
+fn require_vendored_description(
+    context: &TargetContext<'_>,
+    item: &Construct,
+    description: Option<String>,
+    path: &Path,
+    plan: &mut Draft,
+) {
+    if description.is_some_and(|d| !d.trim().is_empty()) || !context.target.requires_description(item.kind) {
+        return;
+    }
+    let key = vendored::property(item.kind).unwrap_or("files");
+    plan.diagnostics.push(
+        error_at(
+            "missing-description",
+            format!(
+                "{} needs a description for the {} `{}`, and `{}` has none",
+                context.target.anchor_name,
+                item.kind.as_str(),
+                item.name,
+                path.display()
+            ),
+            property_site(context.compilation, item.anchor, key),
+        )
+        .with_origin(format!("{}.{key}", item.name))
+        .with_help("add `description` to the vendored file's metadata".to_string()),
+    );
+}
+
+/// Reports a field Belay renders that the construct leaves empty.
+fn require_field(context: &TargetContext<'_>, item: &Construct, field: &str, value: &str, plan: &mut Draft) {
+    if !value.trim().is_empty() {
+        return;
+    }
+    plan.diagnostics.push(
+        error_at(
+            &format!("missing-{}", kebab_case(field)),
+            format!(
+                "the {} `{}` has no `{field}`, which Belay needs to render it",
+                item.kind.as_str(),
+                item.name
+            ),
+            anchor_site(context.compilation, item.anchor),
+        )
+        .with_origin(format!("{}.{field}", item.name))
+        .with_help(format!(
+            "add `{field}:` to `{}`, or supply the whole {} as a vendored file",
+            item.name,
+            item.kind.as_str()
+        )),
+    );
+}
+
 fn render_skill(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft) {
     let compilation = context.compilation;
     let target = context.target;
     let name = kebab_case(&item.name);
     let path = PathBuf::from(target.skill_path(&name));
+
+    // A vendored folder is copied beside the SKILL.md, and a SKILL.md of its
+    // own is the skill.
+    let entries = match vendored::choose(compilation, item, target, plan) {
+        vendored::Choice::Path(folder) => match vendored::read_folder(compilation, item, &folder, plan) {
+            Some(entries) => entries,
+            None => return,
+        },
+        vendored::Choice::Render => Vec::new(),
+        vendored::Choice::Omit | vendored::Choice::Invalid => return,
+    };
+    let skill_file = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let directory = path.parent().unwrap_or(Path::new("")).to_path_buf();
+    let mut verbatim = None;
+    for entry in entries {
+        let own = entry.relative == skill_file;
+        let destination = directory.join(&entry.relative);
+        if own {
+            verbatim = Some((destination.clone(), entry.text.clone(), entry.copied.source.clone()));
+        }
+        plan.push(
+            OutputFile {
+                path: destination,
+                contents: entry.text,
+                kind: if own { OutputKind::Skill } else { OutputKind::SkillFile },
+                target: target.id,
+                origin: item.name.clone(),
+                sources: vec![compilation.anchor_module_path(item.anchor)],
+                copied: Some(entry.copied),
+            },
+            vec![item.anchor],
+        );
+    }
+    if let Some((_, contents, source)) = verbatim {
+        vendored::report_conflicts(compilation, item, plan);
+        let found = validate::frontmatter_field(&contents, "name");
+        vendored::check_identity(compilation, item, &source, found, &name, plan);
+        let description = validate::frontmatter_field(&contents, "description");
+        require_vendored_description(context, item, description, &source, plan);
+        return;
+    }
+
     let links = context.links(&path, true);
     let markdown = markdown::Context {
         anchors: compilation,
@@ -994,6 +1114,7 @@ fn render_skill(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft)
     let use_when = item.metadata_text("useWhen", compilation).unwrap_or_default();
     let prompt = item.text("prompt", &markdown).unwrap_or_default();
     require_description(context, item, &description, plan);
+    require_field(context, item, "useWhen", &use_when, plan);
 
     let mut fields = Fields::new();
     fields.insert("name".into(), FieldValue::Text(name.clone()));
@@ -1019,6 +1140,7 @@ fn render_skill(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft)
             target: target.id,
             origin: item.name.clone(),
             sources: vec![compilation.anchor_module_path(item.anchor)],
+            copied: None,
         },
         vec![item.anchor],
     );
@@ -1074,6 +1196,7 @@ fn render_command(context: &TargetContext<'_>, item: &Construct, plan: &mut Draf
             target: target.id,
             origin: item.name.clone(),
             sources: vec![compilation.anchor_module_path(item.anchor)],
+            copied: None,
         },
         vec![item.anchor],
     );
@@ -1095,6 +1218,7 @@ fn render_command(context: &TargetContext<'_>, item: &Construct, plan: &mut Draf
                     target: target.id,
                     origin: item.name.clone(),
                     sources: vec![compilation.anchor_module_path(item.anchor)],
+                    copied: None,
                 },
                 vec![item.anchor],
             );
@@ -1107,6 +1231,11 @@ fn render_agent(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft)
     let target = context.target;
     let name = kebab_case(&item.name);
     let path = PathBuf::from(target.agent_path(&name));
+    match vendored::choose(compilation, item, target, plan) {
+        vendored::Choice::Path(file) => return vendored_agent(context, item, &name, path, &file, plan),
+        vendored::Choice::Omit | vendored::Choice::Invalid => return,
+        vendored::Choice::Render => {}
+    }
     let links = context.links(&path, true);
     let markdown = markdown::Context {
         anchors: compilation,
@@ -1117,6 +1246,7 @@ fn render_agent(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft)
     let role = item.text("role", &markdown).unwrap_or_default();
     let prompt = item.text("prompt", &markdown).unwrap_or_default();
     require_description(context, item, &description, plan);
+    require_field(context, item, "role", &role, plan);
 
     let mut fields = Fields::new();
     if target.agent_format != AgentFormat::MarkdownFilenameIdentity {
@@ -1168,6 +1298,74 @@ fn render_agent(context: &TargetContext<'_>, item: &Construct, plan: &mut Draft)
             target: target.id,
             origin: item.name.clone(),
             sources: vec![compilation.anchor_module_path(item.anchor)],
+            copied: None,
+        },
+        vec![item.anchor],
+    );
+}
+
+/// An agent defined by a native file of its own, used as it is.
+fn vendored_agent(
+    context: &TargetContext<'_>,
+    item: &Construct,
+    name: &str,
+    path: PathBuf,
+    file: &Path,
+    plan: &mut Draft,
+) {
+    let compilation = context.compilation;
+    let target = context.target;
+    let site = property_site(compilation, item.anchor, "file");
+    let wanted = if target.agent_format == AgentFormat::Toml { "toml" } else { "md" };
+    if file.extension().and_then(|e| e.to_str()) != Some(wanted) {
+        plan.diagnostics.push(
+            error_at(
+                "vendored-format-mismatch",
+                format!(
+                    "{} defines an agent in a `.{wanted}` file, and `{}` names `{}`",
+                    target.anchor_name,
+                    item.name,
+                    file.display()
+                ),
+                site,
+            )
+            .with_origin(format!("{}.file", item.name))
+            .with_help(format!("give `{}` its own `file` for {} under `file:`", item.name, target.id)),
+        );
+        return;
+    }
+    let (contents, copied) = match vendored::read_file(file) {
+        Ok(read) => read,
+        Err(error) => {
+            plan.diagnostics.push(vendored::unreadable(compilation, item, file, &error, site));
+            return;
+        }
+    };
+    vendored::report_conflicts(compilation, item, plan);
+    let (found, description) = match target.agent_format {
+        AgentFormat::Toml => (
+            vendored::toml_field(&contents, "name"),
+            vendored::toml_field(&contents, "description"),
+        ),
+        _ => (
+            validate::frontmatter_field(&contents, "name"),
+            validate::frontmatter_field(&contents, "description"),
+        ),
+    };
+    // A target that takes identity from the filename has no name to check.
+    if target.agent_format != AgentFormat::MarkdownFilenameIdentity {
+        vendored::check_identity(compilation, item, file, found, name, plan);
+    }
+    require_vendored_description(context, item, description, file, plan);
+    plan.push(
+        OutputFile {
+            contents,
+            path,
+            kind: OutputKind::Agent,
+            target: target.id,
+            origin: item.name.clone(),
+            sources: vec![compilation.anchor_module_path(item.anchor)],
+            copied: Some(copied),
         },
         vec![item.anchor],
     );
@@ -1434,11 +1632,14 @@ pub fn write(plan: &Plan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
             std::fs::create_dir_all(parent)?;
         }
         // Skip rewriting identical content so timestamps stay meaningful.
-        let unchanged = std::fs::read_to_string(&destination)
-            .map(|existing| existing == file.contents)
+        let unchanged = std::fs::read(&destination)
+            .map(|existing| existing == file.data())
             .unwrap_or(false);
         if !unchanged {
-            std::fs::write(&destination, &file.contents)?;
+            std::fs::write(&destination, file.data())?;
+        }
+        if file.copied.as_ref().is_some_and(|copied| copied.executable) {
+            make_executable(&destination)?;
         }
         written.push(file.path.clone());
     }
@@ -1452,6 +1653,24 @@ pub fn write(plan: &Plan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
     }
     std::fs::write(manifest_path, manifest::document_with(&owned, &plan.targets))?;
     Ok(written)
+}
+
+/// Sets the execute bits a vendored script had in its source.
+#[cfg(unix)]
+fn make_executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    let mode = permissions.mode();
+    if mode & 0o111 != 0o111 {
+        permissions.set_mode(mode | ((mode & 0o444) >> 2));
+        std::fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Removes files a previous build generated that this one no longer produces.
@@ -1497,6 +1716,7 @@ mod tests {
             target,
             origin: origin.into(),
             sources: Vec::new(),
+            copied: None,
         }
     }
 

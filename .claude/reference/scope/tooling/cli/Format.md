@@ -3,6 +3,7 @@
 ## Description
 
 Applies canonical formatting.
+Without a path, it formats every source file beneath the source root, however many there are. Build output, dependency directories and installed packages are left alone.
 
 ## Command Name
 

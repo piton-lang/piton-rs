@@ -329,6 +329,8 @@ pub enum MergeOp {
 pub struct MergeItem {
     pub span: Span,
     pub op: MergeOp,
+    /// The `+` or `++` itself.
+    pub op_span: Span,
     pub value: ProseLine,
 }
 
@@ -344,6 +346,8 @@ pub struct Paragraph {
 pub struct ProseLine {
     pub span: Span,
     pub segments: Vec<ProseSegment>,
+    /// The delimiter backslash of each inline escape `\ ... \`, in order.
+    pub escapes: Vec<Span>,
 }
 
 impl ProseLine {
