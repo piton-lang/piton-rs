@@ -1,0 +1,15 @@
+from @piton/test import Test
+
+abstract anchor MyTest extends Test as test:
+    tags:
+        - belay
+
+export test CommandsArePrefixed:
+    expects:
+        Every Belay command is emitted under a name that starts with x-, and on
+        Claude Code it is a skill with disable-model-invocation set to true.
+
+export test SkillDescriptionJoinsUseWhen:
+    expects:
+        A skill's discovery description is its description followed by "Use
+        when" and its useWhen.

@@ -9,4 +9,5 @@ piton-core.workspace = true
 piton-syntax.workspace = true
 indexmap.workspace = true
 piton-emit.workspace = true
+serde_json.workspace = true
 

@@ -50,13 +50,13 @@ fn reference(root: &Path) -> String {
 }
 
 /// An agentic coding tool `piton agent` can launch.
-struct Tool {
+pub(crate) struct Tool {
     /// The name given on the command line.
-    name: &'static str,
+    pub(crate) name: &'static str,
     /// The program run.
-    program: &'static str,
+    pub(crate) program: &'static str,
     /// The Belay target whose artifacts the tool reads.
-    target: &'static str,
+    pub(crate) target: &'static str,
     /// Subcommands that reject the options carrying the prompt. Passed
     /// through as given, the tool runs without fluency.
     plain_subcommands: &'static [&'static str],
@@ -65,7 +65,7 @@ struct Tool {
     prompted_subcommand: Option<&'static str>,
 }
 
-const TOOLS: &[Tool] = &[
+pub(crate) const TOOLS: &[Tool] = &[
     Tool {
         name: "claude",
         program: "claude",
@@ -130,7 +130,7 @@ fn layout(root: &Path, tool: &Tool, belay: Option<&BelayConfig>) -> (&'static st
 }
 
 /// The complete fluency prompt for a project, as `tool` finds its artifacts.
-fn fluency(root: &Path, source_root: &Path, tool: &Tool, belay: Option<&BelayConfig>) -> String {
+pub(crate) fn fluency(root: &Path, source_root: &Path, tool: &Tool, belay: Option<&BelayConfig>) -> String {
     let (reference_root, instruction_file) = layout(root, tool, belay);
     format!(
         "{}\n\n{}",
@@ -142,10 +142,10 @@ fn fluency(root: &Path, source_root: &Path, tool: &Tool, belay: Option<&BelayCon
 /// The fluency prompt OpenCode reads for one run. OpenCode takes extra
 /// instructions only as files, so the prompt is written to one for as long as
 /// the tool runs.
-struct PromptFile(PathBuf);
+pub(crate) struct PromptFile(pub(crate) PathBuf);
 
 impl PromptFile {
-    fn write(prompt: &str) -> std::io::Result<PromptFile> {
+    pub(crate) fn write(prompt: &str) -> std::io::Result<PromptFile> {
         let path = std::env::temp_dir().join(format!("piton-fluency-{}.md", std::process::id()));
         std::fs::write(&path, prompt)?;
         Ok(PromptFile(path))

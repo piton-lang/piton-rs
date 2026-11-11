@@ -12,5 +12,6 @@ pub mod reach;
 pub mod remove;
 pub mod slice;
 pub mod tether;
+pub mod plugins;
 pub mod untether;
 pub mod update;

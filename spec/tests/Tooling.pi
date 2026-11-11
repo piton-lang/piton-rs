@@ -1,0 +1,16 @@
+use @piton/test
+
+export test FormatUsesFourSpaces:
+    expects: piton format indents with four spaces, and that is not configurable.
+    tags: [tooling]
+
+export test CheckWritesNothing:
+    expects: piton check never writes a file.
+    tags: [tooling]
+
+export test TestsWithoutAVerdictAreErrors:
+    expects:
+        piton test reports a test whose agent ends without a verdict line as an
+        error that was never judged, not as a failure.
+    against: code
+    tags: [tooling]

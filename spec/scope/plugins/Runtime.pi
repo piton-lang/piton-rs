@@ -1,0 +1,47 @@
+export anchor PluginRuntime:
+    description:
+        A plugin's command runs in QuickJS, embedded in the compiler through
+        the rquickjs crate, and its TypeScript is turned into JavaScript by
+        oxc, in the compiler too. Nothing else has to be installed: no Node,
+        no tsc, and no build step for a plugin's author.
+
+    transpiling:
+        Each module is transpiled as it is imported: oxc parses it as
+        TypeScript, removes everything that is only types, and prints the
+        JavaScript, which QuickJS runs as it is, without lowering it to an
+        older version. A .js or .mjs file is used as it is. As in TypeScript,
+        an import nothing uses as a value is removed.
+
+        A syntax error stops the command with the file and line it is on.
+
+    modules:
+        A plugin imports @piton/plugin and its own files, by a relative path,
+        like ./tags. A path without an extension is tried as it is, then
+        with .ts, then .js, then as a directory's index.ts. Nothing else can
+        be imported, a path leading outside the plugin's directory included,
+        so a plugin is what its directory holds.
+
+    oneCommandOneRuntime:
+        Each command invoked starts a runtime of its own and ends it when the
+        command is done, so nothing a plugin keeps lasts from one command to
+        the next.
+
+    eventLoop:
+        JavaScript runs on one thread. What a plugin waits for, like a line
+        from a process or a timer, is gathered while it waits and handed back
+        on that thread, resolving the promise that was waiting for it. So a
+        plugin running many processes at once writes plain async code, and
+        never has two pieces of its JavaScript running at the same time.
+
+        A command is done when its handler's promise settles. If it is still
+        waiting with nothing left that could ever answer, it fails, saying it
+        waited for something that can never happen, rather than hanging.
+
+    ending:
+        However a command ends, every process it started that is still
+        running is stopped, and every temporary file it wrote is removed.
+
+    failures:
+        A plugin that throws, or doesn't load, fails its command: the error
+        says which plugin and what went wrong, with the JavaScript stack when
+        there is one, and the exit code is 1.

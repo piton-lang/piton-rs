@@ -3,6 +3,7 @@
 pub mod config;
 pub mod digest;
 pub mod eval;
+pub mod json;
 pub mod loc;
 pub mod module;
 pub mod packages;
@@ -189,6 +190,20 @@ impl Compilation {
             .iter()
             .find(|def| def.name == name)
             .map(|def| def.id)
+    }
+
+    /// Where an anchor names `property` itself, or None when the property is
+    /// inherited or not there. A plugin points its diagnostics at this.
+    pub fn property_span(&self, anchor: AnchorId, property: &str) -> Option<piton_core::Span> {
+        let def = self.resolution.store.anchor(anchor);
+        match self.resolution.graph.get(def.module).ast().items.get(def.item) {
+            Some(piton_syntax::ast::Item::Anchor(decl)) => decl
+                .body
+                .properties()
+                .find(|written| written.name == property)
+                .map(|written| written.name_span),
+            _ => None,
+        }
     }
 
     /// The path of the module an anchor was declared in.

@@ -24,6 +24,8 @@ Usage:
 Tasks:
     install             Build the release binary and install it locally
     publish-grammar     Push the tree-sitter grammar to its own repository
+    sync-fluency        Regenerate FLUENCY_PROMPT.md from the spec with Claude, then
+                        copy it into the compiler's built-in copy
 
 Options for `install`:
     --root <dir>    Install into <dir>/bin instead of the cargo home
@@ -37,6 +39,11 @@ Options for `publish-grammar`:
     --dry-run       Prepare the commit but do not push
     --allow-dirty   Publish although the grammar has uncommitted changes
 
+Options for `sync-fluency`:
+    --check         Generate and copy nothing; exit 1 if the copies differ
+    --copy-only     Don't regenerate; copy FLUENCY_PROMPT.md as it is
+    --model <name>  The model Claude generates with, like opus
+
 Options:
     -h, --help      Print this message
 ";
@@ -49,6 +56,7 @@ fn main() -> ExitCode {
     let result = match task.as_deref() {
         Some("install") => install(&rest),
         Some("publish-grammar") => publish_grammar(&rest),
+        Some("sync-fluency") => sync_fluency(&rest),
         Some("-h") | Some("--help") | Some("help") | None => {
             print!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -277,6 +285,148 @@ fn on_path(directory: &Path) -> bool {
         return false;
     };
     std::env::split_paths(&path).any(|entry| entry == directory)
+}
+
+// ---------------------------------------------------------------------------
+// sync-fluency
+// ---------------------------------------------------------------------------
+
+/// The fluency prompt the GenerateFluencyPrompt skill writes, at the root.
+const FLUENCY_PROMPT: &str = "FLUENCY_PROMPT.md";
+/// The copy `piton agent` falls back to, compiled into the binary.
+const EMBEDDED_FLUENCY: &str = "crates/piton-cli/src/fluency.md";
+
+/// Regenerates the fluency prompt and copies it over the copy built into the
+/// compiler.
+///
+/// The prompt is written by an agent, not by code: the GenerateFluencyPrompt
+/// skill reads the whole specification and condenses it. So this runs Claude
+/// Code headless on that skill, then copies what it wrote to the copy
+/// `piton agent` falls back to, which would otherwise fall behind.
+///
+/// `--copy-only` skips generating, for a prompt written by hand or by running
+/// the skill interactively. `--check` changes nothing and fails when the two
+/// copies differ, for CI.
+fn sync_fluency(args: &[String]) -> Result<(), Error> {
+    let mut check = false;
+    let mut copy_only = false;
+    let mut model: Option<String> = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--check" => check = true,
+            "--copy-only" => copy_only = true,
+            "--model" => {
+                model = Some(
+                    args.next()
+                        .ok_or_else(|| Error::Usage("--model needs a model name".to_string()))?
+                        .clone(),
+                )
+            }
+            "-h" | "--help" => {
+                print!("{USAGE}");
+                return Ok(());
+            }
+            other => return Err(Error::Usage(format!("unknown option `{other}` for sync-fluency"))),
+        }
+    }
+    if check && (copy_only || model.is_some()) {
+        return Err(Error::Usage("--check generates nothing, so it takes no other option".to_string()));
+    }
+
+    let workspace = workspace_root()?;
+    if !check && !copy_only {
+        generate_fluency(&workspace, model.as_deref())?;
+    }
+    let source = workspace.join(FLUENCY_PROMPT);
+    let destination = workspace.join(EMBEDDED_FLUENCY);
+    let prompt = fs::read_to_string(&source).map_err(|error| {
+        Error::Message(format!(
+            "cannot read {FLUENCY_PROMPT}: {error}; generate it with `cargo xtask sync-fluency`"
+        ))
+    })?;
+    if prompt.trim().is_empty() {
+        return Err(Error::Message(format!("{FLUENCY_PROMPT} is empty; regenerate it first")));
+    }
+    let current = fs::read_to_string(&destination).unwrap_or_default();
+
+    if current == prompt {
+        println!("{EMBEDDED_FLUENCY} is up to date with {FLUENCY_PROMPT}");
+        return Ok(());
+    }
+    if check {
+        return Err(Error::Message(format!(
+            "{EMBEDDED_FLUENCY} differs from {FLUENCY_PROMPT}; run `cargo xtask sync-fluency`"
+        )));
+    }
+    fs::write(&destination, &prompt)
+        .map_err(|error| Error::Message(format!("cannot write {EMBEDDED_FLUENCY}: {error}")))?;
+    println!(
+        "copied {FLUENCY_PROMPT} to {EMBEDDED_FLUENCY} ({} lines); rebuild piton to embed it",
+        prompt.lines().count()
+    );
+    Ok(())
+}
+
+/// What Claude is asked. The skill says what to write; this says where, and
+/// that this is a run without anyone to answer questions.
+const GENERATE_REQUEST: &str = "\
+Use the generate-fluency-prompt skill to regenerate the Piton fluency prompt from the current \
+specification. Write the complete result to FLUENCY_PROMPT.md at the repository root, which is \
+the working directory, replacing the file that is there. Change no other file. Nobody can answer \
+questions during this run, so make every decision yourself.";
+
+/// Runs Claude Code on the GenerateFluencyPrompt skill, which rewrites
+/// FLUENCY_PROMPT.md.
+///
+/// Claude may read the repository and edit files, with edits accepted
+/// without asking since nobody is there to answer, but may not run commands.
+/// Whether the prompt it wrote is right is for the person running this to
+/// read in the diff.
+fn generate_fluency(workspace: &Path, model: Option<&str>) -> Result<(), Error> {
+    let path = workspace.join(FLUENCY_PROMPT);
+    let before = fs::read_to_string(&path).ok();
+    eprintln!("generating {FLUENCY_PROMPT} with Claude Code; reading the whole spec takes a few minutes");
+
+    let mut command = Command::new("claude");
+    command
+        .current_dir(workspace)
+        .args(["-p", GENERATE_REQUEST])
+        .args(["--allowedTools", "Read,Grep,Glob,Write,Edit,Skill"])
+        .args(["--disallowedTools", "Bash"])
+        .args(["--permission-mode", "acceptEdits"])
+        .stdin(std::process::Stdio::null());
+    if let Some(model) = model {
+        command.args(["--model", model]);
+    }
+    let status = command.status().map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            Error::Message(
+                "`claude` is not on PATH; install Claude Code, or write FLUENCY_PROMPT.md yourself and pass --copy-only"
+                    .to_string(),
+            )
+        } else {
+            Error::Message(format!("cannot run `claude`: {error}"))
+        }
+    })?;
+    if !status.success() {
+        return Err(Error::Message(format!(
+            "Claude Code failed ({status}); {FLUENCY_PROMPT} was not synced"
+        )));
+    }
+
+    let after = fs::read_to_string(&path).unwrap_or_default();
+    if after.trim().is_empty() {
+        return Err(Error::Message(format!(
+            "Claude Code finished without writing {FLUENCY_PROMPT}; nothing was synced"
+        )));
+    }
+    if before.as_deref() == Some(after.as_str()) {
+        eprintln!("{FLUENCY_PROMPT} is unchanged; the spec may say nothing new");
+    } else {
+        eprintln!("regenerated {FLUENCY_PROMPT} ({} lines)", after.lines().count());
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

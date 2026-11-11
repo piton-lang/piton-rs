@@ -1,0 +1,28 @@
+# Plugins Cli
+
+## Description
+
+Lists the project's plugins, described in [Plugins](../../plugins/index.md#plugins): the bundled ones first, then those piton.config.pi declares.
+
+## Command Name
+
+plugins
+
+## Positional Arguments
+
+null
+
+## Named Arguments
+
+null
+
+## Output
+
+For each plugin, its name and where it comes from, bundled or the file that declares it, then its description, the commands it adds, the settings anchor it reads and the package it comes from, and what it may do: the programs it may run, whether it may read files in the project, and whether it may write temporary files. A plugin with no capabilities may do nothing beyond reading the compiled project, and says so.
+The outcome is how many plugins the project has. Before it, problems: the configuration's diagnostics, declarations that aren't well-formed, and anchors under plugins that are neither a plugin nor its settings.
+
+## Exit Code
+
+```
+success: 0
+```

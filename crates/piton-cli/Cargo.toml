@@ -22,3 +22,4 @@ anstyle.workspace = true
 similar.workspace = true
 globset.workspace = true
 serde_json.workspace = true
+piton-plugin.workspace = true

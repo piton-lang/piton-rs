@@ -1,0 +1,57 @@
+use @piton/plugin
+
+export piton-plugin TestPlugin:
+    name: test
+    entry: ./src/index.ts
+    settings: TestConfig
+
+    description:
+        Has an agentic tool judge the project's tests: exported test anchors,
+        each a statement in plain English, judged true or false against the
+        specification, the code, or both.
+
+    capabilities:
+        process: [claude, codex, opencode, muse]
+        temporaryFiles: true
+
+    commands:
+        test:
+            about: Have an agent judge the project's tests
+
+            help:
+                A test is an exported test anchor from @piton/test: one
+                statement in plain English. Each is handed to an agentic tool
+                running headless, which judges it true or false against the
+                spec, the code, or both.
+
+            arguments:
+                targets:
+                    help: Tests to run, by name, or the files and directories holding them; every test when none are given
+                    positional: true
+                    multiple: true
+
+                agent:
+                    help: Which tool judges the tests
+                    choices: [claude, codex, opencode, muse]
+
+                against:
+                    help: What every test is judged against, whatever the test says
+                    choices: [spec, code, both]
+
+                jobs:
+                    help: How many tests run at once
+                    short: j
+                    type: number
+                    minimum: 1
+
+                serial:
+                    help: Run one test at a time, in order
+                    type: flag
+                    conflicts: [jobs]
+
+                list:
+                    help: List the tests that would run without running them
+                    type: flag
+
+                tags:
+                    help: Only run tests whose tags match this expression, like "((a and b) not c) or d"

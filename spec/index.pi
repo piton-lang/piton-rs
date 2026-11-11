@@ -3,6 +3,8 @@ from ./scope/belay import Belay
 from ./scope/founding-thesis import FoundingThesis
 from ./scope/language import Language
 from ./scope/package-management import PackageManagement
+from ./scope/plugins import Plugins
+from ./scope/testing import Testing
 from ./scope/tooling import Tooling
 
 export anchor Specification:
@@ -11,3 +13,5 @@ export anchor Specification:
     Tooling: @{Tooling}
     Belay: @{Belay}
     PackageManagement: @{PackageManagement}
+    Plugins: @{Plugins}
+    Testing: @{Testing}

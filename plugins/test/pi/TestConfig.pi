@@ -1,0 +1,7 @@
+// This anchor holds the settings of a project for the test plugin.
+// The project puts these settings under plugins in piton.config.pi.
+// This file is part of the bundled test plugin, as @piton/test.
+export abstract anchor TestConfig as test-config:
+    against:: string:: null: null
+    agent:: string:: null: null
+    jobs:: number:: null: null

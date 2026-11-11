@@ -1,0 +1,16 @@
+// The shape of a plugin declaration. Bundled with the compiler as
+// @piton/plugin, so this file is the piton-plugin keyword a plugin uses.
+//
+// name is what the plugin is called, and for a bundled plugin the package its
+// Piton files are imported from, @piton/<name>. entry is the TypeScript or
+// JavaScript module holding its behaviour, relative to the declaring file.
+// settings names the abstract anchor, exported by the plugin's Piton files, a
+// project's settings for it implement. commands and capabilities are described
+// in the plugin specification.
+export abstract anchor PitonPlugin as piton-plugin:
+    name:: string
+    entry:: string
+    description:: string:: null: null
+    settings:: string:: null: null
+    commands:: dictionary:: null: null
+    capabilities:: dictionary:: null: null

@@ -8,11 +8,12 @@ mod render;
 mod report;
 mod style;
 mod diff;
+mod plugins;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 /// Exit codes the commands agree on: success is 0, reported errors are 1.
 pub const EXIT_SUCCESS: u8 = 0;
@@ -155,6 +156,9 @@ enum Command {
         no_paths: bool,
     },
 
+    /// List the project's plugins, the commands they add, and what each may do
+    Plugins,
+
     /// Remove a package from the project
     Remove {
         /// Name of the package to remove
@@ -216,7 +220,28 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // Plugins add commands from their declarations, so the CLI is built from
+    // the built-in commands and every plugin the project has, before parsing.
+    let (project, config_diagnostics, mut manifests, mut problems) = plugins::load();
+    let mut command = Cli::command();
+    plugins::withhold_builtins(&command, &mut manifests, &mut problems);
+    for manifest in &manifests {
+        for spec in &manifest.commands {
+            command = command.subcommand(plugins::clap_command(manifest, spec));
+        }
+    }
+    let matches = command.get_matches();
+    if let Some((name, sub)) = matches.subcommand() {
+        let added = manifests
+            .iter()
+            .any(|manifest| manifest.commands.iter().any(|spec| spec.name == name));
+        if added {
+            let code = plugins::run(project, config_diagnostics, &manifests, &problems, name, sub);
+            report::flush();
+            return ExitCode::from(code);
+        }
+    }
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     let code = match cli.command {
         Command::Agent {
             agent,
@@ -252,6 +277,7 @@ fn main() -> ExitCode {
             no_unreachable,
             no_paths,
         } => commands::reach::run(&targets, !no_unreachable, !no_paths),
+        Command::Plugins => commands::plugins::run(),
         Command::Remove { package } => commands::remove::run(&package),
         Command::Slice { target, adapter } => commands::slice::run(&target, adapter.as_deref()),
         Command::Tether { source, rename } => {

@@ -1,0 +1,121 @@
+# Testing
+
+## Description
+
+A test is a statement about the project, written in plain English, that an agent judges true or false. "The Save button saves the document" is a test. It isn't run as code: `piton test` hands the statement to an agentic tool, which reads the specification, the code, or both, and says whether the statement holds.
+Tests check what the specification and the implementation say, which a compiler can't. Compiling proves guidance is well-formed; a test asks whether it, or the code built from it, means what it should.
+
+## Plugin
+
+Testing is a plugin, described in [Plugins](../plugins/index.md#plugins), bundled with the
+
+### Compiler
+
+the test keyword is its Piton files, @piton/test, and
+
+`piton test` is its command, written in TypeScript. Its source is in the compiler's repository at plugins/test, its Piton files in pi, its declaration in plugin.pi, and its code in src. It is the reference for writing a plugin, and nothing in it is special to being bundled.
+
+## Keyword
+
+[TestKeyword](./index.md#test-keyword)
+
+## Configuration
+
+[TestConfiguration](./index.md#test-configuration)
+
+## Command
+
+[TestCommand](./TestCommand.md#test-command)
+
+# Test Keyword
+
+## Description
+
+The test keyword comes from @piton/test, the test plugin's Piton files, which every project has, like @piton/config and @piton/belay. A file uses it with `use @piton/test`.
+```piton
+use @piton/test
+
+export test SaveButtonSaves:
+    expects: The Save button saves the document
+    against: code
+    tags: [editor, save]
+```
+
+## Shape
+
+```piton
+export abstract anchor Test as test:
+    expects:: string
+    against:: string:: null: null
+    description:: string:: null: null
+    tags:: string[]:: null: null
+```
+
+## Expects
+
+Required. The statement, in plain English. It passes when the agent judges it true of what it reads, and fails otherwise. A failure comes with a short explanation of why, written in ASD-STE100 Simplified Technical English, and a prompt to give an agent to fix it.
+
+## Against
+
+Optional. What the statement is judged against: spec, code, or both. Left out, the project's default is used, and without one, both. Against both, the statement has to hold in the specification and in the code, so a test passes only when they agree with it.
+
+## Description Property
+
+Optional. Context for the agent, such as where to look or what the statement means by a word. It never changes what is being asserted.
+
+## Tags
+
+Optional. A list of words to select tests by, like `tags: [save, editor]`. Each is trimmed, and an empty one is dropped. They mean nothing to the agent and are not sent to it; they are only for choosing which tests a run includes, with an expression like `piton test --tags "editor not slow"`.
+
+## Discovery
+
+Every exported test anchor in the project's source root is a test, whether or not anything reaches it from the entry, so tests can live beside what they describe without the build writing them out. A test that isn't exported is not run, which is how one is kept without running it. Tests in installed packages under tethers/ are not the project's and are not run.
+
+# Test Configuration
+
+## Description
+
+A project sets its defaults for `piton test` with a test-config anchor from @piton/test, the test plugin's settings, listed under plugins in piton.config.pi.
+```piton
+use @piton/config
+use @piton/test
+
+export piton-config Config:
+    root: ./spec
+    plugins:
+        - {Tests}
+
+test-config Tests:
+    against: spec
+    agent: codex
+    jobs: 8
+```
+
+## Shape
+
+```piton
+export abstract anchor TestConfig as test-config:
+    against:: string:: null: null
+    agent:: string:: null: null
+    jobs:: number:: null: null
+```
+
+## Against
+
+spec, code, or both: what a test that doesn't say is judged against. Both when left out.
+
+## Agent
+
+Which tool judges the tests: claude, codex, opencode, or muse, the tools `piton agent` launches. Claude when left out.
+
+## Jobs
+
+How many tests run at once, a whole number of at least 1. One runs them one after another. Four when left out.
+
+## Precedence
+
+A flag on the command line wins over the test, and the test wins over the configuration, so a single run can be pointed at the code without editing anything, and a test that only makes sense against the specification can say so.
+
+## Errors
+
+A value that isn't one of the choices is an error that names the choices, whether it is in the settings, in a test, or on the command line, and nothing is run. In the settings it is reported where it is written, with the source it points at: invalid-test-scope for against, unknown-test-agent for agent, and invalid-jobs for jobs.

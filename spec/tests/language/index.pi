@@ -1,0 +1,24 @@
+from @piton/test import Test
+
+abstract anchor MyTest extends Test as test:
+    tags: [language]
+
+export test ExponentsAreStrings:
+    expects:
+        A value written with an exponent, like 1e3, is a string rather than a
+        number.
+
+export test CommentsOnlyOnTheirOwnLine:
+    expects:
+        Two slashes after a value on the same line are part of the value, not a
+        comment, so `url: https://x.com // note` is one string.
+
+export test RightMostBaseWins:
+    expects:
+        When an anchor extends several bases that set the same property, the
+        right-most base's value wins, and the anchor's own value beats every
+        base.
+
+export test LogicalOperatorsDoNotShortCircuit:
+    expects:
+        Both sides of && and || are evaluated, so `\ {true || 5} \` is an error.

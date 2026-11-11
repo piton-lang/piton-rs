@@ -23,9 +23,14 @@ piton --version, and the version the language server reports to an editor, is th
 - [Init](./Init.md#init)
 - [Loc](./Loc.md#loc)
 - [Lsp](./Lsp.md#lsp)
+- [PluginsCli](./Plugins.md#plugins-cli)
 - [Reach](./Reach.md#reach)
 - [Remove](./package-management/Remove.md#remove)
 - [Slice](./Slice.md#slice)
 - [Tether](./package-management/Tether.md#tether)
 - [Untether](./package-management/Untether.md#untether)
 - [Update](./package-management/Update.md#update)
+
+## Plugin Commands
+
+Plugins add commands of their own, listed in `piton --help` beside these, like `piton test` from the bundled test plugin. They are described in [Plugins](../../plugins/index.md#plugins). A plugin can't replace one of these: a command with the same name is reported and left out.

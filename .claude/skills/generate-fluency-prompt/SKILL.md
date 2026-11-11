@@ -6,4 +6,14 @@ description: Generates a Piton fluency prompt for the agent. Use when Explicitly
 Use the entire spec of Piton to generate a fluency prompt for the agent. It should be thorough, documenting every feature of behaviour of the language and frameworks -- everything that Piton+family supports.
 The goal is that the agent can use this prompt to understand and work on a Piton specbase.
 You should try to keep the fluency prompt as small as possible while still being useful and covering everything important.
+Write the fluency prompt in ASD-STE100 Simplified Technical English. An agent reads it to act, so each sentence has one meaning and no ambiguity. Use these rules:
+- Use only words from the ASD-STE100 dictionary, with their approved meanings, and use one word for one meaning.
+- Technical names stay exactly as they are: Piton keywords and syntax, code, file paths, commands, flags, diagnostic codes, anchor and property names. Do not change examples or code blocks to make them simpler.
+- Write sentences of no more than 20 words for instructions, and 25 words for descriptions. Give each sentence one topic.
+- Use the active voice and the simple present, past or future tense.
+- Write instructions as commands, like "Edit the .pi source".
+- Do not use -ing forms of verbs, contractions or phrasal verbs.
+- Use articles such as "the" and "a" where English has them.
+- Keep noun clusters to three words or fewer.
+- Use tables and lists for facts that have the same shape.
 Output the results into ../../../FLUENCY_PROMPT.md

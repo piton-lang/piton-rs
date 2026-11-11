@@ -8,6 +8,7 @@ members = [
     "crates/piton-belay",
     "crates/piton-lsp",
     "crates/piton-cli",
+    "crates/piton-plugin",
     "crates/xtask",
 ]
 
@@ -30,6 +31,7 @@ piton-compile = { path = "crates/piton-compile" }
 piton-emit = { path = "crates/piton-emit" }
 piton-belay = { path = "crates/piton-belay" }
 piton-lsp = { path = "crates/piton-lsp" }
+piton-plugin = { path = "crates/piton-plugin" }
 
 chumsky = "0.9.3"
 rowan = "0.15.19"

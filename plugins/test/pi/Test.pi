@@ -1,0 +1,10 @@
+// This anchor is the shape of a test.
+// A test is one statement about the project, in plain English.
+// An agent decides if the statement is true or false.
+// This file is part of the bundled test plugin, as @piton/test.
+// Projects use this file as the test keyword.
+export abstract anchor Test as test:
+    expects:: string
+    against:: string:: null: null
+    description:: string:: null: null
+    tags:: string[]:: null: null

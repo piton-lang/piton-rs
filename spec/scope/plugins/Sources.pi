@@ -1,0 +1,84 @@
+export anchor PluginSources:
+    description:
+        A project has the plugins bundled with the compiler, and the plugins
+        its piton.config.pi declares. Both are listed by `piton plugins`, and
+        both add their commands to the CLI.
+
+    bundled:
+        A bundled plugin is part of the compiler. Its Piton files are a
+        bundled package, @piton/ and its name, so `use @piton/test` works in
+        any project, and its declaration and code are embedded with them.
+        Every project has every bundled plugin, without configuring anything.
+
+        The test plugin is the only one, and lives in the compiler's source
+        at plugins/test: its Piton files in pi, its declaration in plugin.pi,
+        and its TypeScript in src.
+
+    installed:
+        A project adds a plugin by listing its piton-plugin anchor under
+        plugins in piton.config.pi. Its entry, and every file its code
+        imports, are read from the directory of the file the declaration is
+        in.
+
+        ```piton
+        \\\
+        use @piton/config
+        use @piton/plugin
+
+        export piton-config App:
+            root: ./spec
+            plugins:
+                - {Hello}
+
+        piton-plugin Hello:
+            name: hello
+            entry: ./plugin/index.ts
+            commands:
+                hello:
+                    about: Say hello
+        \\\
+        ```
+
+        A plugin shared between projects is a package: its declaration, code
+        and Piton files are in the package, installed into tethers/ like any
+        other, and the project imports the declaration from it and lists it.
+        Its Piton files are imported by the package's name, as every
+        package's are.
+
+    settings:
+        A project's settings for a plugin are an anchor implementing the
+        abstract anchor the plugin's declaration names as its settings,
+        listed under plugins too.
+
+        ```piton
+        \\\
+        export piton-config App:
+            root: ./spec
+            plugins:
+                - {Tests}
+
+        test-config Tests:
+            agent: codex
+        \\\
+        ```
+
+        For a bundled plugin, the anchor has to come from its package, so the
+        test plugin's settings implement @piton/test's TestConfig. A project
+        lists at most one settings anchor for each plugin; two is an error
+        when the plugin reads them. The plugin checks their values itself, and
+        reports a wrong one where it is written.
+
+    listing:
+        Each anchor under plugins is a plugin's declaration or a plugin's
+        settings. Anything else is warned about, since nothing would read it,
+        and so is anything under plugins that isn't an anchor.
+
+    loading:
+        Plugins are found every time piton runs, by reading the configuration
+        in the working directory, so a plugin's commands are there as soon as
+        it is listed. Finding them compiles Piton only: no plugin code runs
+        until one of its commands does.
+
+        Before a plugin's command runs, the configuration has to be free of
+        errors, which are reported first, and problems with the project's
+        plugins are reported as warnings.

@@ -1,3 +1,4 @@
+from ../../plugins import Plugins
 from ./Agent import AgentCli
 from ./Build import Build
 from ./Check import Check
@@ -6,6 +7,7 @@ from ./Format import Format
 from ./Init import Init
 from ./Loc import Loc
 from ./Lsp import Lsp
+from ./Plugins import PluginsCli
 from ./Reach import Reach
 from ./Slice import Slice
 from ./package-management import
@@ -55,12 +57,19 @@ export anchor Cli:
         - @{Init}
         - @{Loc}
         - @{Lsp}
+        - @{PluginsCli}
         - @{Reach}
         - @{Remove}
         - @{Slice}
         - @{Tether}
         - @{Untether}
         - @{Update}
+
+    pluginCommands:
+        Plugins add commands of their own, listed in `piton --help` beside
+        these, like `piton test` from the bundled test plugin. They are
+        described in @{Plugins}. A plugin can't replace one of these: a
+        command with the same name is reported and left out.
 
 export abstract anchor CliCommand as cli-command:
     description:: string: Command invokable by the cli by running piton <command>

@@ -1,0 +1,5 @@
+// This file contains the Piton files of the test plugin.
+// Projects import them as @piton/test.
+
+from ./Test export Test
+from ./TestConfig export TestConfig

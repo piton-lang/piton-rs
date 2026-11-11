@@ -20,6 +20,16 @@ pub const CONFIG_PACKAGE: &str = "@piton/config";
 pub const BELAY_PACKAGE: &str = "@piton/belay";
 /// Module path for the package-management package.
 pub const PACKAGING_PACKAGE: &str = "@piton/packaging";
+/// Module path for the plugin package: the `piton-plugin` keyword a plugin
+/// is declared with.
+pub const PLUGIN_PACKAGE: &str = "@piton/plugin";
+/// Module path for the bundled test plugin's Piton files: the `test` and
+/// `test-config` keywords.
+pub const TEST_PACKAGE: &str = "@piton/test";
+/// Module path of the bundled test plugin's declaration. It is a module like
+/// any other, so the plugin host compiles it the way the configuration
+/// compiles an installed plugin's declaration.
+pub const TEST_PLUGIN_DECLARATION: &str = "@piton/test/plugin";
 
 /// The special export that resolves to the compiled shape root of the current
 /// output target.
@@ -85,6 +95,7 @@ export abstract anchor PitonConfig as piton-config:
     frameworks:: list:: null: null
     packages:: list:: null: null
     dependencies:: list:: null: null
+    plugins:: list:: null: null
 
 export abstract anchor FrameworkConfig as framework-config:
     pass
@@ -130,6 +141,17 @@ const BELAY_CLAUDE_CODE: &str = include_str!("../../../spec/scope/belay/adapters
 const BELAY_CODEX: &str = include_str!("../../../spec/scope/belay/adapters/Codex.pi");
 const BELAY_OPENCODE: &str = include_str!("../../../spec/scope/belay/adapters/OpenCode.pi");
 const BELAY_MUSE: &str = include_str!("../../../spec/scope/belay/adapters/Muse.pi");
+
+// `@piton/plugin`, from the specification that describes it, the same way
+// Belay's constructs are.
+const PLUGIN_ANCHOR: &str = include_str!("../../../spec/scope/plugins/anchors/Plugin.pi");
+
+// The bundled test plugin's Piton files and its declaration. Its behaviour,
+// in TypeScript, is embedded by the plugin host.
+const TEST_INDEX: &str = include_str!("../../../plugins/test/pi/index.pi");
+const TEST_TEST: &str = include_str!("../../../plugins/test/pi/Test.pi");
+const TEST_CONFIG: &str = include_str!("../../../plugins/test/pi/TestConfig.pi");
+const TEST_PLUGIN: &str = include_str!("../../../plugins/test/plugin.pi");
 
 /// `@piton/belay`: re-exports the constructs and the adapters, and adds the
 /// configuration anchor and the special imports.
@@ -213,6 +235,11 @@ fn modules() -> &'static [(&'static str, &'static str)] {
                 ("@piton/belay/adapters/Codex", BELAY_CODEX),
                 ("@piton/belay/adapters/OpenCode", BELAY_OPENCODE),
                 ("@piton/belay/adapters/Muse", BELAY_MUSE),
+                (PLUGIN_PACKAGE, PLUGIN_ANCHOR),
+                (TEST_PACKAGE, TEST_INDEX),
+                ("@piton/test/Test", TEST_TEST),
+                ("@piton/test/TestConfig", TEST_CONFIG),
+                (TEST_PLUGIN_DECLARATION, TEST_PLUGIN),
             ]
         })
         .as_slice()
@@ -238,7 +265,8 @@ pub fn is_package_path(path: &str) -> bool {
 }
 
 /// The packages a project may import by name.
-pub const PACKAGE_ROOTS: [&str; 3] = [CONFIG_PACKAGE, BELAY_PACKAGE, PACKAGING_PACKAGE];
+pub const PACKAGE_ROOTS: [&str; 5] =
+    [CONFIG_PACKAGE, BELAY_PACKAGE, PACKAGING_PACKAGE, PLUGIN_PACKAGE, TEST_PACKAGE];
 
 #[cfg(test)]
 mod tests {

@@ -2,7 +2,7 @@
 
 ## Description
 
-If the compiler finds a piton.config.pi file in the current working directory, it will read that configuration file to configure a project. Realistically, this is how any Piton project will usually be used. Through a project you can configure the root, the entry point, where the output goes and which renderer it uses, frameworks, packages, and dependencies. By default output goes to ./dist as JSON. Frameworks decide where their own output goes, and a project with one only gets ./dist as well when it sets output or renderer.
+If the compiler finds a piton.config.pi file in the current working directory, it will read that configuration file to configure a project. Realistically, this is how any Piton project will usually be used. Through a project you can configure the root, the entry point, where the output goes and which renderer it uses, frameworks, packages, dependencies, and plugins. By default output goes to ./dist as JSON. Frameworks decide where their own output goes, and a project with one only gets ./dist as well when it sets output or renderer.
 Configuration anchors are provided by the @piton/config use/import which is bundled into the compiler:
 ```piton
 use @piton/config
@@ -24,6 +24,10 @@ belay-config BelayFrameworkConfig:
     adapters:
         - {ClaudeCodeAdapter}
 ```
+
+## Plugins
+
+Optional. A list of anchors: the declarations of plugins the project adds, and its settings for plugins it has, like a test-config for the bundled test plugin, described in [TestConfiguration](../../testing/index.md#test-configuration). How each is told apart and read is described in [PluginSources](../../plugins/Sources.md#plugin-sources). An item that isn't an anchor is warned about and ignored.
 
 ## Exports
 

@@ -36,7 +36,7 @@ pub const PACKAGE_KEYWORD: &str = "piton-package";
 
 /// Every key a `piton-config` anchor understands. Anything else is most likely
 /// a typo, and a typo in a configuration is silently ignored configuration.
-pub const CONFIG_KEYS: [&str; 7] = [
+pub const CONFIG_KEYS: [&str; 8] = [
     "root",
     "entry",
     "output",
@@ -44,7 +44,51 @@ pub const CONFIG_KEYS: [&str; 7] = [
     "frameworks",
     "packages",
     "dependencies",
+    "plugins",
 ];
+
+/// One anchor listed under `plugins` in the configuration.
+///
+/// The configuration doesn't know which plugins exist: that is the plugin
+/// host's business, and some plugins are installed rather than bundled. So an
+/// entry is recorded as plain data, with enough to classify it later: every
+/// anchor in its inheritance chain and the module each is declared in, which
+/// tells a `piton-plugin` declaration from the settings anchor of a plugin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginEntry {
+    /// The anchor's name.
+    pub name: String,
+    /// The file the anchor is declared in.
+    pub file: PathBuf,
+    /// Where the anchor's name is, for a diagnostic about it.
+    pub name_span: Span,
+    /// Every anchor in its chain, itself last, as (module path, name).
+    pub chain: Vec<(String, String)>,
+    /// Its resolved properties, as JSON.
+    pub properties: serde_json::Map<String, serde_json::Value>,
+    /// Where each property the anchor writes itself is named.
+    pub spans: Vec<(String, Span)>,
+}
+
+impl PluginEntry {
+    /// Whether `name`, declared in a module whose path starts with
+    /// `module_root` when one is given, is in this entry's chain.
+    pub fn extends(&self, module_root: Option<&str>, name: &str) -> bool {
+        self.chain.iter().any(|(module, anchor)| {
+            anchor == name && module_root.map_or(true, |root| module == root || module.starts_with(&format!("{root}/")))
+        })
+    }
+
+    /// Where a property is named, or the anchor's name when it doesn't write
+    /// that property itself.
+    pub fn span_of(&self, property: &str) -> Span {
+        self.spans
+            .iter()
+            .find(|(name, _)| name == property)
+            .map(|(_, span)| *span)
+            .unwrap_or(self.name_span)
+    }
+}
 
 /// Canonical spelling of a renderer name, or `None` when it names none.
 pub fn canonical_renderer(text: &str) -> Option<&'static str> {
@@ -99,6 +143,9 @@ pub struct Project {
     pub packages: Vec<PackageDecl>,
     /// Dependencies the project itself requires, with any version pins.
     pub dependencies: Vec<Dependency>,
+    /// The anchors listed under `plugins`: plugin declarations and plugin
+    /// settings, in the order written.
+    pub plugins: Vec<PluginEntry>,
 }
 
 impl Project {
@@ -119,6 +166,7 @@ impl Project {
             frameworks: Vec::new(),
             packages: Vec::new(),
             dependencies: Vec::new(),
+            plugins: Vec::new(),
         }
     }
 
@@ -192,6 +240,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
                 frameworks: Vec::new(),
                 packages: Vec::new(),
                 dependencies: Vec::new(),
+                plugins: Vec::new(),
             },
             diagnostics,
         );
@@ -333,6 +382,34 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         }
     }
 
+    let mut plugins = Vec::new();
+    if let Some(list) = properties.get("plugins").filter(|list| !matches!(list, Value::Null)) {
+        for item in list.as_list_items() {
+            match item {
+                Value::Anchor(anchor) => plugins.push(plugin_entry(&resolution, &outcome, anchor)),
+                _ => {
+                    let span = written
+                        .iter()
+                        .find(|property| property.name == "plugins")
+                        .map(|property| property.name_span)
+                        .unwrap_or_default();
+                    diagnostics.push(
+                        Diagnostic::warning(
+                            "unknown-plugin",
+                            "every item under `plugins` has to be an anchor",
+                            &config_path,
+                            span,
+                        )
+                        .with_help(
+                            "list a plugin's declaration or its settings anchor, like `- {Tests}`"
+                                .to_string(),
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
     // A framework decides where its own output goes, so the renderer's copy
     // is only written when the configuration asks for it by name.
     let renders = frameworks.is_empty()
@@ -352,9 +429,76 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
             frameworks,
             packages: declared,
             dependencies,
+            plugins,
         },
         diagnostics,
     )
+}
+
+/// Records one anchor listed under `plugins`.
+fn plugin_entry(
+    resolution: &resolve::Resolution,
+    outcome: &eval::Outcome,
+    anchor: AnchorId,
+) -> PluginEntry {
+    let def = resolution.store.anchor(anchor);
+    let view = OutcomeView { resolution, outcome };
+    let chain = resolution
+        .store
+        .base_chain(anchor)
+        .into_iter()
+        .map(|id| {
+            let base = resolution.store.anchor(id);
+            (
+                resolution.graph.get(base.module).path.to_string_lossy().to_string(),
+                base.name.clone(),
+            )
+        })
+        .collect();
+    PluginEntry {
+        name: def.name.clone(),
+        file: resolution.graph.get(def.module).path.clone(),
+        name_span: def.name_span,
+        chain,
+        properties: outcome
+            .anchors
+            .get(&anchor)
+            .map(|properties| crate::json::properties_map(properties, &view))
+            .unwrap_or_default(),
+        spans: written_properties(resolution, anchor)
+            .iter()
+            .map(|property| (property.name.clone(), property.name_span))
+            .collect(),
+    }
+}
+
+/// The configuration's anchors, as the JSON view reads them.
+struct OutcomeView<'a> {
+    resolution: &'a resolve::Resolution,
+    outcome: &'a eval::Outcome,
+}
+
+impl piton_core::AnchorView for OutcomeView<'_> {
+    fn name(&self, id: AnchorId) -> &str {
+        &self.resolution.store.anchor(id).name
+    }
+
+    fn properties(&self, id: AnchorId) -> &piton_core::Properties {
+        static EMPTY: std::sync::OnceLock<piton_core::Properties> = std::sync::OnceLock::new();
+        self.outcome
+            .anchors
+            .get(&id)
+            .unwrap_or_else(|| EMPTY.get_or_init(piton_core::Properties::new))
+    }
+
+    fn source_path(&self, id: AnchorId) -> &Path {
+        let def = self.resolution.store.anchor(id);
+        &self.resolution.graph.get(def.module).path
+    }
+
+    fn is_abstract(&self, id: AnchorId) -> bool {
+        self.resolution.store.anchor(id).is_abstract
+    }
 }
 
 /// Reads one `piton-package` anchor from the configuration's `packages` list.
@@ -507,6 +651,7 @@ fn default_project(root: &Path, config_path: &Path) -> Project {
         frameworks: Vec::new(),
         packages: Vec::new(),
         dependencies: Vec::new(),
+        plugins: Vec::new(),
     }
 }
 
@@ -624,6 +769,25 @@ mod tests {
 
     fn codes(diagnostics: &DiagnosticSink) -> Vec<String> {
         diagnostics.iter().map(|d| d.code.to_string()).collect()
+    }
+
+    #[test]
+    fn plugins_are_recorded_with_their_chain() {
+        let (project, diagnostics, directory) = project_from(
+            "plugins",
+            "use @piton/config\nuse @piton/test\n\nexport piton-config App:\n    root: ./spec\n    plugins:\n        - {Tests}\n\ntest-config Tests:\n    agent: codex\n    jobs: 8\n",
+        );
+        assert!(codes(&diagnostics).is_empty(), "{:?}", codes(&diagnostics));
+        let [entry] = project.plugins.as_slice() else {
+            panic!("{:?}", project.plugins)
+        };
+        assert_eq!(entry.name, "Tests");
+        assert!(entry.extends(Some("@piton/test"), "TestConfig"), "{:?}", entry.chain);
+        assert!(!entry.extends(Some("@piton/belay"), "TestConfig"));
+        assert_eq!(entry.properties.get("agent"), Some(&serde_json::json!("codex")));
+        assert_eq!(entry.properties.get("jobs"), Some(&serde_json::json!(8)));
+        assert_ne!(entry.span_of("jobs"), entry.name_span);
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

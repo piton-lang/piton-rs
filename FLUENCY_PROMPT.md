@@ -1,58 +1,76 @@
 # Piton Fluency
 
-A working reference for Piton, its bundled Belay framework, project
-configuration, packages and tooling. Read it before reading or changing a Piton
-specbase. It is generated from `spec/` by the GenerateFluencyPrompt skill;
-section 16 lists where the compiler differs from the spec.
+This document is a reference for Piton and its family: the bundled Belay
+framework, project configuration, packages, plugins, tests and tools. Read it
+before you read or change a Piton specbase. The GenerateFluencyPrompt skill
+makes it from `spec/`. Section 19 gives the differences between the compiler
+and the spec.
 
 ## 1. What Piton is
 
-Piton is a declarative, whitespace-structured "semi-natural programming
-language" for agent guidance: skills, agents, commands, scoped instructions and
-reference documents. Prose and structure are both first-class; a value can be a
-paragraph of English or a typed, inherited, composed structure.
+Piton is a declarative language for agent guidance. It is a "semi-natural
+programming language". Indentation gives its structure. It describes skills,
+agents, commands, scoped instructions and reference documents. A value can be
+a paragraph of English. A value can also be a typed structure with
+inheritance and composition.
 
-Why (`spec/scope/founding-thesis/`): every language abstracts the layer below,
-and agentic development is the next layer, with the agent as compiler. Humans
-design coherent systems; agents do the typing. Session-by-session prompting
-leaves no traceable artifact, and pure prose (AGENTS.md, CLAUDE.md) decays:
-ambiguous, duplicated, not reusable. Piton adds imports, inheritance, types and
-references to prose, so recurring patterns are described once. The author
-likens it to CAM sitting above G-code. The goal is that pasting the spec into
-an agent yields a compiler; this repository is that experiment, and `crates/`
-is judged against `spec/`.
+The reason for Piton (`spec/scope/founding-thesis/`):
+
+- Each language is an abstraction of the layer below it. Agentic development
+  is the next layer, and the agent is the compiler.
+- Humans design systems that agree with themselves. Agents write the code.
+- A prompt in one session leaves no record that you can trace.
+- Pure prose (AGENTS.md, CLAUDE.md) decays. It is not clear, it repeats, and
+  you cannot use it again.
+- Piton adds imports, inheritance, types and references to prose. You write a
+  pattern one time and use it many times.
+- The author compares Piton to CAM above G-code. CNC replaced the hand of the
+  machinist, not the skill. The problem below is repetition.
+- The goal: an agent that reads the spec becomes a compiler for Piton and
+  Belay. This repository is that test, and `crates/` is the compiler.
 
 Core facts:
 
-- **No runtime.** Piton compiles to data (JSON, YAML, Markdown) through
-  **renderers**; frameworks like Belay add **adapters**. No functions, no
-  loops, no conditionals except the ternary. Everything is immutable.
+- **Piton has no runtime.** It compiles to data (JSON, YAML, Markdown) through
+  **renderers**. Frameworks such as Belay add **adapters** on top of renderers.
+- Piton has no functions and no loops. The ternary is the only conditional.
+  All values are immutable.
+- Plugins (section 13) run TypeScript only for CLI commands. They never run
+  during compilation.
 - **The `.pi` source is the truth.** Generated Markdown (`.claude/...`,
-  `CLAUDE.md`, `AGENTS.md`, build output) is derived. Edit `.pi`, rebuild,
-  never hand-edit output.
-- A **specbase** is a project: `piton.config.pi`, a source root (usually
-  `spec/`), an entry file, frameworks and packages.
-- Compiling proves guidance is well-formed, not that an agent will behave.
+  `CLAUDE.md`, `AGENTS.md`, build output) comes from it. Edit the `.pi`
+  source and build again. Do not edit the output.
+- A **specbase** is a project. It has `piton.config.pi`, a source root
+  (usually `spec/`), an entry file, frameworks, packages and plugins.
+- A clean compile shows that guidance has a correct form. It does not show
+  that an agent will do the correct thing. `piton test` (section 14) lets an
+  agent judge plain English statements.
 
 ## 2. Lexical rules
 
-- Files end in `.pi`. A directory with an `index.pi` is a module.
-- **Indentation is structure.** Tabs or any spaces, consistent per file;
-  canonical is 4 spaces (`piton format`, not configurable).
-- **Comments** are `//` on their own line only. After code, `//` is text:
-  `url: https://x.com // note` is one string. The formatter adds a space after
-  `//` and nothing else. Escape a leading `//` with `\ // \`.
+- Source files end in `.pi`. A directory with an `index.pi` is a module.
+- **Indentation is structure.** Use tabs or spaces, the same in all of one
+  file. The canonical form is 4 spaces. `piton format` writes it, and you
+  cannot change this.
+- **Comments** start with `//` on their own line. Piton has no block comments.
+- After code on a line, `//` is text. `url: https://x.com // note` is one
+  string.
+- The formatter adds a space after `//` and changes nothing more in a comment.
+- To write a line that starts with `//` as text, escape it: `\ // \`.
 - **Reserved words:** `anchor abstract export from import use as extends pass
   this self super true false null any simple complex string number boolean
-  list dictionary`. They can't be keywords (`reserved-keyword`) but are fine as
-  keys (`null: text`, `use: text`).
-- Keywords are lowercase, may be kebab-case; users define them with `as` (8.6).
-- An anchor needs a body: use `pass` when it has no properties
-  (`anchor X:` alone is `empty-anchor`).
+  list dictionary`.
+- A reserved word cannot be a keyword (`reserved-keyword`). It can be a key:
+  `null: text` and `use: text` are correct.
+- Keywords are lowercase and can use kebab-case. You define a keyword with
+  `as` (8.4).
+- An anchor must have a body. Write `pass` for an anchor with no properties.
+  `anchor X:` alone gives `empty-anchor`.
 
 ## 3. Declarations and values
 
-Top-level names are file-scoped variables; `export` makes them importable.
+Top-level names are variables in the scope of their file. `export` lets other
+files import them.
 
 ```piton
 myVariable: 42
@@ -61,34 +79,52 @@ export anchor MyAnchor:
     description: This is my anchor
 ```
 
-`key: value` needs a space after the colon; the value may sit on the same line
-or be indented below (indentation is syntax, not part of the string).
-**Every property needs a value**: an empty one is `empty-value`; write `null`
-for nothing. Only abstract anchors may declare a constraint with no value
-(`title:: string`); elsewhere that is `missing-value`.
+- `key: value` must have a space after the colon.
+- The value can be on the same line or indented below. The indentation is
+  syntax. It is not part of the string.
+- **Each property must have a value.** An empty value gives `empty-value`.
+  Write `null` for "no value".
+- Only an abstract anchor can declare a constraint without a value
+  (`title:: string`). In other places this gives `missing-value`.
 
 ### 3.1 Types
 
+Piton has loose types and optional type constraints.
+
 | Type | Notes |
 | --- | --- |
-| `string` | Unicode, never quoted. |
+| `string` | Unicode. You never put quotes around it. |
 | `number` | One 64-bit float type. |
 | `boolean` | `true`, `false`. |
-| `null` | The only "nothing"; `{null == null}` is `true`. |
-| `list` | Ordered, mixed item types unless constrained. |
-| `dictionary` | String keys, mixed values unless constrained. |
-| anchor | The one user-defined type. |
-| reference | Produced by `@{}` (6.5). |
+| `null` | The only "no value". `{null == null}` is `true`. |
+| `list` | Ordered. Items can have different types if no constraint stops it. |
+| `dictionary` | String keys. Values can have different types if no constraint stops it. |
+| anchor | The only type that users define. |
+| reference | The result of `@{}` (6.4). |
 
-Simple = string, number, boolean, null. Complex = list, dictionary, anchor.
+Simple types are string, number, boolean and null. Complex types are list,
+dictionary and anchor.
 
-Unconstrained values are inferred from their look: `true` boolean, `true story`
-string; `42`/`-42` numbers, `42 things` string; `A + B` string (no braces);
-`"false"` string; `${...}` always string.
+Piton infers the type of a value without a constraint from its form:
 
-Each built-in type is a `type` anchor (`spec/scope/language/types/lib/Type.pi`)
-with a `description` and `supportedOperators`. Using an unlisted operator is an
-error (after coercion and inference):
+| Value | Type |
+| --- | --- |
+| `true` | boolean |
+| `true story` | string |
+| `null` | null |
+| `42`, `-42` | number |
+| `42 things` | string |
+| `A + B` | string (no braces) |
+| `This costs $5 + tax` | string |
+| `"false"` | string |
+| `Total: {a + b}` | string |
+| `{A + B}` | the type that the operands give |
+| `${...}` | string |
+
+Each built-in type is a `type` anchor (`spec/scope/language/types/lib/Type.pi`).
+It has `description`, `what-is-a-type`, `supportedOperators` and
+`unsupportedOperators`. An operator that a type does not list is an error.
+Piton applies this check after coercion and inference.
 
 | Type | Operators |
 | --- | --- |
@@ -103,34 +139,44 @@ error (after coercion and inference):
 
 ### 3.2 Numbers
 
-`123`, `3.14`, `0.14`, `1_200_000.00`, `-5`. A decimal needs its leading `0`
-(`.5` is a string). `_` separates digits. No exponents (`1e3` is silently a
-string). `-5` is a number; `- 5` is a list item. Minus is never a prefix
-operator: `{-price}` is an error, write `{0 - price}`. Output uses the shortest
-form (`1_200_000.00` → `1200000`, `0.50` → `0.5`).
+- Correct forms: `123`, `3.14`, `0.14`, `1_200_000.00`, `-5`.
+- A decimal must have its leading `0`. The compiler reads `.5` as a string.
+- `_` separates digits.
+- Piton has no exponent notation. The compiler reads `1e3` as a string and
+  gives no error.
+- `-5` is a number. `- 5` is a list item.
+- Minus is never a prefix operator. `{-price}` is an error. Write
+  `{0 - price}`.
+- Output uses the shortest form: `1_200_000.00` → `1200000`, `0.50` → `0.5`.
 
 ### 3.3 Strings
 
-- Unquoted. **Quotes are ordinary characters**: `greeting: "Hello"` keeps the
-  quotes. Only inside an expression are string operands quoted
-  (`{"Hello" + name}`), and there the quotes are not part of the value.
-- In a multi-line block, lines join with a space; a blank line (or several)
-  starts a new paragraph, compiled to `\n`.
-- Markdown in a string is plain text: `[x](./x.md)` is never resolved or
-  checked. Only `@{}` makes links.
+- Strings have no quotes. **Quotes are usual characters**:
+  `greeting: "Hello"` keeps the quotes.
+- Only in an expression do you put quotes around string operands
+  (`{"Hello" + name}`). There, the quotes are not part of the value.
+- In a block of many lines, Piton joins the lines with a space.
+- A blank line (or more than one) starts a new paragraph. The spec shows two
+  paragraphs with a blank line between them. The compiler writes one `\n`
+  (section 19).
+- Markdown in a string is plain text. Piton never resolves or checks
+  `[x](./x.md)` or `![x](./x.png)`. A Markdown link can never be an error.
+- Only `@{}` makes links that Piton checks.
 
-### 3.4 Escaping
+### 3.4 Escapes
 
-Wrap special text in backslashes with a space on each side (the spaces are
-removed): `\ {1 + 2} \` → `{1 + 2}`, `\ : \` → `:`. This is the only escape; a
-lone backslash (`\:`) is literal. Use more backslashes to escape backslashes;
-the closing wrapper must match (`\\ \ {x} \ \\` → `\ {x} \`). A line holding
-only backslashes opens a verbatim block closed by the same count; the spec uses
-`\\\`.
+- Put special text between backslashes, with a space on each side:
+  `\ {1 + 2} \` → `{1 + 2}`, `\ : \` → `:`. Piton removes the spaces.
+- This is the only escape. A single backslash (`\:`) is literal text.
+- To escape backslashes, use more backslashes. The closing wrapper must be
+  the same: `\\ \ {x} \ \\` → `\ {x} \`.
+- A line that holds only backslashes opens a verbatim block. The same count
+  of backslashes closes it. The spec uses `\\\`.
+- A verbatim block keeps its line breaks and indentation as written.
 
-Code fences protect nothing: expressions, comments, list items and keys inside
-them still parse. Put an escape block inside the fence, as every spec example
-does (tables need the same, or their rows join):
+Code fences protect nothing. Expressions, comments, list items and keys in a
+fence are parsed. Put an escape block in the fence, as all spec examples do.
+Tables also need an escape block, or Piton joins their rows.
 
 ````piton
 description:
@@ -142,19 +188,20 @@ description:
     ```
 ````
 
-Escaping changes parsing, not inferred type: `\ false \` is still boolean; use
-`${false}` for the string.
+An escape changes the parse. It does not change the inferred type.
+`\ false \` is still a boolean. Write `${false}` for the string.
 
-**Prose pitfalls** that silently change a block's structure:
+**Prose problems.** These change the structure of a block and give no error:
 
-- A line starting `- ` is a list item; `+ `/`++ ` is a composition line (5).
-  A `:: string` property then fails. Escape: `\ - \ item`.
-- A line shaped `word: text` (`Inputs: none`, a wrapped line starting `type:`)
-  becomes a key and turns the block into an implicit list. Escape the colon or
-  rewrap.
-- Backticks don't protect: `` `{x}` `` is an expression.
-- An expression in text that yields a list, dictionary or anchor makes an
-  implicit list (6.2).
+- A line that starts with `- ` is a list item. A line that starts with `+ ` or
+  `++ ` is a composition line (5). A `:: string` property then fails. Escape
+  the mark: `\ - \ item`.
+- A line with the shape `word: text` is a key. Examples are `Inputs: none` and
+  a wrapped line that starts with `type:`. The block becomes an implicit list.
+  Escape the colon or wrap the line at a different word.
+- Backticks do not protect text. `` `{x}` `` is an expression.
+- An expression in text that gives a list, dictionary or anchor makes an
+  implicit list (6.1).
 
 ### 3.5 Lists
 
@@ -170,26 +217,30 @@ nested:
 
 `nested` is `[Level 1, [Level 2]]`.
 
-- **No index access** (`myList[0]` does not exist). Lists are merged and
-  inherited, not computed over.
-- A list item is never a key: `- Settings:` is the string `"Settings:"`.
-- Anything indented under an item becomes the *next* item:
-  `- url` with `tag: v1` indented under it gives `["url", {"tag": "v1"}]`.
-  Such a dictionary cannot be addressed.
+- **Lists have no index access.** `myList[0]` does not exist. You merge and
+  inherit lists. You do not calculate with them.
+- A list item is never a key. `- Settings:` is the string `"Settings:"`.
+- Text indented below an item becomes the *next* item. `- url` with `tag: v1`
+  below it gives `["url", {"tag": "v1"}]`. You cannot address that
+  dictionary.
 
 ### 3.6 Dictionaries
 
-Indentation only. `{a.b.c}` accesses nested keys. Keys contain Unicode
-letters, digits, `_` and `-` only (no spaces or dots); `123`, `foo-bar`,
-`false` are valid keys and always strings. A hyphen belongs to the name
-(`{config.foo-bar}`); subtraction needs spaces (`{a - b}`).
-
-A key whose block is only a list has that list as its value. With other content
-above it, the value becomes an implicit list with the list as one item.
+- Indentation makes dictionaries. `{a.b.c}` reads nested keys.
+- Keys hold only Unicode letters, Unicode numbers, `_` and `-`. Keys cannot
+  hold spaces or dots.
+- `123`, `foo-bar`, `false` and `null` are correct keys. A key is always a
+  string.
+- A hyphen is part of the name: `{config.foo-bar}`. Subtraction must have
+  spaces: `{a - b}`.
+- If the block of a key holds only a list, that list is the value.
+- If other content is above the list, the value is an implicit list. The
+  list is one item of it.
 
 ### 3.7 Implicit lists
 
-A block mixing prose, lists and keys compiles to a list in source order:
+A block with prose, lists and keys together compiles to a list in source
+order:
 
 ```piton
 combined:
@@ -200,16 +251,17 @@ combined:
         deep: text
 ```
 
-→ `["This is a string", ["A", "B"], {"nested": {"deep": "text"}}]`. Keys
-declared directly in the block stay addressable (`{combined.nested.deep}`);
-prose and list elements do not.
+The result is `["This is a string", ["A", "B"], {"nested": {"deep": "text"}}]`.
+You can address keys that the block declares directly
+(`{combined.nested.deep}`). You cannot address the prose or the list items.
 
 ## 4. Variables and constraints
 
-- **Inside an expression, a bare name is a file-level variable or import, even
-  inside an anchor.** Use `this.x`/`self.x` for the anchor's own properties.
-- Constraint syntax `name:: type: value`; whitespace after `::` and `:` is
-  mandatory (`constraint-spacing`).
+- **In an expression, a bare name is a file-level variable or an import.**
+  This is also true in an anchor. Use `this.x` or `self.x` for a property of
+  the anchor.
+- The constraint syntax is `name:: type: value`. A space after `::` and after
+  `:` is mandatory (`constraint-spacing`).
 
 ```piton
 count:: number: 42
@@ -221,23 +273,33 @@ y:: complex: [1]
 z:: any: 1
 ```
 
-- `simple`, `complex`, `any` as in 3.1. `T[]` is a list of `T` (including
-  anchors, `Foo[]`). `extends Foo[]`/`extends Foo` accepts anything inheriting
-  from `Foo` (8.4); the spec uses it on exported lists such as
+| Constraint | Accepts |
+| --- | --- |
+| `simple`, `complex`, `any` | The groups in 3.1. `any` accepts all values. |
+| `T[]` | A list of `T`. `T` can be an anchor (`Foo[]`). |
+| `Foo` (an anchor) | `Foo` or a copy of `Foo` (`f:: Foo: {Foo}`). |
+| `extends Foo`, `extends Foo[]` | Any anchor with `Foo` in its chain (8.3). |
+
+- The spec uses `extends` constraints on exported lists, for example
   `export ARITHMETIC_OPERATORS:: extends ArithmeticOperator[]: ...`.
-- An anchor-typed constraint (`f:: Foo: {Foo}`) accepts Foo or a copy of it.
-- Naming an abstract as a type requires `from ./Foo import Foo`; `use` alone
-  isn't enough.
+- To name an abstract anchor as a type, import it:
+  `from ./Foo import Foo`. `use` alone is not sufficient.
+- Coercion rules apply only to constraints. Operators such as `+` have their
+  own rules (6.3).
 
-**Multiple constraints** are tried left to right; the first type that can
-represent the value wins. `a:: number:: string: 42` → `42`;
-`b:: string:: number: 42` → `"42"`. A literal coerced to string keeps its text
-(`string: 1.0` → `"1.0"`); an expression is evaluated first
-(`string: {1.0}` → `"1"`). **Booleans and null are never coerced**
-(`flag:: string: false` is `type-mismatch`; write `${false}`). Collections and
-anchors are never coerced. No match → `type-mismatch`.
+**More than one constraint.** Piton tries the types from left to right. The
+first type that can hold the value wins.
 
-**Required vs optional** (abstract anchors):
+- `a:: number:: string: 42` → `42`.
+- `b:: string:: number: 42` → `"42"`.
+- A literal that becomes a string keeps its text: `string: 1.0` → `"1.0"`.
+- Piton calculates an expression first: `string: {1.0}` → `"1"`.
+- **Piton never coerces booleans or null.** `flag:: string: false` gives
+  `type-mismatch`. Write `${false}`.
+- Piton never coerces collections or anchors.
+- If no type matches, the result is `type-mismatch`.
+
+**Required and optional properties** (in abstract anchors):
 
 ```piton
 abstract anchor Card:
@@ -246,16 +308,20 @@ abstract anchor Card:
     footer:: string:: null: null
 ```
 
-No value = required (`unimplemented-property` if an implementer omits it), even
-when null is allowed (`subtitle` must still be written). A default makes it
-optional (`footer`); the LSP doesn't flag missing optional properties.
-**A child cannot redeclare an inherited constraint**, only assign a value
-(`redeclared-constraint`).
+- A constraint with no value is required. If an implementer does not write
+  it, the result is `unimplemented-property`.
+- A required property stays required when null is permitted. You must write
+  `subtitle`.
+- A default value makes a property optional (`footer`). The LSP does not
+  report optional properties that are not there.
+- **A child cannot declare an inherited constraint again**
+  (`redeclared-constraint`). It can only give a value.
 
 ## 5. Composition lines
 
-A block is built top to bottom. **A line starting `+` or `++` combines
-everything above it with that line's value**, using that operator (6.4):
+Piton builds a block from top to bottom. **A line that starts with `+` or `++`
+combines all of the block above it with the value of the line.** The line uses
+that operator (6.3).
 
 ```piton
 anchor Base:
@@ -268,106 +334,153 @@ anchor Child extends Base:
         - C
 ```
 
-`Child.items` is `[A, B, C]`; with `- {super.items}` it would be
-`[[A, B], C]`. Lists: `+` dedupes keeping the last occurrence, `++` keeps all.
-Dictionaries: `+` shallow, `++` deep merge. Strings: `+` joins with nothing,
-`++` with `\n` (`Child text.` then `++ {super.d}` → `"Child text.\nBase text."`).
-A block of only `+ {x}` equals `{x}`. To prepend inherited prose with a space,
-interpolate: `${super.description} and more`.
+`Child.items` is `[A, B, C]`. With `- {super.items}`, it is `[[A, B], C]`.
+
+| Operand | `+` | `++` |
+| --- | --- | --- |
+| Lists | Merge. Remove duplicates and keep the last copy. | Keep all items. |
+| Dictionaries | Shallow merge. | Deep merge. |
+| Strings | Join with nothing. | Join with `\n`. |
+
+- `Child text.` and then `++ {super.d}` gives `"Child text.\nBase text."`.
+- A block of only `+ {x}` is equal to `{x}`.
+- To put inherited prose before new text with a space, use interpolation:
+  `${super.description} and more`.
 
 ## 6. Expressions
 
-**Nothing is evaluated outside braces**: `a + b` is text, `{a + b}` computes.
+**Piton calculates nothing outside braces.** `a + b` is text. `{a + b}` is a
+calculation.
 
-- Bare words inside braces are symbols; quote strings, including in list
-  literals (`{["A"] + ["B"]}`). Unknown names are `unresolved-symbol`.
-- Keep the whole expression in the braces: `{this.flag} && false` is text
-  around an expression.
-- Invalid or empty braces (`{}`, `${}`) are errors; escape literal braces.
-- Forward references resolve. Unresolvable cycles (`A: {B}`, `B: {A}`) are
+- In braces, bare words are symbols. Put quotes around strings, also in list
+  literals (`{["A"] + ["B"]}`). An unknown name gives `unresolved-symbol`.
+- Put the full expression in the braces. `{this.flag} && false` is text with
+  one expression in it.
+- An expression that is not correct is an error. The compiler also reports
+  empty braces (`{}`, `${}`). Escape braces that are literal text.
+- Forward references resolve.
+- A loop of values that cannot resolve (`A: {B}`, `B: {A}`) gives
   `cyclic-value`.
-- Collections are copied by value. **Anchors are copied but keep identity**:
-  if `x: {Foo}`, then `{x == Foo}` is true, `${x}` is `"Foo"`, and `x` passes a
-  `Foo` constraint. Use `@{Foo}` for a link instead of a copy.
+- Piton copies collections by value.
+- **Piton copies anchors, but a copy keeps its identity.** If `x: {Foo}`, then
+  `{x == Foo}` is true, `${x}` is `"Foo"`, and `x` passes a `Foo` constraint.
+- Write `@{Foo}` for a link. `{Foo}` gives a copy.
 
 ### 6.1 Forms and text
 
+Each form does one job. It does the same job in all renderers.
+
 | Form | Result |
 | --- | --- |
-| `{e}` | Intrinsic value, type preserved; an anchor serializes as its content. |
-| `${e}` | String. |
-| `#{e}` | Number. |
-| `@{e}` | Reference: renders as a link/path, never content. |
+| `{e}` | The intrinsic value. The type stays the same. An anchor serializes as its content. |
+| `${e}` | A string. The output format escapes it. |
+| `#{e}` | A number. Piton changes it to text only if the output format needs text. |
+| `@{e}` | A reference. It renders as a link or path, never as content. |
 
-`@{X}` points at a document, `{X}` embeds a copy, `${X}` names it.
+`@{X}` points to a document. `{X}` puts a copy in place. `${X}` gives its name.
 
-A value that is exactly one expression keeps its type. With surrounding text:
-`${x}` makes the whole value a string; `{x}` with a simple value is spliced in
-(`Total: {a + b}` → `"Total: 3"`); `{x}` with a list, dictionary or anchor
-**turns the value into an implicit list** (`See {Foo} here` →
-`["See", <Foo copy>, "here"]`); `@{x}` inserts a link or path.
+A value that is exactly one expression keeps its type. With other text around
+the expression:
+
+- `${x}` makes the full value a string.
+- `{x}` with a simple value goes into the text: `Total: {a + b}` →
+  `"Total: 3"`.
+- `{x}` with a list, dictionary or anchor **makes the value an implicit
+  list**: `See {Foo} here` → `["See", <Foo copy>, "here"]`. In Markdown, the
+  content of `Foo` appears in place below its own headings.
+- `@{x}` puts in a link or a path.
 
 ### 6.2 Conversions
 
-`${}`: strings unchanged; numbers and booleans to text; null → `null`. An
-anchor → its source name (`${Child}` → `"Child"`; `${self}` → current
-most-derived anchor's name; never title-cased). A named list/dictionary → its
-name (`Anchor.prop`, or the variable name). An unnamed one (`${[1, 2]}`) is
-`no-string-form`. **`${}` never inlines contents.** Never re-parsed as source.
+`${}`:
 
-With `export anchor Metadata:` (`name: Piton`, `version:: string: 1.0`):
-`Info ${Metadata}` → `"Info Metadata"`; `Info {Metadata}` →
-`["Info", {"name": "Piton", "version": "1.0"}]`; `Info @{Metadata}` →
-`"Info ./Metadata.json:Metadata"` (Markdown: `[Metadata](./Metadata.md#metadata)`).
+- A string stays the same. Numbers and booleans become text. Null becomes
+  `null`.
+- An anchor becomes its source name: `${Child}` → `"Child"`.
+- `${self}` becomes the name of the current most-derived anchor.
+- Piton never changes the name to title case.
+- A named list or dictionary becomes its name (`Anchor.prop`, or the variable
+  name).
+- An unnamed collection (`${[1, 2]}`) gives `no-string-form`.
+- **`${}` never puts the contents in place.** Piton never parses the result as
+  source again.
 
-`#{}`: numbers unchanged; a string converts only if the **whole** string is a
-Piton numeric literal (`#{"42"}` → `42`, never evaluated). Booleans, null,
-collections and anchors are `not-a-number`. Stays numeric in structured output.
+Example. `export anchor Metadata:` has `name: Piton` and
+`version:: string: 1.0`.
+
+| Source | Result |
+| --- | --- |
+| `Info ${Metadata}` | `"Info Metadata"` |
+| `Info {Metadata}` | `["Info", {"name": "Piton", "version": "1.0"}]` |
+| `Info @{Metadata}` | `"Info ./Metadata.json:Metadata"` |
+| `Info @{Metadata}` (Markdown) | `[Metadata](./Metadata.md#metadata)` |
+
+`#{}`:
+
+- A number stays the same.
+- A string changes to a number only if the **full** string is a Piton number
+  literal. `#{"42"}` → `42`. Piton never calculates the string.
+- Booleans, null, collections and anchors give `not-a-number`.
+- The value stays a number in structured output.
 
 ### 6.3 Operators
 
-| Group | Ops | Rules |
+| Group | Operators | Rules |
 | --- | --- | --- |
 | Access | `.` | Dictionaries and anchors. |
-| Arithmetic | `+ - * / %` | Numbers only; divide/modulo by zero errors; `%` keeps the left sign (`{-7 % 3}` → `-1`). |
-| Comparison | `== != < <= > >=` | `==`/`!=` on all types; ordering on numbers or on strings (code point); mixing is an error. |
-| Logical | `&& \|\| !` | Booleans only, **no truthiness** (`invalid-operand`), **no short-circuit**: both sides evaluated (`{true \|\| 5}` errors). |
-| Conditional | `c ? a : b` | Boolean condition (`invalid-condition`); only the chosen branch is evaluated; chains either way. |
+| Arithmetic | `+ - * / %` | Numbers only. Division or modulo by zero is an error. `%` keeps the sign of the left side: `{-7 % 3}` → `-1`. |
+| Comparison | `== != < <= > >=` | `==` and `!=` work on all types. Order works on two numbers or on two strings (by code point). A mix is an error. |
+| Logical | `&& \|\| !` | Booleans only. **No truthiness** (`invalid-operand`). **No short circuit**: Piton calculates both sides. `{true \|\| 5}` and `{false && 1 / 0 == 1}` are errors. A short circuit can only hide errors. |
+| Conditional | `c ? a : b` | The condition must be a boolean (`invalid-condition`). Piton calculates only the selected branch. Chains are permitted on both sides. |
 | Merge | `+`, `++` | See below. |
 
-`+` dispatch: number+number adds; string with a simple value concatenates
-(stringified by `${}` rules: `{2 + "Hello"}` → `"2Hello"`); string with a
-list/dictionary/anchor (either side) makes an implicit list (never
-stringified: `{"Tags: " + tags}` → `["Tags: ", [...]]`); list+list merges,
-deduped keeping last (`{["A","B","C","D"] + ["A","B","C"]}` → `[D, A, B, C]`);
-dict+dict shallow merge, right wins. Anything else errors (`{1 + true}`,
-`{null + 1}`, `{1 ++ 2}` are `invalid-operand`).
+`+` selects its operation from the operand types:
 
-`++`: lists concatenate keeping duplicates (`[A, B, C, D, A, B, C]`);
-dictionaries deep-merge (nested dicts merged, otherwise right wins); strings
-join with `\n`. (`+` is set-like, `++` list-like; spec
-`ConcatenationOperators.setsAndLists`.)
+| Operands | Result |
+| --- | --- |
+| number + number | Addition. |
+| string and a simple value | Concatenation. The `${}` rules make the text: `{2 + "Hello"}` → `"2Hello"`. |
+| string and a list, dictionary or anchor (either side) | An implicit list. Piton never makes a string: `{"Tags: " + tags}` → `["Tags: ", [...]]`. |
+| list + list | Merge. Remove duplicates, keep the last copy: `{["A","B","C","D"] + ["A","B","C"]}` → `[D, A, B, C]`. |
+| dictionary + dictionary | Shallow merge. The right side wins. |
+| other | Error. `{1 + true}`, `{null + 1}` and `{1 ++ 2}` give `invalid-operand`. |
 
-Equality: collections structurally; anchors only if the same anchor;
-references if they point at the same thing.
+`++`:
 
-Precedence, high to low (left-assoc, ternary right-assoc; parentheses
-override): `.` › `!` › `* / %` › `+ - ++` › `< <= > >=` › `== !=` › `&&` ›
-`||` › `? :`.
+- Lists: concatenation with duplicates (`[A, B, C, D, A, B, C]`).
+- Dictionaries: deep merge. Piton merges nested dictionaries. In other cases
+  the right side wins.
+- Strings: join with `\n`.
+- `+` is like a set. `++` is like a list.
 
-`:` and `::` are documented as declaration operators
-(`spec/scope/language/operators/declaration/`) but are not expression
-operators.
+Equality:
+
+- Piton compares collections by structure.
+- Two anchors are equal only if they are the same anchor.
+- Two references are equal if they point to the same thing.
+
+Precedence, from high to low: `.` › `!` › `* / %` › `+ - ++` ›
+`< <= > >=` › `== !=` › `&&` › `||` › `? :`.
+All operators group from the left. The ternary groups from the right.
+Parentheses change the order. Examples: `{1 + 2 == 3 && !false}`,
+`{a ? b : c ? d : e}`.
+
+The spec documents `:` and `::` as declaration operators
+(`spec/scope/language/operators/declaration/`). They are not expression
+operators. No type lists them, and the precedence table does not hold them.
 
 ### 6.4 References `@{}`
 
-- Must name an anchor or **a property on one** (`@{Button}`,
-  `@{Button.color}`); anything else is `invalid-reference`. A top-level list or
-  dictionary can't be referenced; put it in an anchor.
-- The target (or the anchor owning the property) joins the dependency graph
-  and is emitted.
-- Resolved per output target; a target that can't represent it errors. A
-  reference never degrades to a copy or a name. Comparable with `==`/`!=`.
+- A reference must name an anchor or **a property of an anchor**
+  (`@{Button}`, `@{Button.color}`). Other targets give `invalid-reference`.
+- You cannot refer to a top-level list or dictionary. Put it in an anchor.
+- The target, or the anchor that owns the property, goes into the dependency
+  graph. The build writes it.
+- Piton resolves a reference for each output target. If a target cannot show
+  it, the result is an error.
+- A reference never becomes a copy or a name.
+- You can compare references with `==` and `!=`.
+- A renderer or a framework can check references.
 
 | Renderer | `Button` | `Button.color` |
 | --- | --- | --- |
@@ -375,8 +488,10 @@ operators.
 | YAML | `./Button.yaml:Button` | `./Button.yaml:Button.color` |
 | Markdown | `[Button](./Button.md#button)` | `[Button.color](./Button.md#color)` |
 
-Markdown links are **lazy**: content is not inlined; an agent follows them only
-when relevant.
+- A Markdown link is relative to the file that holds the reference.
+- It links to the specific anchor when many anchors share one output file.
+- **Markdown links are lazy.** Piton does not put the content in place. An
+  agent opens a link only when it needs it.
 
 ## 7. Modules
 
@@ -392,53 +507,85 @@ from ./file import
     Second
 ```
 
-- Paths are relative to the file; `/` is relative to the config `root`. `.pi`
-  is optional (the formatter removes it). A directory or bare `.`/`..` means its
-  `index.pi`.
-- Only exports import (`unresolved-export`); missing modules are
-  `unresolved-module`. Aliases are `Name Alias` (no `as`); only the alias is in
-  scope.
-- `export Name` re-exports something declared or imported. In an index, the
-  short forms are `from ./X export X`, `from ./X export *`,
-  `from ./X export A AliasA, B`. **Importing into an index does not re-export.**
-- **A module exports each name once** (`duplicate-export`), whether written
-  out or via `export *`, when the two mean different things; the same anchor
-  by two routes is fine. The error names both sources; fix with an alias or an
-  explicit list. The compiler keeps one (exported declaration, then named
-  exports in order, then globs in order); the dropped one reaches as
+- A path is relative to its file.
+- A path that starts with `/` is relative to the config `root`. This works
+  only in a project with a `piton.config.pi`.
+- `.pi` is optional. The formatter removes it.
+- A directory, `.` or `..` means the `index.pi` of that directory.
+- You can import only exports. Other names give `unresolved-export`. A module
+  that is not there gives `unresolved-module`.
+- An alias has the form `Name Alias`. Piton has no `as` in imports. Only the
+  alias is in scope.
+
+Exports:
+
+- `export Name` exports again a name that the file declares or imports.
+- In an index, the short forms are `from ./X export X`, `from ./X export *`
+  and `from ./X export A AliasA, B`.
+- **An import into an index does not export the name again.**
+- **A module exports each name one time** (`duplicate-export`). This applies
+  to a name written out and to a name from `export *`, if the two names mean
+  different things.
+- The same anchor through two routes is not an error.
+- The error names the two sources. Fix it with an alias or an explicit list.
+  The LSP shows the same error.
+- The compiler keeps one export. The order is: the exported declaration, then
+  named exports in order, then `*` exports in order.
+- If nothing else reaches the dropped item, `piton reach` reports it as
   unreachable.
-- **Circular imports are allowed**; only values that can't settle
-  (`A: {B}`/`B: {A}`) and self-inheritance are errors. Two anchors describing
-  each other with `${}` is fine.
-- **`use` brings only user-defined keywords** into scope
-  (`use ./Keywords`, `use .`, `use my-package/X`, `use @piton/belay`);
-  `import` never does. Missing `use` → `unknown-keyword`. Declaring with a
-  keyword and naming its abstract as a type needs both `use` and `import`.
-- Formatter: per run of import lines, `use` first, then `from`, sorted by path,
-  names sorted; a blank line separates runs. Lines with more than 2 items or
-  over 80 columns are broken across lines.
+
+Circular imports:
+
+- **Circular imports are permitted.**
+- Only values that cannot resolve (`A: {B}`, `B: {A}`) and an anchor that
+  extends itself are errors.
+- Two anchors that describe each other with `${}` are correct.
+
+`use`:
+
+- **`use` brings only user-defined keywords into scope.** Examples:
+  `use ./Keywords`, `use .`, `use my-package`, `use my-package/X`,
+  `use @piton/belay`.
+- `import` never brings keywords. A keyword without its `use` gives
+  `unknown-keyword`.
+- To declare with a keyword and also name its abstract as a type, write both
+  `use` and `import`.
+
+Bundled packages: `@piton/config`, `@piton/belay`, `@piton/packaging`,
+`@piton/plugin`, and one package for each bundled plugin (`@piton/test`).
+
+The formatter sorts and breaks import and export lines:
+
+- In each group of import lines, `use` lines come first, then `from` lines.
+- It sorts lines by path and sorts the names.
+- A blank line separates groups.
+- It breaks a line across lines if it has more than 2 items or more than 80
+  columns.
 
 ## 8. Anchors
 
-An anchor is a named declaration taking part in inheritance, typing, exports
-and composition: like a class never instantiated. It compiles to an object of
-its resolved properties; keys follow dictionary rules.
+An anchor is a named declaration. It has a part in inheritance, types,
+exports and composition. It is like a class that you never make an instance
+of. It compiles to an object of its resolved properties. Its keys follow the
+dictionary rules.
 
 ### 8.1 Inheritance
 
-`anchor C extends A, B:` copies each base's properties, then the child's.
-**Right-most base wins; the child beats all bases.** Constraints follow the same
-rule. Structural, not polymorphic. Errors: `inheritance-cycle`, `invalid-base`
-(not an anchor), `unresolved-base`.
+- `anchor C extends A, B:` copies the properties of each base, then the
+  properties of the child.
+- **The base at the right wins. The child wins against all bases.**
+- Constraints follow the same rule.
+- Inheritance is structural. It is not polymorphic.
+- Errors: `inheritance-cycle` (an anchor that extends itself, directly or
+  not directly), `invalid-base` (not an anchor), `unresolved-base`.
 
 ### 8.2 `super`, `self`, `this`
 
-- **`super`** is the merged inheritance (last wins), so it finds a property on
-  an earlier base if the last lacks it. Missing everywhere is an error.
-- **`self`** is the most-derived anchor and travels down: `${self.name}` in a
-  base shows the child's name when compiled for the child.
-- **`this`** is the lexically enclosing anchor: `${this.name}` in a base always
-  shows the base's value; an override's `this` is the child.
+| Word | Meaning |
+| --- | --- |
+| `super` | The merged inheritance (the last base wins). It finds a property on an earlier base if the last base does not have it. If no base has it, the result is an error. |
+| `self` | The most-derived anchor. It moves down: `${self.name}` in a base shows the name of the child when Piton compiles the child. |
+| `this` | The anchor that holds the text. `${this.name}` in a base always shows the value of the base. In an override, `this` is the child. |
 
 ```piton
 anchor Base:
@@ -454,11 +601,12 @@ anchor Final extends Mid:
 
 `Final` → `{"name": "Final", "a": "over Mid", "b": "Final"}`.
 
-- `self` travels only through inheritance: reading `${Other.note}` evaluates
-  with `self` = `Other`.
-- `this`/`self` always mean an anchor, even inside a nested dictionary. Using
-  them or `super` outside an anchor: `invalid-this`, `invalid-self`,
-  `invalid-super`.
+- `self` moves only through inheritance. When you read `${Other.note}`, Piton
+  calculates it with `self` = `Other`.
+- `this` and `self` always mean an anchor. This is also true in a nested
+  dictionary.
+- The compiler reports `this`, `self` or `super` outside an anchor:
+  `invalid-this`, `invalid-self`, `invalid-super`.
 
 ### 8.3 Abstract anchors
 
@@ -472,17 +620,27 @@ skill Review:
     useWhen: Asked for a review
 ```
 
-- Never compiled or emitted. Concrete implementers must fill every required
-  property across the whole abstract chain.
-- An unimplemented, unexported abstract warns (`unimplemented-abstract`).
-- An anchor may implement several abstracts and extend concrete anchors.
-  Disjoint constraints on one property (string vs number) are
-  `conflicting-abstracts`; overlapping ones resolve right-most wins.
-- Export abstracts with a keyword; the keyword's anchor goes last and wins.
-- Type constraints: `A[]` matches only anchors **directly** implementing `A`
-  (for multiple abstracts, the winning one: the keyword's, else right-most);
-  `extends A[]` matches any concrete anchor with `A` in its chain.
-- Extra properties beyond the abstract's shape are kept (Belay serializes them).
+- Piton never compiles or writes an abstract anchor.
+- A concrete implementer must give all required properties of the full
+  abstract chain.
+- An abstract that has no implementer and no export gives a warning
+  (`unimplemented-abstract`).
+- An anchor can implement many abstracts. It can also extend concrete
+  anchors. Many abstracts can share a base.
+- If two abstracts put constraints on one property that cannot agree (string
+  and number), the result is `conflicting-abstracts`. Constraints that
+  overlap resolve with "the right side wins".
+- Constraints from concrete bases follow usual inheritance. The right side
+  wins and there is no error.
+- Export abstracts with a keyword. The anchor of the keyword goes last and
+  wins.
+- Type constraints:
+  - `A[]` matches only anchors that implement `A` **directly**. With many
+    abstracts, Piton uses the abstract that wins: the abstract of the
+    keyword, else the abstract at the right.
+  - `extends A[]` matches each concrete anchor with `A` in its chain.
+- Piton keeps properties that are not in the shape of the abstract. Belay
+  writes them.
 
 ### 8.4 Keywords
 
@@ -493,47 +651,61 @@ my-anchor Child extends Other:
     description: ${super.description} more
 ```
 
-`my-anchor Child:` = `anchor Child extends MyAnchor:`;
-`my-anchor Child extends Other:` = `extends Other, MyAnchor` — **the keyword's
-anchor is last and wins.** One keyword per anchor; keywords can be built on
-keywords (`export abstract operator ArithmeticOperator as arithmetic-operator:`).
-The file must `use` the exporting module.
+- `my-anchor Child:` is equal to `anchor Child extends MyAnchor:`.
+- `my-anchor Child extends Other:` is equal to `extends Other, MyAnchor`.
+  **The anchor of the keyword is last and wins.**
+- An anchor has one keyword only.
+- You can build keywords on keywords:
+  `export abstract operator ArithmeticOperator as arithmetic-operator:`.
+- The file must `use` the module that exports the keyword.
 
 ## 9. Compilation
 
-- **`piton compile <file>`**: one object, one key per export. Unexported names
-  and abstracts are omitted (spec JSON examples omit the wrapper).
-- **`piton build`**: compiles everything the entry exports, plus whatever those
-  reference; nothing else. Abstracts never compile.
-- Renderers: `json` (default), `yaml`, `markdown`. Belay adapters build on the
-  Markdown renderer.
+- **`piton compile <file>`** gives one object with one key for each export.
+  It does not show names without an export, or abstracts. Spec JSON examples
+  do not show this wrapper.
+- **`piton build`** compiles all exports of the entry and all items that
+  they refer to. It compiles nothing more. It compiles exports that nothing
+  uses. It never compiles abstracts.
+- Renderers: `json` (default), `yaml`, `markdown`. Belay adapters build on
+  the Markdown renderer.
 
-**Markdown serialization** (`spec/scope/belay/Compilation.pi`,
-`MarkdownSerialization`):
+**Markdown serialization** (`spec/scope/belay/Compilation.pi`):
 
-- Anchor and property names become title headings: `myProperty` → `My
-  Property`, `t1` → `T 1`, capital runs unsplit (`whatIsAType` →
-  `What Is AType`). Depth follows nesting; bold labels past level 6.
-- **Every anchor property gets a heading**, even `false` or `42`.
-- A **pure dictionary** (all values simple or pure dictionaries — no lists or
-  mixed content anywhere) is written verbatim in a code fence, keys not
-  headings, even when embedded. **Strings count as simple, even long prose.**
-  To get per-key headings, start the block with a prose line or include a
-  list. Impure dictionaries and mixed content get a heading per key.
-- Lists become nested Markdown lists; mixed lists keep order; primitives are
-  their text. `{Other}` is a copy; only `@{Other}` links.
-- Intrinsic values, strings and references stay distinct; reference identity
-  is never inferred from a heading.
+- Anchor names and property names become title headings:
+  `myProperty` → `My Property`. Piton does not split a run of capitals:
+  `whatIsAType` → `What Is AType`.
+- `${MyAnchor}` gives the source name as written. Piton does not change it to
+  title case.
+- The depth of a heading follows the nesting. Below level 6, Piton writes
+  bold labels. Sibling keys get the same heading level.
+- **Each anchor property gets a heading**, also `false` or `42`.
+- A **pure dictionary** has only simple values or pure dictionaries. It has
+  no lists and no mixed content at any depth.
+- Piton writes a pure dictionary as it is, in a code fence. Its keys are not
+  headings. This is also true when it is in mixed content.
+- **Strings are simple, also long prose.** To get a heading for each key,
+  start the block with a prose line or add a list.
+- Dictionaries that are not pure, and mixed content, get a heading for each
+  key.
+- Lists become nested Markdown lists. Mixed lists keep their order. A
+  primitive value is its text.
+- `{Other}` is a copy. Only `@{Other}` makes a link.
+- Intrinsic values, strings and references stay different. Piton never gets
+  the identity of a reference from a heading.
+- Target frontmatter and body layout go around the serialized content.
 
 ## 10. `piton.config.pi`
 
-Read from the working directory; anchors come from bundled `@piton/config`. It
-exports its `piton-config` anchor; the LSP treats it as config.
+Piton reads this file from the current directory. Its anchors come from the
+bundled `@piton/config`. It exports its `piton-config` anchor. The LSP treats
+it as config.
 
 ```piton
 use @piton/config
 use @piton/belay
 use @piton/packaging
+use @piton/test
 from @piton/belay import ClaudeCodeAdapter
 
 export piton-config Config:
@@ -548,6 +720,8 @@ export piton-config Config:
     dependencies:
         - https://github.com/org/repo
             tag: 1.0
+    plugins:
+        - {Tests}
 
 belay-config BelayConfiguration:
     codeRoot: ./src
@@ -558,26 +732,32 @@ belay-config BelayConfiguration:
 piton-package MyPackage:
     name: my-package
     root: ./spec/pkg
+
+test-config Tests:
+    agent: codex
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `root` | Required source root; `/` imports resolve here. |
-| `entry` | Default `index.pi` in `root` (error if absent). |
-| `output` | Build output, default `./dist`. With a framework, renderer output is written only if `output` or `renderer` is set. |
+| `root` | Required. The source root. Imports that start with `/` resolve here. |
+| `entry` | The default is `index.pi` in `root`. If that file is not there, the result is an error. |
+| `output` | The build output. The default is `./dist`. |
 | `renderer` | `json` (default), `yaml`, `markdown`. |
-| `frameworks` | Framework configs (Belay's `belay-config`). |
-| `packages` | Packages this repo **offers** (12). |
-| `dependencies` | Packages this project installs (12). |
+| `frameworks` | Framework configs (the `belay-config` of Belay). |
+| `packages` | The packages that this repository **offers** (12). |
+| `dependencies` | The packages that this project installs (12). |
+| `plugins` | Plugin declarations that the project adds, and settings anchors for its plugins (13). Piton warns about an item that is not an anchor and ignores it. |
 
-All optional fields are `:: <type>:: null: null` in `PitonConfig`;
-`FrameworkConfig` (`framework-config`) is an empty abstract; `PitonPackage`
-(`@piton/packaging`) has `name` (optional), `root` (required),
-`dependencies` (optional).
-
-A bundled framework's keywords and modules are usable without registering it
-(each file still `use`s/imports what it needs); **registering in `frameworks:`
-turns on its output.** Belay is the only framework.
+- With a framework, Piton writes renderer output only if you set `output` or
+  `renderer`.
+- In `PitonConfig`, all optional fields have the form `:: <type>:: null: null`.
+- `FrameworkConfig` (`framework-config`) is an empty abstract.
+- `PitonPackage` (`@piton/packaging`) has `name` (optional), `root`
+  (required) and `dependencies` (optional).
+- You can use the keywords and modules of a bundled framework without
+  registration. Each file must still `use` or import what it needs.
+- **Registration in `frameworks:` starts the output of the framework.**
+  Belay is the only framework.
 
 Config diagnostics: `missing-config`, `unknown-config-key`,
 `unknown-framework`, `unknown-adapter`, `invalid-adapter`,
@@ -585,45 +765,55 @@ Config diagnostics: `missing-config`, `unknown-config-key`,
 
 ## 11. Belay
 
-Bundled as `@piton/belay`: a vocabulary for agents compiled into what agentic
-tools read. Piton does parsing, evaluation, modules, inheritance, reachability
-and rendering; Belay adds constructs and per-platform adapters; the platform
-executes (compilation ≠ correct behaviour). The compiler loads the constructs
-and adapters from the spec's own `.pi` files (`spec/scope/belay/anchors/`,
-`spec/scope/belay/adapters/`), so editing `Skill.pi` changes the framework.
+Belay is bundled as `@piton/belay`. It is a vocabulary for agents. Piton
+compiles it into the files that agentic tools read.
+
+- Piton does the parse, evaluation, modules, inheritance, reachability and
+  rendering.
+- Belay adds constructs, its config anchor, special imports and an adapter
+  for each platform.
+- The platform runs the result. A correct compile does not make a correct
+  behaviour.
+- The compiler loads the constructs and adapters from the `.pi` files of the
+  spec (`spec/scope/belay/anchors/`, `spec/scope/belay/adapters/`). A change
+  to `Skill.pi` changes the framework.
+- Piton assesses the implementation against the specification. Make lasting
+  changes in the Piton source.
 
 ### 11.1 `belay-config`
 
 | Field | Meaning |
 | --- | --- |
-| `codeRoot` | Required. App code location. |
-| `shapeRoot` | Optional. Shape instructions; unset means `BELAY_SHAPE_ROOT` is the project root and nothing is placed by shape. |
-| `adapters` | Required. `ClaudeCodeAdapter`, `CodexAdapter`, `OpenCodeAdapter`. |
-| `crossDiscovery` | Optional. `separate` (each tool deployed apart, each writes a full tree) or `allow` (accept OpenCode seeing other tools' command skills). Unset: one shared project (11.5). |
-| `instructionByteLimit` | Optional number, checked for targets with a limit. |
+| `codeRoot` | Required. The location of the application code. |
+| `shapeRoot` | Optional. The location of shape instructions. If you do not set it, `BELAY_SHAPE_ROOT` is the project root and Piton places nothing by shape. |
+| `adapters` | Required. `ClaudeCodeAdapter`, `CodexAdapter`, `OpenCodeAdapter`, `MuseAdapter`. |
+| `crossDiscovery` | Optional. `separate`: each tool is deployed alone, and each adapter writes a full tree. `allow`: accept that a tool shows the command skills of another tool as usual skills. If not set: one shared project (11.5). |
+| `instructionByteLimit` | Optional number. Piton checks it for targets that have a limit. |
 
 Paths are relative to the project root.
 
 ### 11.2 Constructs
 
-All extend abstract `Construct` (`description`, `prompt`, both
-`:: string:: null: null`). Other properties are kept and rendered as Markdown
-sections after the prompt.
+All constructs extend the abstract `Construct`. It has `description` and
+`prompt`, both `:: string:: null: null`. Piton keeps other properties and
+writes them as Markdown sections after the prompt.
 
-| Keyword | Extra required | Meaning / output |
+| Keyword | Extra required property | Meaning and output |
 | --- | --- | --- |
-| `instruction` | — | Scoped guidance; **placement is meaning**. Mapped from `shapeRoot` to `codeRoot` (11.3); same-scope instructions combine into one file per target; also kept in the shape-reference tree. |
-| `skill` | `useWhen:: string` (unless vendored) | Selectively loaded. Discovery description = `<description> Use when <useWhen>`; body = prompt then extras. |
-| `command` | — | Explicit entrypoint, named `x-<normalized name>`. Native or translated per adapter. |
-| `agent` | `role:: string` (unless vendored) | Kebab-case name; body starts `You are a <role>`, then prompt, extras. |
+| `instruction` | none | Scoped guidance. **Its location is its meaning.** Piton maps it from `shapeRoot` to `codeRoot` (11.3). Instructions with the same scope go into one file for each target. Piton also keeps them in the shape reference tree. |
+| `skill` | `useWhen:: string` (not for vendored skills) | The agent loads it when it needs it. The discovery description is `<description> Use when <useWhen>`. The body is the prompt, then the extra properties. |
+| `command` | none | An explicit entry point. Its name is `x-<normalized name>`. It is native or translated for each adapter. |
+| `agent` | `role:: string` (not for vendored agents) | Its name is kebab-case. The body starts with `You are a <role>`, then the prompt, then the extra properties. |
 
-- Required fields are checked on concrete constructs after inheritance.
-- Missing description/prompt are omitted, but a target that needs a
-  description reports `missing-description` (Claude Code: agents; Codex:
-  skills, commands, agents; OpenCode: skills, agents).
-- Role and skill description are literal: `role: careful reviewer` →
-  `You are a careful reviewer`; `Reviews code.` + `asked for a review` →
-  `Reviews code. Use when asked for a review`.
+- Piton checks required fields on concrete constructs after inheritance.
+- Piton does not write a description or prompt that is not there. If a target
+  needs a description, the compiler reports `missing-description`. The
+  compiler applies this to: Claude Code agents; Codex skills, commands and
+  agents; OpenCode skills and agents; Muse skills and commands.
+- Piton writes the role and the skill description literally:
+  - `role: careful reviewer` → `You are a careful reviewer`.
+  - `Reviews code.` with `asked for a review` →
+    `Reviews code. Use when asked for a review`.
 
 ```piton
 use @piton/belay
@@ -635,25 +825,55 @@ export skill AnswerSpecQuestions:
     reportFormat: Save every report as a standalone HTML file.
 ```
 
-(`reportFormat` renders as `# Report Format`.)
+`reportFormat` becomes the heading `# Report Format`.
 
-**Native options** are metadata, never body text: `tools`, `model`,
-`allowed-tools`, `mode`, `permission`, `agent`, `model_reasoning_effort`,
-`sandbox_mode`. Unsupported on a target → `unsupported-option`; bad value →
-`invalid-option`. Their typing is an open decision (11.7).
+**Native options** are metadata. They are never body text. The options are
+`tools`, `model`, `allowed-tools`, `mode`, `permission`, `agent`,
+`model_reasoning_effort`, `sandbox_mode`.
 
+- An option that the target does not support gives `unsupported-option`.
+- A bad value gives `invalid-option`.
+- The types of these options are an open decision (11.7).
 
-**Vendored files.** A skill's `files` names a folder copied beside its
-`SKILL.md`: scripts, data, reference documents, byte for byte, execute bit
-kept. When the folder holds a `SKILL.md`, that file *is* the skill and the
-anchor may set nothing else (`vendored-conflict`); its `name` must match the
-anchor's (`vendored-name-mismatch`), and `useWhen` is then not required. An
-agent's `file` names its native definition (`.md`, or `.toml` for Codex), used
-as it is. Either takes one path, or a dictionary from target id to path for a
-tool-specific build; a built target the dictionary leaves out is
-`missing-vendored-target`, and `null` emits nothing for that target. Paths resolve from the declaring `.pi` file (or the
-source root with a leading `/`), so a tethered package can carry an upstream
-skill unconverted:
+**Vendored skills.** The `files` property of a skill (`:: string:: dictionary`)
+names a folder. Piton copies the folder next to `SKILL.md`.
+
+- Piton copies each regular file byte for byte. It keeps the relative path
+  and the execute bit. It renders or changes nothing.
+- The manifest records each file, so a later build can remove it.
+- A symlink in the folder is an error. A path that is not a directory in the
+  project is an error.
+- If the folder holds a `SKILL.md`, that file *is* the skill. The anchor
+  cannot set other properties (`vendored-conflict`).
+- The `name` in that file must agree with the Belay name
+  (`vendored-name-mismatch`). It must have a description where the target
+  needs one. `useWhen` is then not required.
+
+**Vendored agents.** The `file` property of an agent names its native
+definition. Use this to keep native settings that Belay cannot carry to all
+targets, such as the `tools` and `model` of Claude.
+
+- The file is `.md`, or `.toml` for Codex. Another extension is an error.
+- Piton writes the file without a change.
+- Each other property on the anchor is an error.
+- If the agent format of the target holds a name, the name must agree with
+  the Belay name.
+- The file must have a description where the target needs one.
+
+Rules for `files` and `file`:
+
+- The value is one path, or a dictionary from target id to path.
+- A key that is not a target id is an error.
+- A built target that the dictionary does not name gives
+  `missing-vendored-target`.
+- `null` writes nothing for that target.
+- A path resolves from the `.pi` file that declares it, or from the source
+  root if it starts with `/`.
+- If a target reads the copy of another target, Piton writes no copy. If
+  `files` names a different folder for that target, Piton gives a warning.
+
+With these rules, a tethered package can carry a skill from an upstream
+project without conversion:
 
 ```piton
 use @piton/belay
@@ -667,114 +887,182 @@ export skill Impeccable:
 
 ### 11.3 Shape mapping
 
-An instruction's directory relative to `shapeRoot` is resolved under
-`codeRoot`; if missing, walk up to the nearest existing directory, **stopping
-at `codeRoot`**. `spec/shape/components/button/Button.pi` →
-`src/components/button/AGENTS.md`; two files in `input/` combine into one;
-`components/nonexistent/` falls back to `src/components/AGENTS.md`. The file
-has a heading per instruction (`# Button Shape`). Fallback changes placement
-only; the shape-reference tree keeps the original path. Instructions outside
-`shapeRoot` are an open decision, so the compiler errors
-(`instruction-placement-unspecified`). Placement never guarantees initial
-loading (11.5).
+- Piton takes the directory of an instruction relative to `shapeRoot`. It
+  resolves that directory below `codeRoot`.
+- If the directory is not there, Piton goes up to the nearest directory that
+  exists. **It stops at `codeRoot`.**
+- Examples:
+  - `spec/shape/components/button/Button.pi` →
+    `src/components/button/AGENTS.md`.
+  - Two files in `input/` combine into one file.
+  - `components/nonexistent/` → `src/components/AGENTS.md`.
+- `AGENTS.md` here is only the generic name. Each adapter uses its own
+  instruction file name.
+- The file has a heading for each instruction (`# Button Shape`).
+- The fallback changes only the location. The shape reference tree keeps the
+  original path.
+- Instructions outside `shapeRoot` are an open decision. The compiler gives
+  an error (`instruction-placement-unspecified`).
+- A location never makes sure that the tool loads the file at the start
+  (11.5).
 
 ### 11.4 References and special imports
 
-- Belay emits only what the build emits (entry exports plus references).
-- Reached anchors are written to the adapter's `referenceRoot`, **one Markdown
-  file per source module** at its path under `root`, each anchor a heading:
-  `spec/components/Button.pi` → `.claude/reference/components/Button.md`. This
-  tree (with its `shape/` subdir) is not a platform discovery directory; it is
-  reached only through links.
-- `@{X}` becomes a relative link with fragment
-  (`[Button](../../reference/components/Button.md#button)`), lazy, never
-  Claude's `@import`. A reference to a skill, command or agent links to that
-  construct's own output (e.g. its `SKILL.md`) and is not copied.
-- **Special imports** from `@piton/belay`, resolved per adapter and per output
-  file as paths relative to the generated file; interpolate with `${...}`:
+- Belay writes only what the build writes: the entry exports and the items
+  that they refer to.
+- Piton writes the anchors that it reaches to the `referenceRoot` of the
+  adapter. It writes **one Markdown file for each source module**, at its
+  path below `root`. Each anchor is a heading.
+  Example: `spec/components/Button.pi` →
+  `.claude/reference/components/Button.md`.
+- This tree, with its `shape/` subdirectory, is not a discovery directory of
+  a platform. An agent reaches it only through links.
+- `@{X}` becomes a relative link with a fragment:
+  `[Button](../../reference/components/Button.md#button)`. The link is lazy.
+  It is never an `@import` of Claude.
+- A reference to a skill, command or agent links to the output of that
+  construct (for example its `SKILL.md`). Piton does not copy it.
 
-  | Import | Resolves to |
-  | --- | --- |
-  | `BELAY_COMPILED_SHAPE` | The adapter's compiled shape tree (`.claude/reference/shape`). |
-  | `BELAY_AGENT_ROOT` | `.claude`, `.codex` or `.opencode`. |
-  | `BELAY_PROJECT_ROOT` | Where `piton.config.pi` lives. |
-  | `BELAY_SHAPE_ROOT` | `shapeRoot`, or the project root. |
-  | `BELAY_CODE_ROOT` | `codeRoot`. |
+**Special imports** come from `@piton/belay`. Piton resolves them for each
+adapter and each output file. The result is a path relative to the generated
+file. Use them with `${...}`. Piton resolves them at compile time, not when
+the agent runs.
 
-  `prompt: Read ${BELAY_COMPILED_SHAPE} first.` in
-  `.claude/skills/designer/SKILL.md` becomes `../../reference/shape`. They
-  compose: `export FLUENCY_PROMPT_FILE: ${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md`
-  (see `spec/agent/`, whose skills and `command CheckSpecForProblems` are
-  re-exported from `spec/agent/index.pi`).
+| Import | Value |
+| --- | --- |
+| `BELAY_COMPILED_SHAPE` | The compiled shape tree of the adapter (`.claude/reference/shape`). |
+| `BELAY_AGENT_ROOT` | `.claude`, `.codex`, `.opencode` or `.muse`. |
+| `BELAY_PROJECT_ROOT` | The directory of `piton.config.pi`. |
+| `BELAY_SHAPE_ROOT` | `shapeRoot`, or the project root. |
+| `BELAY_CODE_ROOT` | `codeRoot`. |
+
+- `prompt: Read ${BELAY_COMPILED_SHAPE} first.` in
+  `.claude/skills/designer/SKILL.md` becomes `../../reference/shape`.
+- You can combine them:
+  `export FLUENCY_PROMPT_FILE: ${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md`.
 
 ### 11.5 Adapters
 
-Each extends abstract `belay-agent-adapter` (`description`, `targetId`,
-`instructionFile`, `referenceRoot`) and carries `documentationChecked`
-(currently `2026-09-21`), recorded in the manifest's `targets`.
+Each adapter extends the abstract `belay-agent-adapter`. It has
+`description`, `targetId`, `instructionFile` and `referenceRoot`. It also has
+`documentationChecked`. The default is `2026-09-21`. For Muse it is
+`2026-10-13` (Muse Code 1.4.7). The manifest records it in `targets`.
 
-| | Claude Code (`claude-code`) | Codex (`codex`) | OpenCode (`opencode`) |
-| --- | --- | --- | --- |
-| Instructions | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` |
-| Reference root | `.claude/reference` | `.codex/reference` | `.opencode/reference` |
-| Skill | `.claude/skills/<n>/SKILL.md`, frontmatter `name`, `description` (dir = name) | `.agents/skills/<n>/SKILL.md`, same | `.opencode/skills/<n>/SKILL.md`; name 1–64 lowercase alnum with single hyphens, matching dir; description 1–1024 chars |
-| Command | `.claude/skills/x-<n>/SKILL.md` with `disable-model-invocation: true`, `/x-<n>` (never also `.claude/commands/`) | `.agents/skills/x-<n>/SKILL.md` + `agents/openai.yaml` with `policy: allow_implicit_invocation: false`, `$x-<n>` | Native `.opencode/commands/x-<n>.md`, `/x-<n>` |
-| Agent | `.claude/agents/<n>.md`, `name`, `description`, opt. `tools`, `model` | `.codex/agents/<n>.toml`: `name`, `description`, `developer_instructions` (one TOML string: role, prompt, extras), opt. `model`, `model_reasoning_effort`, `sandbox_mode` | `.opencode/agents/<n>.md`: `description`, `mode` (`primary`/`subagent`/`all`, always explicit, default `subagent`), opt. `model`, `permission` |
-| Native options | agent `tools`, `model`; skill/command `allowed-tools`, `model` | agent only: `model`, `model_reasoning_effort`, `sandbox_mode` | agent `mode`, `model`, `permission`; command `agent`, `model` |
-| Loading | Ancestors at startup; nested when Claude reads that subtree | Root-to-cwd chain at start; same-dir `AGENTS.override.md` shadows (`shadowed-instruction`); byte limit (`instruction-over-budget`) | Searches up from cwd, prefers `AGENTS.md` over `CLAUDE.md`; nested files not assumed loaded (`unguaranteed-instruction-scope`); also discovers `.claude/skills` and `.agents/skills` |
+| | Claude Code (`claude-code`) | Codex (`codex`) | OpenCode (`opencode`) | Muse (`muse`) |
+| --- | --- | --- | --- | --- |
+| Instructions | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` | `AGENTS.md` |
+| Reference root | `.claude/reference` | `.codex/reference` | `.opencode/reference` | `.muse/reference` |
+| Skill | `.claude/skills/<n>/SKILL.md`. Frontmatter `name`, `description`. The directory is the name. | `.agents/skills/<n>/SKILL.md`, the same. | `.opencode/skills/<n>/SKILL.md`. Name: 1–64 lowercase letters and digits, single hyphens, the same as the directory. Description: 1–1024 characters. | `.agents/skills/<n>/SKILL.md`. A description is always required. Never write `allowed-tools`. |
+| Command | `.claude/skills/x-<n>/SKILL.md` with `disable-model-invocation: true`. Call it with `/x-<n>`. Never also write `.claude/commands/`. | `.agents/skills/x-<n>/SKILL.md` and `agents/openai.yaml` with `policy: allow_implicit_invocation: false`. Call it with `$x-<n>`. | Native `.opencode/commands/x-<n>.md`. Call it with `/x-<n>`. | Translated: `.agents/skills/x-<n>/SKILL.md` with `disable-model-invocation: true`. Call it with `/x-<n>`. |
+| Agent | `.claude/agents/<n>.md`: `name`, `description`, optional `tools`, `model`. | `.codex/agents/<n>.toml`: `name`, `description`, `developer_instructions` (one TOML string: role, prompt, extras), optional `model`, `model_reasoning_effort`, `sandbox_mode`. | `.opencode/agents/<n>.md`: `description`, `mode` (`primary`, `subagent` or `all`; always explicit; default `subagent`), optional `model`, `permission`. The file name is the identity. It has no `name` field. | **Not supported.** No file. Warning `unsupported-construct`. Piton never changes it into a skill. |
+| Native options | Agent: `tools`, `model`. Skill and command: `allowed-tools`, `model`. | Agent only: `model`, `model_reasoning_effort`, `sandbox_mode`. | Agent: `mode`, `model`, `permission`. Command: `agent`, `model`. | None. Approval mode, sandbox and permission profiles belong to Muse. |
+| Load | Ancestor files at the start. Nested files when Claude reads that subtree. | The chain from the root to the current directory at the start. A same-directory `AGENTS.override.md` hides the file (`shadowed-instruction`). Byte limit (`instruction-over-budget`). | It searches up from the current directory. It prefers `AGENTS.md` to `CLAUDE.md`. Do not assume that it loads nested files (`unguaranteed-instruction-scope`). It also finds `.claude/skills` and `.agents/skills`. | Rules files from the current directory up to the workspace root, only in trusted workspaces. `AGENTS.md` wins against a same-directory `CLAUDE.md`, which it ignores with a warning. Descendant files are not sure to load. Skills come from `.agents/skills`, `.claude/skills`, `.codex/skills`, in that priority. It keeps one copy. It obeys the `disable-model-invocation` of Claude and the `openai.yaml` policy of Codex. |
 
 Rules for all adapters:
 
-- Pipeline: take validated constructs (after imports and inheritance) → one
-  plan per adapter → resolve placement and reference destinations → check
-  shared paths and cross-discovery over the whole plan → serialize → validate
-  links, metadata, names and ownership → write.
-- Distinguish native, translated and unsupported; fail with an actionable
-  diagnostic when required behaviour can't be represented. Never silently turn
-  an agent into a skill, or a command into an auto-invoked skill.
-- Model/permission settings only when explicitly configured; absent ones are
-  omitted. Options are validated against the platform; prose never goes into
-  metadata.
-- **A prompt requesting restraint is not enforcement.** Claim enforcement only
-  for platform controls; never widen access in translation. Claude's
-  `allowed-tools` and subagent `tools` differ and neither is a portable
-  sandbox. An unrepresentable enforced restriction is a diagnostic.
-- Names normalized before planning; commands keep `x-`. Collisions are
-  `name-collision`/`output-collision` unless identical in content, references
-  and activation.
-- **Multiple adapters share one project**: the first adapter listed owns the
-  single reference tree and all link into it; a shared instruction path
-  (`AGENTS.md`) is written once, by the first listed; OpenCode writes no copy
-  of a skill Claude Code or Codex already writes where it looks, linking to
-  theirs; a command's `x-` skill OpenCode would discover is
-  `cross-discovery-activation` unless `opencode.json` denies it
-  (`"permission": {"skill": {"x-*": "deny"}}`; last matching pattern wins) or
-  `crossDiscovery` is set; a skill OpenCode finds twice (all three enabled) is
-  a `cross-target-discovery` warning. With `crossDiscovery: separate`, each
-  writes a full tree and incompatible writes to one path are
-  `output-collision`.
-- Generated links are relative and must hit planned outputs
-  (`broken-reference-link`); hand-written Markdown links aren't checked.
-- Metadata and body emitted once; frontmatter via a real YAML/TOML encoder;
-  filenames and metadata checked against the target schema before writing.
+- The pipeline has these steps:
+  1. Take the validated constructs, after imports and inheritance.
+  2. Make one plan for each adapter.
+  3. Resolve locations and reference destinations.
+  4. Check shared paths and cross discovery across the full plan.
+  5. Serialize.
+  6. Validate links, metadata, names and ownership.
+  7. Write.
+- Piton diagnoses requested capabilities that a target does not support
+  before it writes output.
+- Each behaviour is native, translated or not supported. If Piton cannot show
+  a required behaviour, it fails with a diagnostic that tells you what to do.
+- Never change an agent into a skill without a diagnostic. Never change a
+  command into a skill that the model can start.
+- Piton writes model and permission settings only if you configure them. It
+  does not write settings that are not configured.
+- Piton validates options against the platform. Prose never goes into
+  metadata. Target settings stay apart from extra prose properties.
+- **A prompt that asks for restraint does not enforce it.** Claim enforcement
+  only for platform controls. A translation never gives more access.
+- The `allowed-tools` and the subagent `tools` of Claude are different.
+  Neither is a portable sandbox.
+- A restriction that Piton must enforce but cannot show is a diagnostic.
+- Piton normalizes names before it makes the plan. Commands keep `x-`.
+- Collisions give `name-collision` or `output-collision`. Two items with the
+  same content, references and activation are not a collision.
+- Generated links are relative. They must point to planned outputs
+  (`broken-reference-link`). Piton does not check Markdown links that you
+  write by hand.
+- Piton writes metadata and body one time. A real YAML or TOML encoder writes
+  frontmatter. Piton checks file names and metadata against the target schema
+  before it writes.
 
-Specifics:
+**Many adapters share one project**, because the tools read the files of each
+other:
 
-- **Claude Code**: agent identity from the normalized name, never a heading;
-  `tools`/`allowed-tools` never copied elsewhere without a mapping.
-- **Codex**: never write `AGENTS.override.md`; guidance below the start
-  directory isn't guaranteed; limit is `instructionByteLimit`; no deprecated
-  custom prompts or invented `.codex/commands/`; generic `tools` never mapped;
-  standalone custom-agent format only; sandbox/approval can't be overridden by
-  guidance; tool/model settings on a command are diagnosed; a command must
-  produce both files; agent TOML must parse with its three fields.
-- **OpenCode**: no assumed nested loading or chains; extra guidance only via
-  explicit `instructions` config, never global; required but unguaranteeable
-  shape scoping is an error; unrecognized frontmatter enforces nothing;
-  `model` is provider-qualified; command argument placeholders are kept;
-  `allowed-tools` never enforced on commands; agents use `permission` (not
-  deprecated `tools`), mapped only when equivalent; ambiguous conversions
-  rejected.
+- The first adapter in the list owns the single reference tree, with the
+  compiled shape. All adapters link into it. The other adapters write no
+  reference tree.
+- With one adapter, or with `separate`, each adapter owns its own tree.
+- The first adapter in the list writes a shared instruction path
+  (`AGENTS.md`) one time. Muse shares the `AGENTS.md` of Codex and OpenCode.
+- If a tool finds the skill directory of another enabled adapter, its adapter
+  writes no copy of a skill that the other adapter writes there. It links to
+  that skill. OpenCode and Muse do this for Claude Code and Codex skills.
+  Muse also does it for commands, because it obeys their activation metadata.
+- A construct that a target does not support (a Muse agent) links to the
+  artifact of another adapter. If there is none, it links to its reference
+  document.
+- OpenCode finds the `x-` command skills of other adapters. This gives
+  `cross-discovery-activation`. Two settings stop the error:
+  - `opencode.json` or `opencode.jsonc` denies them:
+    `"permission": {"skill": {"x-*": "deny"}}`. The last pattern that matches
+    wins. This rule does not change the native `x-` commands of OpenCode.
+  - `crossDiscovery` is set.
+- A tool that finds one skill in more than one directory gives a
+  `cross-target-discovery` warning. This does not apply if the tool keeps
+  only one copy (Muse).
+- With `crossDiscovery: separate`, each adapter writes a full tree. Writes to
+  one path that do not agree give `output-collision`.
+
+Rules for each adapter:
+
+- **Claude Code**:
+  - The agent identity comes from the normalized name, never from a heading.
+  - Never copy `tools` or `allowed-tools` to another target without a mapping.
+  - Claude Code still supports `.claude/commands/`. Belay writes commands as
+    skills.
+  - Nested instructions keep their mapped scope and links relative to the
+    target.
+- **Codex**:
+  - Do not write `AGENTS.override.md` to win precedence. Diagnose a
+    same-directory `AGENTS.override.md`.
+  - Codex does not have to load guidance below the start directory.
+  - The limit is `instructionByteLimit`.
+  - Do not write deprecated custom prompts. Do not make a `.codex/commands/`
+    directory.
+  - Never map generic `tools`.
+  - Use only the standalone format for custom agents.
+  - Guidance cannot change the sandbox or the approval policy.
+  - Piton diagnoses tool and model settings on a command.
+  - A command must make both of its files.
+  - The agent TOML must parse and have its three fields.
+- **OpenCode**:
+  - Do not assume nested loads or chains.
+  - Give more guidance only through explicit `instructions` config, never
+    global config.
+  - Shape scope that is required but that OpenCode cannot make sure of is an
+    error.
+  - Frontmatter that OpenCode does not know enforces nothing.
+  - `model` includes the provider.
+  - Keep command argument placeholders.
+  - OpenCode never enforces `allowed-tools` on commands.
+  - Agents use `permission`, not the deprecated `tools`. Map them only when
+    the meaning is the same.
+  - Refuse conversions that are not clear.
+  - Keep the location, but do not claim that activation is the same in all
+    tools.
+- **Muse**:
+  - Commands keep `x-` and `disable-model-invocation`.
+  - Piton reports each agent as not supported. Muse takes agents only from
+    plugins or from an overlay for one run. A build can write neither.
+  - Piton still writes the reference tree.
 
 Other diagnostics: `invalid-artifact-name`, `missing-command-prefix`,
 `description-too-long`, `output-outside-project`, `unowned-output`,
@@ -782,180 +1070,1070 @@ Other diagnostics: `invalid-artifact-name`, `missing-command-prefix`,
 
 ### 11.6 Guarantees
 
-Identical inputs and toolchain give identical bytes; combined instructions have
-stable order. Frontmatter is quoted/escaped per format. Missing reference
-targets and unsupported metadata are reported, not papered over. Generated files
-are tracked in `.piton/manifest.json` (with per-target documentation dates), so
-cleanup never deletes user files. Failures name the source anchor and property.
-Output stays inside its boundaries.
+- The same source, configuration, directory state and toolchain give the
+  same bytes.
+- Combined instructions have a stable order.
+- Piton quotes and escapes frontmatter correctly for each format.
+- Piton reports reference targets that are not there and metadata that a
+  target does not support. It does not hide them.
+- `.piton/manifest.json` records generated files and the documentation date
+  of each target. Thus a cleanup never deletes user files.
+- A failure names the source anchor and property.
+- Output stays in its boundaries.
 
 ### 11.7 Open decisions (`spec/scope/belay/Decisions.pi`)
 
-Say "unspecified" rather than guess, and raise with the user if your work
-depends on one: instructions outside `shapeRoot`; types and per-adapter mapping
-of `tools`, `allowed-tools`, `model`; naming (skill filename and command name
-normalization, acronym splitting, collisions); whether workflows stay
-compositions of the four constructs (don't add a `workflow` keyword); how
-platform-specific adapter options are written.
+If your work needs one of these decisions, say "unspecified". Do not guess.
+Tell the user about it.
+
+- Instructions outside `shapeRoot`.
+- The types of `tools`, `allowed-tools` and `model`, and their mapping for
+  each adapter.
+- Names: normalization of skill file names and command names, the split of
+  acronyms, and collisions.
+- Workflows: are they always compositions of the four constructs? Do not add
+  a `workflow` keyword.
+- How Piton writes options that are specific to a platform.
 
 ## 12. Packages
 
-Git repositories, **vendored** into the project and committed; nothing is
-fetched at compile time.
+A package is a git repository or a local directory. Piton **vendors** it
+into the project, and you commit it. Piton fetches nothing at compile time.
 
-- **Offering**: `piton-package` anchors listed under `packages:` in the config
-  (declared anywhere). `root` is relative to the config. A repo may offer
-  several. **A project never installs its own packages.**
-- **Names**: `name` (may be kebab-case) or else the anchor name. Flat, no `/`;
-  `@piton/...` is reserved for bundled packages.
-- **Dependencies**: git URLs, each optionally with one indented `commit:`,
-  `tag:` or `branch:` (more is `multiple-pins`; also `dangling-pin`,
-  `unknown-pin`). No pin = default branch head. Pins are strings (`tag: 1.0` →
-  `"1.0"`). Choose some of a repo's packages with `packages: [ui-kit]` under
-  the URL, else all.
-- Project and package dependencies are separate; **no nesting**. Version
-  conflicts: newest commit wins, with a warning.
-- **Install** into `tethers/<name>` next to the config, containing the package
-  `root`'s files, with all git traces removed. A repo offering no packages
-  installs whole under its URL-implied name.
-- **Import** by name: `from my-package import X`, `use my-package/X`; missing
-  package is an error.
-- **Lock**: `.piton/tether.lock` (URL, commit, file hash per package), written
-  by `tether` and `update`, committed.
-- **Edits**: every operation first compares files with the lock; if edited, it
-  stops and suggests `untether` (or `update --force`).
+Offer packages:
+
+- List `piton-package` anchors under `packages:` in the config. You can
+  declare them in any file.
+- `root` is relative to the config.
+- One repository can offer many packages. Each has its own root and
+  dependencies.
+- **A project never installs its own packages.**
+
+Names:
+
+- The name is `name` (it can be kebab-case), else the anchor name.
+- Names are flat and have no `/`.
+- `@piton/...` is reserved for bundled packages.
+
+Dependencies:
+
+- Each dependency is a source. It can have one indented `commit:`, `tag:` or
+  `branch:`.
+- More than one pin gives `multiple-pins`. The compiler also gives
+  `dangling-pin` and `unknown-pin`.
+- With no pin, Piton takes the head of the default branch.
+- Pins are strings: `tag: 1.0` → `"1.0"`.
+- To select some packages of a repository, write `packages: [ui-kit]` below
+  the source. Without it, Piton takes all packages.
+
+Local sources:
+
+- A local source is an absolute path, `~/...`, or a relative path. Piton reads
+  a relative path from the directory of the `piton.config.pi` that lists it.
+- A value with a scheme (`https://`, `file://`) or `git@host:path` is a URL.
+- Piton clones a git directory like a URL. You can pin it, and the lock
+  records its commit. Piton takes only committed content. It warns about
+  changes that are not committed.
+- Piton copies a plain directory as it is now. A pin on it is an error. The
+  lock records no commit. `update` takes its current content.
+- You cannot tether a directory that holds the project.
+- A package from a local directory can list relative path dependencies. A
+  package from a URL cannot.
+
+Rules:
+
+- Project dependencies and package dependencies are separate. **Packages do
+  not nest.**
+- If versions conflict, the newest commit wins, and Piton gives a warning.
+- **Install**: Piton installs into `tethers/<name>` next to the config. The
+  directory holds the files of the package `root`. Piton removes all git
+  traces.
+- A repository that offers no packages installs complete, below the name
+  that its URL gives.
+- **Atomic**: Piton resolves and checks all packages before it writes
+  anything. If one package fails or conflicts, Piton places none. The config,
+  `tethers/` and the lock do not change.
+- Piton adds a source only if it can also fetch all that the source requires.
+- **Two packages cannot share a name.** This applies to a name that another
+  source already tethered, a name that the project offers, and a name
+  published twice in one install. The result is an error, never a
+  replacement. Use `--as` to give a new name.
+- **Import** by name: `from my-package import X`, `use my-package`,
+  `use my-package/X`. The package name is a placeholder for a path. If the
+  package is not there, the result is an error.
+- **Lock**: `.piton/tether.lock` is next to `piton.config.pi`. It holds the
+  URL, commit and file hash of each package. `tether` and `update` write it.
+  Commit it.
+- **Edits**: each operation first compares the files with the lock. If you
+  edited a package, the operation stops. It tells you to use `untether` or
+  `update --force`.
 
 Commands:
 
-- `piton tether [url] [--as name]`: no URL installs all dependencies; a URL is
-  added to `dependencies` and installed.
-- `piton update [packages...] [--force] [--diff]`: reinstall (all by default).
-  `--force` discards edits, warning per package with what changed. `--diff`
-  prints each changed file's regions with 3 context lines and old/new line
-  numbers (unchanged lines both, removed old only, added new only), a separator
-  line between regions, and per package how many files changed (or that none
-  did). When refused over edits, it shows those edits: the package re-fetched
-  at the locked commit against disk. Computed in-process (no `diff` needed);
-  red/green on a terminal.
-- `piton untether <pkg> [--as name] [--no-rewrite]`: move to
-  `<root>/untethered/` and rewrite imports, making it project source.
-- `piton remove <pkg>`: delete and drop from `dependencies`; refuses if edited
-  or still imported.
+| Command | Behaviour |
+| --- | --- |
+| `piton tether [source] [--as name]` | Without a source: install all dependencies. With a URL or directory: install it, then add it to `dependencies`. Piton reads a relative path from the current directory and writes it relative to the config. |
+| `piton update [packages...] [--force] [--diff]` | Install again. The default is all packages. |
+| `piton untether <pkg> [--as name] [--no-rewrite]` | Move the package to `<root>/untethered/` and change the imports. It becomes project source. `--no-rewrite` moves the package and changes no imports. |
+| `piton remove <pkg>` | Delete the package and remove it from `dependencies`. The command refuses if you edited the package or if a file imports it. |
 
-## 13. CLI
+`update` flags:
 
-Every command prints results, then a ✓/✗ outcome line, then diagnostics with
-help and notes and an error/warning count. Coloured with `+`/`-` path marks on a
-terminal; piped or `NO_COLOR` gives plain text with bare results on stdout.
-`piton --version` (and the version the LSP reports) is major.minor from
-`Cargo.toml` with the commit count as patch (e.g. `0.1.57`); `PITON_VERSION`
-overrides; without git, the `Cargo.toml` version.
+- `--force` discards your edits. It gives a warning for each package with
+  the changes.
+- `--diff` compares the content on disk before the update (with local edits)
+  to the new content. It shows each changed region with 3 context lines.
+- `--diff` shows old and new line numbers. An unchanged line shows both. A
+  removed line shows the old number. An added line shows the new number.
+- A separator line goes between regions. For each package, it shows how many
+  files changed, or that none changed.
+- If `update` refuses because of edits, it shows the edits. It fetches the
+  package again at the locked commit and compares it with the disk.
+- Piton calculates the diff itself. It does not need `diff`. On a terminal,
+  it uses red and green.
+
+## 13. Plugins (`spec/scope/plugins/`)
+
+Plugins add CLI commands, and Piton files that you can import. They do not
+change the compiler.
+
+- You declare a plugin in Piton and write it in TypeScript.
+- oxc transpiles the code. Embedded QuickJS (rquickjs) runs it.
+- You install nothing. Plugins need no Node and no build step.
+- **Compilation stays pure.** `check`, `build` and the LSP read only the Piton
+  declaration. Plugin code runs only when you start its command.
+- **A plugin can do only what it declares.**
+- Bundled plugins and installed plugins work the same. The binary holds the
+  files of a bundled plugin.
+- Not available now: hooks into build or check, renderers, diagnostics, and
+  replacement of Belay.
+
+### 13.1 Declaration (`@piton/plugin`)
+
+```piton
+use @piton/plugin
+
+export piton-plugin TestPlugin:
+    name: test
+    entry: ./src/index.ts
+    settings: TestConfig
+    description: Has an agentic tool judge the project's tests.
+    capabilities:
+        process: [claude, codex, opencode, muse]
+        temporaryFiles: true
+    commands:
+        test:
+            about: Have an agent judge the project's tests
+            arguments:
+                targets:
+                    help: Tests to run, by name, file or directory
+                    positional: true
+                    multiple: true
+                jobs:
+                    short: j
+                    type: number
+                    minimum: 1
+                serial:
+                    type: flag
+                    conflicts: [jobs]
+```
+
+| Field | Rules |
+| --- | --- |
+| `name:: string` | Required. Lowercase with hyphens. The Piton files of a bundled plugin are `@piton/<name>`. If two plugins have the same name, Piton reports the second and does not load it. |
+| `entry:: string` | Required. A TS or JS module relative to the declaring file. It must be in that directory and it must exist. Its default export is `definePlugin(...)`. |
+| `description` | Optional string. `piton plugins` shows it. |
+| `settings` | Optional string. The name of an abstract anchor that the plugin exports. A settings anchor of a project implements it. |
+| `commands` | Optional dictionary. See below. |
+| `capabilities` | Optional dictionary (13.2). Without it, the plugin can only read the project. |
+
+Commands:
+
+- The key is the command name. It is lowercase with hyphens and comes after
+  `piton`.
+- `about` is one line. It shows in `piton --help` and at the top of the
+  command help.
+- `help` gives more text. It shows in `piton <command> --help`.
+- `arguments` is an ordered dictionary.
+- If a command has the same name as a command of another plugin or a
+  built-in command, Piton reports it and leaves it out.
+
+Argument settings are all optional: `help`, `positional`, `multiple`, `type`
+(`string` is the default, `number`, `flag`), `choices`, `short` (one letter),
+`minimum`, `conflicts`.
+
+- The key is the long option.
+- A positional argument cannot have the type `flag` or a short name.
+- An unknown setting makes the declaration not valid. A `conflicts` value
+  that names an argument that is not there also makes it not valid.
+- Values come to the handler by name: a flag gives a boolean, a number gives
+  a number, `multiple` gives a list, and an absent value gives null.
+- clap checks values first (choices, minimum), as for built-in commands.
+- A declaration with a bad form gives a warning that names the file. Piton
+  skips only that plugin.
+
+### 13.2 Capabilities
+
+A plugin can always read the compiled project. It must list all other
+operations. An unknown capability makes the declaration not valid.
+
+| Capability | Meaning |
+| --- | --- |
+| `process: [names]` | The programs that the plugin can run and find on PATH. The names must be exact. |
+| `files: read \| none` | The default is `none`. `read` lets the plugin read files in the project, never outside it. |
+| `temporaryFiles: true` | Temporary files outside the project. Piton removes them when the command ends. |
+
+- Plugins never write project files. Their output goes to stdout and stderr.
+- A refused operation throws an error, for example: "plugin `hello` may not
+  run `ls`: its declaration does not list it under capabilities.process".
+  The plugin can catch it. If it does not catch it, the command fails.
+- Capabilities do not put the programs that a plugin runs in a sandbox.
+
+### 13.3 Sources
+
+- All bundled plugins are always present. Now there is only `test`, at
+  `plugins/test` (`pi/`, `plugin.pi`, `src/`).
+- A project adds a plugin when it lists the `piton-plugin` anchor under
+  `plugins:`. Piton reads the code from the directory of the declaring file.
+- To share a plugin, put it in a package. The project imports the
+  declaration from the package and lists it under `plugins:`. Import the
+  Piton files of the plugin by the package name.
+- Settings: an anchor that implements the settings abstract of the plugin.
+  For bundled plugins it comes from the package of the plugin (for example
+  `test-config`). List it under `plugins:`.
+- A plugin has one settings anchor at most. Two settings anchors give an
+  error when the plugin reads them.
+- The plugin validates the values itself. It reports a bad value where you
+  wrote it.
+- Piton warns about other items under `plugins:`.
+- Piton finds plugins from the config on each `piton` run. It reads only
+  Piton.
+- The config must have no errors before a plugin command runs. Plugin
+  problems are warnings.
+
+### 13.4 Runtime
+
+- Piton transpiles each module when the plugin imports it. It removes types
+  and does no lowering. `.js` and `.mjs` files stay as they are.
+- As in TypeScript, Piton removes an import that nothing uses as a value.
+- A syntax error gives the file and the line.
+- A plugin can import `@piton/plugin` and relative files. Piton tries the
+  path as it is, then `.ts`, `.js`, `/index.ts`. A plugin can never import a
+  file outside its directory.
+- Each command run gets one runtime.
+- The event loop has one thread. The command ends when the promise of the
+  handler settles.
+- If the plugin waits for something that cannot answer, the command fails.
+  It does not hang.
+- At exit, Piton stops all processes that the plugin started and removes the
+  temporary files.
+- A throw or a load failure fails the command. Piton shows the plugin name,
+  the error and the JS stack, and exits with 1.
+
+### 13.5 API
+
+The API is in `crates/piton-plugin/api/index.ts`. For editors, a
+`tsconfig.json` maps `@piton/plugin` to it, with strict checks and no emit.
+Piton never reads that file.
+
+```typescript
+import { definePlugin, type Context, type Json } from "@piton/plugin";
+
+async function hello(ctx: Context, args: Record<string, Json>) {
+  const compiled = ctx.compile({ workspace: true });
+  for (const anchor of compiled.anchors({ exported: true, withinSourceRoot: true })) {
+    ctx.stdout(`${anchor.name}\n`);
+  }
+  ctx.report.done("listed the anchors");
+  return 0;
+}
+
+export default definePlugin({ commands: { hello } });
+```
+
+A handler returns the exit code. If it returns nothing, the code is 0.
+
+| Context member | Meaning |
+| --- | --- |
+| `plugin` | The plugin. |
+| `terminal` | Is it a tty, the width, and colour (`NO_COLOR`). |
+| `project` | Absolute root, source root, entry, output, config path, Belay code root and adapters. |
+| `settings` | The settings anchor, or null. |
+| `compile({workspace})` | Compile the project. `workspace` compiles all sources below the root. |
+| `spawn` | Run a permitted program with args, an optional cwd in the project, and env. It runs in the project root with an empty stdin. |
+| `onPath` | Is a program on PATH. |
+| `readFile`, `temporaryFile`, `sleep` | Read a file, make a temporary file, wait. |
+| `paint` | Styles: error, warning, success, help, note, name, heading, dim. |
+| `stdout`, `stderr` | Write text. They remove colour as the compiler does. |
+| `stderrRaw` | Write to stderr without a change. |
+| `report` | error, warning, help and note messages. Piton keeps them until the end and shows a count. `done` and `stopped` write the outcome line. |
+| `agents` | The known tools: name, program, Belay target, fluency prompt. |
+| `reportDiagnostics` | Show the diagnostics of a compilation as `piton check` does. Tell if any were errors. |
+
+`compiled.anchors({extends: {module, name}, exported, concrete, withinSourceRoot})`:
+
+- It returns anchors in order of file, then name.
+- Each anchor has name, file, exported, abstract, keyword, resolved
+  properties and location.
+- `extends` does not include the named anchor itself. A module that nothing
+  loaded matches nothing.
+- `withinSourceRoot` does not include `tethers/` or bundled packages.
+- The location is where the anchor names the property itself, else where
+  its name is.
+
+Property values are JSON:
+
+- Strings are plain. References show as names.
+- Implicit lists are lists.
+- An anchor value is `{$anchor: name}`. A reference is `{$reference: name}`.
+
+Other API rules:
+
+- A located diagnostic renders like a compiler diagnostic. The plugin selects
+  its code. The default code is the plugin name.
+- Process output comes line by line, with the tag stdout or stderr. The
+  stream ends after the process exits and all lines are read.
+- If a signal stopped the process, the exit code is null.
+- Await many processes together to run them in parallel.
+
+### 13.6 `piton plugins`
+
+- It lists bundled plugins, then declared plugins.
+- For each plugin it shows: name, origin, description, commands, settings
+  anchor, package and capabilities. If the plugin has no capabilities, it
+  tells you that the plugin can only read the project.
+- Problems come before the outcome line.
+- The outcome line gives the count of plugins. The exit code is 0.
+
+## 14. Tests (`spec/scope/testing/`, bundled plugin)
+
+A test is a plain English statement. An agent judges whether it is true or
+false against the spec, the code or both. A test checks meaning. A compile
+cannot check meaning.
+
+```piton
+use @piton/test
+
+export test SaveButtonSaves:
+    expects: The Save button saves the document
+    against: code
+    tags: [editor, save]
+```
+
+`Test` (`test`) fields:
+
+| Field | Rules |
+| --- | --- |
+| `expects:: string` | Required. The statement. |
+| `against` | Optional: `spec`, `code` or `both`. |
+| `description` | Optional. Context for the agent. It never changes the statement. |
+| `tags:: string[]` | Optional. Piton trims tags and drops empty tags. Tags only select tests. Piton never sends them to the agent. |
+
+Discovery:
+
+- A test is each exported concrete anchor with the `Test` of `@piton/test`
+  in its chain.
+- Piton finds tests anywhere below the source root. The entry does not have
+  to reach them, because Piton compiles the full root.
+- Piton skips tests without an export. Tests in `tethers/` do not belong to
+  the project.
+- The order is by file, then by name.
+
+`TestConfig` (`test-config`, listed under `plugins:`):
+
+| Field | Values | Default |
+| --- | --- | --- |
+| `against` | `spec`, `code`, `both` | `both` |
+| `agent` | `claude`, `codex`, `opencode`, `muse` | `claude` |
+| `jobs` | a whole number, 1 or more | `4` |
+
+- Bad values give an error where you wrote them: `invalid-test-scope`,
+  `unknown-test-agent`, `invalid-jobs`.
+- A bad choice value (in settings, in a test or on the CLI) gives an error
+  that names the correct choices. Nothing runs.
+- Precedence:
+  - `against`: CLI flag › test › settings › `both`.
+  - `agent` and `jobs`: CLI flag › settings › `claude` or `4`. A test cannot
+    set them.
+
+### 14.1 `piton test`
+
+`piton test [targets...] [--agent] [--against] [--jobs/-j N] [--serial] [--list] [--tags EXPR]`
+
+Targets:
+
+- Piton first tries a target as an exact test name. Else it is a path to a
+  file or directory, relative to the project root or absolute.
+- Targets and tags combine with AND.
+- An empty selection is an error. A target that matches nothing is an error.
+- A project without tests succeeds with a report.
+- `--serial` is the same as `--jobs 1`. `--jobs` with `--serial` is an
+  error. `jobs` less than 1 is an error.
+
+Tag expressions:
+
+- Operators: `and`, `or`, `not`, parentheses. `&&`, `||` and `!` are the
+  same.
+- `not` before a term negates it. `not` between two terms means "and not":
+  `editor not slow`.
+- `not` binds most tightly. Then come `and` and infix `not`. Then comes `or`.
+- Tags match exactly, with case. A test without tags matches only through
+  `not`.
+- A tag is a run of characters without spaces, parentheses, `!`, `&` or `|`.
+  Examples: `needs-network`, `v1.2`. `and`, `or` and `not` cannot be tags.
+- A parse error tells what Piton expected and where. Piton then compiles
+  nothing.
+
+The order of checks:
+
+1. Config.
+2. Flags.
+3. Test settings.
+4. Tag expression.
+5. Compile and collect. Compile errors stop all work. Tests with a bad form
+   (empty `expects`, bad `against`) also stop all work. Piton reports each by
+   name with its file.
+6. `--list` stops here.
+7. The tool must be on PATH. Else the error tells you to use `--agent`.
+
+What the agent reads:
+
+| Scope | Content |
+| --- | --- |
+| `spec` | The `.pi` files below the source root, and the fluency prompt. |
+| `code` | The Belay `codeRoot`. Without it: the project root, without the source root, `tethers/`, the output and the generated agent directories. |
+| `both` | The statement must be true in each. |
+
+The session:
+
+- Each test is one headless session in the project root, with an empty stdin.
+  Piton asks for read-only access.
+- The request gives the statement, description, name, file, scope, and the
+  source root and code root relative to the project.
+- The agent must not change, create or delete files. It must judge on
+  evidence. A statement fails when evidence contradicts it or when there is
+  no evidence.
+- The agent ends with one line:
+  `PITON-VERDICT: {"pass": false, "reason": "...", "explanation": "..."}`.
+- `pass` is a boolean. `explanation` is required when `pass` is false.
+- The last valid verdict line counts. Piton accepts backticks around it. The
+  request that the agent shows again does not count, because its example is
+  not valid JSON.
+- For Claude, the answer is its message text and the final result. For other
+  tools, it is stdout, then stderr.
+- If the tool gives no reason, `reason` is empty.
+
+The explanation:
+
+- The agent writes it on the verdict line in the same session. It costs no
+  extra run.
+- Piton asks for ASD-STE100 Simplified Technical English: 4 sentences or
+  fewer, 20 words or fewer each, approved words, one word for one meaning,
+  technical names as they are, one topic in each sentence, active voice,
+  simple present, past or future tense, no -ing forms, no contractions, no
+  phrasal verbs, articles, noun clusters of 3 words or fewer.
+- It tells what is not there or different, and where.
+- Piton shows it as written and does not check it. Piton keeps it only when
+  `pass` is false. A failure without an explanation still fails and shows
+  only the reason.
+
+Errors:
+
+- A nonzero exit or no verdict is an *error*. The test is not judged.
+- The error shows the exit code and the last three lines of stderr (or
+  stdout). It can also say that the session ended without a verdict line.
+
+How Piton starts each tool:
+
+| Tool | Command |
+| --- | --- |
+| Claude | `claude -p <request> --append-system-prompt <fluency> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose` |
+| Codex | `codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<TOML string> <request>` |
+| OpenCode | `opencode run --standalone <request>`, with `OPENCODE_CONFIG_CONTENT` that names a temporary fluency file and denies edit and bash |
+| Muse | `muse exec -c run.developer_prompt=<JSON string> <request>`, in the sandbox of Muse |
+
+Piton never claims more enforcement than the tool gives.
+
+Output:
+
+- Tests run in parallel, up to `jobs`. Piton shows each test when it ends.
+  With `--serial`, it shows them in list order.
+- Results go to stdout as blocks with blank lines between them.
+- For each test:
+  - `✓ pass`, `✗ FAIL` or `! error`, the name (shortened with an ellipsis if
+    too long), and the duration `m:ss` at the right.
+  - The file and tags, dimmed.
+  - The reason. It wraps at spaces and is indented below the name.
+  - For failures, the explanation behind a coloured bar.
+- The width is the terminal width of stdout, up to 100. When piped, it is 100.
+- If a test did not pass, a "Not passing" recap follows. It has one line for
+  each test: status, name and file.
+- The outcome goes to stderr: `✓ 9 tests passed in 4:12` or
+  `✗ 9 tests: 7 passed, 1 failed, 1 could not be judged in 4:12`.
+- On a terminal, a status block shows a spinner, counts, and for each test
+  that runs, its time and last tool action. Results print above it. It
+  disappears at the end.
+- The last action of Claude reads like "reading `<path>`" or "searching
+  `<dir>` for a pattern", with paths relative to the project. It also shows
+  the first line of what Claude says. During its first turn, it shows
+  "thinking". Other tools show their last printed line.
+- Without a terminal, Piton writes a "running <name>" line when each test
+  starts.
+- `--list` shows tests in groups by file, with blank lines between files. For
+  each test: the name, `against` and tags (dimmed), and the wrapped
+  statement. The outcome is `✓ 9 tests in 3 files`. It runs nothing and needs
+  no tool.
+- Colour: green, red and yellow status, bold names, highlighted files, dim
+  details and times. With `NO_COLOR` or a pipe, the text is plain.
+- Exit code: 0 on success, 1 on failures or errors.
+
+## 15. CLI
+
+General rules for each command:
+
+- It shows the results first, then a bold ✓ or ✗ outcome line.
+- Then it shows diagnostics, with help and notes.
+- Then it shows a count of errors and warnings. It does not show the count
+  after a clean run, unless the command is a check.
+- On a terminal: errors are red and warnings are yellow. Names that you type
+  are highlighted. Depths, counts and provenance are dim. Paths have `+` and
+  `-` marks, with a dim directory part.
+- Colours and marks never carry information that the words do not carry.
+- With a pipe or `NO_COLOR`, the text is plain. Bare results go to stdout.
+- `piton --version`, and the version that the LSP reports, is major.minor
+  from `Cargo.toml` with the commit count as the patch (for example
+  `0.1.57`). `PITON_VERSION` overrides it. Without git, it is the
+  `Cargo.toml` version.
+- Plugin commands (`piton test`) show in `--help` next to the built-in
+  commands. They cannot replace built-in commands.
+- Each command is a `cli-command` anchor (`spec/scope/tooling/cli/index.pi`)
+  with `commandName`, `positionalArguments` and `namedArguments`.
 
 | Command | Behaviour |
 | --- | --- |
-| `check [paths...]` | Validates syntax, imports, references, types, inheritance, composition, exports, cycles. Writes nothing; exit 1 on errors. Paths are files, dirs or globs; default is the project (or all `.pi` under cwd with no config). |
-| `build [config] [--dry-run]` | Writes `<output>/<path under root>.<ext>` for the entry and every file holding something its exports reference. A registered framework's output replaces it unless `output` or `renderer` is set (then both). Validates the whole plan first; records files in `.piton/manifest.json`. |
-| `compile <path> [--renderer json\|yaml\|markdown] [--write] [--dependencies]` | One file to stdout, a key per export. `--write` writes next to each input (required for globs). `--dependencies` wraps as `{"value": "<output string>", "dependencies": [abs paths]}`, bundled files excluded. |
-| `format [path] [--check]` | Canonical formatting (4 spaces, constraint spacing, sorted/wrapped imports, no `.pi`, space after `//`). `format -` filters stdin. **Only splits long lines, never rejoins paragraphs**: rewrap edited prose by hand, and don't reflow `key: value` blocks as prose. |
-| `reach [targets...] [--no-unreachable] [--no-paths]` | From files, globs or anchor names (default entry), follows imports, references, inheritance and composition; reports reachable items with depth and path, and unreachable ones. Never-imported files are parsed (not compiled) to count their anchors, listed as `(never imported, N anchors)`. Summary: `37 anchors reachable, 412 unreachable (380 in 50 never-imported files)` (unreachable includes those; the parenthesis appears whenever such files exist), then `53 modules loaded, 2 carrying nothing reachable, 50 never imported`. Finds dead spec. Always exits 0. |
-| `slice <target> [--adapter <id>]` | Prints the spec one thing depends on as one Markdown document. Target: `file.pi#Anchor`, `#Anchor.property`, `#variable`, or a bare project-unique name. Follows bases (and every base declaring the property), constraint types, values read, references and embeds, transitively; imports alone add nothing. A property slice omits the anchor's other properties. Adds the **chain** from the entry to the target (shortest build path, one property per link; none for entry exports, variables, unreached files). Order: target, dependencies nearest first (source order ties), chain outermost first. Each declaration once, with name, file, bases, type and reads; references written as names. Paths relative to cwd; project found upward. `--adapter` cites compiled outputs instead of `.pi` files (the target must be built). Exit 1 on errors. |
-| `init [dir] [--template group/name] [--adapter id...] [--list] [--no-tether]` | New project from built-in templates: `crux/project` (preferred, listed first and marked recommended: Belay with https://github.com/piton-lang/crux.git declared, tethered by init and re-exported from the entry), `piton/minimal`, `piton/library`, `belay/application`, `belay/minimal`. A template declaring `dependencies` has them tethered after its files are written (needs the network; on failure the files stay and it exits 1); `--no-tether` skips that. A group with a `.preferred` file comes first. Prompts for name, group, template and adapters (Claude Code checked by default) when interactive; non-interactive needs a full template name. Chosen adapters rewrite the config's import and `adapters`; `.adapters/<id>/` files written only for chosen ones. Templates live in `create-templates/<group>/<name>` with a `.template` description and must check, format and build cleanly. Never overwrites (names conflicts, writes nothing). Paths on stdout, summary on stderr. |
-| `loc [paths...]` | Total/code/comment/blank lines per file plus summary. Exit 0. |
-| `lsp` | Language server over stdio (14). |
-| `agent [claude] [--print-fluency] [args...]` | Launches `claude` with a project primer plus this prompt (project `FLUENCY_PROMPT.md` or the built-in copy) as `--append-system-prompt`; extra args pass through. `--print-fluency` only prints it. |
+| `check [paths...]` | Validates syntax, imports, references, types, inheritance, composition, exports and cycles. Writes nothing. Exits with 1 on errors. A path is a file or a glob. The default is the project. |
+| `build [config] [--dry-run]` | Writes `<output>/<path below root>.<ext>` for the entry and for each file that holds an item its exports refer to. |
+| `compile <path> [--renderer json\|yaml\|markdown] [--write] [--dependencies]` | Compiles one file to stdout, with a key for each export. |
+| `format [path] [--check]` | Writes the canonical format. |
+| `reach [targets...] [--no-unreachable] [--no-paths]` | Shows what is reachable and what is not. |
+| `slice <target> [--adapter <id>]` | Shows the spec that one item needs, as one Markdown document. |
+| `init [dir] [--template group/name] [--adapter id...] [--list] [--no-tether]` | Makes a new project from a template. |
+| `loc [paths...]` | Shows total, code, comment and blank lines for each file, and a summary. Exits with 0. |
+| `lsp` | Starts the language server on stdio (16). |
+| `agent [claude\|codex\|opencode\|muse] [--print-fluency] [args...]` | Starts an agentic tool with this prompt. |
+| `plugins` | Section 13.6. |
+| `test` | Section 14 (plugin). |
 | `tether`, `update`, `untether`, `remove` | Section 12. |
 
-Each command is a `cli-command` anchor (`spec/scope/tooling/cli/index.pi`) with
-`commandName`, `positionalArguments`, `namedArguments`.
+**`build`**:
 
-## 14. Language server, editors, JavaScript
+- If no `entry` is set, the entry is `index.pi` in the root. If that file is
+  not there, the result is an error.
+- Example: `spec/components/Button.pi` → `dist/components/Button.json`.
+- The output of a registered framework replaces the renderer output. If you
+  set `output` or `renderer`, Piton writes both. A Claude Code project gets
+  `.claude` and nothing in `dist`.
+- The build validates the full plan before it writes.
+- `.piton/manifest.json` is in `.piton/`, next to `piton.config.pi`. Its shape
+  is `{generated: [...], targets: {targetId: documentationChecked}}`.
+  `targets` records the date when someone last checked the documentation of
+  each framework target.
 
-`piton lsp` provides diagnostics (Piton and Belay; not for missing optional
-properties), completion, hover (type, source, docs, inheritance chain, export
-status, compiled value), go-to-definition, find-references, workspace rename,
-auto-import and import organization (unused, duplicate, invalid, overly broad),
-code actions (import symbol, create anchor, add export, qualify reference,
-resolve simple inheritance conflict), document/workspace symbols, semantic
-highlighting (resolved names and module paths only; everything lexical is the
-syntax highlighter's), inlay hints (an unconstrained `{}` value's inferred type
-written as `:: type`, and `← Owner` after a member another anchor supplies),
-formatting, folding, selection ranges, hierarchy and provenance views,
-compiled-output preview, source-to-output mapping, unused/redundant detection,
-cycle detection (self-inheritance shown; circular imports not reported), and
-incremental indexing. No signature help.
+**`compile`**:
 
-Completion: never suggest things that don't exist; nothing on an empty value
-(`property: `) or after `.` in a string; **each thing once** — a re-exported
-name is offered once, imported from the shortest path, while distinct
-same-named anchors (e.g. a project copy and the bundled one) are each offered,
-naming their module. Keys a body already has are not offered again, `pass` only
-in an empty body, and nothing inside an escape. Implementing a required
-property is not overriding it. Rename refuses invalid or colliding names;
-moving a file rewrites the paths that name it.
+- `--renderer` has the default `json`.
+- It does not show items without an export, or abstract anchors.
+- `--write` writes the output next to each input. Glob paths need `--write`.
+- `--dependencies` wraps the output as
+  `{"value": "<output string>", "dependencies": [abs paths]}`. It does not
+  include bundled files.
 
-Editors must: indent one level after Enter on a colon opening a block; dedent
-one level on Enter from a blank line in a block; optionally format on save.
-Highlighters show prose in the plain text style, values that are exactly a
-number/boolean/null as that type, and code fences as ordinary Piton; each is
-tested against the parser's own classification (`editors/fixtures/`).
-Supported (under `editors/`): VS Code (TextMate), Emacs, Helix, Zed
-(tree-sitter), Neovim/Vim (vim syntax), JetBrains, Sublime, Kate; all with full
-LSP.
+**`format`**:
 
-JavaScript: `packages/vite-plugin-piton` imports `.pi` as modules (HMR,
-dependency tracking via `compile --dependencies`, virtual modules); each export
-is a named export and the default export is the whole file. Default renderer is
-configurable (`'json' | 'yaml' | 'markdown'`); renderers are also importable
-from `vite-plugin-piton/renderers`. `packages/astro-piton` wraps it for Astro.
+- The canonical format: 4 spaces, constraint spacing, sorted and wrapped
+  imports, no `.pi` in paths, a space after `//`.
+- Without a path, it formats all sources below the source root. It does not
+  change the output, dependency directories or installed packages.
+- `format -` reads stdin and writes stdout.
+- **It only splits long lines. It never joins paragraphs again.** When you
+  edit prose, wrap it again by hand. Do not wrap `key: value` blocks as
+  prose.
+
+**`reach`**:
+
+- It starts from files, globs or anchor names. The default is the project
+  (its entry).
+- It follows imports, references, inheritance and composition. This includes
+  variables that a value embeds and properties that a value reads.
+- It shows each reachable item with its depth and path. It also shows
+  unreachable items. Results are in groups by source, with direct and
+  indirect reach.
+- It counts each anchor one time. An anchor that lost a duplicate export
+  counts where its declaration is.
+- `piton.config.pi` is never unreachable.
+- Piton parses files that nothing imports (it does not compile them) to
+  count their anchors. It lists them as `(never imported, N anchors)`.
+- Summary: `37 anchors reachable, 412 unreachable (380 in 50 never-imported
+  files)`. The unreachable count includes those files. The parenthesis shows
+  when such files exist, also when their anchor count is 0.
+- Then: `53 modules loaded, 2 carrying nothing reachable, 50 never imported`.
+- Use it to find dead spec. It gives no diagnostics and always exits with 0.
+
+**`slice`**:
+
+- Target forms: `file.pi#Anchor`, `#Anchor.property`, `#variable`, or a bare
+  name that is unique in the project.
+- Piton finds the project through the nearest `piton.config.pi` above the
+  current directory.
+- It follows these dependencies, transitively:
+  - A full anchor needs all its properties and each anchor that it extends.
+  - A property needs each base that declares that property.
+  - Constraint types, values that it reads, references and embedded items.
+  - A variable needs what it reads, refers to or embeds, and its constraint
+    anchors.
+  - Imports alone add nothing.
+- A property slice does not show the other properties of the anchor.
+- It adds the **chain** from the entry to the target. The chain is the
+  shortest build path, with one property for each link. Piton traces it from
+  the entry also when the target is a file. Entry exports, variables and
+  files that the build does not reach have no chain. The introduction names
+  the links of the chain.
+- Order: the target, then dependencies with the nearest first (source order
+  for ties), then the chain with the outermost first.
+- Each declaration shows one time, with its name, file, bases, type and
+  reads. Values look as the Markdown renderer writes them. References show as
+  names.
+- Piton follows a cycle until it comes back to the start, and lists each
+  dependency in it. Markdown links that you wrote stay the same.
+- Paths are relative to the current directory. The output is deterministic.
+- `--adapter <id>` (for example `claude-code`) cites the compiled outputs
+  instead of the `.pi` files:
+  - The target must be an item that the build writes. Piton compiles the
+    project from its entry as a build does. You do not have to run
+    `piton build` first.
+  - Each declaration is shown in its file below its heading. Citations become
+    links, for example `.claude/reference/ui.md#color`.
+  - An embedded anchor is shown in the section that embeds it.
+  - Piton never cites the source. Abstract items and items that are only read
+    have no location. Names that cite them are not links.
+- Errors: a file that is not there, a name that is not declared or imported,
+  a property that is not there, a bare name with more than one match, a path
+  that goes into a property.
+- Errors with `--adapter`: no Belay config, a target that the project does
+  not build, a file that the build does not reach, an anchor that Piton never
+  writes.
+- It exits with 1 on errors.
+
+**`init`**:
+
+- Templates are in the binary. `init` needs no network for them.
+
+| Template | Content |
+| --- | --- |
+| `crux/project` | The preferred group. It is first in the list, marked "recommended". Belay, with https://github.com/piton-lang/crux.git declared. `init` tethers it, and the entry exports it again. |
+| `piton/minimal` | JSON in `dist/`. |
+| `piton/library` | A package that other projects install with `piton tether`. |
+| `belay/application` | A shape instruction in `src/`, a skill, an agent and a command. |
+| `belay/minimal` | The Belay config and one skill. |
+
+- Piton makes the directory if it is not there.
+- Without a directory, it asks for the project name. An empty name or no
+  terminal means the current directory.
+- It asks for the name before the template.
+- In an interactive run, it asks for the group, the template (lists that you
+  can filter) and the adapters. The defaults of the template are checked. You
+  must select one adapter or more. The checklist shows the platform and the
+  target id.
+- A group with one template does not ask. `--template belay` (only a group)
+  asks for the template.
+- A non-interactive run needs a full template name. Without `--adapter`, it
+  keeps the defaults.
+- `--list` lists groups and templates with descriptions, and does nothing
+  more.
+- `--adapter` can repeat or take commas. It works only for Belay templates.
+  A Belay template is a template whose config lists adapters.
+- The selected adapters change the import and the `adapters` list of the
+  config (in the export order of `@piton/belay`, formatted).
+- Piton writes `.adapters/<id>/` files only for selected adapters, for
+  example the `opencode.json` of OpenCode.
+- After it writes files, `init` tethers the declared `dependencies`. This
+  needs the network. If tethering fails, the files stay, Piton tells you to
+  run `piton tether`, and it exits with 1.
+- `--no-tether` skips tethering. The next steps then include `piton tether`.
+- Templates are in `create-templates/<group>/<name>`. A template directory
+  holds exactly the files that a new project gets. `.template` files hold
+  descriptions and Piton does not copy them. `.preferred` marks a group. To
+  add a template, add a directory.
+- Each template must check, format and build without errors for each
+  adapter.
+- `init` never overwrites a file. It names the conflicts and writes nothing.
+- Esc or Ctrl+C cancels before Piton writes.
+- Paths and tether output go to stdout. stderr shows the template, adapters,
+  file count and next commands.
+- Errors: an unknown template; a group or no template without a terminal; an
+  unknown adapter; `--adapter` on a template that is not a Belay template;
+  cancel; overwrite; tether failure.
+
+**`agent`**:
+
+- The default tool is `claude`.
+- It starts the tool in the project root with a project primer and this
+  prompt. The prompt is the `FLUENCY_PROMPT.md` of the project, or the copy
+  in the binary.
+- The primer gives the source root, the reference root and the instruction
+  file:
+  - If the project builds for the adapter of the tool, all three belong to
+    that adapter.
+  - In a shared project, the reference root belongs to the first adapter,
+    unless Piton wrote the reference tree of the tool.
+  - If the project does not build for the tool, all three belong to the
+    first configured adapter.
+- Piton adds the text to the instructions of the tool. It never replaces
+  them:
+
+| Tool | Method |
+| --- | --- |
+| `claude` | `--append-system-prompt` |
+| `codex` | `-c developer_instructions=<TOML string>` |
+| `opencode` | `--standalone`, with `OPENCODE_CONFIG_CONTENT` that lists a temporary file (private server). Piton removes the file when OpenCode exits. |
+| `muse` | `-c run.developer_prompt=<JSON string>` |
+
+- Extra args go to the tool. For `muse exec` and `opencode run`, the options
+  go after the subcommand.
+- Subcommands that refuse the options (`muse resume`, `opencode models`) run
+  without the prompt.
+- If the tool is not on PATH, the result is an error. The error tells you to
+  use `--print-fluency`.
+- The exit status is the exit status of the tool.
+
+## 16. Language server, editors, JavaScript
+
+### 16.1 Features
+
+`piton lsp` gives these features:
+
+- Diagnostics for Piton and Belay. It does not report optional properties
+  that are not there.
+- Completion, hover, go to definition, type definition, document highlight,
+  find references.
+- Workspace rename, module rename, auto import, and import organization
+  (unused, duplicate, not valid, too broad).
+- Code actions: import a symbol, create an anchor, add an export, qualify a
+  reference, resolve a simple inheritance conflict. Whole-file actions:
+  organize imports, format.
+- Document symbols and workspace symbols.
+- Semantic highlights, inlay hints, format (full file only, minimal edits),
+  folds, selection ranges.
+- Hierarchy and provenance views, override lenses, a preview of compiled
+  output.
+- Source-to-output map. It shows in hover ("Compiled to") and in a code lens,
+  never as document links.
+- Detection of unused and redundant items.
+- Detection of conflicts and of cycles. Cycle detection finds cycles that
+  cannot resolve and anchors that extend themselves. It shows the cycle that
+  caused the error. It does not report circular imports.
+- Expression checks: a warning when an expression cannot give the required
+  type.
+- Export checks, links to related symbols (from an abstract to its
+  implementations, from a base to its extensions), and inspection of
+  resolved values.
+- Documentation in hover, completion, symbols and hierarchy.
+- An index of each source below the project root and of open files. If the
+  entry is not there, the server reports it and loads all other files.
+  Without an entry, it reports nothing as unused.
+- No signature help.
+- The server is not incremental. It compiles again after a pause of 250 ms in
+  typing. A compile takes tens of milliseconds.
+
+### 16.2 Protocol
+
+- Positions use UTF-16. The server offers no other encoding.
+- The server syncs the full buffer. Diagnostics and edits have versions. The
+  server refuses old edits. It does not apply them incorrectly.
+- Semantic tokens, inlay hints and lenses refresh after a save, a change on
+  disk, a config change or a closed buffer. Typing does not cause a refresh,
+  because the editor asks again for that buffer.
+- Format, folds and selection read the buffer as it is. They never wait for
+  a compile.
+
+### 16.3 Feature rules
+
+**Completion**:
+
+- It uses the line rules of the parser. `-word` (a list item without its
+  space) is a sentence.
+- It never offers items that do not exist.
+- It offers nothing in these places: an empty value (`property: `), after
+  `.` in a string, comments, prose, escapes, quoted strings, a declared name,
+  a keyword after `as`, a nested dictionary.
+- **It offers each item one time.** It offers a name that a module exports
+  again one time, imported from the shortest path. It offers each different
+  anchor with the same name, and names its module.
+- In a body, it offers the properties that are not there (required first).
+  It does not offer properties that are there. It offers `pass` only in an
+  empty body.
+- A key that you complete before a colon that exists keeps one colon.
+- It sends the insert range and the replace range. If you accept in the
+  middle of a word, it replaces the full word.
+- It adds documentation later, on request. Items older than the last compile
+  get no documentation.
+
+**Hover**:
+
+- It shows only on symbols, declared names and `+` or `++`. It never shows
+  on prose, literals, language keywords, comments, escaped text or names
+  that do not resolve.
+- It shows the type, the source (a link relative to the workspace),
+  documentation, the inheritance chain, the export status and the compiled
+  value.
+- It tells if a property is inherited, is an override, or implements a
+  required property. To implement a required property is not to override it.
+- A required property says that you must write it.
+- `this`, `self` and `super` tell what they mean.
+- "Compiled to" shows only on the declared name.
+
+**Go to definition**:
+
+- A module path opens its file. A keyword goes to its anchor.
+- `this` and `super` members go to the anchor that gives them. An override
+  goes to the item that it replaces.
+- The answer also tells which word the server followed, and gives the full
+  target declaration.
+
+**Type definition**: it goes to the constraint anchors in the written order.
+An anchor goes to itself. Built-in types go nowhere.
+
+**Document highlight**: it marks the declaration differently from reads.
+
+**Rename**:
+
+- Anchor names: `[A-Za-z_][A-Za-z0-9_]*`. Variable names and keys can also
+  have `-`. Keywords are lowercase or kebab-case.
+- Reserved words are not permitted.
+- The server refuses collisions and bundled symbols, and gives a reason. It
+  refuses a property name that the family already uses.
+- An alias and its original are different names.
+- To rename a module path, move its file. The server never changes the
+  module path on an import line.
+
+**Module rename** (move a file or folder):
+
+- The server changes each `use` and `from` path that names it, before the
+  move. It also changes the relative paths in the moved file.
+- Each path keeps its style. Rooted paths stay rooted. Relative paths stay
+  relative. `.pi` stays written or omitted. A path to the index of a folder
+  stays a path to the folder.
+- Package paths never change.
+
+**Symbols**:
+
+- Document symbols show constraints as written. Dictionary keys are nested
+  below. List items are not symbols.
+- Workspace symbols: case is not important. The order is exact match, prefix,
+  substring, then subsequence. Shorter names come first. The maximum is 256.
+  Bundled names are not included. Each symbol names its module relative to
+  the workspace.
+
+**Semantic tokens**:
+
+- They cover only resolved names: anchor = class, property or key =
+  property, variable, user keyword = keyword. A module path is a namespace.
+- Names that do not resolve get no token. Prose gets no tokens. In a value,
+  only expressions in `{...}` forms get tokens.
+- The syntax highlighter shows all lexical items, with scopes that agree.
+
+**Inlay hints**:
+
+- The type hint shows the inferred type of an unconstrained value that is
+  one `{}` expression, as `:: type`. It applies to properties and variables.
+- The owner hint `← Owner` shows after a member that another anchor gives.
+  It applies to members read through `this`, `super` or an anchor, only if
+  the owner is not that anchor. `self` shows no hint.
+- The server never hints literal types, overrides or composition operators.
+
+**Code actions**:
+
+- Each action relates to an item at the cursor: a name that does not
+  resolve, a header line, or an import. Plain text gets no actions.
+- Whole-file actions show when the editor asks for that kind. Organize
+  imports also shows when the cursor is on an import.
+
+**Format**: the server does not format part of a file, because that can
+change the structure.
+
+**Overrides**: an implementation of a required property gets no lens. The
+lens opens the declaration that the override replaces. "Find
+implementations" lists the anchors that write the property themselves.
+
+**Selection ranges**: they grow from a name through each expression around
+it, the braces, the value, the property, each block around it, the
+declaration and the file. Each step is wider than the last. No step includes
+blank lines around it.
+
+**Folds**: declarations, block properties, escape blocks (with their fence),
+and groups of 2 or more comment lines or import lines. A fold covers full
+lines from the first to the last content line. A header that is not complete
+still folds.
+
+### 16.4 Editors
+
+Editors must:
+
+- Indent one level after Enter on a colon that opens a block.
+- Remove one level of indent after Enter on a blank line in a block.
+- Optionally format on save. This adds the space after `//` and changes
+  nothing more in comments.
+
+Highlighters must:
+
+- Show prose in the plain text style. Imports and declarations are only at
+  column 0. An indented line such as `use the spec to decide` is prose.
+- Show `$`, `#`, `@`, backticks and brackets without a pair in prose as part
+  of the string.
+- Show a value that is exactly a number, boolean or null as that type. With
+  other text next to it, it is prose.
+- Show a quoted string in `{...}` as a string.
+- Show code fences as usual Piton. Show escape blocks as verbatim text. They
+  can optionally use the highlight of the fence language.
+- Agree with the classification of the parser. Tests check this
+  (`editors/fixtures/`). A syntax definition can differ from the parser only
+  where a known, listed gap tells why.
+
+| Editor | Highlighter | LSP |
+| --- | --- | --- |
+| VS Code | TextMate | Full |
+| Emacs, Helix, Zed | tree-sitter | Full |
+| Neovim, Vim | vim syntax | Full |
+| JetBrains | `jetbrains` | Full |
+| Sublime | `sublime-syntax` | Full |
+| Kate | `KSyntaxHighlighting` | Full |
+
+The editor files are below `editors/`.
+
+### 16.5 JavaScript
+
+- `packages/vite-plugin-piton` imports `.pi` files as modules. It supports
+  HMR, dependency tracking (through `compile --dependencies`) and virtual
+  modules.
+- Each export is a named export. The default export is the full file, the
+  same as the output of `piton compile`.
+- You can configure the default renderer (`'json' | 'yaml' | 'markdown'`).
+  You can also import the renderers as functions from
+  `vite-plugin-piton/renderers`.
+- `packages/astro-piton` wraps the plugin for Astro.
 
 ```ts
-import { SaveButton } from '../spec/app.pi';
+import { SaveButton, pi } from '../spec/app.pi';
 import spec from '../spec/app.pi';
 ```
 
-## 15. Working on a specbase
+`spec.CancelButton` reads one export from the default export.
 
-1. **Orient**: read `piton.config.pi` (root, entry, output, frameworks,
-   adapters, codeRoot, shapeRoot), then the entry (usually `spec/index.pi`;
-   here it exports `Specification` — FoundingThesis, Language, Tooling, Belay,
-   PackageManagement — plus `spec/agent/`), then down through `index.pi` files.
-   Compiled reference is for overview; source is truth. `piton slice` gives a
-   focused view.
-2. **Edit `.pi`** following local conventions: one exported anchor per file,
-   named after it; indexes use `from ./X export *`; abstracts exported with a
-   keyword, shared ones in `lib/`; lowerCamelCase properties; SCREAMING_CASE
-   exported constant lists; prose in string blocks, structure in keys/lists;
-   `@{X}` to link; fenced examples wrapped in `\\\`.
-3. **Imports**: `use` for keywords, `import` for names (often both). A new file
-   compiles only if the entry reaches it.
-4. **Validate**: `piton check`; `piton compile` each edited spec example
-   (escape blocks aren't checked) against its ` ```json ` block, remembering
-   only exports appear; `piton build` and read the generated diff;
-   `piton reach`; `piton format --check`.
-5. **Never hand-edit generated files**: `CLAUDE.md`/`AGENTS.md` under
-   `codeRoot`, `.claude/`, `.codex/`, `.agents/`, `.opencode/`, build output
-   listed in `.piton/manifest.json`, and `.piton/` itself.
-6. **Spec and implementation must agree.** When they don't, report it rather
-   than bending the spec; trust `piton compile` for current behaviour.
+## 17. The agent tools of this repository (`spec/agent/`)
 
-## 16. Compiler vs spec
+`spec/agent/index.pi` exports these items. Belay compiles them for the agent.
 
-- Extra CLI features the spec doesn't name: `build --dry-run`, `tether --as`,
-  agent argument passthrough, `reach` flags, `format` with no path or `-`.
-- Paragraph breaks compile to a single `\n`, which Markdown renders as a soft
-  break within one paragraph.
+| Item | Purpose |
+| --- | --- |
+| `skill GenerateFluencyPrompt` | Makes this prompt from the full spec and writes it to `${FLUENCY_PROMPT_FILE}` (`${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md`). The prompt must be small but complete, in ASD-STE100 Simplified Technical English. |
+| `skill BuildTooling` | Reads the spec in `.claude/reference` and builds the tools. The stack is Rust, chumsky, rowan and tower-lsp. |
+| `skill InspectSpec` | Reads `spec/` and answers questions. Without more instructions, it summarizes the language and reports spec problems. It saves reports as standalone HTML in the current directory. Each problem names the files that cause it. |
+| `command CheckSpecForProblems` | Reads `${BELAY_PROJECT_ROOT}/spec`. It finds parts that are underdefined, overdefined, contradictory or badly organized. It shows the problems one at a time. The user selects the source of truth or adds a clarification. |
 
-Limitations where the spec is silent:
+`xtask` commands (from BuildTooling):
 
-- A `/`-rooted import inside an installed package resolves against the
-  consumer's root; use relative imports in packages.
-- A required abstract property is not satisfied by a value from a concrete base
-  (the keyword's abstract comes last and its value-less declaration wins); set
-  it on the anchor itself.
-- `piton check` with no paths only checks what the entry reaches; name
-  unreached files explicitly.
-- **Prose directly in an anchor body (no key) is silently dropped.** Put it
-  under a key such as `description:`.
-- Mixed-type `==` is just false (`{1 == "1"}`), not an error.
-- Which constructs need a `description` per adapter is hardcoded in
-  `crates/piton-belay/src/adapter.rs`, not declared in the adapter `.pi` files.
+- `xtask install` builds the release and installs it on the local machine.
+- `xtask sync-fluency` makes `FLUENCY_PROMPT.md` again. Then it copies it over
+  `crates/piton-cli/src/fluency.md`. That is the copy in the binary that
+  `piton agent` uses if the project has no prompt. Then it tells you to build
+  again.
+  - It runs `claude -p` headless with the GenerateFluencyPrompt skill in the
+    repository root. Claude can read, search and write, and Piton accepts its
+    edits. Claude cannot run commands. `--model` selects the model.
+  - If Claude fails, is not on PATH, or ends without a non-empty file, the
+    result is an error. Piton copies nothing.
+  - If the prompt did not change, Piton tells you, and it still copies it.
+  - `--copy-only` does not make the prompt. It only copies.
+  - `--check` makes the prompt and copies nothing. It fails when the two
+    copies are different and names the command that fixes it. Use it in CI.
+
+The spec also holds tests (`spec/tests/`). Examples:
+
+- `CommandsArePrefixed`: commands start with `x-`. On Claude Code they are
+  skills with `disable-model-invocation: true`.
+- `SkillDescriptionJoinsUseWhen`: the skill description is the description,
+  then "Use when", then `useWhen`.
+
+## 18. Work on a specbase
+
+1. **Learn the project.**
+   - Read `piton.config.pi`: root, entry, output, frameworks, adapters,
+     codeRoot, shapeRoot, plugins.
+   - Read the entry, usually `spec/index.pi`. In this repository it exports
+     `Specification` (FoundingThesis, Language, Tooling, Belay,
+     PackageManagement, Plugins, Testing) and the items of `spec/agent/`.
+   - Read down through the `index.pi` files.
+   - Compiled reference files give an overview. The source is the truth.
+   - `piton slice` gives a focused view of one item.
+2. **Edit the `.pi` source.** Obey the local conventions:
+   - One exported anchor in each file, with the file name of the anchor.
+   - Index files use `from ./X export *`.
+   - Export abstracts with a keyword. Put shared abstracts in `lib/`.
+   - Property names are lowerCamelCase. Exported constant lists are
+     SCREAMING_CASE.
+   - Put prose in string blocks. Put structure in keys and lists.
+   - Use `@{X}` for links.
+   - Wrap fenced examples in `\\\`.
+3. **Write the imports.**
+   - Use `use` for keywords and `import` for names. Frequently you need both.
+   - A new file compiles only if the entry reaches it. Tests are different:
+     Piton finds them below the full source root.
+4. **Validate.**
+   - Run `piton check`.
+   - Compile each spec example that you edited with `piton compile`. Compare
+     it with its ` ```json ` block. Piton does not check escape blocks.
+     Remember that only exports show.
+   - Run `piton build` and read the diff of the generated files.
+   - Run `piton reach` and `piton format --check`.
+   - Run `piton test` if the project has tests.
+5. **Do not edit generated files.** These are:
+   - `CLAUDE.md` and `AGENTS.md` below `codeRoot`.
+   - `.claude/`, `.codex/`, `.agents/`, `.opencode/`, `.muse/`.
+   - Build output that `.piton/manifest.json` lists, and `.piton/` itself.
+6. **The spec and the implementation must agree.** If they do not agree,
+   report it. Do not change the spec to fit the code. Use `piton compile` to
+   see the current behaviour.
+
+## 19. Compiler and spec
+
+The spec does not name these items. The compiler has them:
+
+- Most diagnostic codes in this document. The spec says only "error" or
+  "warning". The codes are the names that the compiler uses.
+  `duplicate-export` and `unsupported-construct` are in the spec.
+- The CLI flags `build --dry-run`, `reach --no-unreachable`,
+  `reach --no-paths`, and `format -`.
+- `check` with a directory as a path. Without a config, `check` checks all
+  `.pi` files below the current directory.
+- The list of constructs that need a `description` for each adapter. It is in
+  `crates/piton-belay/src/adapter.rs`, not in the adapter `.pi` files.
+- The `remove` rules (refuse if edited or imported) and the `dangling-pin`
+  and `unknown-pin` codes.
+
+Differences and limits:
+
+- A paragraph break compiles to one `\n`. Markdown shows this as a soft break
+  in one paragraph. The spec shows two paragraphs.
+- The compiler splits digits in headings: `t1` → `T 1`.
+- An import with a `/` root in an installed package resolves against the
+  root of the consumer. Use relative imports in packages.
+- A value from a concrete base does not satisfy a required abstract
+  property. The abstract of the keyword comes last, and its declaration
+  without a value wins. Set the property on the anchor itself.
+- `piton check` without paths checks only what the entry reaches. Name the
+  files that it does not reach.
+- **Prose directly in an anchor body (with no key) disappears without an
+  error.** Put it below a key such as `description:`.
+- `==` on two different types gives false (`{1 == "1"}`). It is not an error.
+- `spec/scope/tooling/index.pi` holds a placeholder property
+  `something: HAHA TOOLING`. Report it if your work touches that file.

@@ -19,3 +19,11 @@
 ## Package Management
 
 [PackageManagement](./scope/package-management/index.md#package-management)
+
+## Plugins
+
+[Plugins](./scope/plugins/index.md#plugins)
+
+## Testing
+
+[Testing](./scope/testing/index.md#testing)

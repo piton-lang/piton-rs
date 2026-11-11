@@ -1,0 +1,49 @@
+from ../testing import Testing
+from ../tooling/cli/Plugins import PluginsCli
+from ./Api import PluginApi
+from ./Capabilities import PluginCapabilities
+from ./Declaration import PluginDeclaration
+from ./Runtime import PluginRuntime
+from ./Sources import PluginSources
+
+export anchor Plugins:
+    description:
+        Plugins make the compiler extensible: they add commands to the CLI and
+        Piton files to import, without changing the compiler. A plugin is
+        declared in Piton and written in TypeScript, which Piton transpiles
+        and runs itself in QuickJS, so using one needs nothing installed
+        beyond piton.
+
+        The first plugin is @{Testing}: `piton test` and the test keyword are
+        a plugin bundled with the compiler, and the reference for writing one.
+
+    principles:
+        Compiling stays pure. Everything that can be known about a plugin
+        without running it is in its Piton declaration: its name, its commands
+        and their arguments, its settings, and what it may do on the machine.
+        `piton check`, `piton build` and the language server read Piton only,
+        and a plugin's code runs only when one of its commands is invoked.
+
+        A plugin may only do what it declares. It reads the compiled project
+        freely, since that changes nothing, but every other effect, like
+        running a program or writing a file, is a capability it has to list,
+        and anything it didn't list is refused.
+
+        Bundled and installed plugins are the same. A bundled plugin's files
+        are embedded in the compiler instead of read from disk, and that is
+        the only difference, so the design that runs `piton test` is the one
+        an installed plugin uses.
+
+    declaration: @{PluginDeclaration}
+    api: @{PluginApi}
+    capabilities: @{PluginCapabilities}
+    runtime: @{PluginRuntime}
+    sources: @{PluginSources}
+    command: @{PluginsCli}
+
+    notYet:
+        A first version leaves out what it doesn't need yet. Plugins add
+        commands; they don't yet hook into `piton build` or `piton check`, add
+        renderers or diagnostics, or replace Belay. Each of these extends the
+        same declaration and API, rather than adding a second way to extend
+        the compiler.
