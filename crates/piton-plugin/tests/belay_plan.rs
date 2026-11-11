@@ -476,9 +476,22 @@ fn a_skill_opencode_finds_twice_is_reported_once_per_skill() {
         );
     let built = sandbox.plan();
     built.assert_clean();
-    let warning = built.diagnostic("cross-target-discovery");
-    assert!(warning.message.contains("`.agents/skills/tidy` and `.claude/skills/tidy`"), "{}", warning.message);
+    // OpenCode also finds the Belay fluency skill twice. Each skill gets one
+    // `Severity::Warning` diagnostic.
+    let warnings: Vec<&str> = built
+        .plan
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "cross-target-discovery")
+        .map(|d| d.message.as_str())
+        .collect();
+    for skill in ["tidy", "piton-fluency"] {
+        let pair = format!("`.agents/skills/{skill}` and `.claude/skills/{skill}`");
+        let found = warnings.iter().filter(|message| message.contains(&pair)).count();
+        assert_eq!(found, 1, "{warnings:#?}");
+    }
     assert!(!built.has(".opencode/skills/tidy/SKILL.md"));
+    assert!(!built.has(".opencode/skills/piton-fluency/SKILL.md"));
 }
 
 #[test]
