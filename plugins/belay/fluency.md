@@ -1,8 +1,8 @@
 # Piton Fluency
 
 This document is a reference for Piton and its family: the language, project
-configuration, plugins, the bundled Belay and test plugins, packages and
-tools. Read it before you read or change a Piton specbase. The
+configuration, plugins, the bundled Belay, test and migrate plugins,
+packages and tools. Read it before you read or change a Piton specbase. The
 GenerateFluencyPrompt skill makes it from `spec/`. Section 19 gives the
 differences between the compiler and the spec.
 
@@ -39,7 +39,8 @@ Core facts:
 - **Belay is a plugin.** The compiler holds nothing that is special to Belay.
   Its constructs and adapters are Piton files. Its build is TypeScript.
 - Plugin code (section 11) runs only for a plugin command, for build plans
-  (`piton build`, `piton check`) and when the editor saves a file. It never
+  (`piton build`, `piton check`), for reach hooks (`piton reach`), for
+  inspect hooks before a command, and when the editor saves a file. It never
   runs for `piton compile` or while you type.
 - **The `.pi` source is the truth.** Generated Markdown (`.claude/...`,
   `CLAUDE.md`, `AGENTS.md`, build output) comes from it. Edit the `.pi`
@@ -555,8 +556,9 @@ Circular imports:
   `use` and `import`.
 
 Bundled packages: `@piton/config`, `@piton/packaging`, `@piton/plugin`, and
-one package for each bundled plugin: `@piton/belay` and `@piton/test`. Each
-project has all of them without configuration.
+one package for each bundled plugin with Piton files: `@piton/belay` and
+`@piton/test`. The migrate plugin has no Piton files. Each project has all
+of them without configuration.
 
 The formatter sorts and breaks import and export lines:
 
@@ -754,7 +756,8 @@ test-config Tests:
 | `plugins` | Plugin declarations that the project adds, and settings anchors for its plugins (11.6). Piton warns about an item that is not an anchor and ignores it. |
 
 - **The `frameworks` key is removed.** A config that has it gives
-  `frameworks-removed`. Move each item to `plugins:`.
+  `frameworks-removed`. Move each item to `plugins:`, or run
+  `piton migrate` (11.12).
 - A framework is a plugin with a build. **A `belay-config` under `plugins:`
   starts the Belay output.**
 - If a plugin builds output, Piton writes renderer output only if you set
@@ -772,22 +775,25 @@ Config diagnostics: `missing-config`, `unknown-config-key`,
 
 ## 11. Plugins (`spec/scope/plugins/`)
 
-Plugins add CLI commands, build output, build diagnostics, and Piton files
-that you can import. They do not change the compiler.
+Plugins add CLI commands, build output, build diagnostics, the anchors that
+they reach, and Piton files that you can import. They do not change the
+compiler.
 
 - You declare a plugin in Piton and write it in TypeScript.
 - oxc transpiles the code. Embedded QuickJS (rquickjs) runs it.
 - You install nothing. Plugins need no Node and no build step.
 - **Compilation stays pure.** `piton compile` and the LSP while you type read
   only Piton. Plugin code runs only for its command, for build plans of
-  `piton build` and `piton check`, and when the editor saves a file.
+  `piton build` and `piton check`, for reach hooks of `piton reach`, for
+  inspect hooks before a command (11.10), and when the editor saves a file.
 - **A plugin can do only what it declares.** It can always read the compiled
   project.
 - Bundled plugins and installed plugins work the same. The binary holds the
   files of a bundled plugin.
-- Two plugins are bundled: Belay (`plugins/belay`) and the test plugin
-  (`plugins/test`). Each has `pi/` (its Piton files), `plugin.pi` (its
-  declaration) and `src/` (its TypeScript).
+- Three plugins are bundled: Belay (`plugins/belay`), the test plugin
+  (`plugins/test`) and the migrate plugin (`plugins/migrate`). Each has
+  `plugin.pi` (its declaration), `src/` (its TypeScript) and, if it has
+  Piton files, `pi/`.
 - Not available now: renderers for `piton compile`, diagnostics outside a
   build, and extensions of a compiler command.
 
@@ -834,6 +840,11 @@ export piton-plugin TestPlugin:
 | `requires:: string[]` | Optional. The names of plugins that this plugin uses (11.4). |
 | `placeholders:: string[]` | Optional. Exported names whose value Piton knows only when it writes the output (11.5). |
 | `build:: boolean` | Optional. `true` if the plugin has a build hook (11.3). Without it, `piton build` does not run the plugin. |
+| `inspect:: boolean` | Optional. `true` if the plugin has an inspect hook (11.10). |
+| `reach:: boolean` | Optional. `true` if the plugin has a reach hook (11.11). |
+
+The host reads `build`, `inspect` and `reach` to know which plugins to ask.
+It does not run the plugin to know this.
 
 Commands:
 
@@ -864,13 +875,18 @@ Argument settings are all optional:
 | `conflicts` | Arguments that you cannot give with it. |
 | `default` | The value when you do not give it. |
 | `trailing` | For the last positional `multiple` argument. `true` takes all that follows as it is, also values like options (`piton agent claude --resume`). |
+| `optionalValue` | For an option that takes one value. `true` lets you give the option with no value (`piton test --model`). |
 
 - The key is the long option.
 - A positional argument cannot have the type `flag` or a short name.
+- Only an option that takes one value can have `optionalValue`. A
+  positional, `multiple` or `flag` argument cannot have it.
 - An unknown setting makes the declaration not valid. A `conflicts` value
   that names an argument that is not there also makes it not valid.
 - Values come to the handler by name: a flag gives a boolean, a number gives
   a number, `multiple` gives a list, and an absent value gives null.
+- An `optionalValue` option without a value gives an empty string. An empty
+  string is different from null.
 - clap checks values first (choices, minimum), as for built-in commands.
 - A declaration with a bad form gives a warning that names the file. Piton
   skips only that plugin.
@@ -887,6 +903,7 @@ capabilities:
     temporaryFiles: true
     outputs: [.claude/**, **/CLAUDE.md]
     interactive: true
+    edits: [piton.config.pi]
 ```
 
 | Capability | Meaning |
@@ -894,11 +911,13 @@ capabilities:
 | `process: [names]` | The programs that the plugin can run and find on PATH. The names must be exact. |
 | `files: read \| none` | The default is `none`. `read` lets the plugin read files and list directories in the project, never outside it. |
 | `outputs: [globs]` | The paths that the build of the plugin can write, relative to the project root. `*` matches in one directory. `**` matches across directories. Do not put quotes around them. |
+| `edits: [globs]` | The project files that the plugin can propose to change, relative to the project root, as for `outputs`. Piton applies an edit only when the user agrees, or when the user runs the command of the plugin. An edit outside the globs is an error, and Piton offers nothing of it. |
 | `interactive: true` | The plugin can show a menu on the terminal. The menu shows only when stdin and stdout are terminals. |
 | `temporaryFiles: true` | Temporary files outside the project. Piton removes them when the command ends. |
 
-- **Plugins never write project files.** A build returns a plan, and the host
-  writes it inside `outputs`.
+- **Plugins never write project files themselves.** A build returns a plan,
+  and the host writes it inside `outputs`. An inspect hook returns proposed
+  edits, and the host writes them inside `edits` if the user agrees.
 - A plugin with a build and no `outputs` can only report diagnostics.
 - A refused operation throws an error, for example: "plugin `hello` may not
   run `ls`: its declaration does not list it under capabilities.process".
@@ -1055,6 +1074,8 @@ piton-plugin Hello:
   directories of the project.
 - The config must have no errors before a plugin command runs. Plugin
   problems are warnings.
+- Exception: the commands of a plugin with an inspect hook run also when the
+  config has errors. Their work can be to repair the config.
 
 ### 11.7 Runtime
 
@@ -1099,6 +1120,15 @@ export default definePlugin({ commands: { hello } });
 
 A handler returns the exit code. If it returns nothing, the code is 0.
 
+`definePlugin` also takes hooks. The declaration must declare each hook.
+
+| Hook | Returns |
+| --- | --- |
+| `build` | The build plan (11.3). Needs `build: true`. |
+| `inspect` | The findings: what is out of date (11.10). Needs `inspect: true`. |
+| `reach` | The anchors that the plugin reaches (11.11). Needs `reach: true`. |
+| `exports` | What plugins that require this plugin can use (11.4). |
+
 | Context member | Meaning |
 | --- | --- |
 | `plugin` | The plugin name. |
@@ -1108,6 +1138,7 @@ A handler returns the exit code. If it returns nothing, the code is 0.
 | `compile({workspace})` | Compile the project. `workspace` compiles all sources below the root. |
 | `spawn` | Run a permitted program with args, an optional cwd in the project, and env. It runs in the project root with an empty stdin. |
 | `exec` | Run a permitted program with the terminal. The user does the input. It returns the exit code. |
+| `applyEdits` | Write proposed edits (a project file and its full new contents) for a command that the user ran to make them. Each path must be in the `edits` capability. It returns the changed paths. |
 | `choose` | Show a menu and return the selected item, or nothing on cancel or without a terminal. Needs `interactive`. |
 | `resource` | The text of a file in the directory of the plugin. It needs no capability. |
 | `onPath` | Is a permitted program on PATH. |
@@ -1181,6 +1212,124 @@ Other API rules:
   settings.
 - The outcome line gives the count of plugins. The exit code is 0.
 
+### 11.10 Inspection (`spec/scope/plugins/Inspection.pi`)
+
+A plugin can examine a project before a command runs, and offer to change
+it. An example is to update a project for an older Piton.
+
+```typescript
+export default definePlugin({
+  inspect(ctx) {
+    return {
+      findings: [{
+        message: "piton.config.pi lists frameworks, which is now plugins",
+        edits: [{ path: "piton.config.pi", contents: "..." }],
+      }],
+    };
+  },
+});
+```
+
+When:
+
+- The host runs each inspect hook before each command, in a project with a
+  `piton.config.pi`.
+- It does not run them before `piton lsp`, `piton --help`, `--version`, or
+  the command of the plugin that inspects.
+- A hook runs before the project must compile. Thus it can help a project
+  that does not compile. It reads files directly, and it must be quick.
+
+Findings:
+
+- Each finding is a message and the edits that fix it. Each edit is a
+  project file and its full new contents.
+- A finding with no edits is only a report.
+- Each edited path must be in the project and in the `edits` capability.
+  Else the finding is an error of the plugin, and Piton offers nothing of it.
+
+The question:
+
+- If stdin and stderr are terminals, the host shows each finding with a diff
+  on stderr. It asks one time for all findings: "Switch it over?". The
+  default is yes.
+- Yes: Piton writes each file through a staging file and reports each
+  changed path. Then it runs the requested command again on the updated
+  project.
+- No: the project does not change, and the command runs as requested.
+- Without a terminal, Piton asks nothing and changes nothing. It shows each
+  finding as a warning that names the command that fixes it. Then the
+  command runs.
+- A hook that fails gives a warning, and the command runs. An inspection
+  never stops a command.
+
+### 11.11 Reach hooks (`spec/scope/plugins/Reach.pi`)
+
+Some anchors are in use, but nothing in the specbase leads to them. An
+example is a test. A plugin can name the anchors that it reaches itself.
+
+```typescript
+export default definePlugin({
+  reach(ctx) {
+    const compiled = ctx.compile({ workspace: true });
+    const tests = compiled.anchors({
+      extends: { module: "@piton/test", name: "Test" },
+      exported: true,
+      concrete: true,
+      withinSourceRoot: true,
+    });
+    return { anchors: tests.map((test) => ({ file: test.file, name: test.name })) };
+  },
+});
+```
+
+- The hook returns anchors. Each anchor is its declaring file (as the anchor
+  gives it, or relative to the project root) and its name.
+- Piton ignores an anchor that names nothing declared.
+- A file that nothing imports compiles with the project, so its anchors can
+  be roots.
+- Each returned anchor is a root next to the entry exports, at depth 0. What
+  it imports, references, inherits or embeds is reachable through it.
+- Such an anchor is not unreachable and not unused.
+- `piton reach` without targets adds these roots. With targets, plugins add
+  nothing.
+- The LSP adds these roots to its unused check. It asks the plugins when you
+  save a file, never while you type. It keeps the anchors until the next
+  save.
+- Reach hooks run only in a project with a `piton.config.pi`. A hook must be
+  quick and change nothing.
+- A hook that fails gives a warning. The other plugins still count. Reach
+  never fails because of a plugin.
+
+### 11.12 The migrate plugin (`spec/scope/migrate/`)
+
+The bundled migrate plugin finds projects for an older Piton and offers to
+update them. Its source is `plugins/migrate` (`plugin.pi` and `src/`). It
+has no Piton files.
+
+- Declaration: `inspect: true`, `files: read`,
+  `edits: [piton.config.pi, **/*.pi]`. It runs no programs. It writes
+  nothing itself.
+- A migration finds one old form from the project files as they are,
+  without a compile. It gives the full new contents of each file that it
+  changes.
+- When a change in Piton breaks existing projects, the change comes with a
+  migration.
+
+Migrations:
+
+| Migration | Finds | Edit |
+| --- | --- | --- |
+| `FrameworksToPlugins` | A `frameworks` key in the `piton-config` anchor of `piton.config.pi`. | Without a `plugins` key, rename `frameworks` to `plugins`, and keep the items. With both keys, move the `frameworks` items to the end of `plugins`, and remove `frameworks`. An inline `plugins` list becomes a block. |
+
+`piton migrate [--check]`:
+
+- It applies each migration that the project needs, without a question. It
+  reports each changed file.
+- If the project needs no migration, it says that the project is up to date.
+- `--check` changes nothing. It fails when the project needs a migration,
+  and names each migration. Use it in CI.
+- Exit code: 0 on success. With `--check`, 1 when a migration is necessary.
+
 ## 12. Belay
 
 Belay is the bundled plugin `@piton/belay`. It is a vocabulary for agents.
@@ -1205,7 +1354,7 @@ Belay plugin declaration (`plugins/belay/plugin.pi`):
 | `settings` | `BelayConfig` (`belay-config`). |
 | `build` | `true`. |
 | `placeholders` | The five special imports (12.4). |
-| `capabilities` | `files: read` (vendored files), `process: [claude, codex, opencode, muse]`, `temporaryFiles`, `outputs`: `.claude/**`, `.codex/**`, `.agents/**`, `.opencode/**`, `.muse/**`, `**/CLAUDE.md`, `**/AGENTS.md`. |
+| `capabilities` | `files: read` (vendored files), `process: [claude, codex, opencode, muse]`, `temporaryFiles`, `interactive` (the model menu of `piton agent`), `outputs`: `.claude/**`, `.codex/**`, `.agents/**`, `.opencode/**`, `.muse/**`, `**/CLAUDE.md`, `**/AGENTS.md`. |
 | `commands` | `agent` (15) and `slice` in the group `belay` (`piton belay slice`, 15). |
 
 - The build of Belay is its plan (12.5). The host writes it and owns the
@@ -1215,7 +1364,9 @@ Belay plugin declaration (`plugins/belay/plugin.pi`):
 - Belay exports `agents` for other plugins: `list` (the known tools, each
   with name, program and target), `fluency` (the prompt of `piton agent`)
   and `launch` (program, args and env to start a tool interactively, with an
-  optional first message). The test plugin uses them.
+  optional first message and an optional model). It also exports the models
+  of each tool and the options that select a model. The test plugin uses
+  them.
 - The LSP shows Belay diagnostics and an output preview for each adapter
   after each save.
 
@@ -1668,8 +1819,9 @@ false against the spec, the code or both. A test checks meaning. A compile
 cannot check meaning.
 
 The test plugin is in `plugins/test`. It is the reference for a plugin
-author. It requires Belay for the tools and the fluency prompt. Its
-capabilities are the four tools, `temporaryFiles` and `interactive`.
+author. It requires Belay for the tools, their models and the fluency
+prompt. Its capabilities are the four tools, `temporaryFiles` and
+`interactive`. It declares `reach: true`.
 
 ```piton
 use @piton/test
@@ -1698,6 +1850,8 @@ Discovery:
 - Piton skips tests without an export. Tests in `tethers/` do not belong to
   the project.
 - The order is by file, then by name.
+- The reach hook of the plugin returns each test (11.11). Thus `piton reach`
+  and the LSP never report a test as unreachable or unused.
 
 `TestConfig` (`test-config`, listed under `plugins:`):
 
@@ -1705,20 +1859,37 @@ Discovery:
 | --- | --- | --- |
 | `against` | `spec`, `code`, `both` | `both` |
 | `agent` | `claude`, `codex`, `opencode`, `muse` | `claude` |
+| `model` | a model name, as the tool names it | the default of the tool |
 | `jobs` | a whole number, 1 or more | `4` |
 
 - Bad values give an error where you wrote them: `invalid-test-scope`,
-  `unknown-test-agent`, `invalid-jobs`.
+  `unknown-test-agent`, `invalid-test-model` (a model that is not a name),
+  `invalid-jobs`.
 - A bad choice value (in settings, in a test or on the CLI) gives an error
   that names the correct choices. Nothing runs.
 - Precedence:
   - `against`: CLI flag › test › settings › `both`.
-  - `agent` and `jobs`: CLI flag › settings › `claude` or `4`. A test cannot
-    set them.
+  - `agent`, `model` and `jobs`: CLI flag › settings › `claude`, the default
+    of the tool, or `4`. A test cannot set them.
 
 ### 14.1 `piton test`
 
-`piton test [targets...] [--agent] [--against] [--jobs/-j N] [--serial] [--list] [--tags EXPR]`
+`piton test [targets...] [--agent] [--model/-m [M]] [--against] [--jobs/-j N] [--serial] [--list] [--tags EXPR]`
+
+Models:
+
+- Without a model from the flag or the settings, the tool uses its default
+  model. Before the tests run, a note lists the models of the tool and tells
+  you to select one with `--model`. The run does not ask, because it is
+  headless.
+- `--model` with no value lists the models of the agent, one on each line,
+  on stdout. It runs no tests and exits with 0. If the agent lists no
+  models, the result is an error, and the exit code is 1.
+- A `--model` value that is a model of the agent is that model. Another value
+  is a search string, as for `piton agent` (15). Piton lists the matches, runs
+  no tests and exits with 0.
+- A model from the settings is never a search.
+- The model list is the list of `piton agent`.
 
 Targets:
 
@@ -1870,6 +2041,11 @@ The hand-off:
   It does not show in a pipe, in CI, or if no test failed.
 - A tool that is not on PATH gives an error. The exit code of the run does
   not change.
+- After you select the tool, a second menu lists its models. "Default model"
+  is first. Piton skips this menu if the selected tool judged the tests and
+  had a model. The tool then keeps that model.
+- If you cancel the model menu, nothing starts. A tool that lists no models
+  gets a note and starts with its default model.
 
 Errors:
 
@@ -1886,6 +2062,9 @@ How Piton starts each tool:
 | OpenCode | `opencode run --standalone <request>`, with `OPENCODE_CONFIG_CONTENT` that names a temporary fluency file and denies edit and bash |
 | Muse | `muse exec -c run.developer_prompt=<JSON string> <request>`, in the sandbox of Muse |
 
+With a model, each tool also gets its model option before the request, as
+`piton agent` gives it.
+
 Piton never claims more enforcement than the tool gives.
 
 Output:
@@ -1899,8 +2078,13 @@ Output:
   - The file and tags, dimmed.
   - For `both` with per-side results: a `spec` line and a `code` line, each
     with its mark, word and reason.
-  - The reason. It wraps at spaces and is indented below the name.
-  - For failures, the explanation behind a coloured bar.
+  - The reason, aligned below the name.
+  - For failures, the explanation below the reason, in the colour of the
+    status.
+  - Piton writes the reason, the explanation and each side reason as one
+    line each. It does not wrap them, it does not indent continuation lines,
+    and it writes no bar. The terminal wraps them. Thus you can copy a
+    result as one coherent text.
 
 ```text
 ✗ FAIL   SaveButtonSaves                                  1:02
@@ -1908,7 +2092,7 @@ Output:
          spec ✓ pass  The spec says Save saves
          code ✗ FAIL  No handler saves the document
          The code has no save handler
-         │ The Save button has no click handler.
+         The Save button has no click handler.
 ```
 
 - The width is the terminal width of stdout, up to 100. When piped, it is 100.
@@ -1955,6 +2139,22 @@ General rules for each command:
   `Cargo.toml` version.
 - Plugin commands show in `--help` next to the built-in commands. They cannot
   replace built-in commands.
+- `piton --update` replaces the running `piton` with the latest release.
+  It is a flag of `piton`, not a command, and it takes no command. It is
+  not `piton update`, which updates packages.
+  - The source is the GitHub releases of `piton-lang/piton-rs`, or
+    `PITON_DOWNLOAD_BASE` if it is set. This is the source of `install.sh`.
+  - It finds the latest version from the redirect of `releases/latest`. It
+    downloads the archive for this platform and architecture, and checks it
+    against its `sha256` file.
+  - It writes the new binary next to the old binary, then renames it over
+    the old binary. Thus a failed update keeps the old binary. On Windows,
+    it first moves the old binary to one side. On macOS, it clears the
+    quarantine flag.
+  - The outcome names the old and the new version. If `piton` is the latest
+    release or newer, it replaces nothing and says so.
+  - It downloads with `curl` or `wget`, and unpacks with `tar` or `unzip`.
+    If none is installed, the error names what is missing.
 - Each command is a `cli-command` anchor (`spec/scope/tooling/cli/index.pi`)
   with `commandName`, `positionalArguments` and `namedArguments`.
 
@@ -1971,9 +2171,10 @@ General rules for each command:
 | `lsp` | built in | Starts the language server on stdio (16). |
 | `plugins` | built in | Section 11.9. |
 | `tether`, `update`, `untether`, `remove` | built in | Section 13. |
-| `agent [claude\|codex\|opencode\|muse] [--print-fluency] [args...]` | Belay | Starts an agentic tool with this prompt. |
+| `agent [claude\|codex\|opencode\|muse] [--model/-m [M]] [--print-fluency] [args...]` | Belay | Starts an agentic tool with this prompt. |
 | `belay slice <target> --adapter <id>` | Belay | A slice that cites the compiled output of one adapter. |
 | `test` | test plugin | Section 14. |
+| `migrate [--check]` | migrate plugin | Section 11.12. |
 
 **`build`**:
 
@@ -2022,7 +2223,10 @@ General rules for each command:
   indirect reach.
 - It counts each anchor one time. An anchor that lost a duplicate export
   counts where its declaration is.
-- `piton.config.pi` is never unreachable.
+- Without targets, the roots are the entry exports and the anchors that
+  plugins reach (11.11), for example tests. With targets, plugins add
+  nothing.
+- `piton.config.pi` is read, not imported. It is never unreachable.
 - Piton parses files that nothing imports (it does not compile them) to
   count their anchors. It lists them as `(never imported, N anchors)`.
 - Summary: `37 anchors reachable, 412 unreachable (380 in 50 never-imported
@@ -2172,6 +2376,37 @@ General rules for each command:
   use `--print-fluency`.
 - The exit status is the exit status of the tool.
 
+Models (`--model`, `-m`):
+
+- Piton gives the model to the tool with the option of the tool. The model
+  option goes with the prompt options, also after a subcommand.
+
+| Tool | Model option | Model list |
+| --- | --- | --- |
+| `claude` | `--model <model>` | The aliases `fable`, `opus`, `sonnet`, `haiku`. Claude has no list command. |
+| `codex` | `-c model=<TOML string>` | The slugs of `codex debug models`. |
+| `opencode` | `--model <provider/model>` | The lines of `opencode models`. |
+| `muse` | `--model <model>` | The catalog id in its help: `muse-spark-1.3`. Muse has no list command. |
+
+- A tool that is not on PATH, or whose list fails, lists no models. The note
+  says so.
+- Without `--model`, on a terminal, Piton shows a menu of the models.
+  "Default model" is first and keeps the default of the tool. If you cancel
+  the menu, nothing starts.
+- Without `--model` and without a terminal, the tool uses its default model.
+  A note lists the models and tells you to select one with `--model`.
+- `--print-fluency` starts nothing, so it lists no models.
+- `--model` with no value lists the models, one on each line, on stdout. It
+  starts nothing and exits with 0. If the tool lists no models, the result
+  is an error, and the exit code is 1.
+- A `--model` value that is a model of the tool is that model.
+- Another value is a search string. Piton lists the models that contain it
+  (case is not important), one on each line, on stdout. If no model contains
+  it, Piton lists all models, and the outcome line says that nothing
+  matched. It starts nothing and exits with 0.
+- If the tool lists no models, Piton cannot search. It gives the value to
+  the tool as the model.
+
 ## 16. Language server, editors, JavaScript
 
 ### 16.1 Features
@@ -2198,7 +2433,9 @@ General rules for each command:
   (for example the files of each Belay target), from the last save.
 - Source-to-output map. It shows in hover ("Compiled to") and in a code lens,
   never as document links.
-- Detection of unused and redundant items.
+- Detection of unused and redundant items. "Used" means what `piton reach`
+  reaches: the entry exports and the anchors that plugins reach (11.11).
+  Thus an exported test is not unused.
 - Detection of conflicts and of cycles. Cycle detection finds cycles that
   cannot resolve and anchors that extend themselves. It shows the cycle that
   caused the error. It does not report circular imports.
@@ -2420,6 +2657,10 @@ import spec from '../spec/app.pi';
   - It runs `claude -p` headless with the GenerateFluencyPrompt skill in the
     repository root. Claude can read, search and write, and Piton accepts its
     edits. Claude cannot run commands. `--model` selects the model.
+    Without it, Claude uses its default model, and the task lists the Claude
+    models (the aliases of `piton agent`) and tells you to use `--model`.
+  - Piton shows the output of Claude when it ends. The person who runs the
+    task reads the diff to see if the prompt is correct.
   - If Claude fails, is not on PATH, or ends without a non-empty file, the
     result is an error. Piton copies nothing.
   - If the prompt did not change, Piton tells you, and it still copies it.
@@ -2448,7 +2689,8 @@ The spec also holds tests (`spec/tests/`). Examples:
      adapters, codeRoot, shapeRoot; test settings), packages, dependencies.
    - Read the entry, usually `spec/index.pi`. In this repository it exports
      `Specification` (FoundingThesis, Language, Tooling, Belay,
-     PackageManagement, Plugins, Testing) and the items of `spec/agent/`.
+     PackageManagement, Plugins, Migration, Testing) and the items of
+     `spec/agent/`.
    - Read down through the `index.pi` files.
    - The Belay constructs and adapters are in `plugins/belay/pi/`. The test
      anchors are in `plugins/test/pi/`.
@@ -2491,8 +2733,8 @@ The spec does not name these items. The compiler has them:
 - Most diagnostic codes in this document. The spec says only "error" or
   "warning". The codes are the names that the compiler and the plugins use.
   `duplicate-export`, `unsupported-construct`, `frameworks-removed`,
-  `invalid-test-scope`, `unknown-test-agent` and `invalid-jobs` are in the
-  spec.
+  `invalid-test-scope`, `unknown-test-agent`, `invalid-test-model` and
+  `invalid-jobs` are in the spec.
 - The CLI flags `reach --no-unreachable`, `reach --no-paths`, and
   `format -`.
 - `check` with a directory as a path. Without a config, `check` checks all
@@ -2523,6 +2765,3 @@ Problems in the spec. Report them if your work touches them:
 
 - `spec/scope/tooling/index.pi` holds a placeholder property
   `something: HAHA TOOLING`.
-- `spec/scope/belay/Framework.pi` says that `codeRoot` defaults to `src`. The
-  field list in the same file and `BelayConfig` say that `codeRoot` is
-  required. Treat it as required.
