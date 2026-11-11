@@ -48,7 +48,7 @@ export anchor ProjectConfiguration extends FrameworkSpecification:
 
     requirements:
         - List the Belay configuration under plugins in the project configuration.
-        - Resolve codeRoot and shapeRoot relative to the configuration file, codeRoot defaulting to src.
+        - Resolve codeRoot and shapeRoot relative to the configuration file. codeRoot is required, and a configuration without it is an error.
         - Use codeRoot to identify the application's source-code root.
         - Use shapeRoot, when configured, to identify the architectural instruction root.
         - Use adapters to select the output targets for the project.
