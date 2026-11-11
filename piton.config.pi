@@ -8,7 +8,7 @@ export piton-config PitonLanguageTest:
     root: ./spec
     entry: ./spec/index.pi
 
-    frameworks:
+    plugins:
         - {BelayConfiguration}
 
     packages:

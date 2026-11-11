@@ -1,8 +1,4 @@
 from ../Framework import FrameworkSpecification
-from ./Construct import Construct
-
-export abstract anchor Instruction extends Construct as instruction:
-    pass
 
 export anchor InstructionBehavior extends FrameworkSpecification:
     description:

@@ -25,8 +25,30 @@ const TEST_FILES: &[(&str, &str)] = &[
     ("src/judge.ts", include_str!("../../../plugins/test/src/judge.ts")),
 ];
 
-pub const PLUGINS: &[Bundled] = &[Bundled {
-    declaration: prelude::TEST_PLUGIN_DECLARATION,
-    module_root: prelude::TEST_PACKAGE,
-    files: TEST_FILES,
-}];
+/// Belay: the framework for agent guidance. Its files are listed in
+/// `belay_files.rs`, which the port keeps in step with `plugins/belay/src`.
+const BELAY_FILES: &[(&str, &str)] = include!("belay_files.rs");
+
+/// The migrate plugin: notices old projects and offers to update them.
+const MIGRATE_FILES: &[(&str, &str)] = &[
+    ("src/index.ts", include_str!("../../../plugins/migrate/src/index.ts")),
+    ("src/migrations.ts", include_str!("../../../plugins/migrate/src/migrations.ts")),
+];
+
+pub const PLUGINS: &[Bundled] = &[
+    Bundled {
+        declaration: prelude::BELAY_PLUGIN_DECLARATION,
+        module_root: prelude::BELAY_PACKAGE,
+        files: BELAY_FILES,
+    },
+    Bundled {
+        declaration: prelude::MIGRATE_PLUGIN_DECLARATION,
+        module_root: prelude::MIGRATE_PACKAGE,
+        files: MIGRATE_FILES,
+    },
+    Bundled {
+        declaration: prelude::TEST_PLUGIN_DECLARATION,
+        module_root: prelude::TEST_PACKAGE,
+        files: TEST_FILES,
+    },
+];

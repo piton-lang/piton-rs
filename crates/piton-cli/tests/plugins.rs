@@ -131,6 +131,7 @@ async function hello(ctx: Context, raw: Record<string, Json>): Promise<number> {
       () => ctx.readFile("piton.config.pi"),
       () => ctx.temporaryFile("x"),
       () => ctx.onPath("ls"),
+      () => ctx.choose("Pick one", ["a", "b"]),
     ]) {
       try {
         attempt();
@@ -193,11 +194,12 @@ fn what_a_plugin_did_not_declare_is_refused() {
     let (stdout, stderr, code) = fixture.run(&["hello", "--probe"]);
     assert_eq!(code, 0, "{stdout}\n{stderr}");
     let refused: Vec<&str> = stdout.lines().filter(|line| line.starts_with("refused: ")).collect();
-    assert_eq!(refused.len(), 4, "{stdout}");
+    assert_eq!(refused.len(), 5, "{stdout}");
     assert!(refused[0].contains("may not run `ls`") && refused[0].contains("capabilities.process"), "{stdout}");
     assert!(refused[1].contains("may not read files"), "{stdout}");
     assert!(refused[2].contains("may not write temporary files"), "{stdout}");
     assert!(refused[3].contains("may not look for `ls`"), "{stdout}");
+    assert!(refused[4].contains("may not ask the user to choose") && refused[4].contains("capabilities.interactive"), "{stdout}");
 }
 
 #[test]
@@ -209,7 +211,9 @@ fn piton_plugins_lists_what_each_may_do() {
     assert!(stdout.contains("hello (piton.config.pi)"), "{stdout}");
     assert!(stdout.contains("may: run echo"), "{stdout}");
     assert!(stdout.contains("settings: HelloSettings"), "{stdout}");
-    assert!(stderr.contains("2 plugins"), "{stderr}");
+    assert!(stderr.contains("4 plugins"), "{stderr}");
+    assert!(stdout.contains("migrate (bundled)") && stdout.contains("propose edits to piton.config.pi"), "{stdout}");
+    assert!(stdout.contains("belay (bundled)"), "{stdout}");
 }
 
 #[test]
@@ -260,4 +264,77 @@ fn a_command_piton_has_is_not_replaced() {
     assert!(stderr.contains("no problems found"), "{stderr}");
     let (_, stderr, _) = fixture.run(&["plugins"]);
     assert!(stderr.contains("adds the command `check`, which piton already has"), "{stderr}");
+}
+
+/// A stand-in for an agentic tool: it records its arguments and the
+/// OpenCode configuration it was given, then exits with 7.
+const FAKE_TOOL: &str = "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/../$(basename \"$0\").args\"\nprintf '%s' \"$OPENCODE_CONFIG_CONTENT\" > \"$(dirname \"$0\")/../$(basename \"$0\").env\"\nexit 7\n";
+
+#[test]
+fn piton_agent_launches_each_tool_with_fluency_through_belay() {
+    let fixture = project("agent");
+    for tool in ["claude", "codex", "opencode", "muse"] {
+        fixture.write(&format!("bin/{tool}"), FAKE_TOOL);
+        std::fs::set_permissions(
+            fixture.dir.join(format!("bin/{tool}")),
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .expect("chmod");
+    }
+    let run = |args: &[&str]| -> (i32, Vec<String>, String) {
+        let path = format!("{}:/usr/bin:/bin", fixture.dir.join("bin").display());
+        let output = Command::new(binary())
+            .args(args)
+            .current_dir(&fixture.dir)
+            .env("PATH", path)
+            .output()
+            .expect("run piton");
+        let tool = args.get(1).copied().unwrap_or("claude");
+        let recorded = std::fs::read_to_string(fixture.dir.join(format!("{tool}.args"))).unwrap_or_default();
+        let env = std::fs::read_to_string(fixture.dir.join(format!("{tool}.env"))).unwrap_or_default();
+        (
+            output.status.code().unwrap_or(-1),
+            recorded.lines().map(str::to_string).collect(),
+            env,
+        )
+    };
+
+    // The tool's exit code is the command's, and arguments pass through,
+    // options included.
+    let (code, args, _) = run(&["agent", "claude", "--resume"]);
+    assert_eq!(code, 7);
+    assert_eq!(args[0], "--append-system-prompt");
+    assert!(args.iter().any(|arg| arg.contains("This project is written in Piton")), "{args:?}");
+    assert_eq!(args.last().map(String::as_str), Some("--resume"));
+
+    let (_, args, _) = run(&["agent", "codex"]);
+    assert_eq!(args[0], "-c");
+    assert!(args[1].starts_with("developer_instructions=\""), "{:?}", &args[..2]);
+
+    // Muse takes the prompt after `exec`, and runs `resume` without it.
+    let (_, args, _) = run(&["agent", "muse", "exec", "hi"]);
+    assert_eq!(&args[..2], ["exec", "-c"]);
+    let (_, args, _) = run(&["agent", "muse", "resume", "--last"]);
+    assert_eq!(args, ["resume", "--last"]);
+
+    // OpenCode reads the prompt from a file named in its configuration.
+    let (_, args, env) = run(&["agent", "opencode"]);
+    assert_eq!(args, ["--standalone"]);
+    assert!(env.contains("\"instructions\":[") && env.contains("piton-belay-"), "{env}");
+
+    // A tool that isn't installed is named, with what to do instead.
+    std::fs::remove_file(fixture.dir.join("bin/codex")).expect("remove");
+    let output = Command::new(binary())
+        .args(["agent", "codex"])
+        .current_dir(&fixture.dir)
+        .env("PATH", format!("{}:/usr/bin:/bin", fixture.dir.join("bin").display()))
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run piton");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`codex` is not on PATH; install it or print the prompt with `piton agent codex --print-fluency`"),
+        "{stderr}"
+    );
 }

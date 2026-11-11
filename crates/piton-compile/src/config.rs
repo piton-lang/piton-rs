@@ -1,7 +1,7 @@
 //! Project configuration.
 //!
 //! A `piton.config.pi` in the working directory configures a project: where the
-//! source root is, which file is the entry point, and which frameworks are
+//! source root is, which file is the entry point, and which plugins are
 //! enabled. The configuration is itself Piton, so it is compiled the same way
 //! everything else is.
 
@@ -36,16 +36,22 @@ pub const PACKAGE_KEYWORD: &str = "piton-package";
 
 /// Every key a `piton-config` anchor understands. Anything else is most likely
 /// a typo, and a typo in a configuration is silently ignored configuration.
-pub const CONFIG_KEYS: [&str; 8] = [
+pub const CONFIG_KEYS: [&str; 7] = [
     "root",
     "entry",
     "output",
     "renderer",
-    "frameworks",
     "packages",
     "dependencies",
     "plugins",
 ];
+
+/// Keys a configuration used to have. Each is an error that says what to
+/// write instead, rather than a setting silently ignored.
+const REMOVED_KEYS: [(&str, &str); 1] = [(
+    "frameworks",
+    "a framework is a plugin now: move each item under `plugins`, like `plugins:` with `- {BelayConfiguration}` beneath it",
+)];
 
 /// One anchor listed under `plugins` in the configuration.
 ///
@@ -68,6 +74,14 @@ pub struct PluginEntry {
     pub properties: serde_json::Map<String, serde_json::Value>,
     /// Where each property the anchor writes itself is named.
     pub spans: Vec<(String, Span)>,
+    /// Every anchor its properties name, like the adapters a belay-config
+    /// lists, with its properties as JSON, so a plugin can read what a
+    /// setting points at.
+    pub anchors: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
+    /// Where each anchor in `anchors` is declared, in the same order: its
+    /// file and the span of its name, so a plugin can point a diagnostic at
+    /// a setting's target.
+    pub anchor_sites: Vec<(PathBuf, Span)>,
 }
 
 impl PluginEntry {
@@ -100,23 +114,6 @@ pub fn canonical_renderer(text: &str) -> Option<&'static str> {
     }
 }
 
-/// Belay's per-project settings.
-#[derive(Debug, Clone)]
-pub struct BelayConfig {
-    /// Root of the application's source code.
-    pub code_root: PathBuf,
-    /// Root of the architectural instruction tree, when configured.
-    pub shape_root: Option<PathBuf>,
-    /// Target ids of the enabled adapters, in configuration order.
-    pub adapters: Vec<String>,
-}
-
-/// A framework enabled by the project configuration.
-#[derive(Debug, Clone)]
-pub enum Framework {
-    Belay(BelayConfig),
-}
-
 /// A resolved project.
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -133,12 +130,12 @@ pub struct Project {
     /// The renderer `piton build` writes with: `json`, `yaml`, or `markdown`.
     /// `renderer` in the configuration; `json` when left out.
     pub renderer: String,
-    /// Whether `piton build` writes the renderer's output at all. A project
-    /// with a framework has the framework's output instead, unless it asks
-    /// for the renderer's too by setting `output` or `renderer`.
+    /// Whether the configuration asks for the renderer's output by setting
+    /// `output` or `renderer`. A project whose plugins build something gets
+    /// their output instead of the renderer's, unless it asks; a project
+    /// without one always gets the renderer's.
     pub renders: bool,
     pub config_path: Option<PathBuf>,
-    pub frameworks: Vec<Framework>,
     /// Packages this project publishes, in declaration order.
     pub packages: Vec<PackageDecl>,
     /// Dependencies the project itself requires, with any version pins.
@@ -163,7 +160,6 @@ impl Project {
             renderer: DEFAULT_RENDERER.to_string(),
             renders: true,
             config_path: None,
-            frameworks: Vec::new(),
             packages: Vec::new(),
             dependencies: Vec::new(),
             plugins: Vec::new(),
@@ -172,7 +168,7 @@ impl Project {
 
     /// The same project, compiled from a different file.
     ///
-    /// A command given one file still wants the project's roots, frameworks and
+    /// A command given one file still wants the project's roots, plugins and
     /// packages: the file is part of that project, and resolving its imports
     /// without them would answer a different question than the build does.
     pub fn with_entry(&self, entry: &Path) -> Project {
@@ -189,12 +185,6 @@ impl Project {
             source_root: &self.source_root,
             project_root: &self.root,
         }
-    }
-
-    pub fn belay(&self) -> Option<&BelayConfig> {
-        self.frameworks.iter().find_map(|framework| match framework {
-            Framework::Belay(config) => Some(config),
-        })
     }
 }
 
@@ -237,8 +227,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
                 renders: true,
                 entry: root,
                 config_path: None,
-                frameworks: Vec::new(),
-                packages: Vec::new(),
+                    packages: Vec::new(),
                 dependencies: Vec::new(),
                 plugins: Vec::new(),
             },
@@ -348,19 +337,6 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
             .unwrap_or_else(|| source_root.clone()),
     );
 
-    let mut frameworks = Vec::new();
-    if let Some(list) = properties.get("frameworks") {
-        for item in list.as_list_items() {
-            if let Value::Anchor(anchor) = item {
-                if let Some(framework) =
-                    read_framework(&resolution, &outcome, anchor, &root, &mut diagnostics)
-                {
-                    frameworks.push(framework);
-                }
-            }
-        }
-    }
-
     let dependencies = properties
         .get("dependencies")
         .map(|value| {
@@ -412,10 +388,9 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
 
     // A framework decides where its own output goes, so the renderer's copy
     // is only written when the configuration asks for it by name.
-    let renders = frameworks.is_empty()
-        || written
-            .iter()
-            .any(|property| property.name == "output" || property.name == "renderer");
+    let renders = written
+        .iter()
+        .any(|property| property.name == "output" || property.name == "renderer");
 
     (
         Project {
@@ -426,7 +401,6 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
             renderer,
             renders,
             config_path: Some(config_path),
-            frameworks,
             packages: declared,
             dependencies,
             plugins,
@@ -465,11 +439,49 @@ fn plugin_entry(
             .get(&anchor)
             .map(|properties| crate::json::properties_map(properties, &view))
             .unwrap_or_default(),
+        anchor_sites: named_anchors(outcome.anchors.get(&anchor))
+            .into_iter()
+            .map(|named| {
+                let def = resolution.store.anchor(named);
+                (resolution.graph.get(def.module).path.clone(), def.name_span)
+            })
+            .collect(),
         spans: written_properties(resolution, anchor)
             .iter()
             .map(|property| (property.name.clone(), property.name_span))
             .collect(),
+        anchors: named_anchors(outcome.anchors.get(&anchor))
+            .into_iter()
+            .map(|named| {
+                (
+                    resolution.store.anchor(named).name.clone(),
+                    outcome
+                        .anchors
+                        .get(&named)
+                        .map(|properties| crate::json::properties_map(properties, &view))
+                        .unwrap_or_default(),
+                )
+            })
+            .collect(),
     }
+}
+
+/// The anchors a set of properties names, at any depth, each once, in order.
+fn named_anchors(properties: Option<&piton_core::Properties>) -> Vec<AnchorId> {
+    fn walk(value: &Value, out: &mut Vec<AnchorId>) {
+        match value {
+            Value::Anchor(anchor) if !out.contains(anchor) => out.push(*anchor),
+            Value::List(items) => items.iter().for_each(|item| walk(item, out)),
+            Value::Dict(map) => map.values().for_each(|item| walk(item, out)),
+            Value::Mixed(_) => value.as_list_items().iter().for_each(|item| walk(item, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for value in properties.into_iter().flat_map(|properties| properties.values()) {
+        walk(value, &mut out);
+    }
+    out
 }
 
 /// The configuration's anchors, as the JSON view reads them.
@@ -600,6 +612,18 @@ fn warn_unknown_keys(
         if CONFIG_KEYS.contains(&property.name.as_str()) {
             continue;
         }
+        if let Some((key, help)) = REMOVED_KEYS.iter().find(|(key, _)| *key == property.name) {
+            diagnostics.push(
+                Diagnostic::error(
+                    format!("{key}-removed"),
+                    format!("`{key}` is no longer a piton-config setting"),
+                    config_path,
+                    property.name_span,
+                )
+                .with_help(help.to_string()),
+            );
+            continue;
+        }
         diagnostics.push(
             Diagnostic::warning(
                 "unknown-config-key",
@@ -648,75 +672,10 @@ fn default_project(root: &Path, config_path: &Path) -> Project {
         renderer: DEFAULT_RENDERER.to_string(),
         renders: true,
         config_path: Some(config_path.to_path_buf()),
-        frameworks: Vec::new(),
         packages: Vec::new(),
         dependencies: Vec::new(),
         plugins: Vec::new(),
     }
-}
-
-fn read_framework(
-    resolution: &resolve::Resolution,
-    outcome: &eval::Outcome,
-    anchor: AnchorId,
-    root: &Path,
-    diagnostics: &mut DiagnosticSink,
-) -> Option<Framework> {
-    let def = resolution.store.anchor(anchor);
-    let properties = outcome.anchors.get(&anchor)?;
-    if def.keyword != "belay-config" {
-        diagnostics.push(Diagnostic::warning(
-            "unknown-framework",
-            format!("`{}` is not a framework configuration", def.name),
-            resolution.graph.get(def.module).path.clone(),
-            def.name_span,
-        ));
-        return None;
-    }
-
-    let code_root = properties
-        .get("codeRoot")
-        .and_then(text_of)
-        .map(|value| module::normalize(&root.join(value)))
-        .unwrap_or_else(|| root.join("src"));
-    let shape_root = properties
-        .get("shapeRoot")
-        .and_then(text_of)
-        .map(|value| module::normalize(&root.join(value)));
-
-    let mut adapters = Vec::new();
-    if let Some(list) = properties.get("adapters") {
-        for item in list.as_list_items() {
-            match item {
-                Value::Anchor(adapter) => {
-                    let target = outcome
-                        .anchors
-                        .get(&adapter)
-                        .and_then(|props| props.get("targetId"))
-                        .and_then(text_of);
-                    match target {
-                        Some(target) => adapters.push(target),
-                        None => {
-                            let adapter_def = resolution.store.anchor(adapter);
-                            diagnostics.push(Diagnostic::error(
-                                "invalid-adapter",
-                                format!("`{}` has no targetId", adapter_def.name),
-                                resolution.graph.get(adapter_def.module).path.clone(),
-                                adapter_def.name_span,
-                            ));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    Some(Framework::Belay(BelayConfig {
-        code_root,
-        shape_root,
-        adapters,
-    }))
 }
 
 fn text_of(value: &Value) -> Option<String> {
@@ -769,6 +728,19 @@ mod tests {
 
     fn codes(diagnostics: &DiagnosticSink) -> Vec<String> {
         diagnostics.iter().map(|d| d.code.to_string()).collect()
+    }
+
+    #[test]
+    fn frameworks_is_an_error_that_says_what_to_write() {
+        let (_, diagnostics, directory) = project_from(
+            "frameworks",
+            "use @piton/config\nuse @piton/belay\n\nexport piton-config App:\n    root: ./spec\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeCodeAdapter}\n\nfrom @piton/belay import ClaudeCodeAdapter\n",
+        );
+        let removed: Vec<_> = diagnostics.iter().filter(|d| d.code == "frameworks-removed").collect();
+        assert_eq!(removed.len(), 1, "{:?}", codes(&diagnostics));
+        assert!(removed[0].is_error());
+        assert!(removed[0].help.as_deref().unwrap_or("").contains("move each item under `plugins`"));
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -916,6 +888,6 @@ mod tests {
         let project = Project::for_file(Path::new("/tmp/example/Thing.pi"));
         assert_eq!(project.source_root, Path::new("/tmp/example"));
         assert_eq!(project.entry, Path::new("/tmp/example/Thing.pi"));
-        assert!(project.belay().is_none());
+        assert!(project.plugins.is_empty());
     }
 }

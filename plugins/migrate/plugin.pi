@@ -1,0 +1,23 @@
+use @piton/plugin
+
+export piton-plugin MigratePlugin:
+    name: migrate
+    entry: ./src/index.ts
+    inspect: true
+
+    description:
+        Notices projects written for an older Piton and offers to bring them
+        up to date.
+
+    capabilities:
+        files: read
+        edits: [piton.config.pi, **/*.pi]
+
+    commands:
+        migrate:
+            about: Bring a project written for an older Piton up to date
+
+            arguments:
+                check:
+                    help: Change nothing, and fail when the project needs a migration
+                    type: flag

@@ -37,7 +37,10 @@ pub fn run() -> u8 {
             let names: Vec<String> = manifest
                 .commands
                 .iter()
-                .map(|command| format!("piton {}", command.name))
+                .map(|command| match &command.group {
+                    Some(group) => format!("piton {group} {}", command.name),
+                    None => format!("piton {}", command.name),
+                })
                 .collect();
             println!("  {} {}", paint(style::DIM, "commands:"), paint(style::NAME, names.join(", ")));
         }
@@ -49,6 +52,12 @@ pub fn run() -> u8 {
                 .unwrap_or_default();
             println!("  {} {settings}{package}", paint(style::DIM, "settings:"));
         }
+        if manifest.build {
+            println!("  {} piton build", paint(style::DIM, "builds with:"));
+        }
+        if !manifest.requires.is_empty() {
+            println!("  {} {}", paint(style::DIM, "requires:"), manifest.requires.join(", "));
+        }
         let capabilities = &manifest.capabilities;
         let mut may = Vec::new();
         if !capabilities.process.is_empty() {
@@ -59,6 +68,15 @@ pub fn run() -> u8 {
         }
         if capabilities.temporary_files {
             may.push("write temporary files".to_string());
+        }
+        if !capabilities.edits.is_empty() {
+            may.push(format!("propose edits to {}", capabilities.edits.join(", ")));
+        }
+        if capabilities.interactive {
+            may.push("ask the user to choose".to_string());
+        }
+        if !capabilities.outputs.is_empty() {
+            may.push(format!("build {}", capabilities.outputs.join(", ")));
         }
         if may.is_empty() {
             may.push("nothing beyond reading the compiled project".to_string());

@@ -1,0 +1,71 @@
+use @piton/plugin
+
+export piton-plugin BelayPlugin:
+    name: belay
+    entry: ./src/index.ts
+    settings: BelayConfig
+
+    build: true
+
+    placeholders:
+        - BELAY_COMPILED_SHAPE
+        - BELAY_AGENT_ROOT
+        - BELAY_PROJECT_ROOT
+        - BELAY_SHAPE_ROOT
+        - BELAY_CODE_ROOT
+
+    description:
+        The framework for agent guidance: compiles instructions, skills,
+        commands and agents into what agentic coding tools read.
+
+    capabilities:
+        files: read
+        process: [claude, codex, opencode, muse]
+        temporaryFiles: true
+        interactive: true
+        outputs:
+            - .claude/**
+            - .codex/**
+            - .agents/**
+            - .opencode/**
+            - .muse/**
+            - **/CLAUDE.md
+            - **/AGENTS.md
+
+    commands:
+        agent:
+            about: Launch the specified agent with Piton fluency
+
+            arguments:
+                agent:
+                    help: Which agent to run
+                    positional: true
+                    choices: [claude, codex, opencode, muse]
+                    default: claude
+
+                model:
+                    help: The model the agent uses; without one, the agent's models are listed to choose from; with --model and no model, they are listed and nothing runs
+                    short: m
+                    optionalValue: true
+
+                print-fluency:
+                    help: Print the entire fluency prompt instead of launching the agent
+                    type: flag
+
+                args:
+                    help: Arguments passed through to the agent
+                    positional: true
+                    multiple: true
+                    trailing: true
+
+        slice:
+            group: belay
+            about: Print the slice of a target, citing where an adapter's build compiles it
+
+            arguments:
+                target:
+                    help: `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name
+                    positional: true
+
+                adapter:
+                    help: The Belay target whose compiled documents are cited, like claude-code

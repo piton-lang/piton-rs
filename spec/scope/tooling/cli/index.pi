@@ -1,5 +1,4 @@
 from ../../plugins import Plugins
-from ./Agent import AgentCli
 from ./Build import Build
 from ./Check import Check
 from ./Compile import Compile
@@ -49,7 +48,6 @@ export anchor Cli:
         it is the version in Cargo.toml.
 
     commands:
-        - @{AgentCli}
         - @{Build}
         - @{Check}
         - @{Compile}
@@ -67,7 +65,8 @@ export anchor Cli:
 
     pluginCommands:
         Plugins add commands of their own, listed in `piton --help` beside
-        these, like `piton test` from the bundled test plugin. They are
+        these, like `piton test` from the bundled test plugin, and `piton
+        agent` and `piton belay slice` from Belay. They are
         described in @{Plugins}. A plugin can't replace one of these: a
         command with the same name is reported and left out.
 

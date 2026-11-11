@@ -3,11 +3,11 @@
 ## Description
 
 Plugins make the compiler extensible: they add commands to the CLI and Piton files to import, without changing the compiler. A plugin is declared in Piton and written in TypeScript, which Piton transpiles and runs itself in QuickJS, so using one needs nothing installed beyond piton.
-The first plugin is [Testing](../testing/index.md#testing): `piton test` and the test keyword are a plugin bundled with the compiler, and the reference for writing one.
+Two plugins are bundled with the compiler. Belay, the framework that compiles agent guidance, is a plugin: its constructs and adapters are its Piton files, and its build writes what agentic tools read. And [Testing](../testing/index.md#testing): `piton test` and the test keyword, which builds on Belay for the agentic tools it launches.
 
 ## Principles
 
-Compiling stays pure. Everything that can be known about a plugin without running it is in its Piton declaration: its name, its commands and their arguments, its settings, and what it may do on the machine. `piton check`, `piton build` and the language server read Piton only, and a plugin's code runs only when one of its commands is invoked.
+Compiling stays pure. Everything that can be known about a plugin without running it is in its Piton declaration: its name, its commands and their arguments, its settings, what it requires, and what it may do on the machine. `piton compile`, and the language server as you type, read Piton only. A plugin's code runs only when a command it adds is invoked, when `piton build` or `piton check` plans its build, when `piton reach` asks what it reaches, and when the editor saves a file.
 A plugin may only do what it declares. It reads the compiled project freely, since that changes nothing, but every other effect, like running a program or writing a file, is a capability it has to list, and anything it didn't list is refused.
 Bundled and installed plugins are the same. A bundled plugin's files are embedded in the compiler instead of read from disk, and that is the only difference, so the design that runs `piton test` is the one an installed plugin uses.
 
@@ -23,6 +23,26 @@ Bundled and installed plugins are the same. A bundled plugin's files are embedde
 
 [PluginCapabilities](./Capabilities.md#plugin-capabilities)
 
+## Build
+
+[PluginBuild](./Build.md#plugin-build)
+
+## Rendering
+
+[PluginRendering](./Rendering.md#plugin-rendering)
+
+## Dependencies
+
+[PluginDependencies](./Dependencies.md#plugin-dependencies)
+
+## Inspection
+
+[PluginInspection](./Inspection.md#plugin-inspection)
+
+## Reach
+
+[PluginReach](./Reach.md#plugin-reach)
+
 ## Runtime
 
 [PluginRuntime](./Runtime.md#plugin-runtime)
@@ -37,4 +57,4 @@ Bundled and installed plugins are the same. A bundled plugin's files are embedde
 
 ## Not Yet
 
-A first version leaves out what it doesn't need yet. Plugins add commands; they don't yet hook into `piton build` or `piton check`, add renderers or diagnostics, or replace Belay. Each of these extends the same declaration and API, rather than adding a second way to extend the compiler.
+Plugins add commands, build output, the diagnostics their builds find, and the anchors they reach. They don't yet add renderers for `piton compile`, add diagnostics outside a build, or extend a command the compiler has. Each of these would extend the same declaration and API, rather than add a second way to extend the compiler.

@@ -1,6 +1,7 @@
 use ../cli
 from ../../language/operators/access/PropertyAccessOperator import
     PropertyAccessOperator
+from ../../plugins/Reach import PluginReach
 
 export cli-command Lsp:
     commandName: lsp
@@ -26,11 +27,17 @@ export cli-command Lsp:
 
     features:
         diagnostics:
-            Validate Piton syntax and Belay semantics continuously, reporting
+            Validate Piton syntax and semantics continuously, reporting
             invalid constructs, unresolved symbols, inheritance problems, type
             mismatches, circular dependencies, and invalid compositions directly
             in the editor. Don't report a missing optional property (one with
             a default value).
+
+            Plugins with a build, like Belay, report their diagnostics too.
+            Their builds are planned when a file is saved, never as you type,
+            so typing runs no plugin code; their diagnostics are the ones the
+            last save found. A plugin that fails to plan is reported on the
+            configuration.
 
         completion:
             Suggest anchors, skills, agents, properties, keywords, imports,
@@ -310,8 +317,10 @@ export cli-command Lsp:
 
         compiledOutputPreview:
             Allow a Piton construct or file to be previewed as its compiled
-            representation, such as Markdown, JSON, agent instructions, or
-            another Belay target.
+            representation, such as Markdown, JSON, or what a plugin's build
+            writes for it, like the agent instructions of a Belay target,
+            named by the group the plugin gives its output. The plugin output
+            is the one planned at the last save.
 
         sourceToOutputMapping:
             Maintain mappings between Piton source and compiled output so an
@@ -328,6 +337,15 @@ export cli-command Lsp:
             Warn about anchors, imports, properties, exports, or other
             declarations that are never referenced or contribute nothing to the
             compiled result.
+
+            What is used is what `piton reach` reaches: the entry's exports,
+            and the anchors that plugins reach themselves, described in
+            @{PluginReach}, like the exported
+            tests the test plugin runs, with all they reach in turn. The
+            server asks the plugins for those anchors when a file is saved,
+            never as you type, and keeps them until the next save, as it does
+            plugin builds. So an exported test is not reported as an unused
+            anchor.
 
         duplicateRedundantDefinitionDetection:
             Identify declarations that unnecessarily repeat inherited or

@@ -3,7 +3,9 @@
 //! An adapter turns resolved values into one concrete representation. The
 //! Markdown adapter carries Belay's content rules; JSON and YAML are structural.
 
+pub mod fields;
 pub mod json;
+pub mod links;
 pub mod markdown;
 pub mod yaml;
 

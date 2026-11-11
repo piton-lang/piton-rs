@@ -396,6 +396,33 @@ fn an_unreferenced_anchor_is_unused() {
 }
 
 #[test]
+fn an_anchor_a_plugin_reaches_is_not_unused() {
+    // Nothing imports the test, but the test plugin reaches it: it is run
+    // because it is exported. What it uses is reached through it.
+    let fixture = Fixture::new("plugin-reach");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write("spec/index.pi", "export anchor Used:\n    description: the entry exports this\n");
+    fixture.write("spec/Helper.pi", "export anchor Helper:\n    description: the test reads this\n");
+    fixture.write(
+        "spec/tests/App.pi",
+        "use @piton/test\nfrom ../Helper import Helper\n\nexport test SaveWorks:\n    expects: Saving works, per @{Helper}\n\ntest Hidden:\n    expects: Not exported, so not run\n",
+    );
+
+    let world = fixture.world();
+    let tests = codes(&world, "spec/tests/App.pi", &fixture);
+    assert_eq!(
+        tests.iter().filter(|code| *code == "unused-anchor").count(),
+        1,
+        "only the test that isn't exported is unused: {tests:?}"
+    );
+    let helper = codes(&world, "spec/Helper.pi", &fixture);
+    assert!(!helper.iter().any(|code| code == "unused-anchor"), "{helper:?}");
+}
+
+#[test]
 fn source_maps_to_the_compiled_section_and_back() {
     let fixture = Fixture::new("mapping");
     fixture.write("piton.config.pi", CONFIG);
@@ -512,7 +539,7 @@ fn belay_plan_checks_reach_the_editor() {
     let long = "x".repeat(1100);
     fixture.write(
         "piton.config.pi",
-        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n    frameworks:\n        - {BelayConfiguration}\n\nbelay-config BelayConfiguration:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeCodeAdapter}\n",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n    plugins:\n        - {BelayConfiguration}\n\nbelay-config BelayConfiguration:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeCodeAdapter}\n",
     );
     fixture.write(
         "spec/index.pi",
@@ -749,7 +776,7 @@ fn the_configuration_is_a_project_config_not_a_regular_file() {
         Some(CompletionResponse::Array(items)) => items.into_iter().map(|item| item.label).collect(),
         _ => Vec::new(),
     };
-    for key in ["output", "renderer", "frameworks"] {
+    for key in ["output", "renderer", "plugins"] {
         assert!(labels.contains(&key.to_string()), "{key} missing: {labels:?}");
     }
     // What the configuration already sets is not offered again.

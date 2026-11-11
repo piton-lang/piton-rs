@@ -10,6 +10,7 @@ A command provides an explicit entrypoint for invoking a prompt or directing wor
 - Report an error if the target needs a description and there isn't one.
 - Emit a native command or the explicit-invocation equivalent defined by the adapter.
 - Prefix the generated command name with x- to distinguish it from a skill.
+- On Claude Code, emit each command as a skill at .claude/skills/x-<name>/SKILL.md whose frontmatter sets disable-model-invocation to true, and never write .claude/commands/.
 - Map description and prompt to the command representation selected by the adapter.
 - Emit allowed-tools and model metadata when supplied and supported by the adapter.
 - Serialize additional properties after the primary prompt.

@@ -4,6 +4,8 @@ export piton-plugin TestPlugin:
     name: test
     entry: ./src/index.ts
     settings: TestConfig
+    requires: [belay]
+    reach: true
 
     description:
         Has an agentic tool judge the project's tests: exported test anchors,
@@ -13,6 +15,7 @@ export piton-plugin TestPlugin:
     capabilities:
         process: [claude, codex, opencode, muse]
         temporaryFiles: true
+        interactive: true
 
     commands:
         test:
@@ -33,6 +36,11 @@ export piton-plugin TestPlugin:
                 agent:
                     help: Which tool judges the tests
                     choices: [claude, codex, opencode, muse]
+
+                model:
+                    help: The model that judges the tests; without one, the agent's models are listed; with --model and no model, they are listed and nothing runs
+                    short: m
+                    optionalValue: true
 
                 against:
                     help: What every test is judged against, whatever the test says

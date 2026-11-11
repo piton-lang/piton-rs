@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use piton_compile::{prelude, Compilation, Framework, ModuleId};
+use piton_compile::{prelude, Compilation, ModuleId};
 use piton_emit::{Adapter, MarkdownContext};
 
 /// Parses a renderer name as the command line or configuration writes it.
@@ -56,21 +56,16 @@ fn resolve_locations(compilation: &Compilation, text: &str, output_directory: &P
         return text.to_string();
     }
     let project = &compilation.project;
-    let belay = project.frameworks.iter().find_map(|framework| match framework {
-        Framework::Belay(config) => Some(config),
-        #[allow(unreachable_patterns)]
-        _ => None,
-    });
     let relative = |target: &Path| {
         piton_emit::relative_file(output_directory, &target.join("x"))
             .trim_end_matches("/x")
             .to_string()
     };
     let project_root = relative(&project.root);
-    let code_root = belay.map_or_else(|| project_root.clone(), |c| relative(&c.code_root));
-    let shape_root = belay
-        .and_then(|c| c.shape_root.as_deref())
-        .map_or_else(|| project_root.clone(), |p| relative(p));
+    // The code and shape roots are Belay's settings, which only Belay's own
+    // output resolves; the renderer writes them as the project root.
+    let code_root = project_root.clone();
+    let shape_root = project_root.clone();
     let mut out = text.to_string();
     for (name, marker) in prelude::BELAY_LOCATION_MARKERS {
         let value = match marker {

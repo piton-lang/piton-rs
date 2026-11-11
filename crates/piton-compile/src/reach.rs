@@ -118,7 +118,14 @@ pub fn from_roots_with_imports(
 /// Computes reachability from the entry, following imports: its exports are
 /// the roots, and whatever the entry module imports is reached through it.
 pub fn from_entry_with_imports(compilation: &Compilation) -> Reachability {
-    let roots = compilation.entry_exports();
+    from_entry_with_imports_and(compilation, &[])
+}
+
+/// Like [`from_entry_with_imports`], with `extra` roots beside the entry's
+/// exports: the anchors plugins reach themselves.
+pub fn from_entry_with_imports_and(compilation: &Compilation, extra: &[AnchorId]) -> Reachability {
+    let mut roots = compilation.entry_exports();
+    add_roots(&mut roots, extra);
     let mut result = traverse(compilation, &roots, &[compilation.resolution.entry]);
     result.unloaded_modules = unloaded(compilation);
     result
@@ -382,10 +389,49 @@ fn embedded_modules(compilation: &Compilation) -> HashSet<ModuleId> {
 
 /// Computes reachability from everything the entry module exports.
 pub fn from_entry(compilation: &Compilation) -> Reachability {
-    let roots = compilation.entry_exports();
+    from_entry_and(compilation, &[])
+}
+
+/// Like [`from_entry`], with `extra` roots beside the entry's exports: the
+/// anchors plugins reach themselves.
+pub fn from_entry_and(compilation: &Compilation, extra: &[AnchorId]) -> Reachability {
+    let mut roots = compilation.entry_exports();
+    add_roots(&mut roots, extra);
     let mut result = from_roots(compilation, &roots);
     result.unloaded_modules = unloaded(compilation);
     result
+}
+
+fn add_roots(roots: &mut Vec<AnchorId>, extra: &[AnchorId]) {
+    for anchor in extra {
+        if !roots.contains(anchor) {
+            roots.push(*anchor);
+        }
+    }
+}
+
+/// The anchors named by file and name, as plugins name the anchors they
+/// reach. A name that nothing in that file declares is skipped.
+pub fn locate(compilation: &Compilation, named: &[(PathBuf, String)]) -> Vec<AnchorId> {
+    let canonical = |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = Vec::new();
+    for (file, name) in named {
+        let graph = compilation.graph();
+        let Some(module) = graph.id_for(file).or_else(|| graph.id_for(&canonical(file))) else {
+            continue;
+        };
+        let found = compilation
+            .store()
+            .anchors
+            .iter()
+            .find(|def| def.module == module && def.name == *name);
+        if let Some(def) = found {
+            if !out.contains(&def.id) {
+                out.push(def.id);
+            }
+        }
+    }
+    out
 }
 
 /// Source files nothing imports, each with the number of anchors it declares.

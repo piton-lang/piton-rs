@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use piton_core::{AnchorId, AnchorView, DiagnosticSink, Properties, Value};
 
-pub use config::{BelayConfig, Framework, Project};
+pub use config::Project;
 pub use module::{ModuleGraph, ModuleId};
 pub use packages::{Dependency, Lock, PackageDecl, Pin};
 pub use resolve::Resolution;
@@ -64,6 +64,19 @@ impl Compilation {
         roots.dedup();
 
         let graph = ModuleGraph::with_overrides(overrides);
+        let resolution = resolve::resolve_including(&project.entry, &roots, project.roots(), graph);
+        Compilation::from_resolution(project, resolution)
+    }
+
+    /// Compiles the project from its entry, and also the files in `also`, as
+    /// if something imported them, but no other source under the root. A
+    /// file nothing imports that holds an anchor a plugin reaches is compiled
+    /// this way, so the rest still count as never imported.
+    pub fn build_including(project: Project, also: &[PathBuf]) -> Compilation {
+        let mut roots: Vec<PathBuf> = also.to_vec();
+        roots.sort();
+        roots.dedup();
+        let graph = ModuleGraph::with_overrides(Default::default());
         let resolution = resolve::resolve_including(&project.entry, &roots, project.roots(), graph);
         Compilation::from_resolution(project, resolution)
     }

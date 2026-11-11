@@ -1,0 +1,8 @@
+// Part of the bundled Belay plugin, as @piton/belay. Its behaviour is
+// described in spec/scope/belay/anchors/Skill.pi.
+
+from ./Construct import Construct
+
+export abstract anchor Skill extends Construct as skill:
+    useWhen:: string:: null: null
+    files:: string:: dictionary:: null: null

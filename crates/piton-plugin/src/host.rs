@@ -27,7 +27,7 @@ use rquickjs::loader::{Loader, Resolver};
 use rquickjs::{Context, Ctx, Error, Exception, Function, Module, Object, Persistent, Runtime, Value};
 use serde_json::{json, Value as Json};
 
-use crate::manifest::{is_declaration, Manifest, Source};
+use crate::manifest::{is_declaration, load_order, placeholder_marker, Manifest, Source};
 use crate::transpile::transpile;
 
 /// The API module plugins import, embedded.
@@ -43,8 +43,8 @@ pub enum Stream {
 }
 
 /// What the CLI provides that the plugin host can't decide by itself: how
-/// output looks, how problems are reported, and the agentic tools Piton
-/// knows. Everything else is the host's own.
+/// output looks, how problems are reported, and how a slice is printed.
+/// Everything else is the host's own.
 pub trait Services {
     fn project(&self) -> &Project;
     /// Writes text, removing colour where it isn't shown.
@@ -58,10 +58,16 @@ pub trait Services {
     fn diagnostic(&self, diagnostic: Diagnostic);
     /// Reports a compilation's diagnostics, returning whether any are errors.
     fn compilation_diagnostics(&self, compilation: &Compilation) -> bool;
-    /// The agentic tools, as `[{name, program, target}]`.
-    fn agents(&self) -> Json;
-    /// The fluency prompt a tool is given, or None for an unknown tool.
-    fn fluency(&self, agent: &str) -> Option<String>;
+    /// Prints the slice of `target` from `compilation`, citing where `links`
+    /// says each anchor was compiled instead of the source, and returns the
+    /// exit code.
+    fn slice(&self, compilation: &Compilation, target: &str, links: &dyn piton_emit::markdown::LinkResolver) -> u8;
+    /// Asks the user to choose one of `options` on the terminal, returning
+    /// the index chosen, or None when they cancel. Only called when stdin and
+    /// stdout are terminals. Without a way to ask, there is no choice.
+    fn choose(&self, _message: &str, _options: &[String]) -> Option<usize> {
+        None
+    }
 }
 
 /// How a command ended, when it didn't return an exit code.
@@ -110,27 +116,86 @@ struct State {
     processes: HashMap<u64, Process>,
     timers: Vec<(Instant, Waiter)>,
     temporary_files: Vec<PathBuf>,
+    spaces: Vec<crate::space::Space>,
     next_id: u64,
 }
 
 struct Host {
-    manifest: Manifest,
+    /// Every plugin loaded into this runtime: the one invoked and what it
+    /// requires.
+    plugins: Vec<Manifest>,
     services: Rc<dyn Services>,
     state: RefCell<State>,
     sender: Sender<Event>,
 }
 
+/// What a run asks of its plugin.
+#[derive(Debug, Clone)]
+pub enum Invocation {
+    /// One of its commands, with its arguments by name.
+    Command { name: String, arguments: Json },
+    /// Its build: the plan of what it would write.
+    Build,
+    /// Its inspect hook: what it finds out of date in the project.
+    Inspect,
+    /// Its reach hook: the anchors it reaches itself.
+    Reach,
+}
+
 /// Runs one of a plugin's commands with its arguments, returning the exit
-/// code it chose.
+/// code it chose. `plugins` is every plugin the project has; the ones `main`
+/// requires are loaded with it.
 pub fn run_command(
-    manifest: &Manifest,
+    plugins: &[Manifest],
+    main: &str,
     command: &str,
     arguments: Json,
     services: Rc<dyn Services>,
 ) -> Result<u8, Failure> {
+    let value = run(
+        plugins,
+        main,
+        Invocation::Command { name: command.to_string(), arguments },
+        services,
+    )?;
+    Ok(value.as_f64().unwrap_or(0.0).clamp(0.0, 255.0) as u8)
+}
+
+/// Runs a plugin's inspect hook, returning its findings, as JSON.
+pub fn run_inspect(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
+    run(plugins, main, Invocation::Inspect, services)
+}
+
+/// Runs a plugin's reach hook, returning the anchors it reaches, as JSON.
+pub fn run_reach(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
+    run(plugins, main, Invocation::Reach, services)
+}
+
+/// Runs a plugin's build, returning the plan it made, as JSON.
+pub fn run_build(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
+    run(plugins, main, Invocation::Build, services)
+}
+
+/// Runs a plugin in a runtime of its own, with what it requires, and returns
+/// what its handler resolved to.
+pub fn run(
+    plugins: &[Manifest],
+    main: &str,
+    invocation: Invocation,
+    services: Rc<dyn Services>,
+) -> Result<Json, Failure> {
+    let order: Vec<Manifest> = load_order(plugins, main)
+        .map_err(Failure::Load)?
+        .into_iter()
+        .cloned()
+        .collect();
+    let sources: HashMap<String, Source> = order
+        .iter()
+        .map(|manifest| (manifest.name.clone(), manifest.source.clone()))
+        .collect();
     let (sender, receiver) = mpsc::channel();
     let host = Rc::new(Host {
-        manifest: manifest.clone(),
+        plugins: order.clone(),
         services,
         state: RefCell::new(State::default()),
         sender,
@@ -138,11 +203,11 @@ pub fn run_command(
     let runtime = Runtime::new().map_err(|error| Failure::Load(error.to_string()))?;
     let context = Context::full(&runtime).map_err(|error| Failure::Load(error.to_string()))?;
     runtime.set_loader(
-        PluginResolver { source: manifest.source.clone() },
-        PluginLoader { source: manifest.source.clone() },
+        PluginResolver { sources: sources.clone() },
+        PluginLoader { sources },
     );
 
-    let result = start(&context, &host, &manifest.entry, command, &arguments)
+    let result = start(&context, &host, &order, main, &invocation)
         .and_then(|()| event_loop(&runtime, &context, &host, &receiver));
 
     // Whatever happened, nothing the command started outlives it, and every
@@ -154,29 +219,45 @@ pub fn run_command(
     result
 }
 
-/// Installs the host function and starts the command.
+/// Installs the host function and starts the run. The API module takes the
+/// host function for itself before any plugin's code is imported, so a
+/// plugin only ever reaches the host through its own context.
 fn start(
     context: &Context,
     host: &Rc<Host>,
-    entry: &str,
-    command: &str,
-    arguments: &Json,
+    order: &[Manifest],
+    main: &str,
+    invocation: &Invocation,
 ) -> Result<(), Failure> {
     context.with(|ctx| {
         install(&ctx, host.clone()).map_err(|error| Failure::Load(error.to_string()))?;
+        let entries: Vec<Json> = order
+            .iter()
+            .map(|manifest| json!([manifest.name, format!("./{}/{}", manifest.name, manifest.entry)]))
+            .collect();
+        let call = match invocation {
+            Invocation::Command { name, arguments } => format!(
+                "host.command({}, {}, {})",
+                json!(main),
+                json!(name),
+                json!(arguments.to_string())
+            ),
+            Invocation::Build => format!("host.build({})", json!(main)),
+            Invocation::Inspect => format!("host.inspect({})", json!(main)),
+            Invocation::Reach => format!("host.reach({})", json!(main)),
+        };
         let bootstrap = format!(
             "(async () => {{\n\
                const api = await import({api});\n\
-               const plugin = (await import({entry})).default;\n\
-               return api.__run(plugin, {command}, {arguments});\n\
+               const host = api.__setup();\n\
+               for (const [name, entry] of {entries}) host.register(name, (await import(entry)).default);\n\
+               return {call};\n\
              }})().then(\n\
-               (code) => {{ globalThis.__piton_done = {{ code }}; }},\n\
+               (value) => {{ globalThis.__piton_done = {{ value: JSON.stringify(value ?? null) }}; }},\n\
                (error) => {{ globalThis.__piton_done = {{ error: error instanceof Error ? `${{error.message}}\\n${{error.stack ?? \"\"}}` : String(error) }}; }},\n\
              );\n",
             api = json!(API_MODULE),
-            entry = json!(format!("./{entry}")),
-            command = json!(command),
-            arguments = json!(arguments.to_string()),
+            entries = Json::Array(entries),
         );
         Module::evaluate(ctx.clone(), "<piton>", bootstrap)
             .map(|_| ())
@@ -190,7 +271,7 @@ fn event_loop(
     context: &Context,
     host: &Rc<Host>,
     receiver: &Receiver<Event>,
-) -> Result<u8, Failure> {
+) -> Result<Json, Failure> {
     loop {
         loop {
             match runtime.execute_pending_job() {
@@ -235,11 +316,11 @@ fn event_loop(
     }
 }
 
-/// The command's outcome, once its promise has settled.
-fn finished(ctx: &Ctx<'_>) -> Option<Result<u8, Failure>> {
+/// The run's outcome, once its promise has settled.
+fn finished(ctx: &Ctx<'_>) -> Option<Result<Json, Failure>> {
     let done: Object = ctx.globals().get("__piton_done").ok()?;
-    if let Ok(code) = done.get::<_, f64>("code") {
-        return Some(Ok(code.clamp(0.0, 255.0) as u8));
+    if let Ok(value) = done.get::<_, String>("value") {
+        return Some(Ok(serde_json::from_str(&value).unwrap_or(Json::Null)));
     }
     let error: String = done.get("error").unwrap_or_else(|_| "the command failed".to_string());
     Some(Err(Failure::Threw(error.trim_end().to_string())))
@@ -268,9 +349,9 @@ fn exception_text(ctx: &Ctx<'_>, error: Error) -> String {
 fn install<'js>(ctx: &Ctx<'js>, host: Rc<Host>) -> rquickjs::Result<()> {
     let function = Function::new(
         ctx.clone(),
-        move |ctx: Ctx<'js>, operation: String, payload: String| -> rquickjs::Result<Value<'js>> {
+        move |ctx: Ctx<'js>, plugin: String, operation: String, payload: String| -> rquickjs::Result<Value<'js>> {
             let payload: Json = serde_json::from_str(&payload).unwrap_or(Json::Null);
-            match host.dispatch(&ctx, &operation, &payload) {
+            match host.dispatch(&ctx, &plugin, &operation, &payload) {
                 Ok(Reply::Json(value)) => {
                     rquickjs::String::from_str(ctx.clone(), &value.to_string()).map(|text| text.into_value())
                 }
@@ -304,23 +385,82 @@ impl Host {
         self.services.project()
     }
 
-    fn refuse(&self, what: &str, capability: &str) -> String {
+    fn plugin(&self, name: &str) -> Result<&Manifest, String> {
+        self.plugins
+            .iter()
+            .find(|manifest| manifest.name == name)
+            .ok_or_else(|| format!("no plugin named `{name}` is loaded"))
+    }
+
+    fn refuse(manifest: &Manifest, what: &str, capability: &str) -> String {
         format!(
             "plugin `{}` may not {what}: its declaration does not list it under capabilities.{capability}",
-            self.manifest.name
+            manifest.name
         )
     }
 
-    fn dispatch<'js>(&self, ctx: &Ctx<'js>, operation: &str, payload: &Json) -> Result<Reply<'js>, String> {
+    fn dispatch<'js>(
+        &self,
+        ctx: &Ctx<'js>,
+        plugin: &str,
+        operation: &str,
+        payload: &Json,
+    ) -> Result<Reply<'js>, String> {
+        let manifest = self.plugin(plugin)?;
         let reply = match operation {
-            "plugin" => json!(self.manifest.name),
+            "plugin" => json!({ "name": manifest.name, "requires": manifest.requires }),
+            "placeholders" => Json::Object(
+                manifest
+                    .placeholders
+                    .iter()
+                    .map(|name| (name.clone(), json!(placeholder_marker(name))))
+                    .collect(),
+            ),
+            "relativePath" => {
+                let from = text_field(payload, "from")?;
+                let to = text_field(payload, "to")?;
+                let directory = Path::new(&from).parent().unwrap_or(Path::new(""));
+                json!(piton_emit::relative_link(directory, Path::new(&to)))
+            }
+            "encode" => crate::space::encode(payload)?,
+            "listFiles" => {
+                if !manifest.capabilities.read_files {
+                    return Err(Self::refuse(manifest, "list files", "files"));
+                }
+                let directory = self.inside_project(&text_field(payload, "path")?)?;
+                json!(list_files(&directory)?)
+            }
+            "space" => {
+                let mut state = self.state.borrow_mut();
+                let handle = field(payload, "handle").as_u64().ok_or("`handle` has to be a compilation")? as usize;
+                let space = {
+                    let compilation = state.compilations.get(handle).ok_or("no compilation has that handle")?;
+                    crate::space::Space::new(handle, compilation, payload)?
+                };
+                state.spaces.push(space);
+                json!(state.spaces.len() - 1)
+            }
+            "spaceDocument" | "spaceSections" | "spaceText" | "spaceReport" => {
+                let state = self.state.borrow();
+                let index = field(payload, "space").as_u64().ok_or("`space` has to be a link space")? as usize;
+                let space = state.spaces.get(index).ok_or("no link space has that handle")?;
+                let compilation = &state.compilations[space.compilation];
+                match operation {
+                    "spaceDocument" => space.document(compilation, payload)?,
+                    "spaceSections" => space.sections(compilation, payload)?,
+                    "spaceText" => space.text(compilation, payload)?,
+                    _ => space.report(compilation),
+                }
+            }
             "terminal" => {
+                let stdin = std::io::stdin().is_terminal();
                 let stdout = std::io::stdout().is_terminal();
                 let stderr = std::io::stderr().is_terminal();
                 let width = (stdout || stderr)
                     .then(|| crossterm::terminal::size().ok().map(|(columns, _)| columns))
                     .flatten();
                 json!({
+                    "stdin": stdin,
                     "stdout": stdout,
                     "stderr": stderr,
                     "width": width,
@@ -329,18 +469,15 @@ impl Host {
             }
             "project" => {
                 let project = self.project();
-                let belay = project.belay();
                 json!({
                     "root": project.root,
                     "sourceRoot": project.source_root,
                     "entry": project.entry,
                     "outputDir": project.output_dir,
                     "configPath": project.config_path,
-                    "codeRoot": belay.map(|belay| &belay.code_root),
-                    "adapters": belay.map(|belay| belay.adapters.clone()).unwrap_or_default(),
                 })
             }
-            "settings" => self.settings()?,
+            "settings" => self.settings(manifest)?,
             "compile" => {
                 let project = self.project().clone();
                 let compilation = if field(payload, "workspace").as_bool().unwrap_or(false) {
@@ -379,7 +516,58 @@ impl Host {
                     .unwrap_or(def.name_span);
                 location(&compilation.anchor_module_path(anchor), span)
             }
-            "spawn" => json!(self.spawn(payload)?),
+            "values" => {
+                let state = self.state.borrow();
+                let compilation = self.compilation(&state, payload)?;
+                let anchor = anchor_of(compilation, payload)?;
+                piton_compile::json::typed_properties(&compilation.store().anchor(anchor).properties, compilation)
+            }
+            "slot" => {
+                let state = self.state.borrow();
+                let compilation = self.compilation(&state, payload)?;
+                let anchor = anchor_of(compilation, payload)?;
+                let property = text_field(payload, "property")?;
+                match compilation.store().anchor(anchor).slots.get(&property) {
+                    Some(slot) => json!({
+                        "owner": slot.owner.0,
+                        "hasValue": slot.has_value,
+                        "location": location(&compilation.anchor_module_path(slot.owner), slot.span),
+                    }),
+                    None => Json::Null,
+                }
+            }
+            "exports" => {
+                let state = self.state.borrow();
+                let compilation = self.compilation(&state, payload)?;
+                json!(compilation.entry_exports().into_iter().map(|anchor| anchor.0).collect::<Vec<_>>())
+            }
+            "stat" => {
+                if !manifest.capabilities.read_files {
+                    return Err(Self::refuse(manifest, "look at files", "files"));
+                }
+                let path = self.inside_project(&text_field(payload, "path")?)?;
+                match std::fs::metadata(&path) {
+                    Ok(metadata) => {
+                        #[cfg(unix)]
+                        let executable = {
+                            use std::os::unix::fs::PermissionsExt;
+                            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                        };
+                        #[cfg(not(unix))]
+                        let executable = false;
+                        let kind = if metadata.is_file() {
+                            "file"
+                        } else if metadata.is_dir() {
+                            "directory"
+                        } else {
+                            "other"
+                        };
+                        json!({ "kind": kind, "size": metadata.len(), "executable": executable })
+                    }
+                    Err(_) => Json::Null,
+                }
+            }
+            "spawn" => json!(self.spawn(manifest, payload)?),
             "next" | "wait" => {
                 let id = field(payload, "id").as_u64().ok_or("`id` has to be a process")?;
                 let (promise, resolve) = self.promise(ctx)?;
@@ -401,22 +589,22 @@ impl Host {
             }
             "onPath" => {
                 let program = text_field(payload, "program")?;
-                if !self.manifest.capabilities.process.contains(&program) {
-                    return Err(self.refuse(&format!("look for `{program}`"), "process"));
+                if !manifest.capabilities.process.contains(&program) {
+                    return Err(Self::refuse(manifest, &format!("look for `{program}`"), "process"));
                 }
                 json!(on_path(&program))
             }
             "readFile" => {
-                if !self.manifest.capabilities.read_files {
-                    return Err(self.refuse("read files", "files"));
+                if !manifest.capabilities.read_files {
+                    return Err(Self::refuse(manifest, "read files", "files"));
                 }
                 let path = self.inside_project(&text_field(payload, "path")?)?;
                 json!(std::fs::read_to_string(&path)
                     .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?)
             }
             "temporaryFile" => {
-                if !self.manifest.capabilities.temporary_files {
-                    return Err(self.refuse("write temporary files", "temporaryFiles"));
+                if !manifest.capabilities.temporary_files {
+                    return Err(Self::refuse(manifest, "write temporary files", "temporaryFiles"));
                 }
                 let contents = text_field(payload, "contents")?;
                 let extension = field(payload, "extension").as_str().unwrap_or("");
@@ -424,7 +612,7 @@ impl Host {
                 state.next_id += 1;
                 let path = std::env::temp_dir().join(format!(
                     "piton-{}-{}-{}{extension}",
-                    self.manifest.name,
+                    manifest.name,
                     std::process::id(),
                     state.next_id
                 ));
@@ -449,16 +637,79 @@ impl Host {
                 Json::Null
             }
             "report" => {
-                self.report(payload)?;
+                self.report(manifest, payload)?;
                 Json::Null
             }
-            "agents" => self.services.agents(),
-            "fluency" => {
-                let name = text_field(payload, "name")?;
-                json!(self
-                    .services
-                    .fluency(&name)
-                    .ok_or_else(|| format!("`{name}` is not an agent Piton knows"))?)
+            "exec" => {
+                let program = text_field(payload, "program")?;
+                if !manifest.capabilities.process.contains(&program) {
+                    return Err(Self::refuse(manifest, &format!("run `{program}`"), "process"));
+                }
+                let args: Vec<String> = field(payload, "args")
+                    .as_array()
+                    .map(|items| items.iter().map(|item| item.as_str().unwrap_or("").to_string()).collect())
+                    .unwrap_or_default();
+                let cwd = match field(payload, "cwd").as_str() {
+                    Some(cwd) => self.inside_project(cwd)?,
+                    None => self.project().root.clone(),
+                };
+                let mut command = Command::new(&program);
+                command.args(&args).current_dir(cwd);
+                if let Some(env) = field(payload, "env").as_object() {
+                    for (key, value) in env {
+                        command.env(key, value.as_str().unwrap_or(""));
+                    }
+                }
+                // The program has the terminal: its input, its output, and
+                // its prompts are the user's, and the plugin waits for it.
+                let status = command.status().map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        format!("`{program}` is not on PATH")
+                    } else {
+                        format!("cannot run `{program}`: {error}")
+                    }
+                })?;
+                json!(status.code())
+            }
+            "applyEdits" => {
+                let root = self.project().root.clone();
+                let edits = crate::inspection::read_edits(manifest, field(payload, "edits"), &root)?;
+                let written = crate::inspection::apply(&edits, &root)
+                    .map_err(|error| format!("cannot write the edits: {error}"))?;
+                json!(written.iter().map(|path| crate::output::slash(path)).collect::<Vec<_>>())
+            }
+            "choose" => {
+                if !manifest.capabilities.interactive {
+                    return Err(Self::refuse(manifest, "ask the user to choose", "interactive"));
+                }
+                let message = text_field(payload, "message")?;
+                let options: Vec<String> = field(payload, "options")
+                    .as_array()
+                    .map(|items| items.iter().map(|item| item.as_str().unwrap_or("").to_string()).collect())
+                    .unwrap_or_default();
+                // A menu needs someone at a terminal to answer it.
+                if options.is_empty() || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                    Json::Null
+                } else {
+                    json!(self.services.choose(&message, &options).filter(|index| *index < options.len()))
+                }
+            }
+            "resource" => {
+                let path = text_field(payload, "path")?;
+                let path = path.trim_start_matches("./");
+                json!(manifest
+                    .source
+                    .read(path)
+                    .ok_or_else(|| format!("plugin `{}` has no file `{path}`", manifest.name))?)
+            }
+            "slice" => {
+                let state = self.state.borrow();
+                let handle = field(payload, "handle").as_u64().ok_or("`handle` has to be a compilation")? as usize;
+                let compilation = state.compilations.get(handle).ok_or("no compilation has that handle")?;
+                let space = crate::space::Space::new(handle, compilation, field(payload, "layout"))?;
+                let target = text_field(payload, "target")?;
+                let located = crate::space::Located { space: &space, compilation };
+                json!(self.services.slice(compilation, &target, &located))
             }
             other => return Err(format!("`{other}` is not an operation the host provides")),
         };
@@ -479,11 +730,11 @@ impl Host {
     }
 
     /// The project's settings anchor for this plugin, if it lists one.
-    fn settings(&self) -> Result<Json, String> {
-        let Some(settings) = &self.manifest.settings else {
+    fn settings(&self, manifest: &Manifest) -> Result<Json, String> {
+        let Some(settings) = &manifest.settings else {
             return Ok(Json::Null);
         };
-        let root = self.manifest.module_root.as_deref();
+        let root = manifest.module_root.as_deref();
         let mut found = self
             .project()
             .plugins
@@ -495,7 +746,7 @@ impl Host {
         if let Some(second) = found.next() {
             return Err(format!(
                 "piton.config.pi lists two settings for plugin `{}`, `{}` and `{}`; list one",
-                self.manifest.name, entry.name, second.name
+                manifest.name, entry.name, second.name
             ));
         }
         let mut spans = serde_json::Map::new();
@@ -512,6 +763,8 @@ impl Host {
             "keyword": "",
             "properties": entry.properties,
             "spans": spans,
+            "anchors": entry.anchors.iter().map(|(name, properties)| (name.clone(), Json::Object(properties.clone()))).collect::<serde_json::Map<_, _>>(),
+            "anchorLocations": entry.anchors.iter().zip(&entry.anchor_sites).map(|((name, _), (file, span))| (name.clone(), location(file, *span))).collect::<serde_json::Map<_, _>>(),
         }))
     }
 
@@ -565,6 +818,7 @@ impl Host {
                     "exported": def.exported,
                     "abstract": def.is_abstract,
                     "keyword": def.keyword,
+                    "item": def.item,
                     "properties": properties,
                 }),
             ));
@@ -592,7 +846,7 @@ impl Host {
         }
     }
 
-    fn report(&self, payload: &Json) -> Result<(), String> {
+    fn report(&self, manifest: &Manifest, payload: &Json) -> Result<(), String> {
         let kind = text_field(payload, "kind")?;
         let message = text_field(payload, "message")?;
         let help = field(payload, "help").as_str().map(str::to_string);
@@ -606,7 +860,7 @@ impl Host {
             let code = field(payload, "code")
                 .as_str()
                 .map(str::to_string)
-                .unwrap_or_else(|| self.manifest.name.clone());
+                .unwrap_or_else(|| manifest.name.clone());
             let mut diagnostic = if kind == "error" {
                 Diagnostic::error(code, message, file, span)
             } else {
@@ -638,10 +892,10 @@ impl Host {
         Ok(joined)
     }
 
-    fn spawn(&self, payload: &Json) -> Result<u64, String> {
+    fn spawn(&self, manifest: &Manifest, payload: &Json) -> Result<u64, String> {
         let program = text_field(payload, "program")?;
-        if !self.manifest.capabilities.process.contains(&program) {
-            return Err(self.refuse(&format!("run `{program}`"), "process"));
+        if !manifest.capabilities.process.contains(&program) {
+            return Err(Self::refuse(manifest, &format!("run `{program}`"), "process"));
         }
         let args: Vec<String> = field(payload, "args")
             .as_array()
@@ -809,12 +1063,62 @@ impl Host {
         for file in state.temporary_files.drain(..) {
             let _ = std::fs::remove_file(file);
         }
+        state.spaces.clear();
         state.compilations.clear();
     }
 }
 
+/// The anchor a payload's `id` names.
+fn anchor_of(compilation: &Compilation, payload: &Json) -> Result<AnchorId, String> {
+    let id = field(payload, "id").as_u64().ok_or("`id` has to be an anchor's id")?;
+    if id as usize >= compilation.store().anchors.len() {
+        return Err("no anchor has that id".into());
+    }
+    Ok(AnchorId(id as u32))
+}
+
 fn location(file: &Path, span: Span) -> Json {
     json!({ "file": file, "start": span.start, "end": span.end })
+}
+
+/// Every file under a directory, recursively, as paths relative to it with
+/// forward slashes, in order, with whether each is executable and whether it
+/// is a symbolic link, which is never followed.
+fn list_files(directory: &Path) -> Result<Vec<Json>, String> {
+    let mut found = Vec::new();
+    let mut stack = vec![directory.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let entries = std::fs::read_dir(&current)
+            .map_err(|error| format!("cannot list `{}`: {error}", current.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
+            let relative = crate::output::slash(path.strip_prefix(directory).unwrap_or(&path));
+            if metadata.file_type().is_symlink() {
+                found.push((relative, json!({ "path": "", "executable": false, "symlink": true })));
+            } else if metadata.is_dir() {
+                stack.push(path);
+            } else {
+                #[cfg(unix)]
+                let executable = {
+                    use std::os::unix::fs::PermissionsExt;
+                    metadata.permissions().mode() & 0o111 != 0
+                };
+                #[cfg(not(unix))]
+                let executable = false;
+                found.push((relative, json!({ "path": "", "executable": executable, "symlink": false })));
+            }
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(found
+        .into_iter()
+        .map(|(path, mut record)| {
+            record["path"] = json!(path);
+            record
+        })
+        .collect())
 }
 
 /// Whether `program` can be found on PATH.
@@ -834,8 +1138,12 @@ pub fn on_path(program: &str) -> bool {
 
 /// Resolves what a plugin imports: `@piton/plugin`, or a relative path to
 /// one of its own files, with `.ts`, `.js` or `/index.ts` tried after it.
+///
+/// Each plugin's modules are named under the plugin's name, like
+/// `test/src/tags.ts`, so two plugins in one runtime never share a module,
+/// and a path that leads out of a plugin's own directory is refused.
 struct PluginResolver {
-    source: Source,
+    sources: HashMap<String, Source>,
 }
 
 fn join(base: &str, name: &str) -> String {
@@ -852,6 +1160,11 @@ fn join(base: &str, name: &str) -> String {
     }
     parts.retain(|part| !part.is_empty());
     parts.join("/")
+}
+
+/// A module name split into its plugin and the path inside it.
+fn split(module: &str) -> Option<(&str, &str)> {
+    module.split_once('/')
 }
 
 impl Resolver for PluginResolver {
@@ -873,11 +1186,20 @@ impl Resolver for PluginResolver {
             ));
         }
         let path = join(base, name);
-        if base != "<piton>" && path.starts_with("..") {
+        let Some((plugin, _)) = split(&path) else {
+            return Err(Error::new_resolving_message(base, name, "it is outside the plugin"));
+        };
+        // Only the run's own bootstrap names a plugin; a plugin's code stays
+        // inside its own directory.
+        if base != "<piton>" && split(base).map(|(owner, _)| owner) != Some(plugin) {
             return Err(Error::new_resolving_message(base, name, "it is outside the plugin"));
         }
+        let Some(source) = self.sources.get(plugin) else {
+            return Err(Error::new_resolving_message(base, name, "it is outside the plugin"));
+        };
         for candidate in [path.clone(), format!("{path}.ts"), format!("{path}.js"), format!("{path}/index.ts")] {
-            if self.source.read(&candidate).is_some() {
+            let inner = &candidate[plugin.len() + 1..];
+            if !inner.is_empty() && source.read(inner).is_some() {
                 return Ok(candidate);
             }
         }
@@ -887,7 +1209,7 @@ impl Resolver for PluginResolver {
 
 /// Loads a resolved module, transpiling TypeScript as it goes.
 struct PluginLoader {
-    source: Source,
+    sources: HashMap<String, Source>,
 }
 
 impl Loader for PluginLoader {
@@ -900,11 +1222,14 @@ impl Loader for PluginLoader {
         let (path, source) = if name == API_MODULE {
             ("api/index.ts".to_string(), API.to_string())
         } else {
+            let (plugin, inner) =
+                split(name).ok_or_else(|| Error::new_loading_message(name, "no such file in the plugin"))?;
             let source = self
-                .source
-                .read(name)
+                .sources
+                .get(plugin)
+                .and_then(|source| source.read(inner))
                 .ok_or_else(|| Error::new_loading_message(name, "no such file in the plugin"))?;
-            (name.to_string(), source)
+            (inner.to_string(), source)
         };
         let javascript = transpile(&path, &source).map_err(|message| Error::new_loading_message(name, message))?;
         Module::declare(ctx.clone(), name, javascript)
@@ -917,8 +1242,10 @@ mod tests {
 
     #[test]
     fn imports_join_like_paths() {
-        assert_eq!(join("<piton>", "./src/index.ts"), "src/index.ts");
-        assert_eq!(join("src/index.ts", "./tags"), "src/tags");
-        assert_eq!(join("src/a/b.ts", "../c"), "src/c");
+        assert_eq!(join("<piton>", "./test/src/index.ts"), "test/src/index.ts");
+        assert_eq!(join("test/src/index.ts", "./tags"), "test/src/tags");
+        assert_eq!(join("test/src/a/b.ts", "../c"), "test/src/c");
+        // Leaving the plugin's directory lands outside its name.
+        assert_eq!(split(&join("test/src/index.ts", "../../belay/src/x")), Some(("belay", "src/x")));
     }
 }

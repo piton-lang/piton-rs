@@ -19,6 +19,26 @@ export default definePlugin({ commands: { hello } });
 ```
 The module is written in TypeScript with its types, so it is also the reference an author reads. It is in the compiler's source at crates/piton-plugin/api/index.ts.
 
+## Hooks
+
+Beside its command handlers, what definePlugin returns can hold a hook for each part a plugin takes in the compiler's own work. Each is declared in the plugin's declaration, so the host knows without running the plugin which plugins to ask.
+
+### Build
+
+The plan of what `piton build` writes, for a plugin that declares build: true. Described in plugin build.
+
+### Inspect
+
+What is out of date in the project, for a plugin that declares inspect: true. Described in plugin inspection.
+
+### Reach
+
+The anchors the plugin reaches itself, as a list of anchors, each a file and a name, for a plugin that declares reach: true. `piton reach` and the language server count them as roots beside the entry. Described in plugin reach.
+
+### Exports
+
+What plugins that require this one can use. Described in plugin dependencies.
+
 ## Editors
 
 @piton/plugin exists only inside Piton's loader, so an editor's TypeScript can't find it on its own and reports the import as a missing module. A plugin gives it a tsconfig.json whose paths map @piton/plugin to the API's file; then the editor and tsc check the plugin against the API. The test plugin's tsconfig.json, in plugins/test, does this with strict checking. The configuration is for editors only: Piton never reads it, and nothing is emitted.
@@ -33,15 +53,15 @@ The plugin's name.
 
 ### Terminal
 
-Whether stdout and stderr are terminals, the terminal's width in columns, and whether colour is shown, which NO_COLOR turns off.
+Whether stdin, stdout and stderr are terminals, the terminal's width in columns, and whether colour is shown, which NO_COLOR turns off.
 
 ### Project
 
-The project the command runs in, from the piton.config.pi in the working directory: its root, source root, entry, output directory and configuration path, and Belay's code root and adapters when it configures Belay. Paths are absolute.
+The project the command runs in, from the piton.config.pi in the working directory: its root, source root, entry, output directory and configuration path, and Belay's code root, shape root and adapters when it configures Belay. Paths are absolute.
 
 ### Settings
 
-The project's settings for the plugin, or null when it lists none.
+The project's settings for the plugin, or null when it lists none. With them come the properties of every anchor they name, like the adapters a belay-config lists, and where each of those anchors is declared.
 
 ### Compile
 
@@ -51,6 +71,22 @@ Compiles the project. With workspace, every source under the root, not only what
 
 Starts a program the plugin may run, with arguments, and optionally a working directory inside the project and environment variables. The program runs in the project root with nothing on its stdin.
 
+### Exec
+
+Runs a program the plugin may run with the terminal, so its input, output and prompts are the user's, and returns its exit code when it ends.
+
+### Apply Edits
+
+Writes proposed edits, each a file in the project and its whole new contents, for a command the user ran to make them. Each path has to be among the edits the plugin's capabilities list. Returns the paths changed.
+
+### Choose
+
+Asks the user to choose one item from a menu on the terminal, and gives the item chosen, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
+
+### Resource
+
+The text of a file in the plugin's own directory, like a prompt it ships with. No capability is needed: the files are the plugin's.
+
 ### On Path
 
 Whether a program the plugin may run is on PATH.
@@ -58,6 +94,10 @@ Whether a program the plugin may run is on PATH.
 ### Read File
 
 The text of a file inside the project.
+
+### Stat
+
+Whether a path inside the project is a file, a directory or something else, its size in bytes and whether it is executable, following symbolic links; null when nothing is there. Like readFile, it needs files: read.
 
 ### Temporary File
 
@@ -80,10 +120,6 @@ Writes to stderr exactly as given, terminal control codes included, for a status
 ### Report
 
 Problems, held back and printed after everything else with the count last, as every command does: error, warning, help and note; and done and stopped, the outcome line.
-
-### Agents
-
-The agentic tools Piton knows, each with its name, the program it runs and its Belay target, and the fluency prompt `piton agent` gives each.
 
 ## Anchors
 
@@ -108,9 +144,29 @@ Only anchors declared in the project's own source, not in tethers/ or a bundled 
 This is how the test plugin finds every test: every exported, concrete anchor in the source root that extends Test, whatever keyword or chain it got there by.
 Each anchor comes with its name, the file it is declared in, whether it is exported and abstract, the keyword it was declared with, its resolved properties, and its location: where it names a property itself, or else where its name is, to point a diagnostic at.
 
+### Exports
+
+The ids of the anchors the entry exports, in the order it exports them, the ones it forwards from other modules included.
+
+### Values
+
+An anchor's resolved properties in their order, with nothing flattened, as described under typed values.
+
+### Slot
+
+Where an anchor's property gets its value: the anchor whose declaration writes it, the anchor itself or one it inherits from, whether a value was given or only a type, and where that declaration names the property. Null when the anchor has no such property. A diagnostic about an inherited value points there.
+
 ## Values
 
 Properties arrive as JSON. A string is its plain text, with references written as the names they point at. A number, boolean, null, list and dictionary are themselves, and an implicit list is a list. An anchor used as a value is not inlined, which could repeat a large part of the project, but named, as an object with $anchor and its name, and a reference is an object with $reference and the name it points at.
+
+## Typed Values
+
+JSON merges things some plugins have to tell apart: text that holds references and plain text, a dictionary and a block that mixes keys with prose or list items, and keys that look like numbers, which JavaScript puts first. So a compilation also gives an anchor's properties as typed values, each an object with a kind. Null, boolean and number carry their value. Text carries its plain text and the references it holds, each the id of the anchor and the property path. A list carries its items, and a dictionary its entries as pairs of key and value, in order. A mixed block carries its items, where a key written in the block is an entry with its key and value. An anchor used as a value carries its id and name, and a reference its id, path and the name it is written as. With these a plugin can follow references itself, through anchors embedded by value.
+
+## Slicing
+
+A compilation can print the slice of a target, as `piton slice` does, citing where a layout puts each declaration instead of the source: the same layout a link space takes. That is how a plugin that compiles documents offers a slice of what it wrote, like `piton belay slice`. It returns the exit code, and reports what `piton slice` reports.
 
 ## Diagnostics
 

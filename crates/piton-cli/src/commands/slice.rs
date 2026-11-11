@@ -4,13 +4,11 @@
 //! looked up across the project. The result is one Markdown document on
 //! stdout, meant to be handed to an agent as-is.
 //!
-//! With `--adapter`, the document cites what that Belay target compiles
-//! rather than the source, for an agent that reads the compiled reference
-//! documents. The locations have to be the ones `piton build` writes, so the
-//! project is compiled from its own entry, exactly as a build compiles it,
-//! rather than from the target's file. The source is never cited: whatever
-//! the slice reaches from there was compiled somewhere, if only into the
-//! documents of what extends or reads it.
+//! A plugin can have the slice cite what it compiles rather than the source,
+//! like Belay's `piton belay slice --adapter`: it gives [`cite`] where each
+//! anchor was compiled, and the slice is found and printed here, the same way.
+//! The source is never cited then: whatever the slice reaches was compiled
+//! somewhere, if only into the documents of what extends or reads it.
 
 use piton_compile::slice::{self, Target};
 use piton_compile::Compilation;
@@ -21,7 +19,7 @@ use piton_emit::markdown::LinkResolver;
 
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
-pub fn run(target: &str, adapter: Option<&str>) -> u8 {
+pub fn run(target: &str) -> u8 {
     let target = match Target::parse(target) {
         Ok(target) => target,
         Err(message) => {
@@ -31,24 +29,7 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
     };
 
     let (configured, _) = project::enclosing();
-    if let Some(adapter) = adapter {
-        if configured.belay().is_none() {
-            report::fail(format!(
-                "`--adapter {adapter}` cites what a Belay target compiles, and this project has no Belay configuration"
-            ));
-            return EXIT_ERRORS;
-        }
-    }
     let (compilation, entry) = match &target.file {
-        // With an adapter, only what the build compiles has a location, so
-        // the target has to be found in that same compilation.
-        Some(file) if adapter.is_some() => {
-            let Some(path) = existing(file) else {
-                return EXIT_ERRORS;
-            };
-            (Compilation::build(configured), Some(path))
-        }
-        None if adapter.is_some() => (Compilation::build(configured), None),
         // The project's own build, so the chain from its entry can be traced;
         // a file that build doesn't reach is compiled from itself instead,
         // and has no chain.
@@ -101,36 +82,9 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
         return EXIT_ERRORS;
     }
 
-    // An adapter the project does not build is reported before the target,
-    // since no target could be cited there.
-    let locations = match adapter {
-        Some(adapter) => {
-            let config = compilation
-                .project
-                .belay()
-                .expect("the Belay configuration was checked before compiling");
-            match piton_belay::locations(&compilation, config, adapter) {
-                Ok(locations) => Some(locations),
-                Err(message) => {
-                    report::fail(message);
-                    return EXIT_ERRORS;
-                }
-            }
-        }
-        None => None,
-    };
-
     let resolved = match &entry {
         Some(path) => match compilation.graph().id_for(path) {
             Some(module) => slice::resolve_in(&compilation, module, &target),
-            None if adapter.is_some() => {
-                report::fail(format!(
-                    "`{}` is not part of what the build compiles, so nothing in it has a compiled location",
-                    project::display(path, &root)
-                ));
-                report::help("import it from the entry, or slice without --adapter");
-                return EXIT_ERRORS;
-            }
             None => {
                 report::fail(format!("cannot read `{}`", path.display()));
                 return EXIT_ERRORS;
@@ -142,52 +96,12 @@ pub fn run(target: &str, adapter: Option<&str>) -> u8 {
         Ok(entity) => entity,
         Err(diagnostic) => {
             fail(&compilation, &diagnostic);
-            if adapter.is_some() && entry.is_none() {
-                report::help("with --adapter, only what the build compiles is searched; without it, every file is");
-            }
             return EXIT_ERRORS;
         }
     };
-
-    // What the target depends on is compiled into whatever uses it, but the
-    // target itself has to be somewhere, or there is nothing to point at.
-    if let (
-        Some(locations),
-        slice::Entity::Anchor(anchor) | slice::Entity::Property(anchor, _),
-    ) = (&locations, &entity)
-    {
-        let def = compilation.store().anchor(*anchor);
-        let target = piton_core::Ref::anchor(*anchor);
-        if !def.is_abstract
-            && slice::markdown::compiled_location(&compilation, locations, &target).is_none()
-        {
-            report::fail(format!(
-                "`{}` is never compiled: nothing the build emits exports, references, or embeds it",
-                def.name
-            ));
-            report::help("export it from the entry, or slice without --adapter to cite the source");
-            return EXIT_ERRORS;
-        }
-    }
 
     let slice = slice::slice(&compilation, entity);
-    let Some(locations) = locations else {
-        print!("{}", slice::markdown::render(&compilation, &slice, &here()));
-        return EXIT_SUCCESS;
-    };
-
-    print!(
-        "{}",
-        slice::markdown::render_compiled(
-            &compilation,
-            &slice,
-            &Rebased {
-                links: &locations,
-                root: &root,
-                here: here(),
-            }
-        )
-    );
+    print!("{}", slice::markdown::render(&compilation, &slice, &here()));
     EXIT_SUCCESS
 }
 
@@ -248,4 +162,81 @@ fn fail(compilation: &Compilation, diagnostic: &Diagnostic) {
         "{}",
         diagnostics::render(diagnostic, source, Some(&compilation.project.root))
     );
+}
+
+/// Prints the slice of `target` from a compilation the caller made from the
+/// project's entry, the way a build compiles it, citing where `links` says
+/// each anchor was compiled. Returns the exit code.
+pub fn cite(compilation: &Compilation, target: &str, links: &dyn LinkResolver) -> u8 {
+    let target = match Target::parse(target) {
+        Ok(target) => target,
+        Err(message) => {
+            report::fail(message);
+            return EXIT_ERRORS;
+        }
+    };
+    let root = compilation.project.root.clone();
+    let entry = match &target.file {
+        Some(file) => {
+            let Some(path) = existing(file) else {
+                return EXIT_ERRORS;
+            };
+            Some(path)
+        }
+        None => None,
+    };
+    let resolved = match &entry {
+        Some(path) => match compilation.graph().id_for(path) {
+            Some(module) => slice::resolve_in(compilation, module, &target),
+            None => {
+                report::fail(format!(
+                    "`{}` is not part of what the build compiles, so nothing in it has a compiled location",
+                    project::display(path, &root)
+                ));
+                report::help("import it from the entry, or slice the source with `piton slice`");
+                return EXIT_ERRORS;
+            }
+        },
+        None => slice::find(compilation, &target),
+    };
+    let entity = match resolved {
+        Ok(entity) => entity,
+        Err(diagnostic) => {
+            fail(compilation, &diagnostic);
+            if entry.is_none() {
+                report::help("only what the build compiles is searched; `piton slice` searches every file");
+            }
+            return EXIT_ERRORS;
+        }
+    };
+
+    // What the target depends on is compiled into whatever uses it, but the
+    // target itself has to be somewhere, or there is nothing to point at.
+    if let slice::Entity::Anchor(anchor) | slice::Entity::Property(anchor, _) = &entity {
+        let def = compilation.store().anchor(*anchor);
+        let target = piton_core::Ref::anchor(*anchor);
+        if !def.is_abstract && slice::markdown::compiled_location(compilation, links, &target).is_none() {
+            report::fail(format!(
+                "`{}` is never compiled: nothing the build emits exports, references, or embeds it",
+                def.name
+            ));
+            report::help("export it from the entry, or slice the source with `piton slice`");
+            return EXIT_ERRORS;
+        }
+    }
+
+    let slice = slice::slice(compilation, entity);
+    print!(
+        "{}",
+        slice::markdown::render_compiled(
+            compilation,
+            &slice,
+            &Rebased {
+                links,
+                root: &root,
+                here: here(),
+            }
+        )
+    );
+    EXIT_SUCCESS
 }

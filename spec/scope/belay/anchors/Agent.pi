@@ -1,10 +1,5 @@
 from ../Framework import FrameworkSpecification
-from ./Construct import Construct
 from ./Skill import VendoredFiles
-
-export abstract anchor Agent extends Construct as agent:
-    role:: string:: null: null
-    file:: string:: dictionary:: null: null
 
 export anchor AgentBehavior extends FrameworkSpecification:
     description:

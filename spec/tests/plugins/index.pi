@@ -1,0 +1,15 @@
+use ./lib
+
+export test OverrideReach:
+    expects:
+        Plugins should be able to override how Piton understands reach and
+        used/unused anchors.
+
+    description:
+        A test, for example, isn't reached in the traditional way, but it is
+        inherently reached by the test runner.
+
+export test LspRespectsOverride:
+    expects:
+        Per @{OverrideReach} the LSP should reflect plugin-based reach
+        overrides.

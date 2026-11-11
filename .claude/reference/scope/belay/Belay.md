@@ -4,10 +4,14 @@
 
 A Piton framework for structured agent instructions, skills, commands, and agents, compiled into the formats used by agentic coding tools.
 
+## Plugin
+
+[BelayPlugin](./Plugin.md#belay-plugin)
+
 ## Special Imports
 
 ```
-description: The following special imports can be brought in from `@piton/belay` and used. They're filled in at compile time, for each adapter, as a path relative to the file they end up in.
+description: The following special imports can be brought in from `@piton/belay` and used. They're the Belay plugin's placeholders: filled in by Belay's build, for each adapter, as a path relative to the file they end up in. Anywhere else, like the output of `piton compile` or the renderer's output of `piton build`, the project root resolves the same way, the code and shape roots are written as the project root, and the agent root and compiled shape, which only exist for an adapter, are written as their names.
 BELAY_AGENT_ROOT: The agent's directory, so that might be .claude, .codex, .opencode or .muse.
 BELAY_PROJECT_ROOT: The project, where piton.config.pi lives.
 BELAY_SHAPE_ROOT: The shape as configured in the project config. If not specified, it's the project root.
@@ -42,10 +46,10 @@ BELAY_COMPILED_SHAPE: The compiled copy of the shape for the agent, under its re
 
 ## Adapters
 
-- [ClaudeCodeAdapter](./adapters/ClaudeCode.md#claude-code-adapter)
-- [CodexAdapter](./adapters/Codex.md#codex-adapter)
-- [OpenCodeAdapter](./adapters/OpenCode.md#open-code-adapter)
-- [MuseAdapter](./adapters/Muse.md#muse-adapter)
+- [ClaudeCodeAdapter](../../plugins/belay/pi/adapters/ClaudeCode.md#claude-code-adapter)
+- [CodexAdapter](../../plugins/belay/pi/adapters/Codex.md#codex-adapter)
+- [OpenCodeAdapter](../../plugins/belay/pi/adapters/OpenCode.md#open-code-adapter)
+- [MuseAdapter](../../plugins/belay/pi/adapters/Muse.md#muse-adapter)
 
 ## Guarantees
 

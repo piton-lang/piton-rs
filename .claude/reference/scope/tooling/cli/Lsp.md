@@ -23,7 +23,8 @@ Positions are counted in UTF-16 code units, the protocol's default, and the serv
 ## Features
 
 ```
-diagnostics: Validate Piton syntax and Belay semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
+diagnostics: Validate Piton syntax and semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
+  Plugins with a build, like Belay, report their diagnostics too. Their builds are planned when a file is saved, never as you type, so typing runs no plugin code; their diagnostics are the ones the last save found. A plugin that fails to plan is reported on the configuration.
 completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
   However, don't autocomplete things that don't exist.
   Offer each thing once. A name an index re-exports is exported by several modules that all lead to the same anchor, and it is offered once, imported from the shortest path. Two different anchors that share a name, like a project's copy of a spec and the one bundled with the compiler, are both offered, each naming the module it would be imported from so they can be told apart.
@@ -73,10 +74,11 @@ relatedSymbolNavigation: Provide navigation between closely related constructs s
 hierarchyView: Expose inheritance and composition relationships as a hierarchy so the editor can show parents, children, extensions, and implementations of a selected construct.
 resolvedValueInspection: Allow the editor to show the final resolved value of a property after inheritance, overrides, composition, and expressions have been applied.
 provenanceInspection: For any resolved value, show exactly where it came from: its original declaration, inheritance path, composition step, override, or expression.
-compiledOutputPreview: Allow a Piton construct or file to be previewed as its compiled representation, such as Markdown, JSON, agent instructions, or another Belay target.
+compiledOutputPreview: Allow a Piton construct or file to be previewed as its compiled representation, such as Markdown, JSON, or what a plugin's build writes for it, like the agent instructions of a Belay target, named by the group the plugin gives its output. The plugin output is the one planned at the last save.
 sourceToOutputMapping: Maintain mappings between Piton source and compiled output so an editor can identify which source construct produced a particular section of generated output.
   The mapping is shown in the hover, under Compiled to, and in a code lens on the construct's first line. It is never offered as document links. A construct's range is its whole body, and it usually compiles to one file per adapter, so links would mark the whole body as navigable and stack one tooltip per adapter on every hover.
 unusedSymbolDetection: Warn about anchors, imports, properties, exports, or other declarations that are never referenced or contribute nothing to the compiled result.
+  What is used is what `piton reach` reaches: the entry's exports, and the anchors that plugins reach themselves, described in [PluginReach](../../plugins/Reach.md#plugin-reach), like the exported tests the test plugin runs, with all they reach in turn. The server asks the plugins for those anchors when a file is saved, never as you type, and keeps them until the next save, as it does plugin builds. So an exported test is not reported as an unused anchor.
 duplicateRedundantDefinitionDetection: Identify declarations that unnecessarily repeat inherited or composed values and could be removed without changing the resolved specification.
 documentationIntegration: Surface documentation comments and descriptions through hover, completion, symbol search, and hierarchy views so the specbase remains understandable while navigating it.
 incrementalAnalysis: Only re-evaluate the portions of the dependency graph affected by an edit rather than recompiling the entire specbase after every keystroke.

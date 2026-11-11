@@ -29,6 +29,17 @@ fn check_project(project: piton_compile::Project, mut diagnostics: DiagnosticSin
     let root = project.root.clone();
     let compilation = project::compile_project(project);
     diagnostics.extend(compilation.diagnostics.iter().cloned());
+
+    // Plugins with a build plan it, so their diagnostics are checked too;
+    // nothing is written.
+    let (_, _, manifests, _) = crate::plugins::load();
+    let (plans, failures) = crate::plugins::plan_builds(&compilation.project, &manifests);
+    for plan in plans {
+        diagnostics.extend(plan.diagnostics);
+    }
+    for failure in &failures {
+        report::fail(failure);
+    }
     diagnostics.sort();
 
     let had_errors = report::diagnostics(
@@ -37,7 +48,7 @@ fn check_project(project: piton_compile::Project, mut diagnostics: DiagnosticSin
         &root,
     );
     report::summary(&diagnostics);
-    if had_errors {
+    if had_errors || !failures.is_empty() {
         EXIT_ERRORS
     } else {
         EXIT_SUCCESS

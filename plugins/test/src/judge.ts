@@ -7,7 +7,13 @@
 // Thus, the run can show what the tool does.
 // The verdict comes from the answer of the tool.
 
-import type { Context, Project } from "@piton/plugin";
+import type { Context, Project as HostProject } from "@piton/plugin";
+
+/** The project, with the code root that Belay configures, or null when the
+ * project does not configure Belay. */
+export interface Project extends HostProject {
+  codeRoot: string | null;
+}
 
 /** This marker starts the verdict line of a tool. */
 export const VERDICT = "PITON-VERDICT:";
@@ -149,6 +155,8 @@ export function request(project: Project, test: TestCase): string {
 export interface Launcher {
   agent: string;
   program: string;
+  /** The options that select the model, empty for the tool's default. */
+  modelOptions: string[];
   fluency: string;
   /** OpenCode reads its instructions from a file. */
   promptFile: string | null;
@@ -176,6 +184,7 @@ export function launch(launcher: Launcher, request: string): { args: string[]; e
           "--output-format",
           "stream-json",
           "--verbose",
+          ...launcher.modelOptions,
         ],
         env: {},
       };
@@ -189,13 +198,14 @@ export function launch(launcher: Launcher, request: string): { args: string[]; e
           "-c",
           // A JSON string is also a valid TOML basic string.
           `developer_instructions=${JSON.stringify(launcher.fluency)}`,
+          ...launcher.modelOptions,
           request,
         ],
         env: {},
       };
     case "opencode":
       return {
-        args: ["run", "--standalone", request],
+        args: ["run", "--standalone", ...launcher.modelOptions, request],
         env: {
           OPENCODE_CONFIG_CONTENT: JSON.stringify({
             instructions: [launcher.promptFile],
@@ -205,7 +215,7 @@ export function launch(launcher: Launcher, request: string): { args: string[]; e
       };
     case "muse":
       return {
-        args: ["exec", "-c", `run.developer_prompt=${JSON.stringify(launcher.fluency)}`, request],
+        args: ["exec", "-c", `run.developer_prompt=${JSON.stringify(launcher.fluency)}`, ...launcher.modelOptions, request],
         env: {},
       };
     default:

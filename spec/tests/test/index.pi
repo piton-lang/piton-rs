@@ -1,13 +1,4 @@
-from @piton/test import Test
-
-abstract anchor MyTest extends Test as test:
-    tags:
-        - test
-
-export test FreshContext:
-    expects:
-        Each test during `piton test` should run against a new agent with a
-        fresh context.
+use ./lib
 
 export test Implementation:
     expects:
@@ -20,12 +11,3 @@ export test ExtendsTestKeyword:
         for example MyTest extends Test as my-test and whether a test is
         declared with `my-test` or `extends MyTest` it will still get picked up
         by the test framework.
-
-export test UndefinedBehavior:
-    expects:
-        Undefined behaviour in either the spec or the code will fail a test.
-
-export test ModedFailure:
-    expects:
-        A test that passes in spec and fails in code should or vice versa should
-        display both, but ultimately is a fail.

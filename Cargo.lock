@@ -1483,18 +1483,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "piton-belay"
-version = "0.1.0"
-dependencies = [
- "indexmap",
- "piton-compile",
- "piton-core",
- "piton-emit",
- "piton-syntax",
- "serde_json",
-]
-
-[[package]]
 name = "piton-cli"
 version = "0.1.0"
 dependencies = [
@@ -1503,7 +1491,6 @@ dependencies = [
  "clap",
  "globset",
  "inquire",
- "piton-belay",
  "piton-compile",
  "piton-core",
  "piton-emit",
@@ -1545,10 +1532,10 @@ dependencies = [
 name = "piton-lsp"
 version = "0.1.0"
 dependencies = [
- "piton-belay",
  "piton-compile",
  "piton-core",
  "piton-emit",
+ "piton-plugin",
  "piton-syntax",
  "rowan",
  "serde_json",
@@ -1562,6 +1549,7 @@ name = "piton-plugin"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "globset",
  "indexmap",
  "oxc_allocator",
  "oxc_codegen",
@@ -1572,6 +1560,7 @@ dependencies = [
  "oxc_transformer",
  "piton-compile",
  "piton-core",
+ "piton-emit",
  "rquickjs",
  "serde_json",
 ]

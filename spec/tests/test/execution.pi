@@ -1,0 +1,6 @@
+use ./lib
+
+export test FreshContext:
+    expects:
+        Each test during `piton test` should run against a new agent with a
+        fresh context.

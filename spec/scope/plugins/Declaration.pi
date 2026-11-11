@@ -47,6 +47,11 @@ export anchor PluginDeclaration:
             settings:: string:: null: null
             commands:: dictionary:: null: null
             capabilities:: dictionary:: null: null
+            requires:: string[]:: null: null
+            placeholders:: string[]:: null: null
+            build:: boolean:: null: null
+            inspect:: boolean:: null: null
+            reach:: boolean:: null: null
         \\\
         ```
 
@@ -75,13 +80,38 @@ export anchor PluginDeclaration:
         Optional. What the plugin may do beyond reading the compiled project,
         described in plugin capabilities. Left out, it may do nothing else.
 
+    requires:
+        Optional. The names of plugins this one builds on, whose exports it
+        uses, described in plugin dependencies.
+
+    placeholders:
+        Optional. Names its Piton files export whose value is only known when
+        its output is written, described in plugin rendering.
+
+    build:
+        Optional. true when the plugin produces build output through a build
+        hook, described in plugin build. Left out, `piton build` doesn't run
+        it.
+
+    inspect:
+        Optional. true when the plugin inspects projects before commands run,
+        through an inspect hook, described in plugin inspection.
+
+    reach:
+        Optional. true when the plugin names anchors it reaches itself,
+        through a reach hook, described in plugin reach. `piton reach` and the
+        language server count those anchors as roots beside the entry.
+
     commands:
         Optional. A dictionary from each command's name to what it is. A name
         is lowercase words joined by hyphens, and is what follows piton on the
         command line. Two plugins can't add the same command, and a plugin
         can't add one the compiler has: the second is reported and not added.
+        The same holds within a group, and a group can't be named like a
+        command, the compiler's or a plugin's.
 
         about: One line, shown in `piton --help` and at the top of the command's own help.
+        group: Optional. A word the command is grouped under, so `slice` grouped under belay is `piton belay slice`. Commands in a group are listed under it in `piton --help`, and the group itself is a command that lists them.
         help: More, shown under it in `piton <command> --help`.
         arguments: A dictionary from each argument's name to what it is, in the order they are listed in help.
 
@@ -98,15 +128,21 @@ export anchor PluginDeclaration:
         short: One letter, for a short option like -j.
         minimum: For a number, the least it may be.
         conflicts: Other arguments of the command it can't be given with.
+        default: The value it has when it isn't given.
+        trailing: For the last positional, multiple argument: true to take everything after it as it is, values that look like options included, to pass on to a program, like `piton agent claude --resume`.
+        optionalValue: For an option that takes one value: true to let it also be given with no value, like `piton test --model`. The plugin then receives an empty string, which is different from null, the option not given.
 
-        A positional argument has no type flag and no short name. A setting
+        A positional argument has no type flag and no short name. Only an
+        option that takes one value, not a positional, multiple or flag
+        argument, can have an optional value. A setting
         that isn't one of these, and a conflict naming an argument the command
         doesn't have, make the declaration invalid.
 
     values:
         The plugin receives its arguments by name: a flag as true or false,
-        a number as a number, a multiple argument as a list, and anything not
-        given as null. The CLI checks them against the declaration first, so
+        a number as a number, a multiple argument as a list, an option with
+        an optional value given without one as an empty string, and anything
+        not given as null. The CLI checks them against the declaration first, so
         a value outside its choices or below its minimum never reaches the
         plugin, and is reported the way the compiler's own commands report
         bad arguments.

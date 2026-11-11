@@ -141,9 +141,19 @@ pub fn is_unnecessary(code: &str) -> bool {
 }
 
 /// Builds the analysis for a compiled program and its occurrence index.
-pub fn analyze(compilation: &Compilation, index: &Index, output: &OutputSettings) -> Analysis {
+pub fn analyze(
+    compilation: &Compilation,
+    index: &Index,
+    output: &OutputSettings,
+    plans: &[piton_plugin::plan::PluginPlan],
+    reached: &[(std::path::PathBuf, String)],
+) -> Analysis {
     let mut analysis = Analysis::default();
-    let reachability = reach::from_entry(compilation);
+    // What is used is what `piton reach` reaches: the entry's exports, and
+    // the anchors plugins reach themselves, like the tests the test plugin
+    // runs.
+    let roots = reach::locate(compilation, reached);
+    let reachability = reach::from_entry_and(compilation, &roots);
 
     imports(compilation, index, &mut analysis.diagnostics);
     ambiguities(compilation, index, &mut analysis);
@@ -156,7 +166,7 @@ pub fn analyze(compilation: &Compilation, index: &Index, output: &OutputSettings
     compositions(compilation, &mut analysis);
     composition_edges(compilation, &mut analysis);
     map_outputs(compilation, output, &mut analysis.mappings);
-    belay(compilation, &mut analysis);
+    plugin_outputs(compilation, plans, &mut analysis);
 
     analysis.diagnostics.sort_by(|left, right| {
         left.file
@@ -1831,68 +1841,43 @@ fn push_mapping(
     });
 }
 
-fn belay(compilation: &Compilation, analysis: &mut Analysis) {
-    let Some(config) = compilation.project.belay() else {
-        return;
-    };
-    let plan = piton_belay::plan(compilation, config);
-    for diagnostic in plan.diagnostics {
-        analysis
-            .diagnostics
-            .push(place_belay(compilation, diagnostic));
-    }
-    for file in &plan.files {
-        let Some(anchor) = anchor_for_output(compilation, file) else {
-            continue;
-        };
-        let def = compilation.store().anchor(anchor);
-        let source = compilation.graph().get(def.module).path.clone();
-        if source.to_string_lossy().starts_with('@') {
-            continue;
+/// What plugin builds planned at the last save: their diagnostics, and a
+/// mapping from each source anchor to the output it went into.
+fn plugin_outputs(compilation: &Compilation, plans: &[piton_plugin::plan::PluginPlan], analysis: &mut Analysis) {
+    for plan in plans {
+        for diagnostic in &plan.diagnostics {
+            analysis.diagnostics.push(place_belay(compilation, diagnostic.clone()));
         }
-        let output = compilation.project.root.join(&file.path);
-        let label = format!("{} {}", file.target, file.path.display());
-        push_mapping(
-            &mut analysis.mappings,
-            &source,
-            def.span,
-            &output,
-            0,
-            file.contents.len().max(1),
-            file.target,
-            &label,
-        );
-        map_property_headings(
-            compilation,
-            &output,
-            file.target,
-            &file.contents,
-            0,
-            file.contents.len(),
-            anchor,
-            2,
-            &mut analysis.mappings,
-        );
+        for file in &plan.files {
+            let Some(anchor) = anchor_for_output(compilation, &file.origin) else {
+                continue;
+            };
+            let def = compilation.store().anchor(anchor);
+            let source = compilation.graph().get(def.module).path.clone();
+            if source.to_string_lossy().starts_with('@') {
+                continue;
+            }
+            let group = file.group.clone().unwrap_or_else(|| file.owner.clone());
+            let contents = String::from_utf8_lossy(&file.data);
+            let output = compilation.project.root.join(&file.path);
+            let label = format!("{group} {}", file.path);
+            push_mapping(&mut analysis.mappings, &source, def.span, &output, 0, contents.len().max(1), &group, &label);
+            map_property_headings(compilation, &output, &group, &contents, 0, contents.len(), anchor, 2, &mut analysis.mappings);
+        }
     }
 }
 
-fn anchor_for_output(
-    compilation: &Compilation,
-    file: &piton_belay::OutputFile,
-) -> Option<AnchorId> {
-    compilation
-        .store()
-        .anchors
+/// The first anchor a planned file names as its origin, preferring one in
+/// the project's own source over a bundled package's.
+pub(crate) fn anchor_for_output(compilation: &Compilation, origin: &str) -> Option<AnchorId> {
+    let name = origin.split(',').next().unwrap_or(origin).trim();
+    let mut found = compilation.store().anchors.iter().filter(|def| def.name == name);
+    let candidates: Vec<_> = found.by_ref().collect();
+    candidates
         .iter()
-        .find(|def| {
-            def.name == file.origin
-                && file
-                    .sources
-                    .iter()
-                    .any(|source| compilation.graph().get(def.module).path == *source)
-        })
+        .find(|def| !compilation.graph().get(def.module).path.to_string_lossy().starts_with('@'))
+        .or_else(|| candidates.first())
         .map(|def| def.id)
-        .or_else(|| compilation.find_anchor(&file.origin))
 }
 
 /// Plan diagnostics are raised against the configuration, which is not the

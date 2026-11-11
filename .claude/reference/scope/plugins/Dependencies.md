@@ -1,0 +1,32 @@
+# Plugin Dependencies
+
+## Description
+
+A plugin can build on another. The test plugin launches agentic tools with the fluency prompt, and it's the Belay plugin that knows the tools, how each is launched, and what the prompt says. So the test plugin requires Belay, and calls what Belay exports.
+```piton
+piton-plugin TestPlugin:
+    name: test
+    requires: [belay]
+```
+```typescript
+// In Belay:
+export default definePlugin({
+  exports: { agents: (ctx) => ({ list, launch, fluency }) },
+});
+
+// In the test plugin:
+const agents = ctx.require("belay").agents;
+```
+
+## Loading
+
+A plugin's requirements are loaded with it, into the same runtime, before it runs. Each plugin's modules are its own, and a plugin imports only @piton/plugin and its own files; another plugin is reached only through ctx.require, by a name its declaration lists.
+A requirement the project doesn't have, a requirement on itself, and requirements that go round in a circle are errors in the declaration that requires them, and that plugin is not loaded.
+
+## Exports
+
+definePlugin takes exports beside commands and build: named values and functions other plugins can use. A function exported as a factory is given the exporting plugin's own context, so it runs with that plugin's capabilities, never the caller's, and a caller can't use it to do what its own declaration doesn't allow, beyond what the exporting plugin may.
+
+## Commands
+
+Requiring a plugin gives access to its exports only. Its commands and its build are its own, and run once however many plugins require it.

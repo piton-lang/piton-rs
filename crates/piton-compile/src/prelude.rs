@@ -4,15 +4,10 @@
 //! from a virtual filesystem rather than from disk, so a project gets the same
 //! vocabulary wherever it is checked out.
 //!
-//! The four agentic constructs are not written here. They are the `.pi` files in
-//! `spec/scope/belay/anchors`, embedded at build time, so the specification's
-//! description of a skill *is* the skill the compiler ships. Changing
-//! `Skill.pi` changes the framework; there is no second copy to keep in step.
-//!
-//! The adapters are embedded the same way, from `spec/scope/belay/adapters`, so
-//! the anchor a project lists in its `belay-config` is the adapter the
-//! specification describes. What stays in this file is the part with no such
-//! counterpart: the configuration anchor and the special imports.
+//! Belay and the test plugin are plugins bundled with the compiler. Their
+//! Piton files are embedded from `plugins/belay/pi` and `plugins/test/pi`, so
+//! what a project imports is the plugin's own source, with no second copy to
+//! keep in step. Their code is embedded by the plugin host.
 
 /// Module path for the project configuration package.
 pub const CONFIG_PACKAGE: &str = "@piton/config";
@@ -30,6 +25,13 @@ pub const TEST_PACKAGE: &str = "@piton/test";
 /// any other, so the plugin host compiles it the way the configuration
 /// compiles an installed plugin's declaration.
 pub const TEST_PLUGIN_DECLARATION: &str = "@piton/test/plugin";
+/// Module path of the bundled migrate plugin's declaration. The plugin has no
+/// Piton files of its own; its package path only names it.
+pub const MIGRATE_PLUGIN_DECLARATION: &str = "@piton/migrate/plugin";
+/// The package path the migrate plugin is named by.
+pub const MIGRATE_PACKAGE: &str = "@piton/migrate";
+/// Module path of the bundled Belay plugin's declaration.
+pub const BELAY_PLUGIN_DECLARATION: &str = "@piton/belay/plugin";
 
 /// The special export that resolves to the compiled shape root of the current
 /// output target.
@@ -92,13 +94,9 @@ export abstract anchor PitonConfig as piton-config:
     entry:: string:: null: null
     output:: string:: null: null
     renderer:: string:: null: null
-    frameworks:: list:: null: null
     packages:: list:: null: null
     dependencies:: list:: null: null
     plugins:: list:: null: null
-
-export abstract anchor FrameworkConfig as framework-config:
-    pass
 "#;
 
 /// `@piton/packaging`: the anchor a project declares a publishable package with.
@@ -126,21 +124,19 @@ export abstract anchor PitonPackage as piton-package:
 // The framework's own definitions, taken from the specification that describes
 // them. A build fails loudly if one of these files moves, which is the point:
 // the compiler and the specification cannot disagree about what a skill is.
-const BELAY_CONSTRUCT: &str = include_str!("../../../spec/scope/belay/anchors/Construct.pi");
-const BELAY_INSTRUCTION: &str = include_str!("../../../spec/scope/belay/anchors/Instruction.pi");
-const BELAY_SKILL: &str = include_str!("../../../spec/scope/belay/anchors/Skill.pi");
-const BELAY_COMMAND: &str = include_str!("../../../spec/scope/belay/anchors/Command.pi");
-const BELAY_AGENT: &str = include_str!("../../../spec/scope/belay/anchors/Agent.pi");
-/// The constructs extend `FrameworkSpecification`, which lives here.
-const BELAY_FRAMEWORK: &str = include_str!("../../../spec/scope/belay/Framework.pi");
+const BELAY_CONSTRUCT: &str = include_str!("../../../plugins/belay/pi/Construct.pi");
+const BELAY_INSTRUCTION: &str = include_str!("../../../plugins/belay/pi/Instruction.pi");
+const BELAY_SKILL: &str = include_str!("../../../plugins/belay/pi/Skill.pi");
+const BELAY_COMMAND: &str = include_str!("../../../plugins/belay/pi/Command.pi");
+const BELAY_AGENT: &str = include_str!("../../../plugins/belay/pi/Agent.pi");
 // The adapters, likewise taken from the specification: a project selects one
 // by listing the anchor, and Belay reads the target's paths and settings from
 // it.
-const BELAY_ADAPTER: &str = include_str!("../../../spec/scope/belay/adapters/Adapter.pi");
-const BELAY_CLAUDE_CODE: &str = include_str!("../../../spec/scope/belay/adapters/ClaudeCode.pi");
-const BELAY_CODEX: &str = include_str!("../../../spec/scope/belay/adapters/Codex.pi");
-const BELAY_OPENCODE: &str = include_str!("../../../spec/scope/belay/adapters/OpenCode.pi");
-const BELAY_MUSE: &str = include_str!("../../../spec/scope/belay/adapters/Muse.pi");
+const BELAY_ADAPTER: &str = include_str!("../../../plugins/belay/pi/adapters/Adapter.pi");
+const BELAY_CLAUDE_CODE: &str = include_str!("../../../plugins/belay/pi/adapters/ClaudeCode.pi");
+const BELAY_CODEX: &str = include_str!("../../../plugins/belay/pi/adapters/Codex.pi");
+const BELAY_OPENCODE: &str = include_str!("../../../plugins/belay/pi/adapters/OpenCode.pi");
+const BELAY_MUSE: &str = include_str!("../../../plugins/belay/pi/adapters/Muse.pi");
 
 // `@piton/plugin`, from the specification that describes it, the same way
 // Belay's constructs are.
@@ -152,58 +148,12 @@ const TEST_INDEX: &str = include_str!("../../../plugins/test/pi/index.pi");
 const TEST_TEST: &str = include_str!("../../../plugins/test/pi/Test.pi");
 const TEST_CONFIG: &str = include_str!("../../../plugins/test/pi/TestConfig.pi");
 const TEST_PLUGIN: &str = include_str!("../../../plugins/test/plugin.pi");
+const BELAY_PLUGIN: &str = include_str!("../../../plugins/belay/plugin.pi");
+const MIGRATE_PLUGIN: &str = include_str!("../../../plugins/migrate/plugin.pi");
 
 /// `@piton/belay`: re-exports the constructs and the adapters, and adds the
 /// configuration anchor and the special imports.
-const BELAY_INDEX: &str = r#"// Bundled with the Piton compiler.
-//
-// The four constructs and the adapters come from the specification that
-// describes them. Only their names are listed here, so the package exports the
-// framework without also exporting the documentation that surrounds it.
-
-use @piton/config
-
-from @piton/config import FrameworkConfig
-
-from ./anchors/Construct export Construct
-from ./anchors/Instruction export Instruction
-from ./anchors/Skill export Skill
-from ./anchors/Command export Command
-from ./anchors/Agent export Agent
-
-from ./adapters/Adapter export Adapter
-from ./adapters/ClaudeCode export ClaudeCodeAdapter
-from ./adapters/Codex export CodexAdapter
-from ./adapters/OpenCode export OpenCodeAdapter
-from ./adapters/Muse export MuseAdapter
-
-from ./adapters/ClaudeCode import ClaudeCodeAdapter
-
-// Resolved during compilation, separately for each adapter and each output
-// location. Never resolved at agent runtime.
-export BELAY_COMPILED_SHAPE: __BELAY_SHAPE_MARKER__
-
-// The directories a generated artifact may need to point at. Each is written
-// relative to the file that carries it, for the adapter being compiled.
-export BELAY_AGENT_ROOT: __BELAY_AGENT_ROOT_MARKER__
-export BELAY_PROJECT_ROOT: __BELAY_PROJECT_ROOT_MARKER__
-export BELAY_SHAPE_ROOT: __BELAY_SHAPE_ROOT_MARKER__
-export BELAY_CODE_ROOT: __BELAY_CODE_ROOT_MARKER__
-
-// crossDiscovery is the deployment choice for skills one adapter writes and
-// another discovers (OpenCode and Muse read .claude/skills and
-// .agents/skills): allow accepts that, separate says the trees are deployed
-// apart. It is required
-// only when discovery would change how something activates.
-// instructionByteLimit is the byte budget of an instruction chain, for
-// targets that truncate past one (Codex's project_doc_max_bytes).
-export abstract anchor BelayConfig extends FrameworkConfig as belay-config:
-    codeRoot:: string
-    shapeRoot:: string:: null: null
-    adapters:: list
-    crossDiscovery:: string:: null: null
-    instructionByteLimit:: number:: null: null
-"#;
+const BELAY_INDEX: &str = include_str!("../../../plugins/belay/pi/index.pi");
 
 /// Every module a bundled package provides, keyed by its virtual path.
 ///
@@ -224,12 +174,11 @@ fn modules() -> &'static [(&'static str, &'static str)] {
                 (CONFIG_PACKAGE, CONFIG_SOURCE),
                 (PACKAGING_PACKAGE, PACKAGING_SOURCE),
                 (BELAY_PACKAGE, index),
-                ("@piton/belay/Framework", BELAY_FRAMEWORK),
-                ("@piton/belay/anchors/Construct", BELAY_CONSTRUCT),
-                ("@piton/belay/anchors/Instruction", BELAY_INSTRUCTION),
-                ("@piton/belay/anchors/Skill", BELAY_SKILL),
-                ("@piton/belay/anchors/Command", BELAY_COMMAND),
-                ("@piton/belay/anchors/Agent", BELAY_AGENT),
+                ("@piton/belay/Construct", BELAY_CONSTRUCT),
+                ("@piton/belay/Instruction", BELAY_INSTRUCTION),
+                ("@piton/belay/Skill", BELAY_SKILL),
+                ("@piton/belay/Command", BELAY_COMMAND),
+                ("@piton/belay/Agent", BELAY_AGENT),
                 ("@piton/belay/adapters/Adapter", BELAY_ADAPTER),
                 ("@piton/belay/adapters/ClaudeCode", BELAY_CLAUDE_CODE),
                 ("@piton/belay/adapters/Codex", BELAY_CODEX),
@@ -240,6 +189,8 @@ fn modules() -> &'static [(&'static str, &'static str)] {
                 ("@piton/test/Test", TEST_TEST),
                 ("@piton/test/TestConfig", TEST_CONFIG),
                 (TEST_PLUGIN_DECLARATION, TEST_PLUGIN),
+                (BELAY_PLUGIN_DECLARATION, BELAY_PLUGIN),
+                (MIGRATE_PLUGIN_DECLARATION, MIGRATE_PLUGIN),
             ]
         })
         .as_slice()
@@ -275,7 +226,7 @@ mod tests {
     #[test]
     fn the_constructs_come_from_the_specification() {
         // Not a copy of them: the same bytes the specification is written in.
-        let skill = package_source("@piton/belay/anchors/Skill").expect("module");
+        let skill = package_source("@piton/belay/Skill").expect("module");
         assert!(
             skill.contains("abstract anchor Skill extends Construct as skill"),
             "{skill}"

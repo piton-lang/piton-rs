@@ -57,6 +57,38 @@ pub struct Capabilities {
     pub read_files: bool,
     /// Whether it may write temporary files, removed when its command ends.
     pub temporary_files: bool,
+    /// The paths its build may write, as globs relative to the project root.
+    pub outputs: Vec<String>,
+    /// Whether it may ask the user to choose, on a terminal.
+    pub interactive: bool,
+    /// The files it may propose to change, as globs relative to the project
+    /// root. Edits are applied by the host, with the user's consent.
+    pub edits: Vec<String>,
+}
+
+impl Capabilities {
+    /// The outputs as a matcher: `*` stays within a directory, `**` crosses
+    /// them. A plugin that lists none may write nothing.
+    pub fn output_globs(&self) -> globset::GlobSet {
+        globs(&self.outputs)
+    }
+
+    /// The files it may propose to change, as a matcher.
+    pub fn edit_globs(&self) -> globset::GlobSet {
+        globs(&self.edits)
+    }
+}
+
+fn globs(patterns: &[String]) -> globset::GlobSet {
+    {
+        let mut builder = globset::GlobSetBuilder::new();
+        for pattern in patterns {
+            if let Ok(glob) = globset::GlobBuilder::new(pattern).literal_separator(true).build() {
+                builder.add(glob);
+            }
+        }
+        builder.build().unwrap_or_else(|_| globset::GlobSet::empty())
+    }
 }
 
 /// How an argument is given.
@@ -80,12 +112,22 @@ pub struct ArgSpec {
     pub short: Option<char>,
     pub minimum: Option<f64>,
     pub conflicts: Vec<String>,
+    /// The value it has when it isn't given.
+    pub default: Option<String>,
+    /// For the last positional argument: it takes everything after it, the
+    /// values that look like options included, to pass on to a program.
+    pub trailing: bool,
+    /// For an option: true when it may be given without a value, which the
+    /// plugin then receives as an empty string.
+    pub optional_value: bool,
 }
 
 /// One command a plugin adds to the CLI.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandSpec {
     pub name: String,
+    /// The word it is grouped under, like `belay` for `piton belay slice`.
+    pub group: Option<String>,
     pub about: Option<String>,
     pub help: Option<String>,
     pub arguments: Vec<ArgSpec>,
@@ -108,6 +150,24 @@ pub struct Manifest {
     /// The file it is declared in, for diagnostics.
     pub declared_in: PathBuf,
     pub bundled: bool,
+    /// The plugins it builds on, whose exports it uses.
+    pub requires: Vec<String>,
+    /// Names its Piton files export whose value is known only when its
+    /// output is written.
+    pub placeholders: Vec<String>,
+    /// Whether it takes part in `piton build`.
+    pub build: bool,
+    /// Whether it inspects projects before commands run.
+    pub inspect: bool,
+    /// Whether it names anchors it reaches itself, which `piton reach` and
+    /// the editor count as roots beside the entry.
+    pub reach: bool,
+}
+
+/// The marker a placeholder evaluates to: private-use brackets around its
+/// name, which no prose contains.
+pub fn placeholder_marker(name: &str) -> String {
+    format!("\u{e000}{name}\u{e001}")
 }
 
 /// What is wrong with a declaration, with the file it is in.
@@ -177,6 +237,30 @@ pub fn discover(project: &Project) -> (Vec<Manifest>, Vec<Problem>) {
         }
         manifest.commands = kept;
     }
+
+    // A plugin whose requirements the project doesn't have, or that require
+    // each other in a circle, can't load; it is reported and left out, and so
+    // is anything that requires it.
+    loop {
+        let names: Vec<String> = manifests.iter().map(|manifest| manifest.name.clone()).collect();
+        let broken = manifests.iter().position(|manifest| {
+            manifest.requires.iter().any(|required| !names.contains(required))
+                || requires_itself(&manifests, &manifest.name)
+        });
+        let Some(index) = broken else { break };
+        let manifest = manifests.remove(index);
+        let message = match manifest.requires.iter().find(|required| !names.contains(*required)) {
+            Some(missing) => format!(
+                "plugin `{}` requires `{missing}`, which the project doesn't have, so it is not loaded",
+                manifest.name
+            ),
+            None => format!(
+                "plugin `{}` requires itself through other plugins, so it is not loaded",
+                manifest.name
+            ),
+        };
+        problems.push(Problem { file: manifest.declared_in.clone(), message });
+    }
     (manifests, problems)
 }
 
@@ -193,6 +277,80 @@ pub fn unclaimed<'a>(project: &'a Project, manifests: &[Manifest]) -> Vec<&'a Pl
                     manifest.settings.as_deref().is_some_and(|settings| {
                         entry.extends(manifest.module_root.as_deref(), settings)
                     })
+                })
+        })
+        .collect()
+}
+
+/// Whether `name` reaches itself by following requirements.
+fn requires_itself(manifests: &[Manifest], name: &str) -> bool {
+    let mut stack: Vec<&str> = manifests
+        .iter()
+        .find(|manifest| manifest.name == name)
+        .map(|manifest| manifest.requires.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut seen: Vec<&str> = Vec::new();
+    while let Some(next) = stack.pop() {
+        if next == name {
+            return true;
+        }
+        if seen.contains(&next) {
+            continue;
+        }
+        seen.push(next);
+        if let Some(manifest) = manifests.iter().find(|manifest| manifest.name == next) {
+            stack.extend(manifest.requires.iter().map(String::as_str));
+        }
+    }
+    false
+}
+
+/// The plugins `main` needs loaded, requirements first and `main` last.
+pub fn load_order<'a>(manifests: &'a [Manifest], main: &str) -> Result<Vec<&'a Manifest>, String> {
+    fn visit<'a>(
+        manifests: &'a [Manifest],
+        name: &str,
+        order: &mut Vec<&'a Manifest>,
+        path: &mut Vec<String>,
+    ) -> Result<(), String> {
+        if order.iter().any(|manifest| manifest.name == name) {
+            return Ok(());
+        }
+        if path.iter().any(|seen| seen == name) {
+            return Err(format!("plugin `{name}` requires itself through {}", path.join(", ")));
+        }
+        let manifest = manifests
+            .iter()
+            .find(|manifest| manifest.name == name)
+            .ok_or_else(|| format!("no plugin named `{name}` is loaded"))?;
+        path.push(name.to_string());
+        for required in &manifest.requires {
+            visit(manifests, required, order, path)?;
+        }
+        path.pop();
+        order.push(manifest);
+        Ok(())
+    }
+    let mut order = Vec::new();
+    visit(manifests, main, &mut order, &mut Vec::new())?;
+    Ok(order)
+}
+
+/// The plugins `piton build` runs: those with a build that the project
+/// turned on. A plugin the project declares is on; a bundled one is on when
+/// the project lists its settings, so a project that never mentions it gets
+/// none of its output.
+pub fn builders<'a>(project: &Project, manifests: &'a [Manifest]) -> Vec<&'a Manifest> {
+    manifests
+        .iter()
+        .filter(|manifest| manifest.build)
+        .filter(|manifest| {
+            !manifest.bundled
+                || manifest.settings.as_deref().is_some_and(|settings| {
+                    project
+                        .plugins
+                        .iter()
+                        .any(|entry| !is_declaration(entry) && entry.extends(manifest.module_root.as_deref(), settings))
                 })
         })
         .collect()
@@ -316,9 +474,33 @@ fn read(
                             .as_bool()
                             .ok_or("capabilities.temporaryFiles is true or false")?
                     }
+                    "interactive" => {
+                        capabilities.interactive =
+                            value.as_bool().ok_or("capabilities.interactive is true or false")?
+                    }
+                    "outputs" | "edits" => {
+                        let patterns = strings(Some(value), &format!("capabilities.{key}"))?;
+                        for pattern in &patterns {
+                            if pattern.starts_with('"') || pattern.starts_with('\'') {
+                                return Err(format!(
+                                    "capabilities.{key} `{pattern}` is quoted, and Piton keeps quotes as part of the text; write it without them"
+                                ));
+                            }
+                            if pattern.starts_with('/') || pattern.split('/').any(|part| part == "..") {
+                                return Err(format!("capabilities.{key} `{pattern}` has to stay inside the project"));
+                            }
+                            globset::Glob::new(pattern)
+                                .map_err(|error| format!("capabilities.{key} `{pattern}` is not a glob: {error}"))?;
+                        }
+                        if key == "outputs" {
+                            capabilities.outputs = patterns;
+                        } else {
+                            capabilities.edits = patterns;
+                        }
+                    }
                     other => {
                         return Err(format!(
-                            "`{other}` is not a capability; they are process, files and temporaryFiles"
+                            "`{other}` is not a capability; they are process, files, temporaryFiles, outputs, edits and interactive"
                         ))
                     }
                 }
@@ -339,6 +521,22 @@ fn read(
         Some(_) => return Err("commands has to be a dictionary of commands".to_string()),
     }
 
+    let requires = strings(properties.get("requires"), "requires")?;
+    if requires.contains(&name) {
+        return Err("it requires itself".to_string());
+    }
+    let placeholders = strings(properties.get("placeholders"), "placeholders")?;
+    let flag = |key: &str| -> Result<bool, String> {
+        match properties.get(key) {
+            None | Some(Json::Null) => Ok(false),
+            Some(Json::Bool(value)) => Ok(*value),
+            Some(_) => Err(format!("{key} is true or false")),
+        }
+    };
+    let build = flag("build")?;
+    let inspect = flag("inspect")?;
+    let reach = flag("reach")?;
+
     Ok(Manifest {
         name,
         description: text(properties, "description"),
@@ -350,6 +548,11 @@ fn read(
         capabilities,
         declared_in: declared_in.to_path_buf(),
         bundled,
+        requires,
+        placeholders,
+        build,
+        inspect,
+        reach,
     })
 }
 
@@ -380,8 +583,15 @@ fn read_command(name: &str, spec: &Json) -> Result<CommandSpec, String> {
             }
         }
     }
+    let group = text(spec, "group");
+    if let Some(group) = &group {
+        if !valid_name(group) {
+            return Err(format!("command `{name}`: group `{group}` is not a name; use lowercase words joined by hyphens"));
+        }
+    }
     Ok(CommandSpec {
         name: name.to_string(),
+        group,
         about: text(spec, "about"),
         help: text(spec, "help"),
         arguments,
@@ -394,7 +604,7 @@ fn read_argument(command: &str, name: &str, value: &Json) -> Result<ArgSpec, Str
         return Err(format!("{what} has to be a dictionary"));
     };
     for key in spec.keys() {
-        if !["help", "positional", "multiple", "type", "choices", "short", "minimum", "conflicts"]
+        if !["help", "positional", "multiple", "type", "choices", "short", "minimum", "conflicts", "default", "trailing", "optionalValue"]
             .contains(&key.as_str())
         {
             return Err(format!("{what}: `{key}` is not an argument setting"));
@@ -436,6 +646,26 @@ fn read_argument(command: &str, name: &str, value: &Json) -> Result<ArgSpec, Str
         short,
         minimum,
         conflicts: strings(spec.get("conflicts"), &format!("{what}: conflicts"))?,
+        default: match spec.get("default") {
+            None | Some(Json::Null) => None,
+            Some(Json::String(text)) => Some(text.clone()),
+            Some(Json::Number(number)) => Some(number.to_string()),
+            Some(_) => return Err(format!("{what}: default is text or a number")),
+        },
+        trailing: {
+            let trailing = flag("trailing")?;
+            if trailing && !(positional && flag("multiple")?) {
+                return Err(format!("{what}: only a positional, multiple argument can be trailing"));
+            }
+            trailing
+        },
+        optional_value: {
+            let optional = flag("optionalValue")?;
+            if optional && (positional || kind == ArgKind::Flag || flag("multiple")?) {
+                return Err(format!("{what}: only a single option that takes a value can have an optional value"));
+            }
+            optional
+        },
     })
 }
 

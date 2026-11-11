@@ -8,8 +8,13 @@
 
 pub mod bundled;
 pub mod host;
+pub mod inspection;
 pub mod manifest;
+pub mod output;
+pub mod plan;
+pub mod reach;
+pub mod space;
 pub mod transpile;
 
-pub use host::{run_command, Failure, Services, Stream};
-pub use manifest::{discover, unclaimed, ArgKind, ArgSpec, Capabilities, CommandSpec, Manifest, Problem, Source};
+pub use host::{run, run_build, run_command, run_inspect, run_reach, Failure, Invocation, Services, Stream};
+pub use manifest::{builders, discover, load_order, unclaimed, ArgKind, ArgSpec, Capabilities, CommandSpec, Manifest, Problem, Source};

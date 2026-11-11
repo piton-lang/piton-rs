@@ -33,6 +33,10 @@ false
 
 Composition covers everything a value is built from, including what evaluation folded into it. Embedding a top-level variable (`{PURPOSE}`) reaches the module that declares it, and whatever that variable embeds or reads in turn. Reading another anchor's property (`${Other.name}`) reaches that anchor through composition.
 
+## Plugins
+
+Without targets, the roots are the entry's exports and the anchors that plugins reach themselves, like the tests the test plugin runs, described in [PluginReach](../../plugins/Reach.md#plugin-reach). So an anchor a plugin uses is not reported as unreachable, and whatever it reaches is reachable through it. A file that nothing imports but that holds such an anchor is compiled with the project. With targets, plugins add nothing: the question is what those targets see.
+
 ## Configuration
 
 `piton.config.pi` is read rather than imported. It is never reported as unreachable.

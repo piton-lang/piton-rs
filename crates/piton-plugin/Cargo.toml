@@ -18,3 +18,5 @@ oxc_codegen = "0.158"
 oxc_span = "0.158"
 oxc_diagnostics = "0.158"
 crossterm = "0.29"
+globset.workspace = true
+piton-emit.workspace = true

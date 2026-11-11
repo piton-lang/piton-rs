@@ -1,0 +1,42 @@
+// The Belay plugin's Piton files, imported as @piton/belay.
+//
+// The four constructs and the adapters are the files beside this one.
+
+from ./Agent export Agent
+from ./Command export Command
+from ./Construct export Construct
+from ./Instruction export Instruction
+from ./Skill export Skill
+
+from ./adapters/Adapter export Adapter
+from ./adapters/ClaudeCode export ClaudeCodeAdapter
+from ./adapters/Codex export CodexAdapter
+from ./adapters/Muse export MuseAdapter
+from ./adapters/OpenCode export OpenCodeAdapter
+
+from ./adapters/ClaudeCode import ClaudeCodeAdapter
+
+// Resolved during compilation, separately for each adapter and each output
+// location. Never resolved at agent runtime.
+export BELAY_COMPILED_SHAPE: __BELAY_SHAPE_MARKER__
+
+// The directories a generated artifact may need to point at. Each is written
+// relative to the file that carries it, for the adapter being compiled.
+export BELAY_AGENT_ROOT: __BELAY_AGENT_ROOT_MARKER__
+export BELAY_PROJECT_ROOT: __BELAY_PROJECT_ROOT_MARKER__
+export BELAY_SHAPE_ROOT: __BELAY_SHAPE_ROOT_MARKER__
+export BELAY_CODE_ROOT: __BELAY_CODE_ROOT_MARKER__
+
+// crossDiscovery is the deployment choice for skills one adapter writes and
+// another discovers (OpenCode and Muse read .claude/skills and
+// .agents/skills): allow accepts that, separate says the trees are deployed
+// apart. It is required
+// only when discovery would change how something activates.
+// instructionByteLimit is the byte budget of an instruction chain, for
+// targets that truncate past one (Codex's project_doc_max_bytes).
+export abstract anchor BelayConfig as belay-config:
+    codeRoot:: string
+    shapeRoot:: string:: null: null
+    adapters:: list
+    crossDiscovery:: string:: null: null
+    instructionByteLimit:: number:: null: null

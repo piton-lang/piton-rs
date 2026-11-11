@@ -9,7 +9,7 @@ piton-core.workspace = true
 piton-syntax.workspace = true
 piton-compile.workspace = true
 piton-emit.workspace = true
-piton-belay.workspace = true
+piton-plugin.workspace = true
 tower-lsp.workspace = true
 tokio = { workspace = true, features = ["time", "sync"] }
 serde_json.workspace = true

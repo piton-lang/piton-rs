@@ -1,0 +1,8 @@
+// Part of the bundled Belay plugin, as @piton/belay. Its behaviour is
+// described in spec/scope/belay/anchors/Agent.pi.
+
+from ./Construct import Construct
+
+export abstract anchor Agent extends Construct as agent:
+    role:: string:: null: null
+    file:: string:: dictionary:: null: null

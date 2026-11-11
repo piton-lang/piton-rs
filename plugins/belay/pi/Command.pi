@@ -1,0 +1,7 @@
+// Part of the bundled Belay plugin, as @piton/belay. Its behaviour is
+// described in spec/scope/belay/anchors/Command.pi.
+
+from ./Construct import Construct
+
+export abstract anchor Command extends Construct as command:
+    pass

@@ -15,7 +15,6 @@ piton --version, and the version the language server reports to an editor, is th
 
 ## Commands
 
-- [AgentCli](./Agent.md#agent-cli)
 - [Build](./Build.md#build)
 - [Check](./Check.md#check)
 - [Compile](./Compile.md#compile)
@@ -33,4 +32,4 @@ piton --version, and the version the language server reports to an editor, is th
 
 ## Plugin Commands
 
-Plugins add commands of their own, listed in `piton --help` beside these, like `piton test` from the bundled test plugin. They are described in [Plugins](../../plugins/index.md#plugins). A plugin can't replace one of these: a command with the same name is reported and left out.
+Plugins add commands of their own, listed in `piton --help` beside these, like `piton test` from the bundled test plugin, and `piton agent` and `piton belay slice` from Belay. They are described in [Plugins](../../plugins/index.md#plugins). A plugin can't replace one of these: a command with the same name is reported and left out.

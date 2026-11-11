@@ -25,7 +25,7 @@ export skill BuildTooling:
 
         sync-fluency:
             Regenerates FLUENCY_PROMPT.md at the repository root and copies it
-            over crates/piton-cli/src/fluency.md, the copy `piton agent` falls
+            over plugins/belay/fluency.md, the copy `piton agent` falls
             back to and that is compiled into the binary, then says to rebuild.
 
             The prompt is written by an agent, so generating runs Claude Code
@@ -33,6 +33,9 @@ export skill BuildTooling:
             the repository root. Claude may read and search the repository and
             write files, with edits accepted since nobody is there to approve
             them, and may not run commands. `--model` chooses its model.
+            Without one, Claude uses its default model, and the task lists
+            Claude's models, the same aliases `piton agent` lists for claude,
+            and says to choose one with `--model`.
             Claude's output is shown as it finishes, and whether the prompt is
             right is for whoever runs the task to read in the diff.
 

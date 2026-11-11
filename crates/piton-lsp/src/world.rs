@@ -119,6 +119,13 @@ pub struct World {
     /// Set when something outside the buffers changed: the configuration, a
     /// file on disk, a closed buffer.
     stale: bool,
+    /// What each plugin build planned at the last save.
+    pub plugin_plans: Vec<piton_plugin::plan::PluginPlan>,
+    /// What each plugin said it reaches at the last save, by file and name.
+    pub plugin_reached: Vec<(PathBuf, String)>,
+    /// Set when a save or the configuration means the plans should be made
+    /// again. Typing never sets it.
+    plans_stale: bool,
     /// The file most recently edited, which stands in for the project when
     /// there is no configuration.
     focus: Option<PathBuf>,
@@ -144,6 +151,9 @@ impl World {
             compiled_documents: HashMap::new(),
             compiled_versions: HashMap::new(),
             stale: true,
+            plugin_plans: Vec::new(),
+            plugin_reached: Vec::new(),
+            plans_stale: true,
             focus: None,
         }
     }
@@ -153,7 +163,14 @@ impl World {
     /// The configuration names the source root and the entry point, so a change
     /// to it is a change to which files are the project at all -- not something
     /// a recompile of the old project would notice.
+    /// A file was saved: plugin builds are planned again at the next refresh.
+    pub fn saved(&mut self) {
+        self.plans_stale = true;
+        self.stale = true;
+    }
+
     pub fn reload_project(&mut self) {
+        self.plans_stale = true;
         let (project, diagnostics) = config::load(&self.root, None);
         self.output = output_settings(&project);
         self.config_diagnostics = diagnostics.iter().cloned().collect();
@@ -267,8 +284,19 @@ impl World {
 
         let compilation = Compilation::build_workspace(project, self.documents.clone(), &outside);
 
+        if self.plans_stale {
+            self.plugin_plans = crate::plugins::plan(&self.project);
+            self.plugin_reached = crate::plugins::reached(&self.project);
+            self.plans_stale = false;
+        }
         self.index = Index::build(&compilation);
-        self.analysis = crate::analysis::analyze(&compilation, &self.index, &self.output);
+        self.analysis = crate::analysis::analyze(
+            &compilation,
+            &self.index,
+            &self.output,
+            &self.plugin_plans,
+            &self.plugin_reached,
+        );
         self.compilation = Some(compilation);
         self.compiled_documents = self.documents.clone();
         self.compiled_versions = self.versions.clone();

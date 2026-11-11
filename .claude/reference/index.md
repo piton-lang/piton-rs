@@ -24,6 +24,10 @@
 
 [Plugins](./scope/plugins/index.md#plugins)
 
+## Migration
+
+[Migration](./scope/migrate/index.md#migration)
+
 ## Testing
 
 [Testing](./scope/testing/index.md#testing)

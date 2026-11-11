@@ -1,0 +1,49 @@
+use ./lib
+
+export test ListSyntax:
+    expects:
+        ```piton
+        \\\
+
+        anchor Base:
+            tags: [abc]
+
+        \\\
+        ```
+
+        Should be equivalent to:
+
+        ```piton
+        \\\
+
+        anchor Base:
+            tags:
+                - abc
+
+        \\\
+        ```
+
+        Where is both cases tags is a list of a single string "abc"
+
+        The two syntaxes produce exactly the same data structure.
+
+export test ListConcatenation:
+    expects:
+        Given that @{ListSyntax} says the two list syntaxes are exactly
+        equivalent, that means that
+
+        ```piton
+        \\\
+
+        anchor Base:
+            tags: [abc]
+
+        anchor Child extends Base:
+            tags:
+                + {super.tags}
+                - def
+
+        \\\
+        ```
+
+        Child.tags should be a list with two strings [abc, def]

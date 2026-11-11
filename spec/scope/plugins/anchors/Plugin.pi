@@ -14,3 +14,8 @@ export abstract anchor PitonPlugin as piton-plugin:
     settings:: string:: null: null
     commands:: dictionary:: null: null
     capabilities:: dictionary:: null: null
+    requires:: string[]:: null: null
+    placeholders:: string[]:: null: null
+    build:: boolean:: null: null
+    inspect:: boolean:: null: null
+    reach:: boolean:: null: null

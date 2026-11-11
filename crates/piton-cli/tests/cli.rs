@@ -85,7 +85,7 @@ fn full_project(name: &str, adapters: &str) -> Fixture {
     fixture.write(
         "piton.config.pi",
         &format!(
-            "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import\n    ClaudeCodeAdapter,\n    CodexAdapter,\n    OpenCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {{Belay}}\n\nbelay-config Belay:\n    codeRoot: ./src\n    shapeRoot: ./spec/shape\n\n    adapters:\n{adapters}\n"
+            "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import\n    ClaudeCodeAdapter,\n    CodexAdapter,\n    OpenCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    plugins:\n        - {{Belay}}\n\nbelay-config Belay:\n    codeRoot: ./src\n    shapeRoot: ./spec/shape\n\n    adapters:\n{adapters}\n"
         ),
     );
 
@@ -147,7 +147,7 @@ fn a_library_whose_entry_only_exports_still_builds() {
     let fixture = Fixture::new("entry-exports");
     fixture.write(
         "piton.config.pi",
-        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeCodeAdapter}\n",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    plugins:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeCodeAdapter}\n",
     );
     fixture.write(
         "spec/lib/UiComponent.pi",
@@ -572,6 +572,38 @@ fn reach_counts_every_line_it_prints() {
         stdout.contains("2 carrying nothing reachable"),
         "and the file it is in and the file importing it, counted separately: {stdout}"
     );
+}
+
+#[test]
+fn reach_counts_what_plugins_reach_as_roots() {
+    // Nothing imports the test, but the test plugin runs it: it is a root,
+    // and what it reads is reached through it.
+    let fixture = Fixture::new("reach-plugin-roots");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: .\n    entry: ./index.pi\n",
+    );
+    fixture.write("index.pi", "export anchor Root:\n    v: 1\n");
+    fixture.write("Helper.pi", "export anchor Helper:\n    v: 1\n");
+    fixture.write(
+        "tests/App.pi",
+        "use @piton/test\nfrom ../Helper import Helper\n\nexport test SaveWorks:\n    expects: Saving works, per @{Helper}\n",
+    );
+    fixture.write("Orphan.pi", "export anchor Orphan:\n    v: 1\n");
+
+    let (stdout, stderr, code) = fixture.run(&["reach", "--no-paths"]);
+    assert_eq!(code, 0, "{stderr}");
+    let (reachable, unreachable) = stdout.split_once("\nunreachable").unwrap_or_else(|| panic!("{stdout}"));
+    assert!(reachable.contains("SaveWorks"), "{stdout}");
+    assert!(reachable.contains("Helper"), "{stdout}");
+    assert!(!unreachable.contains("App.pi"), "{stdout}");
+    // Files nothing imports and no plugin reaches are still never imported.
+    assert!(unreachable.contains("Orphan.pi  (never imported, 1 anchor)"), "{stdout}");
+
+    // Named targets ask what they see; plugins add nothing to them.
+    let (stdout, _, _) = fixture.run(&["reach", "index.pi", "--no-paths"]);
+    let reachable = stdout.split("\nunreachable").next().unwrap_or_default();
+    assert!(!reachable.contains("SaveWorks"), "{stdout}");
 }
 
 #[test]
@@ -1022,7 +1054,7 @@ fn slice_adapter_project(name: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.write(
         "piton.config.pi",
-        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeCodeAdapter}\n",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    plugins:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n\n    adapters:\n        - {ClaudeCodeAdapter}\n",
     );
     fixture.write(
         "spec/Reference.pi",
@@ -1052,7 +1084,8 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
     let fixture = slice_adapter_project("slice-adapter");
 
     let (stdout, stderr, code) = fixture.run(&[
-        "slice",
+        "belay",
+            "slice",
         "spec/Constructs.pi#ReviewComponents.prompt",
         "--adapter",
         "claude-code",
@@ -1082,7 +1115,7 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
     // Nor is it for an anchor that is only read: its value is compiled into
     // the reader's document.
     let (uses, stderr, code) =
-        fixture.run(&["slice", "spec/Constructs.pi#Uses", "--adapter", "claude-code"]);
+        fixture.run(&["belay", "slice", "spec/Constructs.pi#Uses", "--adapter", "claude-code"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(uses.contains("Anchor in `.claude/reference/Constructs.md#uses`"), "{uses}");
     assert!(uses.contains("## Orphan\n\nAnchor with no compiled document of its own.\n"), "{uses}");
@@ -1098,7 +1131,8 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
 
     // A bare name gives the same bytes.
     let (bare, stderr, code) = fixture.run(&[
-        "slice",
+        "belay",
+            "slice",
         "ReviewComponents.prompt",
         "--adapter",
         "claude-code",
@@ -1133,7 +1167,8 @@ fn slice_with_an_adapter_finds_an_anchor_embedded_upstream() {
     assert!(index.contains("Only ever embedded."), "{index}");
 
     let (stdout, stderr, code) = fixture.run(&[
-        "slice",
+        "belay",
+            "slice",
         "spec/Group.pi#Leaf",
         "--adapter",
         "claude-code",
@@ -1170,7 +1205,7 @@ fn slice_writes_every_path_relative_to_where_it_runs() {
 
     let (stdout, stderr, code) = fixture.run_in(
         "spec",
-        &["slice", "Constructs.pi#ReviewComponents.prompt", "--adapter", "claude-code"],
+        &["belay", "slice", "Constructs.pi#ReviewComponents.prompt", "--adapter", "claude-code"],
     );
     assert_eq!(code, 0, "{stderr}");
     assert!(
@@ -1199,19 +1234,19 @@ fn slice_with_an_adapter_needs_a_target_the_build_writes() {
 
     let cases: [(&[&str], &[&str]); 4] = [
         (
-            &["slice", "spec/Orphan.pi#Orphan.note", "--adapter", "claude-code"],
+            &["belay", "slice", "spec/Orphan.pi#Orphan.note", "--adapter", "claude-code"],
             &["`Orphan` is never compiled"],
         ),
         (
-            &["slice", "spec/Loose.pi#Loose", "--adapter", "claude-code"],
+            &["belay", "slice", "spec/Loose.pi#Loose", "--adapter", "claude-code"],
             &["is not part of what the build compiles"],
         ),
         (
-            &["slice", "Loose", "--adapter", "claude-code"],
+            &["belay", "slice", "Loose", "--adapter", "claude-code"],
             &["[unresolved-symbol]", "only what the build compiles is searched"],
         ),
         (
-            &["slice", "Loose", "--adapter", "codex"],
+            &["belay", "slice", "Loose", "--adapter", "codex"],
             &["`codex` is not a target this project builds; it builds `claude-code`"],
         ),
     ];
@@ -1230,7 +1265,7 @@ fn slice_with_an_adapter_needs_a_target_the_build_writes() {
 
     // A project without Belay has nothing to cite.
     let plain = slice_project("slice-adapter-plain");
-    let (_, stderr, code) = plain.run(&["slice", "SaveButton", "--adapter", "claude-code"]);
+    let (_, stderr, code) = plain.run(&["belay", "slice", "SaveButton", "--adapter", "claude-code"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("no Belay configuration"), "{stderr}");
 }

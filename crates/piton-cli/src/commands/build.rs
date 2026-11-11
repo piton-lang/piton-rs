@@ -1,10 +1,11 @@
 //! `piton build` — compile the project and write every configured artifact.
 //!
-//! Without a framework, a build writes the renderer's output to the configured
-//! output directory: the entry file, and every file holding something the
-//! entry's exports reference, each keeping its place under the source root and
-//! taking the renderer's extension. A framework's output replaces it, unless
-//! the configuration sets `output` or `renderer` to ask for both.
+//! Without a plugin that builds, a build writes the renderer's output to the
+//! configured output directory: the entry file, and every file holding
+//! something the entry's exports reference, each keeping its place under the
+//! source root and taking the renderer's extension. A plugin's build, like
+//! Belay's, replaces it, unless the configuration sets `output` or `renderer`
+//! to ask for both.
 //!
 //! The plan is built and validated in full before anything is written, so a
 //! project either produces a consistent set of artifacts or produces
@@ -13,18 +14,14 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use piton_belay::{OutputFile, OutputKind, Plan};
-use piton_compile::{module, reach, Compilation, Framework, ModuleId};
+use piton_compile::{module, reach, Compilation, ModuleId};
 use piton_emit::Adapter;
+use piton_plugin::output::{self, BuildPlan, OutputFile};
 
 use anstream::println;
 
 use crate::style::{self, paint};
 use crate::{project, render, report, EXIT_ERRORS, EXIT_SUCCESS};
-
-/// Where the build records the files it owns, so cleanup never touches a file
-/// the build did not write.
-const MANIFEST: &str = ".piton/manifest.json";
 
 pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
     let (project, mut diagnostics) = project::from_config(config);
@@ -53,29 +50,51 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         }
     };
 
-    // The renderer's output comes first; a framework adds to it.
-    let mut plan = Plan {
-        files: if compilation.project.renders {
+    // Every plugin with a build plans its share; none writes anything.
+    let (_, _, manifests, _) = crate::plugins::load();
+    let builders = piton_plugin::builders(&compilation.project, &manifests);
+    let (plugin_plans, failures) = crate::plugins::plan_builds(&compilation.project, &manifests);
+    for failure in &failures {
+        report::fail(failure);
+    }
+    if !failures.is_empty() {
+        report::stopped("build stopped; no files were written");
+        return EXIT_ERRORS;
+    }
+
+    // A plugin's build replaces the renderer's output, unless the
+    // configuration asks for the renderer's too.
+    let mut plan = BuildPlan {
+        files: if builders.is_empty() || compilation.project.renders {
             rendered_files(&compilation, renderer)
         } else {
             Vec::new()
         },
-        diagnostics: Vec::new(),
         targets: Vec::new(),
     };
+    for plugin_plan in plugin_plans {
+        plan.files.extend(plugin_plan.files);
+        plan.targets.extend(plugin_plan.targets);
+        diagnostics.extend(plugin_plan.diagnostics);
+    }
 
-    let belay = compilation
-        .project
-        .frameworks
-        .iter()
-        .find_map(|framework| match framework {
-            Framework::Belay(config) => Some(config.clone()),
-        });
-    if let Some(config) = &belay {
-        let framework = piton_belay::plan(&compilation, config);
-        plan.files.extend(framework.files);
-        plan.targets.extend(framework.targets);
-        diagnostics.extend(framework.diagnostics.iter().cloned());
+    // The whole plan is checked before anything is written: paths stay in
+    // the project, inside what each plugin may write, producers don't
+    // collide, and nothing the build didn't write is overwritten.
+    let previous = output::previous(&root);
+    let outputs = |owner: &str| {
+        manifests
+            .iter()
+            .find(|manifest| manifest.name == owner)
+            .map(|manifest| manifest.capabilities.output_globs())
+    };
+    for problem in output::check(&plan, &root, &previous, &outputs) {
+        diagnostics.push(piton_core::Diagnostic::error(
+            "output-collision",
+            problem,
+            compilation.project.config_path.clone().unwrap_or_default(),
+            piton_core::Span::default(),
+        ));
     }
 
     diagnostics.sort();
@@ -99,8 +118,8 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         for file in &plan.files {
             println!(
                 "{} {}",
-                report::added(file.path.display()),
-                paint(style::DIM, format!("({}, {})", file.kind.as_str(), file.target))
+                report::added(&file.path),
+                paint(style::DIM, format!("({})", file.label))
             );
         }
         report::done(format!(
@@ -111,12 +130,8 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         return EXIT_SUCCESS;
     }
 
-    let manifest_path = root.join(MANIFEST);
-    let previous = std::fs::read_to_string(&manifest_path)
-        .map(|text| piton_belay::manifest_paths(&text))
-        .unwrap_or_default();
-
-    let written = match piton_belay::write(&plan, &root) {
+    let manifest_path = root.join(output::MANIFEST);
+    let written = match output::write(&plan, &root) {
         Ok(written) => written,
         Err(error) => {
             report::fail(format!("cannot write output: {error}"));
@@ -124,12 +139,12 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         }
     };
 
-    let removed = piton_belay::clean_stale(&previous, &plan, &root);
+    let removed = output::clean_stale(&previous, &plan, &root);
 
     if let Some(parent) = manifest_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Err(error) = std::fs::write(&manifest_path, piton_belay::manifest_document(&plan)) {
+    if let Err(error) = std::fs::write(&manifest_path, output::manifest(&plan)) {
         report::fail(format!("cannot write the build manifest: {error}"));
         return EXIT_ERRORS;
     }
@@ -165,13 +180,13 @@ fn rendered_files(compilation: &Compilation, renderer: Adapter) -> Vec<OutputFil
             .unwrap_or_else(|| project.output_dir.clone());
         let contents = render::render_module(compilation, module, renderer, &directory, Some(&compilation.project.output_dir));
         files.push(OutputFile {
-            path: module::relative_path(&project.root, &destination),
-            contents,
-            kind: OutputKind::Reference,
-            target: renderer.as_str(),
+            path: output::slash(&module::relative_path(&project.root, &destination)),
+            data: contents.into_bytes(),
+            executable: false,
             origin: project::display(&source, &project.root),
-            sources: vec![source],
-            copied: None,
+            owner: "renderer".to_string(),
+            label: format!("reference, {}", renderer.as_str()),
+            group: None,
         });
     }
     files

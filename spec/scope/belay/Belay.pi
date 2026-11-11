@@ -1,3 +1,7 @@
+from ../../../plugins/belay/pi/adapters/ClaudeCode import ClaudeCodeAdapter
+from ../../../plugins/belay/pi/adapters/Codex import CodexAdapter
+from ../../../plugins/belay/pi/adapters/Muse import MuseAdapter
+from ../../../plugins/belay/pi/adapters/OpenCode import OpenCodeAdapter
 from ./Compilation import Compilation
 from ./Decisions import
     BuildGuarantees,
@@ -9,14 +13,11 @@ from ./Framework import
     FrameworkPurpose,
     ProjectConfiguration,
     SourceAuthority
+from ./Plugin import BelayPlugin
 from ./Scope import
     AnchorReferences,
     ShapeMapping,
     ShapeRootReference
-from ./adapters/ClaudeCode import ClaudeCodeAdapter
-from ./adapters/Codex import CodexAdapter
-from ./adapters/Muse import MuseAdapter
-from ./adapters/OpenCode import OpenCodeAdapter
 from ./anchors/Agent import AgentBehavior
 from ./anchors/Command import CommandBehavior
 from ./anchors/Instruction import InstructionBehavior
@@ -27,11 +28,18 @@ export anchor Belay:
         A Piton framework for structured agent instructions, skills, commands,
         and agents, compiled into the formats used by agentic coding tools.
 
+    plugin: @{BelayPlugin}
+
     specialImports:
         description:
             The following special imports can be brought in from `@piton/belay`
-            and used. They're filled in at compile time, for each adapter, as
-            a path relative to the file they end up in.
+            and used. They're the Belay plugin's placeholders: filled in by
+            Belay's build, for each adapter, as a path relative to the file
+            they end up in. Anywhere else, like the output of `piton compile`
+            or the renderer's output of `piton build`, the project root
+            resolves the same way, the code and shape roots are written as the
+            project root, and the agent root and compiled shape, which only
+            exist for an adapter, are written as their names.
 
         BELAY_AGENT_ROOT: The agent's directory, so that might be .claude, .codex, .opencode or .muse.
         BELAY_PROJECT_ROOT: The project, where piton.config.pi lives.

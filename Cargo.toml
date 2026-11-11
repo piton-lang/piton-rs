@@ -5,7 +5,6 @@ members = [
     "crates/piton-syntax",
     "crates/piton-compile",
     "crates/piton-emit",
-    "crates/piton-belay",
     "crates/piton-lsp",
     "crates/piton-cli",
     "crates/piton-plugin",
@@ -29,7 +28,6 @@ piton-core = { path = "crates/piton-core" }
 piton-syntax = { path = "crates/piton-syntax" }
 piton-compile = { path = "crates/piton-compile" }
 piton-emit = { path = "crates/piton-emit" }
-piton-belay = { path = "crates/piton-belay" }
 piton-lsp = { path = "crates/piton-lsp" }
 piton-plugin = { path = "crates/piton-plugin" }
 
@@ -52,3 +50,10 @@ anstyle = "1"
 
 [profile.release]
 opt-level = 2
+
+# Debug builds keep line tables only: backtraces still name files and lines.
+# Full debug info made every binary linking oxc and QuickJS over 3 GB, nearly
+# all of it the string table of their generic type names, and a test run of
+# the workspace filled the disk.
+[profile.dev]
+debug = "line-tables-only"

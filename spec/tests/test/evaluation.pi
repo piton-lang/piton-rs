@@ -1,0 +1,10 @@
+use ./lib
+
+export test UndefinedBehavior:
+    expects:
+        Undefined behaviour in either the spec or the code will fail a test.
+
+export test ModedFailure:
+    expects:
+        A test that passes in spec and fails in code should or vice versa should
+        display both, but ultimately is a fail.

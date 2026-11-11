@@ -71,6 +71,14 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     }
     let root = project.root.clone();
 
+    // Without targets, the project's roots are the entry's exports and the
+    // anchors plugins reach themselves, like the tests the test plugin runs.
+    let plugin_roots: Vec<(PathBuf, String)> = if targets.is_empty() {
+        plugin_roots(&project)
+    } else {
+        Vec::new()
+    };
+
     let mut compilation = project::compile_project(project.clone());
     // A file nothing imports is not in the project's graph, but it can still
     // be asked about: compile the workspace with it included.
@@ -79,11 +87,25 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         .any(|file| compilation.graph().id_for(file).is_none())
     {
         compilation =
-            Compilation::build_workspace(project, Default::default(), &files);
+            Compilation::build_workspace(project.clone(), Default::default(), &files);
+    }
+    // A file nothing imports can hold an anchor a plugin reaches: compile it
+    // with the project, as if imported, so its anchors can be roots. Other
+    // files nothing imports still count as never imported.
+    let mut holding: Vec<PathBuf> = Vec::new();
+    for (file, _) in &plugin_roots {
+        let canonical = project::canonical_target(file);
+        if compilation.graph().id_for(&canonical).is_none() && !holding.contains(&canonical) {
+            holding.push(canonical);
+        }
+    }
+    if !holding.is_empty() {
+        compilation = Compilation::build_including(project, &holding);
     }
 
     let reachability = if targets.is_empty() {
-        reach::from_entry_with_imports(&compilation)
+        let extra = reach::locate(&compilation, &plugin_roots);
+        reach::from_entry_with_imports_and(&compilation, &extra)
     } else {
         let mut modules: Vec<ModuleId> = Vec::new();
         let mut roots = Vec::new();
@@ -254,4 +276,17 @@ fn declared_anchors(compilation: &Compilation, module: ModuleId) -> Vec<piton_co
             def.module == module
         })
         .collect()
+}
+
+/// The anchors the project's plugins reach themselves, by file and name. A
+/// plugin that can't say is reported as a warning, and the others still count.
+fn plugin_roots(project: &piton_compile::Project) -> Vec<(PathBuf, String)> {
+    let (manifests, _) = piton_plugin::discover(project);
+    let (roots, failures) = piton_plugin::reach::roots(project, &manifests, || {
+        std::rc::Rc::new(crate::plugins::CliServices { project: project.clone() })
+    });
+    for failure in failures {
+        report::warn(failure);
+    }
+    roots.into_iter().map(|root| (root.file, root.name)).collect()
 }

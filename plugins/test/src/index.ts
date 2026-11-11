@@ -27,6 +27,7 @@ const DEFAULT_JOBS = 4;
 interface Settings {
   against: string | null;
   agent: string | null;
+  model: string | null;
   jobs: number | null;
 }
 
@@ -34,7 +35,7 @@ interface Settings {
  * value is correct. If a value is not correct, it reports the error at that
  * value and gives null. */
 function readSettings(ctx: Context): Settings | null {
-  const settings: Settings = { against: null, agent: null, jobs: null };
+  const settings: Settings = { against: null, agent: null, model: null, jobs: null };
   const anchor = ctx.settings();
   if (anchor === null) return settings;
   let ok = true;
@@ -52,6 +53,19 @@ function readSettings(ctx: Context): Settings | null {
   };
   settings.against = choice("against", SCOPES, "invalid-test-scope");
   settings.agent = choice("agent", AGENTS, "unknown-test-agent");
+  const model = anchor.properties.model;
+  if (model !== null && model !== undefined) {
+    if (typeof model === "string" && model.trim().length > 0) {
+      settings.model = model.trim();
+    } else {
+      ctx.report.error("`model` has to name a model", {
+        code: "invalid-test-model",
+        location: anchor.location("model"),
+        help: "leave `model` out to judge with the agent's default model",
+      });
+      ok = false;
+    }
+  }
   const jobs = anchor.properties.jobs;
   if (jobs !== null && jobs !== undefined) {
     if (typeof jobs === "number" && Number.isInteger(jobs) && jobs >= 1) {
@@ -175,11 +189,17 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
     return 1;
   }
   const agent = (args.agent as string | null) ?? settings.agent ?? DEFAULT_AGENT;
-  const tool = ctx.agents.list().find((candidate) => candidate.name === agent);
+  // Belay knows the agentic tools and the fluency prompt of each.
+  const agents = ctx.require("belay").agents as Agents;
+  const tool = agents.list().find((candidate) => candidate.name === agent);
   if (tool === undefined) {
     ctx.report.error(`unknown agent \`${agent}\``, { help: `the agents are ${AGENTS.join(", ")}` });
     return 1;
   }
+  // `--model` without a model, or with a value that is not one of the agent's
+  // models, lists them as `piton agent` does, and nothing runs.
+  const flag = await agents.modelFlag(tool.name, args.model);
+  if ("exit" in flag) return flag.exit;
   const jobs = args.serial === true ? 1 : Math.max((args.jobs as number | null) ?? settings.jobs ?? DEFAULT_JOBS, 1);
 
   // Parse the expression before the compilation starts.
@@ -208,7 +228,9 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
   }
   compilation.reportDiagnostics();
 
-  const project = ctx.project();
+  // Belay knows the code root, when the project configures Belay.
+  const roots = ctx.require("belay").roots as { codeRoot: string | null };
+  const project = { ...ctx.project(), codeRoot: roots.codeRoot };
   const flagScope = args.against as string | null;
   const fallback = flagScope ?? settings.against ?? DEFAULT_SCOPE;
   const anchors = compilation.anchors({
@@ -265,10 +287,23 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
     return 1;
   }
 
-  const fluency = ctx.agents.fluency(tool.name);
+  const model = flag.model ?? settings.model;
+  if (model === null) {
+    // No model was chosen: the agent judges with its default, and the run
+    // lists the models it could use instead.
+    const offered = await agents.models(tool.name);
+    ctx.report.note(
+      offered.length > 0
+        ? `${tool.name} judges with its default model; its models are ${offered.join(", ")}; choose one with --model`
+        : `${tool.name} judges with its default model; it listed no models; choose one with --model`,
+    );
+  }
+
+  const fluency = agents.fluency(tool.name);
   const launcher: Launcher = {
     agent: tool.name,
     program: tool.program,
+    modelOptions: model === null ? [] : agents.modelOptions(tool.name, model),
     fluency,
     promptFile: tool.name === "opencode" ? ctx.temporaryFile(fluency, ".md") : null,
   };
@@ -363,7 +398,84 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
   if (failed > 0) parts.push(`${failed} failed`);
   if (errored > 0) parts.push(`${errored} could not be judged`);
   ctx.report.stopped(`${total} ${testsWord}: ${parts.join(", ")} in ${took}`);
+  await handOff(ctx, agents, fixes.map(([, , prompt]) => prompt), tool.name, model);
   return 1;
 }
 
-export default definePlugin({ commands: { test } });
+/** The agents that Belay exports. */
+interface Agents {
+  list(): { name: string; program: string; target: string }[];
+  fluency(name: string): string;
+  models(name: string): Promise<string[]>;
+  modelFlag(name: string, value: Json | undefined): Promise<{ model: string | null } | { exit: number }>;
+  modelOptions(name: string, model: string): string[];
+  launch(
+    name: string,
+    firstMessage: string | null,
+    model: string | null,
+  ): { program: string; args: string[]; env: Record<string, string> };
+}
+
+/** The item of the model menu that keeps the agent's own default. */
+const DEFAULT_MODEL = "Default model";
+
+/** The item of the menu that starts no agent. */
+const NO_AGENT = "No agent";
+
+/** Offers to give the fix prompts to an agent. The menu shows on a terminal
+ * only, after the outcome, when one or more tests failed. A second menu then
+ * lists the models of the chosen agent, unless it is the agent that judged
+ * and a model was given for it. The chosen agent starts in the project root
+ * with the terminal, and with all the fix prompts as its first message. The
+ * exit code of the run does not change. */
+async function handOff(
+  ctx: Context,
+  agents: Agents,
+  prompts: string[],
+  judged: string,
+  judgedModel: string | null,
+): Promise<void> {
+  if (prompts.length === 0 || !ctx.terminal.stdin || !ctx.terminal.stdout) return;
+  const names = agents.list().map((agent) => agent.name);
+  const chosen = ctx.choose(`Give the fix ${plural(prompts.length, "prompt", "prompts")} to an agent?`, [...names, NO_AGENT]);
+  if (chosen === null || chosen >= names.length) return;
+  const name = names[chosen];
+  let model: string | null = name === judged ? judgedModel : null;
+  if (model === null) {
+    const offered = await agents.models(name);
+    if (offered.length > 0) {
+      const picked = ctx.choose(`Which model should ${name} use?`, [DEFAULT_MODEL, ...offered]);
+      if (picked === null) return;
+      model = picked === 0 ? null : offered[picked - 1];
+    } else {
+      ctx.report.note(`${name} listed no models, so it uses its default model`);
+    }
+  }
+  const message =
+    prompts.length === 1
+      ? prompts[0]
+      : `Fix each of these ${prompts.length} failed Piton tests, one after another.\n\n` +
+        prompts.map((prompt, index) => `## Failed test ${index + 1}\n\n${prompt}`).join("\n\n");
+  const launch = agents.launch(name, message, model);
+  if (!ctx.onPath(launch.program)) {
+    ctx.report.error(`\`${launch.program}\` is not on PATH, so the fix prompts were not given to it`);
+    return;
+  }
+  ctx.exec(launch.program, launch.args, { env: launch.env });
+}
+
+/** The tests are reached by the test runner, though nothing in the
+ * specbase leads to them: each exported test is a root of `piton reach` and
+ * of the editor's unused check. These are the tests that `piton test` finds. */
+function reach(ctx: Context) {
+  const compilation = ctx.compile({ workspace: true });
+  const anchors = compilation.anchors({
+    extends: { module: "@piton/test", name: "Test" },
+    exported: true,
+    concrete: true,
+    withinSourceRoot: true,
+  });
+  return { anchors: anchors.map((anchor) => ({ file: anchor.file, name: anchor.name })) };
+}
+
+export default definePlugin({ commands: { test }, reach });

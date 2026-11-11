@@ -1,0 +1,835 @@
+//! Checks the output plan against the Belay specification, one rule at a
+//! time, on small sandbox projects.
+
+mod belay;
+
+use std::path::PathBuf;
+
+use piton_compile::{config, Compilation};
+use piton_plugin::output;
+
+/// Writes a plan the way `piton build` does: checked whole against what the
+/// last build recorded, then written, then recorded in the manifest. A plan
+/// with problems, or with errors among its diagnostics, writes nothing.
+fn write(plan: &belay::Plan, root: &std::path::Path) -> Result<(), String> {
+    let previous = output::previous(root);
+    let mut problems = output::check(&plan.build, root, &previous, &|_: &str| None);
+    problems.extend(plan.diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()));
+    if !problems.is_empty() {
+        return Err(problems.join("\n"));
+    }
+    output::write(&plan.build, root).map_err(|error| error.to_string())?;
+    output::clean_stale(&previous, &plan.build, root);
+    let manifest = root.join(output::MANIFEST);
+    std::fs::create_dir_all(manifest.parent().unwrap()).map_err(|error| error.to_string())?;
+    std::fs::write(manifest, output::manifest(&plan.build)).map_err(|error| error.to_string())
+}
+
+struct Sandbox {
+    dir: PathBuf,
+}
+
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+impl Sandbox {
+    fn new(name: &str) -> Sandbox {
+        let dir = std::env::temp_dir().join(format!(
+            "piton-plan-{}-{name}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).expect("temp dir");
+        Sandbox { dir }
+    }
+
+    fn write(&self, relative: &str, contents: &str) -> &Sandbox {
+        let path = self.dir.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("parent");
+        }
+        std::fs::write(path, contents).expect("write");
+        self
+    }
+
+    fn mkdir(&self, relative: &str) -> &Sandbox {
+        std::fs::create_dir_all(self.dir.join(relative)).expect("mkdir");
+        self
+    }
+
+    /// Writes a configuration with the given adapters and extra belay-config
+    /// lines.
+    fn configure(&self, adapters: &[&str], extra: &str) -> &Sandbox {
+        let imports = adapters.join(", ");
+        let list: String = adapters
+            .iter()
+            .map(|adapter| format!("        - {{{adapter}}}\n"))
+            .collect();
+        self.write(
+            "piton.config.pi",
+            &format!(
+                "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import {imports}\n\nexport piton-config Sandbox:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    plugins:\n        - {{SandboxBelay}}\n\nbelay-config SandboxBelay:\n    codeRoot: ./src\n    shapeRoot: ./spec/shape\n{extra}\n    adapters:\n{list}"
+            ),
+        )
+    }
+
+    fn plan(&self) -> Built {
+        let (project, diagnostics) = config::load(&self.dir, None);
+        assert!(
+            !diagnostics.has_errors(),
+            "configuration did not load: {:?}",
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        assert!(!project.plugins.is_empty(), "belay configured");
+        let compilation = Compilation::build(project);
+        assert!(
+            !compilation.has_errors(),
+            "sandbox did not compile: {:?}",
+            compilation
+                .diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+        let plan = belay::plan(&compilation);
+        
+        Built { plan }
+    }
+}
+
+struct Built {
+    plan: belay::Plan,
+}
+
+impl Built {
+    fn file(&self, path: &str) -> &str {
+        &self
+            .plan
+            .files
+            .iter()
+            .find(|file| file.path == PathBuf::from(path))
+            .unwrap_or_else(|| panic!("{path} was not planned; planned: {:?}", self.paths()))
+            .contents
+    }
+
+    fn has(&self, path: &str) -> bool {
+        self.plan.files.iter().any(|file| file.path == PathBuf::from(path))
+    }
+
+    fn paths(&self) -> Vec<String> {
+        self.plan
+            .files
+            .iter()
+            .map(|file| file.path.to_string_lossy().to_string())
+            .collect()
+    }
+
+    fn codes(&self) -> Vec<String> {
+        self.plan.diagnostics.iter().map(|d| d.code.clone()).collect()
+    }
+
+    fn diagnostic(&self, code: &str) -> &piton_core::Diagnostic {
+        self.plan
+            .diagnostics
+            .iter()
+            .find(|d| d.code == code)
+            .unwrap_or_else(|| panic!("no `{code}` diagnostic; got {:#?}", self.plan.diagnostics))
+    }
+
+    fn assert_clean(&self) {
+        let errors: Vec<String> = self
+            .plan
+            .diagnostics
+            .iter()
+            .filter(|d| d.is_error())
+            .map(|d| format!("{}: {}", d.code, d.message))
+            .collect();
+        assert!(errors.is_empty(), "unexpected errors: {errors:#?}");
+    }
+}
+
+const CLAUDE: &[&str] = &["ClaudeCodeAdapter"];
+
+#[test]
+fn only_the_entry_exports_and_what_they_reference_are_emitted() {
+    let sandbox = Sandbox::new("emission");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nskill Parent:\n    useWhen: never directly\n    prompt: The parent.\n\nskill Embedded:\n    useWhen: embedded\n    prompt: Embedded.\n\nexport skill Child extends Parent:\n    useWhen: asked\n\nexport anchor Top:\n    embeds: {Embedded}\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.has(".claude/skills/child/SKILL.md"));
+    assert!(!built.has(".claude/skills/parent/SKILL.md"), "{:?}", built.paths());
+    assert!(!built.has(".claude/skills/embedded/SKILL.md"), "{:?}", built.paths());
+    assert!(built.file(".claude/reference/index.md").contains("# Top"));
+}
+
+#[test]
+fn a_reference_to_an_abstract_or_package_anchor_is_an_error() {
+    let sandbox = Sandbox::new("abstract-ref");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nfrom @piton/belay import Skill\n\nabstract anchor Shape:\n    size:: number\n\nexport skill Uses:\n    useWhen: asked\n    prompt: See @{Shape} and @{Skill}.\n",
+    );
+    let built = sandbox.plan();
+    let errors: Vec<&piton_core::Diagnostic> = built
+        .plan
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "unrepresentable-reference")
+        .collect();
+    assert_eq!(errors.len(), 2, "{:#?}", built.plan.diagnostics);
+    assert!(errors.iter().all(|d| d.span != piton_core::Span::default()));
+    assert!(!built.file(".claude/skills/uses/SKILL.md").contains("]("));
+}
+
+#[test]
+fn references_link_to_the_heading_in_the_module_file() {
+    let sandbox = Sandbox::new("links");
+    sandbox
+        .configure(CLAUDE, "")
+        .write(
+            "spec/a/Ref.pi",
+            "export anchor Ref:\n    description: The first.\n\nexport anchor Other:\n    description: A neighbour.\n    color: red\n",
+        )
+        .write("spec/b/Ref.pi", "export anchor Ref:\n    description: The second.\n")
+        .write(
+            "spec/b/User.pi",
+            "from ./Ref import Ref\n\nexport anchor User:\n    see: Also @{Ref}.\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nfrom ./a/Ref import Ref, Other\nfrom ./b/User import User\n\nexport skill Links:\n    useWhen: asked\n    prompt: Read @{Ref}, @{User}, and @{Other.color}.\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let skill = built.file(".claude/skills/links/SKILL.md");
+    assert!(skill.contains("[Ref](../../reference/a/Ref.md#ref)"), "{skill}");
+    assert!(skill.contains("[User](../../reference/b/User.md#user)"), "{skill}");
+    assert!(
+        built.file(".claude/reference/b/User.md").contains("[Ref](./Ref.md#ref)"),
+        "two anchors named Ref land in two files"
+    );
+    assert!(
+        skill.contains("[Other.color](../../reference/a/Ref.md#color)"),
+        "{skill}"
+    );
+    let first = built.file(".claude/reference/a/Ref.md");
+    assert!(first.contains("# Ref\n") && first.contains("# Other\n"), "{first}");
+    assert!(built.file(".claude/reference/b/Ref.md").contains("The second."));
+    assert!(!first.contains("Links in this document"), "{first}");
+}
+
+#[test]
+fn repeated_headings_in_one_file_get_distinct_fragments() {
+    let sandbox = Sandbox::new("fragments");
+    sandbox
+        .configure(CLAUDE, "")
+        .write(
+            "spec/Pair.pi",
+            "export anchor First:\n    description: One.\n\nexport anchor Second:\n    description: Two.\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nfrom ./Pair import First, Second\n\nexport skill Pairs:\n    useWhen: asked\n    prompt: Compare @{First.description} with @{Second.description}.\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let skill = built.file(".claude/skills/pairs/SKILL.md");
+    assert!(skill.contains("Pair.md#description)"), "{skill}");
+    assert!(skill.contains("Pair.md#description-1)"), "{skill}");
+}
+
+#[test]
+fn descriptions_are_required_where_the_target_needs_them_and_omitted_otherwise() {
+    let sandbox = Sandbox::new("descriptions");
+    sandbox.configure(&["ClaudeCodeAdapter", "CodexAdapter"], "    crossDiscovery: separate\n").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Quiet:\n    useWhen: asked\n    prompt: Hi.\n\nexport command Go:\n    prompt: Go.\n",
+    );
+    let built = sandbox.plan();
+    let command = built.file(".claude/skills/x-go/SKILL.md");
+    assert!(!command.contains("description"), "{command}");
+    let skill = built.file(".claude/skills/quiet/SKILL.md");
+    assert!(skill.contains("description: Use when asked\n"), "{skill}");
+    let missing: Vec<&str> = built
+        .plan
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "missing-description")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(missing.len(), 2, "Codex needs both: {missing:#?}");
+    assert!(missing.iter().all(|m| m.contains("CodexAdapter")), "{missing:#?}");
+}
+
+#[test]
+fn discovery_descriptions_join_with_a_single_space() {
+    let sandbox = Sandbox::new("discovery");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Tidy:\n    description: Tidies things\n    useWhen: asked\n",
+    );
+    let built = sandbox.plan();
+    assert!(
+        built
+            .file(".claude/skills/tidy/SKILL.md")
+            .contains("description: Tidies things Use when asked\n")
+    );
+}
+
+#[test]
+fn instructions_keep_their_description_and_nest_their_extras() {
+    let sandbox = Sandbox::new("instruction");
+    sandbox.configure(CLAUDE, "").mkdir("src/button").write(
+        "spec/shape/button/Button.pi",
+        "use @piton/belay\n\nexport instruction ButtonShape:\n    description: How the button is built.\n    prompt: Keep it small.\n    notes: Nothing else.\n",
+    ).write("spec/index.pi", "from ./shape/button/Button export *\n");
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert_eq!(
+        built.file("src/button/CLAUDE.md"),
+        "# Button Shape\n\nHow the button is built.\n\nKeep it small.\n\n## Notes\n\nNothing else.\n"
+    );
+    assert!(built.has(".claude/reference/shape/button/Button.md"));
+}
+
+#[test]
+fn instructions_outside_the_shape_root_are_not_specified() {
+    let sandbox = Sandbox::new("unscoped");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport instruction Loose:\n    prompt: Anywhere.\n",
+    );
+    let built = sandbox.plan();
+    let diagnostic = built.diagnostic("instruction-placement-unspecified");
+    assert!(diagnostic.is_error());
+    assert!(!built.has("src/CLAUDE.md"));
+}
+
+#[test]
+fn unsupported_and_invalid_native_options_fail() {
+    let sandbox = Sandbox::new("options");
+    sandbox.configure(&["OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport agent Reviewer:\n    description: Reviews\n    role: careful reviewer\n    mode: sometimes\n    model: fast\n    tools:\n        - read\n",
+    );
+    let built = sandbox.plan();
+    let unsupported = built.diagnostic("unsupported-option");
+    assert!(unsupported.is_error());
+    assert!(unsupported.message.contains("OpenCodeAdapter"), "{}", unsupported.message);
+    assert_ne!(unsupported.span, piton_core::Span::default());
+    let invalid: Vec<&str> = built
+        .plan
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "invalid-option")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(invalid.len(), 2, "mode and model: {invalid:#?}");
+}
+
+#[test]
+fn agents_begin_with_the_role_introduction() {
+    let sandbox = Sandbox::new("agent");
+    sandbox.configure(&["OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport agent Reviewer:\n    description: Reviews\n    role: careful reviewer\n    prompt: Look closely.\n    model: anthropic/claude-sonnet-4-5\n    permission:\n        edit: deny\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert_eq!(
+        built.file(".opencode/agents/reviewer.md"),
+        "---\ndescription: Reviews\nmode: subagent\nmodel: anthropic/claude-sonnet-4-5\npermission:\n  edit: deny\n---\n\nYou are a careful reviewer\n\nLook closely.\n"
+    );
+}
+
+#[test]
+fn constructs_normalizing_to_one_identity_collide() {
+    let sandbox = Sandbox::new("collision");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill X_Release:\n    useWhen: asked\n    prompt: Same.\n\nexport command Release:\n    prompt: Same.\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("name-collision").is_error());
+}
+
+#[test]
+fn opencode_nested_guidance_needs_explicit_configuration() {
+    let sandbox = Sandbox::new("opencode-scope");
+    sandbox.configure(&["OpenCodeAdapter"], "").mkdir("src/button").write(
+        "spec/shape/button/Button.pi",
+        "use @piton/belay\n\nexport instruction ButtonShape:\n    prompt: Keep it small.\n",
+    ).write("spec/index.pi", "from ./shape/button/Button export *\n");
+    let built = sandbox.plan();
+    assert!(built.diagnostic("unguaranteed-instruction-scope").is_error());
+
+    sandbox.write("opencode.json", "{\n  \"instructions\": [\"src/**/AGENTS.md\"]\n}\n");
+    sandbox.plan().assert_clean();
+}
+
+#[test]
+fn codex_reports_over_budget_and_shadowed_guidance() {
+    let sandbox = Sandbox::new("codex-scope");
+    sandbox.configure(&["CodexAdapter"], "    instructionByteLimit: 10\n").mkdir("src/button").write(
+        "spec/shape/button/Button.pi",
+        "use @piton/belay\n\nexport instruction ButtonShape:\n    prompt: Keep it small, and keep it simple.\n",
+    ).write("spec/index.pi", "from ./shape/button/Button export *\n");
+    let built = sandbox.plan();
+    assert!(built.diagnostic("instruction-over-budget").is_error());
+
+    sandbox.configure(&["CodexAdapter"], "").write("src/button/AGENTS.override.md", "local\n");
+    let built = sandbox.plan();
+    assert!(built.diagnostic("shadowed-instruction").is_error());
+    assert!(!built.codes().contains(&"instruction-over-budget".to_string()));
+}
+
+#[test]
+fn cross_discovery_that_changes_activation_needs_a_choice() {
+    let sandbox = Sandbox::new("cross");
+    sandbox.configure(&["ClaudeCodeAdapter", "OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport command Release:\n    description: Cut a release\n    prompt: Go.\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("cross-discovery-activation").is_error());
+
+    sandbox.configure(&["ClaudeCodeAdapter", "OpenCodeAdapter"], "    crossDiscovery: separate\n");
+    let built = sandbox.plan();
+    assert!(!built.codes().contains(&"cross-discovery-activation".to_string()));
+    built.assert_clean();
+}
+
+#[test]
+fn a_command_skill_opencode_is_told_to_hide_needs_no_choice() {
+    let sandbox = Sandbox::new("cross-permission");
+    sandbox.configure(&["ClaudeCodeAdapter", "OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport command Release:\n    description: Cut a release\n    prompt: Go.\n",
+    );
+    // A later pattern decides over an earlier one.
+    sandbox.write(
+        "opencode.json",
+        "{\n  \"permission\": {\"skill\": {\"*\": \"allow\", \"x-*\": \"deny\"}}\n}\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(!built.codes().contains(&"cross-target-discovery".to_string()), "{:?}", built.codes());
+
+    sandbox.write(
+        "opencode.json",
+        "{\n  \"permission\": {\"skill\": {\"x-*\": \"deny\", \"*\": \"allow\"}}\n}\n",
+    );
+    assert!(sandbox.plan().diagnostic("cross-discovery-activation").is_error());
+}
+
+#[test]
+fn shared_projects_write_one_reference_tree_and_one_agents_md() {
+    let sandbox = Sandbox::new("shared");
+    sandbox
+        .configure(&["CodexAdapter", "OpenCodeAdapter"], "")
+        .write("opencode.json", "{\n  \"instructions\": [\"src/AGENTS.md\"]\n}\n")
+        .write("spec/Style.pi", "export anchor Style:\n    rule: Flat props.\n")
+        .write(
+            "spec/shape/Source.pi",
+            "use @piton/belay\n\nfrom ../Style import Style\n\nexport instruction Source:\n    prompt: Follow @{Style}.\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nfrom ./Style import Style\nfrom ./shape/Source export *\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n    prompt: Follow @{Style}.\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    // The first adapter listed owns the one reference tree.
+    assert!(built.has(".codex/reference/Style.md"));
+    assert!(!built.has(".opencode/reference/Style.md"), "{:?}", built.paths());
+    // Both tools read the one AGENTS.md, which links into that tree.
+    assert!(built.file("src/AGENTS.md").contains("../.codex/reference/Style.md"));
+    // OpenCode discovers the Codex skill, so it writes no copy of its own.
+    assert!(built.has(".agents/skills/tidy/SKILL.md"));
+    assert!(!built.has(".opencode/skills/tidy/SKILL.md"), "{:?}", built.paths());
+
+    // Deployed apart, each tool gets its own tree and they can no longer
+    // share AGENTS.md.
+    sandbox.configure(&["CodexAdapter", "OpenCodeAdapter"], "    crossDiscovery: separate\n");
+    let built = sandbox.plan();
+    assert!(built.has(".opencode/reference/Style.md"));
+    assert!(built.has(".opencode/skills/tidy/SKILL.md"));
+    assert!(built.diagnostic("output-collision").is_error());
+}
+
+#[test]
+fn a_skill_opencode_finds_twice_is_reported_once_per_skill() {
+    let sandbox = Sandbox::new("twice");
+    sandbox
+        .configure(&["ClaudeCodeAdapter", "CodexAdapter", "OpenCodeAdapter"], "")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let warning = built.diagnostic("cross-target-discovery");
+    assert!(warning.message.contains("`.agents/skills/tidy` and `.claude/skills/tidy`"), "{}", warning.message);
+    assert!(!built.has(".opencode/skills/tidy/SKILL.md"));
+}
+
+#[test]
+fn muse_leaves_agents_out_and_still_gets_its_references() {
+    let sandbox = Sandbox::new("muse-agent");
+    sandbox.configure(&["MuseAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport anchor Style:\n    rule: Flat props.\n\nexport agent Reviewer:\n    description: Reviews.\n    role: careful reviewer\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n    prompt: Follow @{Style}, or ask @{Reviewer}.\n",
+    );
+    let built = sandbox.plan();
+    let warning = built.diagnostic("unsupported-construct");
+    assert!(!warning.is_error());
+    assert!(warning.message.contains("`Reviewer`"), "{}", warning.message);
+    assert!(built.has(".muse/reference/index.md"), "{:?}", built.paths());
+    assert!(!built.paths().iter().any(|path| path.contains("agents/reviewer")), "{:?}", built.paths());
+    // With nowhere else to link, the agent is documented in the reference tree.
+    let skill = built.file(".agents/skills/tidy/SKILL.md");
+    assert!(skill.contains("../../../.muse/reference/index.md#style"), "{skill}");
+    assert!(skill.contains("../../../.muse/reference/index.md#reviewer"), "{skill}");
+}
+
+#[test]
+fn muse_shares_the_skills_and_commands_codex_and_claude_write() {
+    let sandbox = Sandbox::new("muse-shared");
+    let spec = "use @piton/belay\n\nexport agent Reviewer:\n    description: Reviews.\n    role: careful reviewer\n\nexport skill Tidy:\n    description: Tidies.\n    useWhen: asked\n    prompt: Ask @{Reviewer}.\n\nexport command Release:\n    description: Releases.\n";
+    sandbox.configure(&["CodexAdapter", "MuseAdapter"], "").write("spec/index.pi", spec);
+    let built = sandbox.plan();
+    built.assert_clean();
+    // Muse honours the Codex policy file, so the one copy serves both.
+    assert!(built.file(".agents/skills/x-release/SKILL.md").contains("name: x-release"));
+    assert!(built.has(".agents/skills/x-release/agents/openai.yaml"));
+    assert!(built.paths().iter().all(|path| !path.starts_with(".muse/")), "{:?}", built.paths());
+    // The agent Muse can't load is linked where Codex writes it.
+    assert!(built.file(".agents/skills/tidy/SKILL.md").contains("../../../.codex/agents/reviewer.toml"));
+
+    sandbox.configure(&["ClaudeCodeAdapter", "MuseAdapter"], "").write("spec/index.pi", spec);
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.has(".claude/skills/x-release/SKILL.md"));
+    assert!(built.paths().iter().all(|path| !path.starts_with(".agents/")), "{:?}", built.paths());
+}
+
+#[test]
+fn opencode_still_needs_muse_command_skills_hidden() {
+    let sandbox = Sandbox::new("muse-opencode");
+    sandbox.configure(&["MuseAdapter", "OpenCodeAdapter"], "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport command Release:\n    description: Releases.\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("cross-discovery-activation").message.contains("OpenCodeAdapter"));
+}
+
+#[test]
+fn the_target_versions_are_recorded() {
+    let sandbox = Sandbox::new("record");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n",
+    );
+    let built = sandbox.plan();
+    // The manifest records, for each target, when its documentation was
+    // last checked.
+    let manifest = output::manifest(&built.plan.build);
+    assert!(manifest.contains("\"targets\""), "{manifest}");
+    assert!(manifest.contains("\"claude-code\": \"2026-09-21\""), "{manifest}");
+}
+
+#[test]
+fn an_adapter_anchor_can_move_the_reference_root() {
+    let sandbox = Sandbox::new("custom-adapter");
+    sandbox
+        .write(
+            "piton.config.pi",
+            "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Sandbox:\n    root: ./spec\n    entry: ./spec/index.pi\n\n    plugins:\n        - {SandboxBelay}\n\nbelay-config SandboxBelay:\n    codeRoot: ./src\n    adapters:\n        - {Docs}\n\nanchor Docs extends ClaudeCodeAdapter:\n    referenceRoot: .claude/docs\n",
+        )
+        .write("spec/Style.pi", "export anchor Style:\n    rule: Flat props.\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nfrom ./Style import Style\n\nexport skill Tidy:\n    useWhen: asked\n    prompt: Follow @{Style}.\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.file(".claude/skills/tidy/SKILL.md").contains("../../docs/Style.md#style"));
+}
+
+#[test]
+fn existing_files_the_build_does_not_own_are_not_overwritten() {
+    let sandbox = Sandbox::new("ownership");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n",
+    );
+    sandbox.write(".claude/skills/tidy/SKILL.md", "hand written\n");
+    let built = sandbox.plan();
+    assert!(built.diagnostic("unowned-output").is_error());
+    assert!(write(&built.plan, &sandbox.dir).is_err());
+    assert_eq!(
+        std::fs::read_to_string(sandbox.dir.join(".claude/skills/tidy/SKILL.md")).unwrap(),
+        "hand written\n"
+    );
+
+    // Once the manifest records it, the build owns it.
+    sandbox.write(
+        output::MANIFEST,
+        "{\n  \"generated\": [\n    \".claude/skills/tidy/SKILL.md\"\n  ]\n}\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    write(&built.plan, &sandbox.dir).expect("owned files are written");
+    let manifest = std::fs::read_to_string(sandbox.dir.join(output::MANIFEST)).unwrap();
+    assert!(manifest.contains("\"targets\""), "{manifest}");
+}
+
+#[test]
+fn cleanup_only_removes_recorded_files() {
+    let sandbox = Sandbox::new("cleanup");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n",
+    );
+    sandbox.write(".claude/skills/old/SKILL.md", "stale\n");
+    sandbox.write(".claude/skills/mine/SKILL.md", "user\n");
+    let built = sandbox.plan();
+    let removed = output::clean_stale(
+        &[".claude/skills/old/SKILL.md".to_string(), "../escape.md".to_string()].into_iter().collect(),
+        &built.plan.build,
+        &sandbox.dir,
+    );
+    assert_eq!(removed, vec![PathBuf::from(".claude/skills/old/SKILL.md")]);
+    assert!(!sandbox.dir.join(".claude/skills/old").exists(), "empty directory pruned");
+    assert!(sandbox.dir.join(".claude/skills/mine/SKILL.md").exists());
+}
+
+#[test]
+fn references_in_metadata_are_errors() {
+    let sandbox = Sandbox::new("metadata-ref");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport anchor Style:\n    rule: Flat.\n\nexport skill Tidy:\n    description: Applies @{Style}\n    useWhen: asked\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("unrepresentable-reference").is_error());
+}
+
+#[test]
+fn a_reference_to_a_construct_links_to_its_own_output() {
+    let sandbox = Sandbox::new("construct-link");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n\nexport skill Review:\n    useWhen: reviewing\n    prompt: Run @{Tidy} first.\n",
+    );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let review = built.file(".claude/skills/review/SKILL.md");
+    assert!(review.contains("[Tidy](../tidy/SKILL.md)"), "{review}");
+    assert!(
+        !built.has(".claude/reference/index.md"),
+        "a construct is not copied into the reference directory"
+    );
+}
+
+const CLAUDE_AND_CODEX: &[&str] = &["ClaudeCodeAdapter", "CodexAdapter"];
+
+fn executable(sandbox: &Sandbox, relative: &str) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = sandbox.dir.join(relative);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    let _ = (sandbox, relative);
+}
+
+#[test]
+fn a_vendored_skill_is_copied_as_it_is_for_each_target() {
+    let sandbox = Sandbox::new("vendored-skill");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write(
+            "spec/vendor/claude/SKILL.md",
+            "---\nname: designer\ndescription: Designs for Claude.\nallowed-tools: Bash(x *)\n---\n\nRun {{scripts}} as it is.\n",
+        )
+        .write("spec/vendor/claude/reference/a.md", "# A\n\n[b](./b.md)\n")
+        .write("spec/vendor/claude/scripts/run", "#!/bin/sh\necho hi\n")
+        .write(
+            "spec/vendor/codex/SKILL.md",
+            "---\nname: designer\ndescription: Designs for Codex.\n---\n\nCodex body.\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Designer:\n    files:\n        claude-code: ./vendor/claude\n        codex: ./vendor/codex\n",
+        );
+    executable(&sandbox, "spec/vendor/claude/scripts/run");
+    std::fs::write(sandbox.dir.join("spec/vendor/claude/scripts/blob.bin"), [0u8, 159, 146, 150]).expect("blob");
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert_eq!(
+        built.file(".claude/skills/designer/SKILL.md"),
+        "---\nname: designer\ndescription: Designs for Claude.\nallowed-tools: Bash(x *)\n---\n\nRun {{scripts}} as it is.\n"
+    );
+    assert!(built.file(".claude/skills/designer/reference/a.md").contains("[b](./b.md)"));
+    assert!(built.file(".agents/skills/designer/SKILL.md").contains("Codex body."));
+    assert!(!built.has(".agents/skills/designer/scripts/run"), "{:?}", built.paths());
+
+    let script = built
+        .plan
+        .files
+        .iter()
+        .find(|file| file.path == PathBuf::from(".claude/skills/designer/scripts/run"))
+        .expect("script planned");
+    assert_eq!(script.kind, "skill file");
+    #[cfg(unix)]
+    assert!(script.executable);
+    let blob = built
+        .plan
+        .files
+        .iter()
+        .find(|file| file.path == PathBuf::from(".claude/skills/designer/scripts/blob.bin"))
+        .expect("blob planned");
+    assert_eq!(blob.data(), &[0u8, 159, 146, 150]);
+
+    // Writing keeps the bytes and the execute permission, and records the
+    // copies so a later build can remove them.
+    write(&built.plan, &sandbox.dir).expect("write");
+    assert_eq!(
+        std::fs::read(sandbox.dir.join(".claude/skills/designer/scripts/blob.bin")).expect("read"),
+        vec![0u8, 159, 146, 150]
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(sandbox.dir.join(".claude/skills/designer/scripts/run"))
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "{mode:o}");
+    }
+    let manifest = std::fs::read_to_string(sandbox.dir.join(output::MANIFEST)).expect("manifest");
+    assert!(manifest.contains(".claude/skills/designer/scripts/run"), "{manifest}");
+}
+
+#[test]
+fn a_folder_without_a_skill_file_is_copied_beside_the_rendered_one() {
+    let sandbox = Sandbox::new("vendored-support");
+    sandbox
+        .configure(CLAUDE, "")
+        .write("spec/tools/check.sh", "#!/bin/sh\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Checker:\n    useWhen: asked to check\n    prompt: Run ./check.sh.\n    files: ./tools\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    let skill = built.file(".claude/skills/checker/SKILL.md");
+    assert!(skill.contains("Run ./check.sh."), "{skill}");
+    assert!(!skill.contains("# Files"), "{skill}");
+    assert_eq!(built.file(".claude/skills/checker/check.sh"), "#!/bin/sh\n");
+}
+
+#[test]
+fn a_vendored_skill_cannot_also_set_what_its_file_defines() {
+    let sandbox = Sandbox::new("vendored-conflict");
+    sandbox
+        .configure(CLAUDE, "")
+        .write("spec/v/SKILL.md", "---\nname: other\ndescription: D.\n---\n\nBody.\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Vendored:\n    prompt: Ignored.\n    files: ./v\n",
+        );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("vendored-conflict").message.contains("Vendored.prompt"));
+    assert!(built.diagnostic("vendored-name-mismatch").message.contains("`other`"));
+}
+
+#[test]
+fn per_target_paths_must_cover_the_built_targets() {
+    let sandbox = Sandbox::new("vendored-targets");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write("spec/v/SKILL.md", "---\nname: partial\ndescription: D.\n---\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Partial:\n    files:\n        claude-code: ./v\n        cursor: ./v\n",
+        );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("missing-vendored-target").message.contains("codex"));
+    assert!(built.diagnostic("unknown-vendored-target").message.contains("cursor"));
+}
+
+#[test]
+fn a_missing_folder_and_a_missing_use_when_are_errors() {
+    let sandbox = Sandbox::new("vendored-missing");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Gone:\n    files: ./nowhere\n\nexport skill Bare:\n    prompt: No useWhen.\n",
+    );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("missing-vendored-files").message.contains("nowhere"));
+    assert!(built.diagnostic("missing-use-when").message.contains("Bare"));
+}
+
+#[test]
+fn a_vendored_agent_is_used_as_it_is() {
+    let sandbox = Sandbox::new("vendored-agent");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write(
+            "spec/agents/reviewer.md",
+            "---\nname: reviewer\ndescription: Reviews.\ntools: Read, Grep\nmodel: inherit\n---\n\nYou review.\n",
+        )
+        .write(
+            "spec/agents/reviewer.toml",
+            "name = \"reviewer\"\ndescription = \"Reviews.\"\ndeveloper_instructions = \"You review.\"\n",
+        )
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: ./agents/reviewer.toml\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.file(".claude/agents/reviewer.md").contains("tools: Read, Grep"));
+    assert!(built.file(".codex/agents/reviewer.toml").starts_with("name = \"reviewer\""));
+}
+
+#[test]
+fn a_vendored_agent_must_match_the_target_format() {
+    let sandbox = Sandbox::new("vendored-agent-format");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport agent Reviewer:\n    role: reviewer\n    file: ./agents/reviewer.md\n",
+        );
+    let built = sandbox.plan();
+    assert!(built.diagnostic("vendored-format-mismatch").message.contains(".toml"));
+    assert!(built.diagnostic("vendored-conflict").message.contains("Reviewer.role"));
+}
+
+#[test]
+fn a_null_entry_leaves_the_construct_out_of_that_target() {
+    let sandbox = Sandbox::new("vendored-null");
+    sandbox
+        .configure(CLAUDE_AND_CODEX, "")
+        .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n\nYou review.\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: null\n",
+        );
+    let built = sandbox.plan();
+    built.assert_clean();
+    assert!(built.has(".claude/agents/reviewer.md"));
+    assert!(!built.has(".codex/agents/reviewer.toml"), "{:?}", built.paths());
+}

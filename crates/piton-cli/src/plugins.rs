@@ -11,12 +11,11 @@ use std::path::Path;
 use std::rc::Rc;
 
 use clap::{Arg, ArgAction, ArgMatches};
-use piton_compile::{prelude, Compilation, Framework, Project};
+use piton_compile::{prelude, Compilation, Project};
 use piton_core::{Diagnostic, DiagnosticSink};
 use piton_plugin::{ArgKind, ArgSpec, CommandSpec, Manifest, Stream};
 use serde_json::{json, Value as Json};
 
-use crate::commands::agent;
 use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS};
 
@@ -60,6 +59,7 @@ fn clap_arg(spec: &ArgSpec) -> Arg {
     arg = match spec.kind {
         ArgKind::Flag => arg.action(ArgAction::SetTrue),
         _ if spec.multiple => arg.action(ArgAction::Append).num_args(1..),
+        _ if spec.optional_value => arg.action(ArgAction::Set).num_args(0..=1).default_missing_value(""),
         _ => arg.action(ArgAction::Set).num_args(1),
     };
     if !spec.choices.is_empty() {
@@ -76,6 +76,12 @@ fn clap_arg(spec: &ArgSpec) -> Arg {
             }
             Ok(text.to_string())
         });
+    }
+    if let Some(default) = &spec.default {
+        arg = arg.default_value(leak(default));
+    }
+    if spec.trailing {
+        arg = arg.trailing_var_arg(true).allow_hyphen_values(true).num_args(0..);
     }
     if !spec.conflicts.is_empty() {
         let conflicts: Vec<&'static str> = spec.conflicts.iter().map(|name| leak(name)).collect();
@@ -184,27 +190,25 @@ impl piton_plugin::Services for CliServices {
         errors
     }
 
-    fn agents(&self) -> Json {
-        Json::Array(
-            agent::TOOLS
-                .iter()
-                .map(|tool| json!({ "name": tool.name, "program": tool.program, "target": tool.target }))
-                .collect(),
-        )
+    fn choose(&self, message: &str, options: &[String]) -> Option<usize> {
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        inquire::Select::new(message, options.to_vec())
+            .raw_prompt()
+            .ok()
+            .map(|chosen| chosen.index)
     }
 
-    fn fluency(&self, name: &str) -> Option<String> {
-        let tool = agent::TOOLS.iter().find(|tool| tool.name == name)?;
-        let belay = self.project.frameworks.iter().find_map(|framework| match framework {
-            Framework::Belay(config) => Some(config.clone()),
-        });
-        Some(agent::fluency(&self.project.root, &self.project.source_root, tool, belay.as_ref()))
+    fn slice(&self, compilation: &Compilation, target: &str, links: &dyn piton_emit::markdown::LinkResolver) -> u8 {
+        crate::commands::slice::cite(compilation, target, links)
     }
+
 }
 
 /// The project in the working directory and the plugins it has.
+/// The project is the one the working directory is inside, so a plugin's
+/// command works from any directory of the project, as `piton slice` does.
 pub fn load() -> (Project, DiagnosticSink, Vec<Manifest>, Vec<piton_plugin::Problem>) {
-    let (project, diagnostics) = project::current();
+    let (project, diagnostics) = project::enclosing();
     let (manifests, problems) = piton_plugin::discover(&project);
     (project, diagnostics, manifests, problems)
 }
@@ -221,10 +225,29 @@ pub fn withhold_builtins(
         .map(|command| command.get_name().to_string())
         .chain(["help".to_string()])
         .collect();
+    let ungrouped: Vec<String> = manifests
+        .iter()
+        .flat_map(|manifest| manifest.commands.iter())
+        .filter(|command| command.group.is_none())
+        .map(|command| command.name.clone())
+        .collect();
     for manifest in manifests {
         let name = manifest.name.clone();
         let file = manifest.declared_in.clone();
         manifest.commands.retain(|command| {
+            if let Some(group) = &command.group {
+                if builtin.contains(group) || ungrouped.contains(group) {
+                    problems.push(piton_plugin::Problem {
+                        file: file.clone(),
+                        message: format!(
+                            "plugin `{name}` groups `{}` under `{group}`, which is already a command",
+                            command.name
+                        ),
+                    });
+                    return false;
+                }
+                return true;
+            }
             if builtin.contains(&command.name) {
                 problems.push(piton_plugin::Problem {
                     file: file.clone(),
@@ -263,38 +286,108 @@ pub fn report_problems(project: &Project, manifests: &[Manifest], problems: &[pi
 }
 
 /// Runs a plugin command clap has parsed.
+/// Adds every plugin command to the CLI: ungrouped ones at the top level,
+/// grouped ones under a command named for their group, which lists them.
+pub fn add_commands(mut cli: clap::Command, manifests: &[Manifest]) -> clap::Command {
+    let mut groups: Vec<(String, clap::Command)> = Vec::new();
+    for manifest in manifests {
+        for spec in &manifest.commands {
+            let command = clap_command(manifest, spec);
+            match &spec.group {
+                None => cli = cli.subcommand(command),
+                Some(group) => match groups.iter_mut().find(|(name, _)| name == group) {
+                    Some((_, existing)) => {
+                        *existing = std::mem::take(existing).subcommand(command);
+                    }
+                    None => groups.push((
+                        group.clone(),
+                        clap::Command::new(leak(group))
+                            .about(format!("Commands from the {} plugin", manifest.name))
+                            .subcommand_required(true)
+                            .arg_required_else_help(true)
+                            .subcommand(command),
+                    )),
+                },
+            }
+        }
+    }
+    for (_, group) in groups {
+        cli = cli.subcommand(group);
+    }
+    cli
+}
+
+/// The plugin command clap matched, if it matched one: the plugin, the
+/// command, and its arguments.
+pub fn matched<'a>(
+    manifests: &'a [Manifest],
+    matches: &'a ArgMatches,
+) -> Option<(&'a Manifest, &'a CommandSpec, &'a ArgMatches)> {
+    let (name, sub) = matches.subcommand()?;
+    for manifest in manifests {
+        for spec in &manifest.commands {
+            match &spec.group {
+                None if spec.name == name => return Some((manifest, spec, sub)),
+                Some(group) if group == name => {
+                    if let Some((inner, args)) = sub.subcommand() {
+                        if inner == spec.name {
+                            return Some((manifest, spec, args));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
 pub fn run(
     project: Project,
     config_diagnostics: DiagnosticSink,
     manifests: &[Manifest],
     problems: &[piton_plugin::Problem],
-    name: &str,
+    manifest: &Manifest,
+    spec: &CommandSpec,
     matches: &ArgMatches,
 ) -> u8 {
-    let Some((manifest, spec)) = manifests.iter().find_map(|manifest| {
-        manifest
-            .commands
-            .iter()
-            .find(|command| command.name == name)
-            .map(|command| (manifest, command))
-    }) else {
-        report::fail(format!("no plugin adds the command `{name}`"));
-        return EXIT_ERRORS;
-    };
 
-    // The configuration has to be sound before a plugin reads it.
-    if report::diagnostics(&config_diagnostics, &CliServices::source_of, &project.root) {
+    // The configuration has to be sound before a plugin reads it, except for
+    // a plugin that inspects projects: repairing the configuration may be
+    // what its commands are for.
+    if !manifest.inspect && report::diagnostics(&config_diagnostics, &CliServices::source_of, &project.root) {
         report::stopped("the configuration has errors");
         return EXIT_ERRORS;
     }
     report_problems(&project, manifests, problems);
 
     let services = Rc::new(CliServices { project });
-    match piton_plugin::run_command(manifest, &spec.name, arguments(spec, matches), services) {
+    match piton_plugin::run_command(manifests, &manifest.name, &spec.name, arguments(spec, matches), services) {
         Ok(code) => code,
         Err(failure) => {
             report::fail(format!("plugin `{}` failed: {failure}", manifest.name));
             EXIT_ERRORS
         }
     }
+}
+
+/// Runs the build of every plugin the project turned on, returning what each
+/// planned, or the failures. Nothing is written.
+pub fn plan_builds(
+    project: &Project,
+    manifests: &[Manifest],
+) -> (Vec<piton_plugin::plan::PluginPlan>, Vec<String>) {
+    let mut plans = Vec::new();
+    let mut failures = Vec::new();
+    for manifest in piton_plugin::builders(project, manifests) {
+        let services = Rc::new(CliServices { project: project.clone() });
+        match piton_plugin::run_build(manifests, &manifest.name, services) {
+            Ok(plan) => match piton_plugin::plan::read(manifest, &plan, &project.root) {
+                Ok(plan) => plans.push(plan),
+                Err(message) => failures.push(format!("plugin `{}` planned something it can't build: {message}", manifest.name)),
+            },
+            Err(failure) => failures.push(format!("plugin `{}` failed: {failure}", manifest.name)),
+        }
+    }
+    (plans, failures)
 }

@@ -1,0 +1,22 @@
+use ./lib
+
+export test Formatting:
+    expects:
+        The test results should be easy to select in the console and copy and
+        paste a coherent text.
+
+export test FailureFixPrompt:
+    expects:
+        A failed test against either spec, code, or both should use AI to write
+        a prompt to fix the spec, code, or both as appropriate and the prompt
+        should be written in ASD-STE100
+
+export test OfferToRunFixPrompt:
+    expects:
+        Once all the @{FailureFixPrompt} have been generated, the test runner
+        should offer to hand them over to an agent.  Interactive menu to select
+        with agent.
+
+    tags:
+        + {super.tags}
+        - offer

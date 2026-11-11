@@ -1,0 +1,11 @@
+use ./lib
+
+export test InitCommand:
+    expects:
+        Piton should have an init command that provides a quick way to set up a
+        new project with a piton.config.pi file with a handful of presets.
+
+export test InitAsAPlugin:
+    expects:
+        The @{InitCommand} should be implemented as a plugin, and the templates
+        should be easily editable and extensible by the Piton authors.

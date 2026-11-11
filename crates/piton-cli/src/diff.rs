@@ -11,7 +11,8 @@
 //!       25 │+ description:
 //! ```
 
-use anstream::println;
+use std::fmt::Write as _;
+
 use similar::{ChangeTag, TextDiff};
 
 use crate::packages::FileChange;
@@ -25,6 +26,21 @@ const CONTEXT: usize = 3;
 /// new one, and unchanged context with both. Separate regions of one file are
 /// split by a `⋯` line.
 pub fn print(prefix: &str, changes: &[FileChange]) {
+    anstream::print!("{}", render(prefix, changes));
+}
+
+/// The same, on stderr, for a command whose stdout is its own output.
+pub fn eprint(prefix: &str, changes: &[FileChange]) {
+    anstream::eprint!("{}", render(prefix, changes));
+}
+
+/// The diff [`print`] writes, as text.
+pub fn render(prefix: &str, changes: &[FileChange]) -> String {
+    let mut out = String::new();
+    macro_rules! println {
+        () => {{ out.push('\n'); }};
+        ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
+    }
     for change in changes {
         let path = format!("{prefix}/{}", change.path);
         let status = match (&change.before, &change.after) {
@@ -74,4 +90,5 @@ pub fn print(prefix: &str, changes: &[FileChange]) {
             }
         }
     }
+    out
 }

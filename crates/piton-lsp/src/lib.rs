@@ -5,6 +5,7 @@
 //! going to the definition of an inherited property lands on the base that
 //! declares it, and renaming a symbol reaches the imports that carry it.
 
+mod plugins;
 pub mod analysis;
 pub mod convert;
 pub mod features;
@@ -516,6 +517,8 @@ impl LanguageServer for Backend {
             // output goes; the saved version is the one the compiler reads.
             self.world.write().await.reload_project();
         }
+        // Plugin builds are planned on save, never as you type.
+        self.world.write().await.saved();
         self.refresh(path, Trigger::Elsewhere).await;
     }
 

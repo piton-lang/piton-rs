@@ -17,6 +17,7 @@ export cli-command TestCommand:
 
     namedArguments:
         agent: Which tool judges the tests [ claude | codex | opencode | muse ]
+        model: The model that judges the tests, `-m` for short, given to the tool as `piton agent --model` gives it; given with no model, it lists the models of the agent and runs nothing; given a value that is not one of the models, it lists the models that contain it, else all of them, and runs nothing
         against: What every test is judged against [ spec | code | both ]
         jobs: How many tests run at once
         serial: Run one test at a time, the same as `--jobs 1`
@@ -89,7 +90,28 @@ export cli-command TestCommand:
         Each test is judged against what `--against` says, else what the test
         says, else the project's test settings, else both. The agent and the
         number of jobs come from the flag, else the test settings, else claude
-        and 4. The settings are described in the testing specification.
+        and 4. The model comes from the flag, else the test settings, else the
+        tool's own default. The settings are described in the testing
+        specification.
+
+    models:
+        When neither `--model` nor the settings give a model, the tool judges
+        with its default model, and before the tests run a note lists the
+        models of the tool, from the same list `piton agent` shows, and says
+        to choose one with `--model`. The run is headless, so it lists them
+        rather than asking.
+
+        `--model` with no model lists the models of the agent instead, one on
+        each line on stdout, from the same list, like `piton test --agent
+        opencode --model`. It runs no tests and exits with 0. An agent that
+        lists no models is an error, and the exit code is 1.
+
+        A `--model` value is read as `piton agent` reads it: one of the
+        agent's models is that model, and any other value is a search string.
+        The models that contain it, ignoring case, are listed, like `piton
+        test --agent opencode --model sonnet`, or every model when none
+        contain it. It runs no tests and exits with 0. A model from the test
+        settings is never a search.
 
     whatTheAgentReads:
         spec: The .pi files under the source root, with the Piton fluency prompt `piton agent` gives the same tool.
@@ -209,11 +231,40 @@ export cli-command TestCommand:
         A test that could not be judged has no fix prompt: nothing is known
         about why, beyond the error.
 
+    handoff:
+        Once every failed test's fix prompt is printed and the outcome is
+        written, the run offers to hand them to an agent, so a failure can go
+        straight from the report to a fix. A menu on the terminal lists the
+        agentic tools Belay knows, claude, codex, opencode and muse, and No
+        agent, which ends the run as before.
+
+        The chosen agent starts in the project root, interactively, with the
+        terminal: the same fluency prompt `piton agent` gives it, and all the
+        fix prompts as its first message. One prompt is given as it is;
+        several are given together, each under a heading that numbers it,
+        with a line asking the agent to fix them one after another. Belay
+        says how each tool is started with a first message, and the test
+        plugin starts it, which is why it declares the tools among its
+        processes and the interactive capability.
+
+        The menu only shows when stdin and stdout are terminals and at least
+        one test failed; piped, in CI, or when every test passed or could not
+        be judged, the run ends without asking. A tool that is not on PATH is
+        reported instead of started. The run's exit code is the same whatever
+        is chosen: it says how the tests went, not how the agent did.
+
+        After the agent is chosen, a second menu lists its models, with
+        Default model first, the same models `piton agent` lists. It is
+        skipped when the chosen agent judged the tests and a model was given
+        for it, which it then keeps. Cancelling it starts nothing. An agent
+        that lists no models gets a note and starts with its default.
+
     launch:
         claude: claude -p <request> --append-system-prompt <fluency> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose
         codex: codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<fluency as a TOML string> <request>
         opencode: opencode run --standalone <request>, with OPENCODE_CONFIG_CONTENT naming the fluency file as instructions and denying edit and bash
         muse: muse exec -c run.developer_prompt=<fluency as a JSON string> <request>, inside Muse's own sandbox
+        model: With a model, each tool also gets its model option before the request, as `piton agent` gives it.
 
     verdict:
         The verdict is the last line in the tool's answer that carries
@@ -284,8 +335,7 @@ export cli-command TestCommand:
         ✗ FAIL   SaveButtonSaves                                  1:02
                  spec/tests/Editor.pi · editor, save
                  No handler saves the document
-                 │ The Save button has no click handler. No function in
-                 │ src writes the document to disk.
+                 The Save button has no click handler. No function in src writes the document to disk.
         \\\
         ```
 
@@ -304,14 +354,17 @@ export cli-command TestCommand:
                  spec ✓ pass  The spec says Save saves
                  code ✗ FAIL  No handler saves the document
                  The code has no save handler
-                 │ The Save button has no click handler.
+                 The Save button has no click handler.
         \\\
         ```
 
-        Then the agent's reason, wrapped at spaces and indented under the
-        name, and for a failure its ASD-STE100 explanation, wrapped beneath
-        the reason behind a bar in the status's colour. A name too long for
-        the line is cut with an ellipsis.
+        Then the agent's reason, aligned under the name, and for a failure its
+        ASD-STE100 explanation beneath the reason, in the status's colour. The
+        reason, the explanation and each side's reason are each printed as one
+        line: not hard-wrapped, with no indent on continuation lines and no
+        bar. The terminal wraps a long line, so a user can select a result in
+        the console and copy and paste it as coherent text. A name too long
+        for the line is cut with an ellipsis.
 
         When anything didn't pass, the run ends with a recap headed Not
         passing: one line per failed or unjudged test, with its status, name

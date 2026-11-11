@@ -8,6 +8,7 @@ mod render;
 mod report;
 mod style;
 mod diff;
+mod inspection;
 mod plugins;
 
 use std::path::PathBuf;
@@ -38,19 +39,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Launch the specified agent with Piton fluency
-    Agent {
-        /// Which agent to run
-        #[arg(value_parser = ["claude", "codex", "opencode", "muse"], default_value = "claude")]
-        agent: String,
-        /// Print the entire fluency prompt instead of launching the agent
-        #[arg(long)]
-        print_fluency: bool,
-        /// Arguments passed through to the agent
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-
     /// Build the project as configured by piton.config.pi
     Build {
         /// Path to a piton.config.pi file
@@ -174,11 +162,6 @@ enum Command {
         /// `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name to
         /// look up across the project
         target: String,
-        /// Cite what this Belay target compiles, like `claude-code`, instead
-        /// of the source: locations and references point at its reference
-        /// documents
-        #[arg(long)]
-        adapter: Option<String>,
     },
 
     /// Clone and "un-git" repositories into the tethers directory
@@ -225,29 +208,27 @@ fn main() -> ExitCode {
     let (project, config_diagnostics, mut manifests, mut problems) = plugins::load();
     let mut command = Cli::command();
     plugins::withhold_builtins(&command, &mut manifests, &mut problems);
-    for manifest in &manifests {
-        for spec in &manifest.commands {
-            command = command.subcommand(plugins::clap_command(manifest, spec));
-        }
-    }
+    command = plugins::add_commands(command, &manifests);
     let matches = command.get_matches();
-    if let Some((name, sub)) = matches.subcommand() {
-        let added = manifests
-            .iter()
-            .any(|manifest| manifest.commands.iter().any(|spec| spec.name == name));
-        if added {
-            let code = plugins::run(project, config_diagnostics, &manifests, &problems, name, sub);
+
+    // Plugins that inspect projects look before the command runs, and offer
+    // to update one written for an older Piton. Not before the language
+    // server, whose stdout is the editor's protocol.
+    if matches.subcommand_name() != Some("lsp") {
+        let running = plugins::matched(&manifests, &matches).map(|(manifest, _, _)| manifest.name.clone());
+        if let Some(code) = inspection::offer(&project, &manifests, running.as_deref()) {
             report::flush();
             return ExitCode::from(code);
         }
     }
+
+    if let Some((manifest, spec, arguments)) = plugins::matched(&manifests, &matches) {
+        let code = plugins::run(project, config_diagnostics, &manifests, &problems, manifest, spec, arguments);
+        report::flush();
+        return ExitCode::from(code);
+    }
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     let code = match cli.command {
-        Command::Agent {
-            agent,
-            print_fluency,
-            args,
-        } => commands::agent::run(&agent, print_fluency, &args),
         Command::Build { config, dry_run } => commands::build::run(config.as_deref(), dry_run),
         Command::Check { paths } => commands::check::run(&paths),
         Command::Compile {
@@ -279,7 +260,7 @@ fn main() -> ExitCode {
         } => commands::reach::run(&targets, !no_unreachable, !no_paths),
         Command::Plugins => commands::plugins::run(),
         Command::Remove { package } => commands::remove::run(&package),
-        Command::Slice { target, adapter } => commands::slice::run(&target, adapter.as_deref()),
+        Command::Slice { target } => commands::slice::run(&target),
         Command::Tether { source, rename } => {
             commands::tether::run(source.as_deref(), rename.as_deref())
         }

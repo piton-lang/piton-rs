@@ -14,3 +14,24 @@ export test TestsWithoutAVerdictAreErrors:
         error that was never judged, not as a failure.
     against: code
     tags: [tooling]
+
+export test MigrationToPluginConfig:
+    expects:
+        Any command that would otherwise error out over legacy config syntax
+        should offer an automatic migration to the new syntax.
+    tags: [tooling, migration, config]
+
+export test AgentModels:
+    expects:
+        Any tool that allows selecting an agent should also offer the ability
+        to select a model.  And if no model is selected it should list the
+        models available.
+
+        So in other words `piton test --agent opencode` will use whatever the
+        default opencode model is, and piton test --agent opencode --model`
+        will list the available models.
+
+        You can also put a --model searchString and it'll filter the results.
+        And if nothing is found, it'll list everything.
+
+    tags: [tooling, agents, models]

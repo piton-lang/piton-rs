@@ -70,3 +70,84 @@ fn number_json(number: f64) -> Json {
         Number::from_f64(number).map(Json::Number).unwrap_or(Json::Null)
     }
 }
+
+/// One value, as JSON that keeps what [`value`] flattens: text says which
+/// references it holds, a dictionary is distinct from a block that mixes
+/// keys with other items, keys keep their order whatever they look like, and
+/// an anchor or reference carries its id.
+///
+/// Each value is an object with a `kind`: `null`, `boolean` and `number`
+/// with a `value`; `text` with its plain `text` and its `references`, each
+/// `{id, path}`; `list` with its `items`; `dictionary` with its `entries`,
+/// each `[key, value]`; `mixed` with its `items`, where a key written in the
+/// block is `{kind: "entry", key, value}`; `anchor` with its `id` and
+/// `name`; and `reference` with its `id`, `path` and the `name` it is
+/// written as.
+pub fn typed(value: &Value, anchors: &dyn AnchorView) -> Json {
+    match value {
+        Value::Null => serde_json::json!({ "kind": "null" }),
+        Value::Bool(flag) => serde_json::json!({ "kind": "boolean", "value": flag }),
+        Value::Number(number) => serde_json::json!({ "kind": "number", "value": number_json(*number) }),
+        Value::Str(text) => typed_text(text, anchors),
+        Value::List(items) => serde_json::json!({
+            "kind": "list",
+            "items": items.iter().map(|item| typed(item, anchors)).collect::<Vec<_>>(),
+        }),
+        Value::Dict(properties) => serde_json::json!({
+            "kind": "dictionary",
+            "entries": typed_properties(properties, anchors),
+        }),
+        Value::Mixed(mixed) => serde_json::json!({
+            "kind": "mixed",
+            "items": mixed
+                .items
+                .iter()
+                .map(|item| match item {
+                    MixedItem::Text(text) => typed_text(text, anchors),
+                    MixedItem::List(items) => serde_json::json!({
+                        "kind": "list",
+                        "items": items.iter().map(|item| typed(item, anchors)).collect::<Vec<_>>(),
+                    }),
+                    MixedItem::Entry(key, value) => serde_json::json!({
+                        "kind": "entry",
+                        "key": key,
+                        "value": typed(value, anchors),
+                    }),
+                    MixedItem::Value(value) => typed(value, anchors),
+                })
+                .collect::<Vec<_>>(),
+        }),
+        Value::Anchor(anchor) => serde_json::json!({
+            "kind": "anchor",
+            "id": anchor.0,
+            "name": anchors.name(*anchor),
+        }),
+        Value::Reference(reference) => serde_json::json!({
+            "kind": "reference",
+            "id": reference.anchor.0,
+            "path": reference.path,
+            "name": reference.display(anchors),
+        }),
+    }
+}
+
+/// Properties as `[key, value]` pairs in their order, each value [`typed`].
+pub fn typed_properties(properties: &Properties, anchors: &dyn AnchorView) -> Json {
+    Json::Array(
+        properties
+            .iter()
+            .map(|(key, item)| serde_json::json!([key, typed(item, anchors)]))
+            .collect(),
+    )
+}
+
+fn typed_text(text: &piton_core::Text, anchors: &dyn AnchorView) -> Json {
+    serde_json::json!({
+        "kind": "text",
+        "text": text.render_plain(anchors),
+        "references": text
+            .refs()
+            .map(|target| serde_json::json!({ "id": target.anchor.0, "path": target.path }))
+            .collect::<Vec<_>>(),
+    })
+}

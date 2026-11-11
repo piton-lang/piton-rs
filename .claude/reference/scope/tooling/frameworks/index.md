@@ -2,6 +2,9 @@
 
 ## Description
 
-Frameworks are a construct within a Piton project that extend what the compiler outputs. Piton itself outputs data through renderers, and a framework can add adapters on top of them. Belay's adapters, for example, build on the Markdown renderer.
-As of the current version of Piton there is one framework bundled with the language: the Belay framework. In future iterations of the language, we will build out much more functionality in the frameworks concept.
-Frameworks are included in a project through the frameworks property in the project config. You’ll see a concrete example of this when we talk about the Belay framework. You can use and import a bundled framework's keywords and modules whether you've included it or not, and you still have to do that in each file. Including the framework is what turns on its output.
+A framework extends what the compiler outputs. Piton itself outputs data through renderers, and a framework builds on them, like Belay's adapters build on the Markdown renderer.
+Frameworks are plugins, described in [Plugins](../../plugins/index.md#plugins): a framework is a plugin with a build. Belay is one, bundled with the compiler. Its keywords and modules can be used and imported in any project, and each file still uses and imports what it needs; listing its settings under plugins in piton.config.pi is what turns on its output.
+
+## Removed Key
+
+The frameworks key of piton-config is gone, since a framework is listed under plugins like any plugin. A configuration that still has it is an error, frameworks-removed, whose help is the fix: move each item to plugins.

@@ -42,7 +42,8 @@ Options for `publish-grammar`:
 Options for `sync-fluency`:
     --check         Generate and copy nothing; exit 1 if the copies differ
     --copy-only     Don't regenerate; copy FLUENCY_PROMPT.md as it is
-    --model <name>  The model Claude generates with, like opus
+    --model <name>  The model Claude generates with, like opus; without one,
+                    Claude's default is used and its models are listed
 
 Options:
     -h, --help      Print this message
@@ -294,7 +295,7 @@ fn on_path(directory: &Path) -> bool {
 /// The fluency prompt the GenerateFluencyPrompt skill writes, at the root.
 const FLUENCY_PROMPT: &str = "FLUENCY_PROMPT.md";
 /// The copy `piton agent` falls back to, compiled into the binary.
-const EMBEDDED_FLUENCY: &str = "crates/piton-cli/src/fluency.md";
+const EMBEDDED_FLUENCY: &str = "plugins/belay/fluency.md";
 
 /// Regenerates the fluency prompt and copies it over the copy built into the
 /// compiler.
@@ -368,6 +369,11 @@ fn sync_fluency(args: &[String]) -> Result<(), Error> {
     Ok(())
 }
 
+/// The models Claude's --model takes: the alias of the latest model of each
+/// family. Claude has no command that lists them; Belay's `piton agent`
+/// offers the same list.
+const CLAUDE_MODELS: &[&str] = &["fable", "opus", "sonnet", "haiku"];
+
 /// What Claude is asked. The skill says what to write; this says where, and
 /// that this is a run without anyone to answer questions.
 const GENERATE_REQUEST: &str = "\
@@ -396,8 +402,14 @@ fn generate_fluency(workspace: &Path, model: Option<&str>) -> Result<(), Error> 
         .args(["--disallowedTools", "Bash"])
         .args(["--permission-mode", "acceptEdits"])
         .stdin(std::process::Stdio::null());
-    if let Some(model) = model {
-        command.args(["--model", model]);
+    match model {
+        Some(model) => {
+            command.args(["--model", model]);
+        }
+        None => eprintln!(
+            "Claude uses its default model; its models are {}; choose one with --model",
+            CLAUDE_MODELS.join(", ")
+        ),
     }
     let status = command.status().map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {

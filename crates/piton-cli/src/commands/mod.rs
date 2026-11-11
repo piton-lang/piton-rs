@@ -1,6 +1,5 @@
 //! One module per CLI command.
 
-pub mod agent;
 pub mod build;
 pub mod check;
 pub mod compile;

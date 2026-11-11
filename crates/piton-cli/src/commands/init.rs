@@ -26,7 +26,6 @@ use inquire::error::InquireResult;
 use inquire::list_option::ListOption;
 use inquire::validator::Validation;
 use inquire::{InquireError, MultiSelect, Select, Text};
-use piton_belay::adapter::Adapter;
 
 use anstream::{eprintln, println};
 
@@ -559,5 +558,33 @@ fn display(directory: &Path, path: &str) -> String {
         path.to_string()
     } else {
         directory.join(path).display().to_string()
+    }
+}
+
+/// A Belay adapter, as `piton init` offers it. Belay is a plugin, and init
+/// will be one too; until then it keeps the few facts it needs here: the
+/// target id, the anchor `@piton/belay` exports for it, and the platform's
+/// name for people choosing.
+#[derive(Debug, PartialEq, Eq)]
+struct Adapter {
+    target_id: &'static str,
+    export_name: &'static str,
+    platform: &'static str,
+}
+
+const ADAPTERS: &[Adapter] = &[
+    Adapter { target_id: "claude-code", export_name: "ClaudeCodeAdapter", platform: "Claude Code" },
+    Adapter { target_id: "codex", export_name: "CodexAdapter", platform: "Codex" },
+    Adapter { target_id: "opencode", export_name: "OpenCodeAdapter", platform: "OpenCode" },
+    Adapter { target_id: "muse", export_name: "MuseAdapter", platform: "Muse Code" },
+];
+
+impl Adapter {
+    fn all() -> &'static [Adapter] {
+        ADAPTERS
+    }
+
+    fn by_target(target: &str) -> Option<&'static Adapter> {
+        ADAPTERS.iter().find(|adapter| adapter.target_id == target)
     }
 }

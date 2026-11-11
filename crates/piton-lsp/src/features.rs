@@ -4408,37 +4408,37 @@ pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
         });
     }
 
-    // Anything else names a Belay target.
+    // Anything else names a group of plugin output, like a Belay target id,
+    // as the plugin builds planned it at the last save.
     let target = requested.unwrap_or_default();
-    let Some(config) = compilation.project.belay() else {
-        return failure(&format!(
-            "`{target}` is not a renderer (json, yaml, markdown), and the project has no Belay configuration"
-        ));
-    };
-    let plan = piton_belay::plan(compilation, config);
-    let files: Vec<&piton_belay::OutputFile> = plan
-        .files
+    let files: Vec<&piton_plugin::output::OutputFile> = world
+        .plugin_plans
         .iter()
-        .filter(|file| file.target == target)
-        .filter(|file| match anchor {
+        .flat_map(|plan| plan.files.iter())
+        .filter(|file| file.group.as_deref() == Some(target))
+        .filter(|file| {
             // `origin` names the anchor a file came from, or every anchor a
             // combined file carries, comma separated.
-            Some(anchor) => {
-                let name = &compilation.store().anchor(anchor).name;
-                file.origin.split(',').any(|origin| origin.trim() == name)
-                    && file.sources.iter().any(|source| paths_equal(source, &cursor.path))
-            }
-            None => file.sources.iter().any(|source| paths_equal(source, &cursor.path)),
+            file.origin.split(',').map(str::trim).any(|origin| {
+                compilation.store().anchors.iter().any(|def| {
+                    def.name == origin
+                        && paths_equal(&compilation.graph().get(def.module).path, &cursor.path)
+                        && anchor.map_or(true, |anchor| anchor == def.id)
+                })
+            })
         })
         .collect();
     if files.is_empty() {
-        return failure(&format!(
-            "the `{target}` target produces nothing from this construct"
-        ));
+        let known = world.plugin_plans.iter().flat_map(|plan| plan.files.iter()).any(|file| file.group.as_deref() == Some(target));
+        return failure(&if known {
+            format!("the `{target}` target produces nothing from this construct")
+        } else {
+            format!("`{target}` is not a renderer (json, yaml, markdown), and no plugin builds a target of that name")
+        });
     }
     let text = files
         .iter()
-        .map(|file| format!("<!-- {} -->\n{}", file.path.display(), file.contents))
+        .map(|file| format!("<!-- {} -->\n{}", file.path, String::from_utf8_lossy(&file.data)))
         .collect::<Vec<_>>()
         .join("\n\n");
     serde_json::json!({

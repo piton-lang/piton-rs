@@ -6,8 +6,8 @@ A project has the plugins bundled with the compiler, and the plugins its piton.c
 
 ## Bundled
 
-A bundled plugin is part of the compiler. Its Piton files are a bundled package, @piton/ and its name, so `use @piton/test` works in any project, and its declaration and code are embedded with them. Every project has every bundled plugin, without configuring anything.
-The test plugin is the only one, and lives in the compiler's source at plugins/test: its Piton files in pi, its declaration in plugin.pi, and its TypeScript in src.
+A bundled plugin is part of the compiler. Its Piton files are a bundled package, @piton/ and its name, so `use @piton/test` works in any project, and its declaration and code are embedded with them. Every project has every bundled plugin, and its commands, without configuring anything. A bundled plugin with a build only builds for a project that lists its settings, so a project that never mentions Belay gets no agent files.
+Three are bundled, each in the compiler's source with its declaration in plugin.pi, its TypeScript in src, and any Piton files in pi: Belay, in plugins/belay, the test plugin, in plugins/test, and the migrate plugin, in plugins/migrate.
 
 ## Installed
 
@@ -50,5 +50,5 @@ Each anchor under plugins is a plugin's declaration or a plugin's settings. Anyt
 
 ## Loading
 
-Plugins are found every time piton runs, by reading the configuration in the working directory, so a plugin's commands are there as soon as it is listed. Finding them compiles Piton only: no plugin code runs until one of its commands does.
-Before a plugin's command runs, the configuration has to be free of errors, which are reported first, and problems with the project's plugins are reported as warnings.
+Plugins are found every time piton runs, by reading the configuration of the project the working directory is inside: the nearest piton.config.pi in it or a directory above it. So a plugin's commands are there as soon as it is listed, and work from anywhere in the project. Finding them compiles Piton only: no plugin code runs until one of its commands does.
+Before a plugin's command runs, the configuration has to be free of errors, which are reported first, and problems with the project's plugins are reported as warnings. A plugin that inspects projects is the exception: its commands run even when the configuration has errors, since repairing it may be what they are for.

@@ -23,7 +23,7 @@ Piton source and project configuration define the intended system and agent guid
 - Derive generated guidance from the resolved source and configuration.
 - Treat implementation as something to assess against the specification.
 - Distinguish predictable artifact generation from probabilistic agent behavior.
-- Load the four constructs from their own .pi files in this spec, so the compiler and the spec can't disagree.
+- Load the four constructs from the Belay plugin's own .pi files, so what a project imports is what the plugin builds with.
 
 # Framework Boundaries
 
@@ -43,16 +43,17 @@ Piton handles the language and the renderers. Belay adds the agentic pieces and 
 
 ## Description
 
-A project turns on Belay by adding a belay-config anchor to the frameworks property of its Piton config.
+A project turns on Belay by listing a belay-config anchor under the plugins property of its Piton config: Belay's settings, as a plugin.
 
 ## Requirements
 
-- Register the Belay configuration in the project frameworks list.
+- List the Belay configuration under plugins in the project configuration.
+- Resolve codeRoot and shapeRoot relative to the configuration file, codeRoot defaulting to src.
 - Use codeRoot to identify the application's source-code root.
 - Use shapeRoot, when configured, to identify the architectural instruction root.
 - Use adapters to select the output targets for the project.
 - Require individual files to use or import the framework definitions they need.
-- Do not interpret framework registration as an implicit import in every file.
+- Do not interpret listing the configuration as an implicit import in every file.
 
 ## Package
 

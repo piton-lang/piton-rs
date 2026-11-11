@@ -13,7 +13,7 @@ Testing is a plugin, described in [Plugins](../plugins/index.md#plugins), bundle
 
 the test keyword is its Piton files, @piton/test, and
 
-`piton test` is its command, written in TypeScript. Its source is in the compiler's repository at plugins/test, its Piton files in pi, its declaration in plugin.pi, and its code in src. It is the reference for writing a plugin, and nothing in it is special to being bundled.
+`piton test` is its command, written in TypeScript. Its source is in the compiler's repository at plugins/test, its Piton files in pi, its declaration in plugin.pi, and its code in src. It is the reference for writing a plugin, and nothing in it is special to being bundled. It requires Belay, whose exports give it the agentic tools and the fluency prompt each is launched with.
 
 ## Keyword
 
@@ -70,6 +70,7 @@ Optional. A list of words to select tests by, like `tags: [save, editor]`. Each 
 ## Discovery
 
 Every exported test anchor in the project's source root is a test, whether or not anything reaches it from the entry, so tests can live beside what they describe without the build writing them out. A test that isn't exported is not run, which is how one is kept without running it. Tests in installed packages under tethers/ are not the project's and are not run.
+The test runner reaches every test, though nothing in the specbase leads to it. So the test plugin declares reach: true, and its reach hook returns each test it discovers, as [PluginReach](../plugins/Reach.md#plugin-reach) describes. `piton reach` and the language server count the tests as roots, so a test is never reported as unreachable or unused.
 
 # Test Configuration
 
@@ -88,6 +89,7 @@ export piton-config Config:
 test-config Tests:
     against: spec
     agent: codex
+    model: gpt-6.1-sol
     jobs: 8
 ```
 
@@ -97,6 +99,7 @@ test-config Tests:
 export abstract anchor TestConfig as test-config:
     against:: string:: null: null
     agent:: string:: null: null
+    model:: string:: null: null
     jobs:: number:: null: null
 ```
 
@@ -108,6 +111,10 @@ spec, code, or both: what a test that doesn't say is judged against. Both when l
 
 Which tool judges the tests: claude, codex, opencode, or muse, the tools `piton agent` launches. Claude when left out.
 
+## Model
+
+The model that judges the tests, as the tool names it. The tool's own default when left out, and then the run lists the tool's models.
+
 ## Jobs
 
 How many tests run at once, a whole number of at least 1. One runs them one after another. Four when left out.
@@ -118,4 +125,4 @@ A flag on the command line wins over the test, and the test wins over the config
 
 ## Errors
 
-A value that isn't one of the choices is an error that names the choices, whether it is in the settings, in a test, or on the command line, and nothing is run. In the settings it is reported where it is written, with the source it points at: invalid-test-scope for against, unknown-test-agent for agent, and invalid-jobs for jobs.
+A value that isn't one of the choices is an error that names the choices, whether it is in the settings, in a test, or on the command line, and nothing is run. In the settings it is reported where it is written, with the source it points at: invalid-test-scope for against, unknown-test-agent for agent, invalid-test-model for a model that is not a name, and invalid-jobs for jobs.

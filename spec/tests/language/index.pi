@@ -1,7 +1,4 @@
-from @piton/test import Test
-
-abstract anchor MyTest extends Test as test:
-    tags: [language]
+use ./lib
 
 export test ExponentsAreStrings:
     expects:
@@ -22,3 +19,7 @@ export test RightMostBaseWins:
 export test LogicalOperatorsDoNotShortCircuit:
     expects:
         Both sides of && and || are evaluated, so `\ {true || 5} \` is an error.
+
+export test StringEscape:
+    expects:
+        Should be able to escape inline curly braces with \\ \ { } \ \\

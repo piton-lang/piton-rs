@@ -4,4 +4,5 @@
 export abstract anchor TestConfig as test-config:
     against:: string:: null: null
     agent:: string:: null: null
+    model:: string:: null: null
     jobs:: number:: null: null

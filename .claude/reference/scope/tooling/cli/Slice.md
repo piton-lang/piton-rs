@@ -17,9 +17,7 @@ target: What to start from: `file.pi#Anchor`, `file.pi#Anchor.property`, `file.p
 
 ## Named Arguments
 
-```
-adapter: A Belay target the project builds, like `claude-code`. The slice cites what that target compiles instead of the source.
-```
+null
 
 ## Emit
 
@@ -63,15 +61,13 @@ A cycle is followed until it comes back around, and every dependency in it is st
 
 ## Paths
 
-Every path the slice prints is written relative to the directory the command runs in, so the reader can follow it from there: a source file or, with `--adapter`, a compiled document and the links into it. Run from spec/components, a declaration in spec/components/Button.pi is in `Button.pi`, and a link to the compiled reference is `../../.claude/reference/components/Button.md#button`.
+Every path the slice prints is written relative to the directory the command runs in, so the reader can follow it from there. Run from spec/components, a declaration in spec/components/Button.pi is in `Button.pi`.
 The project is the one the command runs inside: the nearest piton.config.pi in the working directory or any directory above it.
 Markdown links an author wrote are text, and are passed through as written, never rewritten.
 
-## Adapter
+## Compiled
 
-With `--adapter`, the slice is for an agent that reads the compiled reference documents rather than the `.pi` source. Each declaration is placed in the file, and under the heading, that target's build writes it to, and every reference or name the text cites is a link to that place, like `.claude/reference/ui.md#color`. An anchor embedded into another's document is placed in the section that embeds it.
-The places are the ones `piton build` writes, so the project is compiled from its own entry, as a build compiles it, and the target has to be something that build writes out.
-The source is never cited. Everything the target depends on was compiled somewhere, even when it has no document of its own: an abstract anchor is compiled into the anchors that extend it, and an anchor or variable that is only read is compiled into whatever reads it. Those are described without a place, and names that cite them are not links.
+A plugin can have a slice cite what it compiles instead of the source, as Belay's `piton belay slice --adapter` does: it gives the host where each declaration was compiled, and the slice is found and printed the same way, with those places relative to where the command runs.
 
 ## Diagnostics
 
@@ -84,7 +80,6 @@ true
 false
 
 A file that doesn't exist, a name that isn't declared or imported where it's looked up, a property the anchor doesn't have, a bare name declared in more than one file, and a path that reaches inside a property are all errors.
-With `--adapter`, so are a project without a Belay configuration, a target the project doesn't build, a file the build doesn't reach, and a target anchor the build never writes out.
 
 ## Exit Code
 

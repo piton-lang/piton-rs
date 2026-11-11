@@ -4,8 +4,10 @@
 // The first line shows the status, the name of the test, and its duration.
 // The duration is at the right edge.
 // A dim line shows the file of the test and its tags.
-// Below that line, the reason of the agent shows in wrapped lines.
-// For a failure, the ASD-STE100 explanation shows behind a bar.
+// Below that line, the reason of the agent shows on one line.
+// For a failure, the ASD-STE100 explanation shows on one line below it.
+// These lines are not wrapped and have no bar, so the terminal wraps them and
+// a user can select and copy each as coherent text.
 // The status is a mark and a word.
 // Thus, output without colour gives the same information.
 
@@ -72,6 +74,12 @@ export function wrap(text: string, width: number): string[] {
   return lines;
 }
 
+/** Puts `text` on one line. It joins its lines and runs of spaces with one
+ * space. */
+export function oneLine(text: string): string {
+  return text.split(/\s+/).filter((word) => word.length > 0).join(" ");
+}
+
 /** Gives the file of a test and its tags, for the dim detail line. */
 export function details(file: string, tags: string[]): string {
   return tags.length === 0 ? file : `${file} · ${tags.join(", ")}`;
@@ -103,21 +111,17 @@ export function result(
   if (sides !== null) {
     for (const [label, side] of [["spec", sides.spec], ["code", sides.code]] as const) {
       const [sideMark, sideWord, sideStyle] = MARKS[side.pass ? "pass" : "fail"];
-      const prefix = `${label} ${sideMark} ${sideWord.padEnd(4)}  `;
-      const lines = wrap(side.reason.trim().length === 0 ? "(no reason given)" : side.reason, width - INDENT - prefix.length);
-      lines.forEach((line, index) => {
-        const lead = index === 0 ? `${label} ${ctx.paint(sideStyle, `${sideMark} ${sideWord.padEnd(4)}`)}  ` : " ".repeat(prefix.length);
-        out += `${pad}${lead}${line}\n`;
-      });
+      const text = side.reason.trim().length === 0 ? "(no reason given)" : oneLine(side.reason);
+      out += `${pad}${label} ${ctx.paint(sideStyle, `${sideMark} ${sideWord.padEnd(4)}`)}  ${text}\n`;
     }
   }
-  const text = reason.trim().length === 0 ? "(no reason given)" : reason;
-  for (const line of wrap(text, width - INDENT)) out += `${pad}${line}\n`;
-  // The explanation of a failure is in ASD-STE100.
-  // It shows below the reason, behind a bar in the colour of the status.
+  // The reason and the explanation are each one line. The terminal wraps a
+  // long line, so the text that a user selects has no breaks, indents or bars.
+  out += `${pad}${reason.trim().length === 0 ? "(no reason given)" : oneLine(reason)}\n`;
+  // The explanation of a failure is in ASD-STE100. It shows below the reason,
+  // in the colour of the status.
   if (explanation !== null && explanation.trim().length > 0) {
-    const bar = ctx.paint(style, "│");
-    for (const line of wrap(explanation, width - INDENT - 2)) out += `${pad}${bar} ${line}\n`;
+    out += `${pad}${ctx.paint(style, oneLine(explanation))}\n`;
   }
   return out;
 }

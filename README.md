@@ -320,7 +320,7 @@ from @piton/belay import ClaudeCodeAdapter, CodexAdapter
 export piton-config MyProject:
     root: ./spec
 
-    frameworks:
+    plugins:
         - {Belay}
 
 belay-config Belay:

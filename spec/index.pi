@@ -2,6 +2,7 @@ from ./agent export *
 from ./scope/belay import Belay
 from ./scope/founding-thesis import FoundingThesis
 from ./scope/language import Language
+from ./scope/migrate import Migration
 from ./scope/package-management import PackageManagement
 from ./scope/plugins import Plugins
 from ./scope/testing import Testing
@@ -14,4 +15,5 @@ export anchor Specification:
     Belay: @{Belay}
     PackageManagement: @{PackageManagement}
     Plugins: @{Plugins}
+    Migration: @{Migration}
     Testing: @{Testing}

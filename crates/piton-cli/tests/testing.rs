@@ -136,8 +136,10 @@ fn exported_tests_are_judged_and_failures_fail_the_run() {
     assert!(stdout.contains("App sets a name"), "{stdout}");
     assert!(stdout.contains("✗ FAIL   SaveWorks"), "{stdout}");
     assert!(stdout.contains("         spec/tests/App.pi\n"), "{stdout}");
-    // A failure is explained beneath its reason, in ASD-STE100.
-    assert!(stdout.contains("         nothing saves\n         │ The Save button has no click handler.\n"), "{stdout}");
+    // A failure is explained beneath its reason, in ASD-STE100. Each is one
+    // line, with no bar, so it copies as plain text.
+    assert!(stdout.contains("         nothing saves\n         The Save button has no click handler.\n"), "{stdout}");
+    assert!(!stdout.contains("│"), "{stdout}");
     // What didn't pass is listed again at the end.
     assert!(stdout.contains("Not passing\n  ✗ FAIL   SaveWorks  spec/tests/App.pi (spec pass, code FAIL)"), "{stdout}");
     // Judged against both, it shows each side's result.

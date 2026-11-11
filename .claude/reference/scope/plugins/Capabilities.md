@@ -8,6 +8,9 @@ capabilities:
     process: [claude, codex]
     files: read
     temporaryFiles: true
+    outputs: [.claude/**, **/CLAUDE.md]
+    interactive: true
+    edits: [piton.config.pi]
 ```
 
 ## Process
@@ -16,7 +19,19 @@ The programs the plugin may run, by name, looked up on PATH. Only these can be s
 
 ## Files
 
-read lets the plugin read files inside the project root; none, the default, doesn't. A path that leads outside the project is refused either way. A plugin never writes files in the project: what it produces goes to stdout and stderr.
+read lets the plugin read files inside the project root, and list the files in a directory there; none, the default, doesn't. A path that leads outside the project is refused either way. A plugin never writes files in the project itself: its build returns a plan, which the host writes within its outputs.
+
+## Outputs
+
+The paths in the project a plugin's build may write, as glob patterns relative to the project root: `*` matches within one directory and `**` across directories. They are written without quotes, which Piton would keep as part of the text. A planned file or copy outside them is an error, and nothing is written. A plugin with a build and no outputs can only report diagnostics.
+
+## Edits
+
+The files in the project a plugin may propose to change, as glob patterns relative to the project root, like outputs. A proposed edit is only ever applied when the user agrees, or asks for it by running the plugin's command; a plugin never writes a source file itself. An edit outside them is an error, and nothing of it is offered.
+
+## Interactive
+
+true lets the plugin ask the user to choose from a menu on the terminal. The menu only ever shows when stdin and stdout are terminals; otherwise nothing is asked and nothing is chosen, so a plugin never waits on someone who isn't there.
 
 ## Temporary Files
 
