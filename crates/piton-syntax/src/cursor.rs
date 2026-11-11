@@ -1,10 +1,10 @@
-//! What can be written at a position in a file.
+//! The text that an author can write at a position in a file.
 //!
-//! An editor asks this on every keystroke, about text that is usually not a
-//! finished program: a header without its colon, a key without its value, a
-//! brace still open. It is answered here, with the parser's own line scanner
-//! and header recognisers, so that what completion believes a line is never
-//! drifts from what the compiler will make of it.
+//! An editor asks this question on each keystroke. Usually the text is not a
+//! finished program. It can be a header without its colon, a key without its
+//! value, or a brace that is still open. This module gives the answer. It uses
+//! the line scanner and the header recognisers of the parser. Thus, completion
+//! and the compiler always read a line in the same way.
 
 use crate::ast::Sigil;
 use crate::parser::{
@@ -12,38 +12,38 @@ use crate::parser::{
 };
 use std::path::Path;
 
-/// What the cursor is in the middle of writing.
+/// The item that the author writes at the cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Site {
-    /// Nothing can be offered: a comment, prose, a verbatim block, a quoted
-    /// string, a name being declared, a keyword being invented, an empty
-    /// value.
+    /// No completion is possible. Examples are a comment, prose, a verbatim
+    /// block, a quoted string, a new name in a declaration, a new keyword, and
+    /// an empty value.
     Inert,
     /// The module path after `use` or `from`.
     ModulePath,
     /// After `from <path>`: `import` or `export`.
     ImportDirection,
-    /// A name in the list after `from <path> import`, with the ones already
-    /// listed.
+    /// A name in the list after `from <path> import`. It also has the names
+    /// that the list already contains.
     ImportName { path: String, listed: Vec<String> },
     /// The first words of a top-level line.
     DeclarationHead { exported: bool, is_abstract: bool },
-    /// A base, after `extends` or a comma following one.
+    /// A base, after `extends` or after a comma that follows a base.
     Base,
     /// A type, after `::`.
     Constraint,
     /// Inside braces. `member_of` is the dotted path before a trailing `.`.
     Expression { sigil: Sigil, member_of: Option<String> },
-    /// The key at the start of a line in an anchor's body, with the keys the
-    /// body already has (other than this line's) and whether it has anything
-    /// else in it.
+    /// The key at the start of a line in the body of an anchor. It also has the
+    /// keys that the body already has, other than the key of this line. It also
+    /// tells if the body has other content.
     Key { block_keys: Vec<String>, block_has_items: bool },
     /// A single word of value after `key: `, `- ` or `+ `. `key` is the
-    /// anchor property whose constraints say what fits, when there is one.
+    /// anchor property, if there is one. Its constraints tell which values fit.
     Value { key: Option<String> },
 }
 
-/// What can be written at `offset` in `source`.
+/// The text that an author can write at `offset` in `source`.
 pub fn site_at(source: &str, offset: usize) -> Site {
     let offset = offset.min(source.len());
     let lines = scan_lines(source, Path::new("")).lines;
@@ -55,8 +55,8 @@ pub fn site_at(source: &str, offset: usize) -> Site {
     };
     let line = &lines[current];
 
-    // A verbatim block says nothing Piton can complete, and neither does a
-    // comment once its `//` has been written.
+    // Piton cannot complete text in a verbatim block. Piton also cannot
+    // complete a comment after the author writes its `//`.
     if line.escape != EscapeRole::None {
         return Site::Inert;
     }
@@ -65,8 +65,8 @@ pub fn site_at(source: &str, offset: usize) -> Site {
         return Site::Inert;
     }
 
-    // An open brace wins over whatever it is written inside: `key: {x` is an
-    // expression, not a value.
+    // An open brace has priority over the text around it. Thus, `key: {x` is
+    // an expression, not a value.
     if let Some((sigil, inside)) = open_sigil(content) {
         let inside = &content[inside..];
         if in_quotes(inside) {
@@ -84,8 +84,8 @@ pub fn site_at(source: &str, offset: usize) -> Site {
     indented(&lines, current, content)
 }
 
-/// The rules for a line at the margin: imports, declarations, and the
-/// variables that are keys at the top level.
+/// The rules for a line at the margin. These lines are imports, declarations,
+/// and the variables that are keys at the top level.
 fn top_level(content: &str) -> Site {
     if let Some(colon) = key_colon(content) {
         return match value_after_constraints(&content[colon..]) {
@@ -95,8 +95,8 @@ fn top_level(content: &str) -> Site {
     }
     let ends_in_space = content.ends_with(char::is_whitespace);
     let words: Vec<&str> = content.split_whitespace().collect();
-    // The words that are finished: everything, or everything but the one
-    // still being typed.
+    // The finished words. These are all the words, or all the words but the
+    // word that the author still types.
     let finished = if ends_in_space {
         &words[..]
     } else {
@@ -120,7 +120,7 @@ fn top_level(content: &str) -> Site {
                         .map(str::to_string)
                         .collect();
                     if !ends_in_space && !listed.trim_end().ends_with(',') {
-                        // The last name is the one being written.
+                        // The author still writes the last name.
                         names.pop();
                     }
                     Site::ImportName {
@@ -134,9 +134,9 @@ fn top_level(content: &str) -> Site {
         _ => {}
     }
 
-    // `anchor Name extends B as k:` -- after `extends` come bases, after `as`
-    // a keyword the author is inventing; whichever was written last is the one
-    // the cursor is past.
+    // `anchor Name extends B as k:`. Bases come after `extends`. After `as`
+    // comes a new keyword from the author. The cursor is after the word that
+    // the author wrote last.
     let extends = finished.iter().rposition(|word| *word == "extends");
     let alias = finished.iter().rposition(|word| *word == "as");
     match (extends, alias) {
@@ -152,7 +152,7 @@ fn top_level(content: &str) -> Site {
         match *word {
             "export" => exported = true,
             "abstract" => is_abstract = true,
-            // The keyword is written; the name after it is the author's own.
+            // The keyword is complete. The author makes the name after it.
             _ => return Site::Inert,
         }
     }
@@ -166,12 +166,12 @@ fn top_level(content: &str) -> Site {
 fn indented(lines: &[Line], current: usize, content: &str) -> Site {
     let line = &lines[current];
     let parent = enclosing(lines, current, line.indent);
-    // The body of a declaration is the only block whose keys are an anchor's
-    // properties; a key further in names a dictionary entry.
+    // Only in the body of a declaration are the keys the properties of an
+    // anchor. A key at a deeper indent names a dictionary entry.
     let in_body = parent.is_some_and(|parent| lines[parent].indent == 0);
 
-    // A list item and a merge item hold a value, and the key whose block they
-    // sit in says which values fit.
+    // A list item and a merge item hold a value. The key of their block tells
+    // which values fit.
     let marker = list_marker(content).or_else(|| merge_marker(content).map(|(_, length)| length));
     if let Some(length) = marker {
         let written = content[length..].trim_start();
@@ -184,8 +184,8 @@ fn indented(lines: &[Line], current: usize, content: &str) -> Site {
         return single_word(written, key);
     }
 
-    // A key takes the first colon on the line; what follows it is a chain of
-    // `:: type` constraints and then the value.
+    // A key ends at the first colon on the line. After it comes a chain of
+    // `:: type` constraints, and then the value.
     if let Some(colon) = key_colon(content) {
         let key = &content[..colon];
         let after = &content[colon..];
@@ -195,8 +195,9 @@ fn indented(lines: &[Line], current: usize, content: &str) -> Site {
         return Site::Constraint;
     }
 
-    // No colon yet: the first word of the line is a key being written. A key
-    // cannot hold a space, so once there is one the line is prose.
+    // The line has no colon yet. Thus, the first word of the line is a key
+    // that the author still writes. A key cannot contain a space. Thus, a line
+    // with a space is prose.
     if content.contains(char::is_whitespace) || !in_body {
         return Site::Inert;
     }
@@ -229,16 +230,17 @@ fn indented(lines: &[Line], current: usize, content: &str) -> Site {
     }
 }
 
-/// Whether a line ends by opening a block for the lines beneath it, which is
-/// when Enter should indent.
+/// Tells if a line ends with the start of a block for the lines below it. If
+/// it does, Enter must indent.
 ///
-/// A declaration or a key that ends in its colon opens one: `anchor A:`,
-/// `frameworks:`, `config:: dictionary:`. A colon inside a value opens
-/// nothing -- `prompt: Careful:` ends a sentence, not a property. A list item
-/// is never a key, colon or not (`- Settings:` is the string `Settings:`), a
-/// `+`/`++` line holds a value, and a comment is not structure whatever it
-/// ends with. A key with constraints and no value (`title:: string`) opens a
-/// block too, because one may follow.
+/// A declaration or a key that ends with its colon opens a block. Examples are
+/// `anchor A:`, `frameworks:` and `config:: dictionary:`. A colon in a value
+/// does not open a block. In `prompt: Careful:`, the colon ends a sentence,
+/// not a property. A list item is never a key, with or without a colon.
+/// `- Settings:` is the string `Settings:`. A `+`/`++` line holds a value. A
+/// comment is not structure, whatever its last character. A key with
+/// constraints and no value (`title:: string`) also opens a block. A block can
+/// follow it.
 pub fn opens_block(line: &str) -> bool {
     let (code, _) = crate::prose::split_comment(line);
     let code = code.trim_end();
@@ -252,13 +254,13 @@ pub fn opens_block(line: &str) -> bool {
         }
         return trimmed[header.value_start..].trim().is_empty();
     }
-    // A declaration sits at the margin and ends in its colon; indented text
-    // without a key is prose.
+    // A declaration starts at the margin and ends with its colon. Indented
+    // text without a key is prose.
     !code.starts_with([' ', '\t']) && trimmed.ends_with(':')
 }
 
-/// A value that is one word so far is something to complete; nothing at all,
-/// or a second word, is a sentence being written.
+/// A value of one word is a word to complete. An empty value, or a value with
+/// a second word, is a sentence that the author still writes.
 fn single_word(written: &str, key: Option<String>) -> Site {
     if written.is_empty() || written.contains(char::is_whitespace) {
         Site::Inert
@@ -267,8 +269,8 @@ fn single_word(written: &str, key: Option<String>) -> Site {
     }
 }
 
-/// The line a line's block belongs to: the nearest line above with less
-/// indentation and something on it.
+/// The parent line of the block of a line. This is the nearest line above
+/// that has less indentation and is not empty.
 fn enclosing(lines: &[Line], from: usize, indent: usize) -> Option<usize> {
     (0..from).rev().find(|&index| {
         let line = &lines[index];
@@ -279,7 +281,7 @@ fn enclosing(lines: &[Line], from: usize, indent: usize) -> Option<usize> {
     })
 }
 
-/// The key a line declares, as the parser reads it.
+/// The key that a line declares, as the parser reads it.
 fn key_of(line: &Line) -> Option<String> {
     let code = line.code.trim_start();
     if list_marker(code).is_some() || merge_marker(code).is_some() {
@@ -288,8 +290,8 @@ fn key_of(line: &Line) -> Option<String> {
     parse_property_header(code, 0).map(|header| header.name)
 }
 
-/// Where the colon that ends a key is: the first colon, directly after a run
-/// of key characters.
+/// The position of the colon that ends a key. This is the first colon,
+/// directly after a run of key characters.
 fn key_colon(content: &str) -> Option<usize> {
     let name = content
         .char_indices()
@@ -299,14 +301,14 @@ fn key_colon(content: &str) -> Option<usize> {
     content[name..].starts_with(':').then_some(name)
 }
 
-/// The value written after a key's colon and constraints, or `None` while the
-/// cursor is still among the constraints.
+/// The value after the colon and the constraints of a key. It is `None` while
+/// the cursor is still in the constraints.
 fn value_after_constraints(after: &str) -> Option<&str> {
     let mut rest = after;
     loop {
         if let Some(constraint) = rest.strip_prefix("::") {
-            // A constraint runs to the next `:`; until there is one, the
-            // cursor is in it.
+            // A constraint continues to the next `:`. If there is no `:`
+            // yet, the cursor is in the constraint.
             let end = constraint.find(':')?;
             rest = &constraint[end..];
             continue;
@@ -319,9 +321,10 @@ fn value_after_constraints(after: &str) -> Option<&str> {
     }
 }
 
-/// The sigil of the innermost brace still open at the end of `text`, and
-/// where the text inside it starts. Inline escapes are honoured: a brace
-/// inside `\ ... \` opens nothing, which is what the prose scanner does too.
+/// The sigil of the innermost brace that is still open at the end of `text`.
+/// Also the position where the text in that brace starts. This function obeys
+/// inline escapes. Thus, a brace in `\ ... \` does not open an expression. The
+/// prose scanner does the same.
 pub fn open_sigil(text: &str) -> Option<(Sigil, usize)> {
     let mut open: Vec<(Sigil, usize)> = Vec::new();
     let mut literal = false;
@@ -381,7 +384,7 @@ pub fn open_sigil(text: &str) -> Option<(Sigil, usize)> {
     open.last().copied()
 }
 
-/// Whether the end of an expression is inside a quoted string.
+/// Tells if the end of an expression is in a quoted string.
 fn in_quotes(inside: &str) -> bool {
     let mut quoted = false;
     let mut escaped = false;
@@ -395,8 +398,8 @@ fn in_quotes(inside: &str) -> bool {
     quoted
 }
 
-/// The dotted path before a trailing `.`: `this.config.` gives
-/// `this.config`. Only the last operand counts: in `a + b.` it is `b`.
+/// The dotted path before a trailing `.`. For `this.config.`, it is
+/// `this.config`. Only the last operand is important. In `a + b.`, it is `b`.
 fn member_path(inside: &str) -> Option<&str> {
     let before = inside.strip_suffix('.').or_else(|| {
         let last = inside.rfind('.')?;

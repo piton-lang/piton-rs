@@ -1,0 +1,49 @@
+use @piton/plugin
+
+export piton-plugin InitPlugin:
+    name: init
+    entry: ./src/index.ts
+
+    description:
+        Starts a new project from one of the templates in its templates
+        directory.
+
+    capabilities:
+        interactive: true
+        scaffold: true
+
+    commands:
+        init:
+            about: Start a new project from one of the built-in templates
+            standalone: true
+
+            help:
+                Without a directory, asks for the project's name and creates it
+                in a directory of that name. Without --template, asks which one
+                to use, and for a Belay template which adapters to build for.
+                Nothing is overwritten: if any file the template writes already
+                exists, nothing is written. A template that declares
+                dependencies, like crux/project, has them tethered.
+
+            arguments:
+                directory:
+                    help: Directory to create the project in; asked for as the project's name, or the current one when there is no terminal to ask on
+                    positional: true
+
+                template:
+                    help: Template to start from; --list names them
+                    short: t
+
+                adapter:
+                    help: Belay adapter to build for, like codex; repeat it or separate with commas for several
+                    short: a
+                    multiple: true
+
+                list:
+                    help: List the templates and what each one sets up
+                    type: flag
+                    conflicts: [directory, template, adapter, no-tether]
+
+                no-tether:
+                    help: Write the files only, leaving a template's dependencies for piton tether
+                    type: flag

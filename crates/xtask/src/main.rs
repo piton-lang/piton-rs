@@ -1,8 +1,8 @@
-//! Repository automation, run as `cargo xtask <task>`.
+//! Automation for the repository. Run it as `cargo xtask <task>`.
 //!
-//! Tasks live here rather than in a shell script so they work the same on every
-//! machine cargo runs on, and so they can be read and changed like the rest of
-//! the code.
+//! The tasks are here and not in a shell script. Thus they work the same on
+//! each machine that runs cargo. Also, you can read and change them as you do
+//! the rest of the code.
 
 use std::fmt;
 use std::fs;
@@ -10,9 +10,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-/// The binary the workspace produces.
+/// The binary that the workspace makes.
 const BINARY: &str = "piton";
-/// The package that produces it.
+/// The package that makes the binary.
 const PACKAGE: &str = "piton-cli";
 
 const USAGE: &str = "\
@@ -85,9 +85,9 @@ fn main() -> ExitCode {
 /// Builds the release binary and installs it into the local cargo bin
 /// directory.
 ///
-/// This builds in the workspace's own target directory and copies the result,
-/// rather than shelling out to `cargo install --path`, which would rebuild
-/// every dependency from scratch in a separate directory.
+/// This task builds in the target directory of the workspace and copies the
+/// result. It does not call `cargo install --path`. That command builds each
+/// dependency again from the start in a different directory.
 fn install(args: &[String]) -> Result<(), Error> {
     let options = InstallOptions::parse(args)?;
 
@@ -126,8 +126,9 @@ fn install(args: &[String]) -> Result<(), Error> {
 
     println!("installed {} to {}", BINARY, destination.display());
     if !on_path(&bin_directory) {
-        // Installing something the shell cannot find is a confusing outcome, so
-        // say so rather than reporting success and leaving it at that.
+        // The user can become confused when the shell cannot find the new
+        // binary. Thus the task tells the user, and does not only report
+        // success.
         println!(
             "note: `{}` is not on PATH; add it with\n      export PATH=\"{}:$PATH\"",
             bin_directory.display(),
@@ -192,9 +193,10 @@ fn build_release(workspace: &Path, dry_run: bool) -> Result<(), Error> {
 
 /// Copies `source` over `destination` through a staging file.
 ///
-/// Writing directly over a binary that is currently running fails with "text
-/// file busy" on Linux. Renaming onto the destination replaces the directory
-/// entry instead, which works whether or not the old binary is in use.
+/// On Linux, a direct write over a binary that runs fails with "text file
+/// busy".
+/// A rename to the destination replaces the directory entry. This works when
+/// the old binary is in use, and when it is not in use.
 fn replace(source: &Path, destination: &Path) -> io::Result<()> {
     let staging = destination.with_file_name(format!(".{}.new", file_name()));
     let _ = fs::remove_file(&staging);
@@ -229,7 +231,8 @@ fn file_name() -> String {
     format!("{BINARY}{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// The workspace root, found from this crate's manifest directory.
+/// The workspace root. This function finds it from the manifest directory of
+/// this crate.
 fn workspace_root() -> Result<PathBuf, Error> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest
@@ -239,7 +242,7 @@ fn workspace_root() -> Result<PathBuf, Error> {
         .ok_or_else(|| Error::Message("cannot locate the workspace root".to_string()))
 }
 
-/// Where cargo puts build output, honouring `CARGO_TARGET_DIR`.
+/// The directory for the build output of cargo. It obeys `CARGO_TARGET_DIR`.
 fn target_directory(workspace: &Path) -> PathBuf {
     match std::env::var_os("CARGO_TARGET_DIR") {
         Some(value) if !value.is_empty() => {
@@ -254,8 +257,8 @@ fn target_directory(workspace: &Path) -> PathBuf {
     }
 }
 
-/// The directory `cargo install` treats as its root, without a `--root` of our
-/// own: `CARGO_INSTALL_ROOT`, then `CARGO_HOME`, then `~/.cargo`.
+/// The root directory of `cargo install` when we give no `--root`. The order
+/// is `CARGO_INSTALL_ROOT`, then `CARGO_HOME`, then `~/.cargo`.
 fn cargo_home() -> Result<PathBuf, Error> {
     for variable in ["CARGO_INSTALL_ROOT", "CARGO_HOME"] {
         if let Some(value) = std::env::var_os(variable) {
@@ -292,22 +295,25 @@ fn on_path(directory: &Path) -> bool {
 // sync-fluency
 // ---------------------------------------------------------------------------
 
-/// The fluency prompt the GenerateFluencyPrompt skill writes, at the root.
+/// The fluency prompt that the GenerateFluencyPrompt skill writes at the root.
 const FLUENCY_PROMPT: &str = "FLUENCY_PROMPT.md";
-/// The copy `piton agent` falls back to, compiled into the binary.
+/// The copy in the binary. `piton agent` uses it when there is no other
+/// prompt.
 const EMBEDDED_FLUENCY: &str = "plugins/belay/fluency.md";
 
-/// Regenerates the fluency prompt and copies it over the copy built into the
-/// compiler.
+/// Generates the fluency prompt again. Then it copies the prompt over the
+/// copy in the compiler.
 ///
-/// The prompt is written by an agent, not by code: the GenerateFluencyPrompt
-/// skill reads the whole specification and condenses it. So this runs Claude
-/// Code headless on that skill, then copies what it wrote to the copy
-/// `piton agent` falls back to, which would otherwise fall behind.
+/// An agent writes the prompt, not code. The GenerateFluencyPrompt skill reads
+/// the full specification and makes it shorter. Thus this task runs Claude
+/// Code headless on that skill. Then it copies the result to the copy that
+/// `piton agent` uses when there is no other prompt. If not, that copy
+/// becomes old.
 ///
-/// `--copy-only` skips generating, for a prompt written by hand or by running
-/// the skill interactively. `--check` changes nothing and fails when the two
-/// copies differ, for CI.
+/// `--copy-only` does not generate the prompt. Use it for a prompt that a
+/// person wrote, or for a prompt from an interactive run of the skill.
+/// `--check` changes nothing. It fails when the two copies are different. CI
+/// uses it.
 fn sync_fluency(args: &[String]) -> Result<(), Error> {
     let mut check = false;
     let mut copy_only = false;
@@ -369,26 +375,27 @@ fn sync_fluency(args: &[String]) -> Result<(), Error> {
     Ok(())
 }
 
-/// The models Claude's --model takes: the alias of the latest model of each
-/// family. Claude has no command that lists them; Belay's `piton agent`
-/// offers the same list.
+/// The models that the --model option of Claude accepts. Each is the alias
+/// of the latest model of a family. Claude has no command that lists them.
+/// `piton agent` from Belay gives the same list.
 const CLAUDE_MODELS: &[&str] = &["fable", "opus", "sonnet", "haiku"];
 
-/// What Claude is asked. The skill says what to write; this says where, and
-/// that this is a run without anyone to answer questions.
+/// The request to Claude. The skill tells what to write. This request tells
+/// where to write it. It also tells that no person can answer questions
+/// during this run.
 const GENERATE_REQUEST: &str = "\
 Use the generate-fluency-prompt skill to regenerate the Piton fluency prompt from the current \
 specification. Write the complete result to FLUENCY_PROMPT.md at the repository root, which is \
 the working directory, replacing the file that is there. Change no other file. Nobody can answer \
 questions during this run, so make every decision yourself.";
 
-/// Runs Claude Code on the GenerateFluencyPrompt skill, which rewrites
-/// FLUENCY_PROMPT.md.
+/// Runs Claude Code on the GenerateFluencyPrompt skill. The skill writes
+/// FLUENCY_PROMPT.md again.
 ///
-/// Claude may read the repository and edit files, with edits accepted
-/// without asking since nobody is there to answer, but may not run commands.
-/// Whether the prompt it wrote is right is for the person running this to
-/// read in the diff.
+/// Claude can read the repository and edit files. Claude cannot run commands.
+/// The task accepts edits without a question, because no person can answer.
+/// The person who runs this task reads the diff. That person decides if the
+/// prompt is correct.
 fn generate_fluency(workspace: &Path, model: Option<&str>) -> Result<(), Error> {
     let path = workspace.join(FLUENCY_PROMPT);
     let before = fs::read_to_string(&path).ok();
@@ -447,7 +454,7 @@ fn generate_fluency(workspace: &Path, model: Option<&str>) -> Result<(), Error> 
 
 #[derive(Debug)]
 enum Error {
-    /// The command line was wrong; usage is worth printing alongside it.
+    /// The command line was wrong. Print the usage with the error.
     Usage(String),
     Message(String),
 }
@@ -488,8 +495,8 @@ mod tests {
     #[test]
     fn the_target_directory_follows_cargo_target_dir() {
         let workspace = Path::new("/w");
-        // The variable is process-wide, so only the default is asserted here;
-        // the override path is exercised by the integration test.
+        // The variable applies to the full process. Thus this test asserts
+        // only the default. The integration test examines the override path.
         if std::env::var_os("CARGO_TARGET_DIR").is_none() {
             assert_eq!(target_directory(workspace), Path::new("/w/target"));
         }
@@ -523,7 +530,7 @@ mod tests {
             let mode = fs::metadata(&destination).expect("stat").permissions().mode();
             assert_eq!(mode & 0o111, 0o111, "the copy must stay executable");
         }
-        // No staging file is left behind.
+        // The function leaves no staging file.
         assert!(!dir.join(format!(".{}.new", file_name())).exists());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -533,23 +540,23 @@ mod tests {
 // publish-grammar
 // ---------------------------------------------------------------------------
 
-/// Where the grammar lives in this repository.
+/// The location of the grammar in this repository.
 const GRAMMAR_DIRECTORY: &str = "editors/tree-sitter-piton";
-/// Where it is published to.
+/// The location where the task publishes the grammar.
 const GRAMMAR_REMOTE: &str = "git@github.com:piton-lang/tree-sitter-piton.git";
 
 /// Copies the tree-sitter grammar into its own repository and pushes it.
 ///
-/// The grammar is developed here, next to the compiler, because that is the
-/// only place it can be checked against the language: `piton-syntax`'s keyword
-/// list is the source of truth, and a test reads the grammar back to make sure
-/// the two agree. Editors that consume tree-sitter grammars expect one
-/// repository per grammar, so it is published as a copy rather than developed
-/// as one.
+/// We develop the grammar here, next to the compiler. Only here can a test
+/// compare the grammar with the language. The keyword list of `piton-syntax`
+/// is the source of truth. A test reads the grammar to make sure that the two
+/// agree. Editors that use tree-sitter grammars expect one repository for each
+/// grammar. Thus the task publishes a copy. We do not develop the grammar in
+/// that repository.
 ///
-/// The published history is kept: the remote is cloned, its contents replaced,
-/// and the result committed. Each publish is one commit naming the source
-/// revision it came from, so a reader of either repository can line them up.
+/// The task keeps the published history. It clones the remote, replaces its
+/// contents, and commits the result. Each publish is one commit. The commit
+/// names its source revision. Thus a reader can align the two repositories.
 fn publish_grammar(args: &[String]) -> Result<(), Error> {
     let options = PublishOptions::parse(args)?;
     let workspace = workspace_root()?;
@@ -561,8 +568,8 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
         )));
     }
 
-    // What is published has to be something a reader can find again, so the
-    // working tree must match what is committed.
+    // A reader must be able to find the published source again. Thus the
+    // working tree must agree with the last commit.
     let dirty = git_output(
         &workspace,
         &["status", "--porcelain", "--", GRAMMAR_DIRECTORY],
@@ -586,8 +593,9 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
     let checkout = staging.join("tree-sitter-piton");
     let _cleanup = Cleanup(staging.clone());
 
-    // Clone what is there, so the published history continues rather than
-    // restarting. An empty remote has nothing to clone, which is not an error.
+    // Clone the remote. Thus the published history continues and does not
+    // start again. An empty remote has nothing to clone. This is not an
+    // error.
     let cloned = clone(&options.remote, &options.branch, &checkout)?;
     if !cloned {
         println!("the remote has no `{}` branch yet; starting one", options.branch);
@@ -640,7 +648,8 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
             "dry run: not pushing. The commit is prepared in {}",
             checkout.display()
         );
-        // Kept so it can be inspected, since that is the point of a dry run.
+        // The task keeps the directory. The purpose of a dry run is to let you
+        // examine it.
         std::mem::forget(_cleanup);
         return Ok(());
     }
@@ -710,7 +719,7 @@ impl PublishOptions {
     }
 }
 
-/// Runs git in a directory, failing if it does.
+/// Runs git in a directory. This function fails if git fails.
 fn git(directory: &Path, args: &[&str]) -> Result<(), Error> {
     let status = Command::new("git")
         .args(args)
@@ -727,7 +736,7 @@ fn git(directory: &Path, args: &[&str]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Runs git and returns what it printed.
+/// Runs git and returns its printed output.
 fn git_output(directory: &Path, args: &[&str]) -> Result<String, Error> {
     let output = Command::new("git")
         .args(args)
@@ -744,10 +753,10 @@ fn git_output(directory: &Path, args: &[&str]) -> Result<String, Error> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Checks that git knows who is committing.
+/// Checks that git knows the identity of the committer.
 ///
-/// Git's own error for this is several paragraphs long and arrives after the
-/// work is done, which is a poor moment to learn it.
+/// The git error for this problem is many paragraphs long. It also comes
+/// after the work ends. That is a bad time to learn about the problem.
 fn identity(workspace: &Path) -> Result<(), Error> {
     for key in ["user.name", "user.email"] {
         let set = Command::new("git")
@@ -766,7 +775,8 @@ fn identity(workspace: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// Clones a branch of a remote, shallowly. False when the branch is not there.
+/// Makes a shallow clone of a branch of a remote. False when the branch does
+/// not exist.
 fn clone(remote: &str, branch: &str, into: &Path) -> Result<bool, Error> {
     let parent = into
         .parent()
@@ -789,8 +799,8 @@ fn clone(remote: &str, branch: &str, into: &Path) -> Result<bool, Error> {
         return Ok(true);
     }
     let message = String::from_utf8_lossy(&output.stderr).to_string();
-    // A remote that exists but has no such branch, or no commits at all, is
-    // the first publish rather than a failure.
+    // A remote can exist with no such branch, or with no commits. This is the
+    // first publish. It is not a failure.
     let empty = message.contains("not found in upstream origin")
         || message.contains("Remote branch")
         || message.contains("empty repository")
@@ -805,10 +815,10 @@ fn clone(remote: &str, branch: &str, into: &Path) -> Result<bool, Error> {
     )))
 }
 
-/// Empties a checkout of everything but its `.git` directory.
+/// Removes all contents of a checkout except its `.git` directory.
 ///
-/// A file deleted here is deleted in the published repository, which is what
-/// makes the publish a copy rather than an accumulation.
+/// When this function deletes a file, the published repository also loses
+/// it. Thus the publish is a copy. It does not collect old files.
 fn clear(checkout: &Path) -> Result<(), Error> {
     let entries = fs::read_dir(checkout).map_err(|error| {
         Error::Message(format!("cannot read `{}`: {error}", checkout.display()))
@@ -852,10 +862,9 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
 
 /// Generates the parser, when the tree-sitter CLI is available.
 ///
-/// A published grammar has to carry `src/parser.c`: Zed compiles that file
-/// and nothing else, so a grammar published without it is reported as one
-/// that will not compile. Returns whether the parser is there to be
-/// published.
+/// A published grammar must have `src/parser.c`. Zed compiles only that file.
+/// Thus Zed reports a grammar without it as a grammar that does not compile.
+/// Returns true when the parser is available to publish.
 fn generate_parser(checkout: &Path, dry_run: bool) -> bool {
     let available = Command::new("tree-sitter")
         .arg("--version")
@@ -885,15 +894,15 @@ fn generate_parser(checkout: &Path, dry_run: bool) -> bool {
     checkout.join("src/parser.c").is_file()
 }
 
-/// Everything `tree-sitter generate` writes that a consumer needs.
+/// All the files from `tree-sitter generate` that a consumer needs.
 ///
-/// The grammar's own `.gitignore` excludes these, because in this repository
-/// they are build output regenerated from `grammar.js`. The published copy is
-/// a distribution rather than a source tree, so they are staged explicitly --
-/// `git add --all` would skip every one of them.
+/// The `.gitignore` of the grammar excludes these files. In this repository,
+/// they are build output that the build makes again from `grammar.js`. The
+/// published copy is a distribution and not a source tree. Thus the task
+/// stages these files by name. `git add --all` does not add them.
 const GENERATED: [&str; 2] = ["src", "bindings"];
 
-/// Stages the published tree, generated parser included.
+/// Stages the published tree, with the generated parser.
 fn stage(checkout: &Path) -> Result<(), Error> {
     git(checkout, &["add", "--all"])?;
     for path in GENERATED {
@@ -904,7 +913,7 @@ fn stage(checkout: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// A temporary directory to work in.
+/// A temporary directory for the work.
 fn staging_directory() -> Result<PathBuf, Error> {
     let base = std::env::temp_dir().join(format!(
         "piton-publish-grammar-{}-{}",
@@ -919,7 +928,7 @@ fn staging_directory() -> Result<PathBuf, Error> {
     Ok(base)
 }
 
-/// Removes the staging directory when the task ends, however it ends.
+/// Removes the staging directory when the task ends, in all cases.
 struct Cleanup(PathBuf);
 
 impl Drop for Cleanup {
@@ -945,9 +954,9 @@ mod publish_tests {
 
     #[test]
     fn clearing_a_checkout_keeps_its_git_directory() {
-        // Everything else in the checkout is replaced on each publish. Losing
-        // `.git` would lose the published history and turn every publish into
-        // a new repository.
+        // Each publish replaces all other contents of the checkout. If the
+        // task removes `.git`, the published history goes away. Then each
+        // publish makes a new repository.
         let checkout = scratch("clear");
         fs::create_dir_all(checkout.join(".git/objects")).unwrap();
         fs::write(checkout.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
@@ -985,10 +994,10 @@ mod publish_tests {
 
     #[test]
     fn staging_includes_the_generated_parser() {
-        // The grammar's `.gitignore` excludes `src/`, so a plain `git add
-        // --all` publishes a repository with no `src/parser.c` in it. Zed
-        // compiles that file and nothing else, and reports its absence as a
-        // grammar that will not compile.
+        // The `.gitignore` of the grammar excludes `src/`. Thus a plain `git
+        // add --all` publishes a repository with no `src/parser.c`. Zed
+        // compiles only that file. When the file is not there, Zed reports a
+        // grammar that does not compile.
         let checkout = scratch("stage");
         git(&checkout, &["init", "--quiet", "--initial-branch", "main"]).expect("init");
         fs::write(&checkout.join(".gitignore"), "src/\nnode_modules/\n").unwrap();
@@ -1006,7 +1015,8 @@ mod publish_tests {
         assert!(staged.contains(&"src/parser.c"), "{staged:?}");
         assert!(staged.contains(&"src/tree_sitter/parser.h"), "{staged:?}");
         assert!(staged.contains(&"grammar.js"), "{staged:?}");
-        // Forcing the generated parser in must not drag the toolchain in too.
+        // When the task forces the generated parser in, it must not also add
+        // the toolchain.
         assert!(
             !staged.iter().any(|path| path.starts_with("node_modules/")),
             "{staged:?}"
@@ -1018,8 +1028,8 @@ mod publish_tests {
         let options = PublishOptions::parse(&[]).expect("defaults");
         assert_eq!(options.remote, GRAMMAR_REMOTE);
         assert_eq!(options.branch, "main");
-        // Publishing is the point of the task, so it is not a dry run by
-        // default -- but it does refuse to publish uncommitted work.
+        // The purpose of the task is to publish. Thus the default is not a dry
+        // run. But the task refuses to publish work that has no commit.
         assert!(!options.dry_run);
         assert!(!options.allow_dirty);
     }
@@ -1035,32 +1045,34 @@ mod publish_tests {
 
     #[test]
     fn the_grammar_directory_is_where_the_grammar_is() {
-        // The task copies a path spelled out as a constant; a moved grammar
-        // would otherwise publish an empty repository.
+        // The task copies a path from a constant. If someone moves the
+        // grammar, the task publishes an empty repository. This test prevents
+        // that.
         let source = workspace_root().expect("workspace").join(GRAMMAR_DIRECTORY);
         assert!(source.join("grammar.js").is_file(), "{}", source.display());
         assert!(source.join("queries").is_dir(), "{}", source.display());
     }
 }
 
-/// Where the Zed extension pins the grammar it fetches.
+/// The file where the Zed extension pins the grammar that it fetches.
 const ZED_EXTENSION: &str = "editors/zed/extension.toml";
 
 /// Other editors that fetch the same grammar at the same commit as Zed.
 const OTHER_GRAMMAR_PINS: [&str; 2] = ["editors/helix/languages.toml", "editors/neovim/piton.lua"];
 
-/// Points the Zed extension at the commit that was just published.
+/// Changes the pin of the Zed extension to the commit that the task
+/// published.
 ///
-/// Zed fetches one revision of the grammar repository and builds it. A pin
-/// left behind keeps every Zed user on an older grammar than the one that was
-/// just pushed, and a pin that is not a real commit fetches nothing at all,
-/// which Zed reports as a grammar that will not compile. Since publishing is
-/// the moment a new commit exists, it is also the moment to record it.
+/// Zed fetches one revision of the grammar repository and builds it. An old
+/// pin keeps each Zed user on an older grammar than the new one. A pin that
+/// is not a real commit fetches nothing. Zed then reports a grammar that does
+/// not compile. The publish makes the new commit. Thus the publish is also
+/// the time to record it.
 fn pin_zed_grammar(workspace: &Path, commit: &str) -> Result<(), Error> {
     let path = workspace.join(ZED_EXTENSION);
     let Ok(text) = fs::read_to_string(&path) else {
-        // The extension is optional; publishing the grammar does not depend on
-        // it being there.
+        // The extension is optional. The publish of the grammar does not need
+        // it.
         return Ok(());
     };
 
@@ -1094,8 +1106,8 @@ fn pin_zed_grammar(workspace: &Path, commit: &str) -> Result<(), Error> {
         .map_err(|error| Error::Message(format!("cannot write `{}`: {error}", path.display())))?;
     println!("pinned {ZED_EXTENSION} to {}", &commit[..commit.len().min(12)]);
 
-    // Helix and Neovim fetch the same grammar at the same commit, so they move
-    // with Zed.
+    // Helix and Neovim fetch the same grammar at the same commit as Zed. Thus
+    // their pins change with the pin of Zed.
     if let Some(previous) = previous.filter(|p| !p.is_empty() && p != commit) {
         for relative in OTHER_GRAMMAR_PINS {
             let path = workspace.join(relative);

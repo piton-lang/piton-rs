@@ -1,12 +1,12 @@
-//! The lexical facts of the language, in one place.
+//! This module keeps all the lexical facts of the language in one location.
 //!
-//! Editor support lives outside this crate — a TextMate grammar, a Vim syntax
-//! file, a tree-sitter grammar, and more — and every one of them has to know the
-//! same list of keywords. Listing them here and testing the shipped grammars
-//! against this module is what stops a keyword being added to the compiler and
-//! forgotten everywhere else.
+//! The editor support is not in this crate. It includes a TextMate grammar, a
+//! Vim syntax file, a tree-sitter grammar and more. Each of these must know the
+//! same list of keywords. This module keeps that list. Tests compare the shipped
+//! grammars with this module. Thus, when a person adds a keyword to the
+//! compiler, the tests make sure that the grammars also get the keyword.
 
-/// The file extension Piton sources carry.
+/// The file extension of Piton source files.
 pub const EXTENSION: &str = "pi";
 
 /// The project configuration filename.
@@ -20,11 +20,11 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
 /// Literal values.
 pub const LITERALS: &[&str] = &["true", "false", "null"];
 
-/// Words that only mean something inside an expression.
+/// Words that have a meaning only in an expression.
 pub const EXPRESSION_KEYWORDS: &[&str] = &["this", "self", "super"];
 
-/// Type names usable in a `::` constraint. These are contextual: outside a
-/// constraint they are ordinary words, and any of them may be a property key.
+/// Type names that a `::` constraint can use. They are contextual words.
+/// Outside a constraint, they are usual words. Each of them can be a property key.
 pub const TYPE_NAMES: &[&str] = &[
     "string",
     "number",
@@ -39,13 +39,13 @@ pub const TYPE_NAMES: &[&str] = &[
     "complex",
 ];
 
-/// How a comment begins. There is no block form.
+/// The prefix of a comment. Piton has no block comments.
 pub const COMMENT_PREFIX: &str = "//";
 
-/// Every word an editor should colour as a keyword.
+/// All the words that an editor must colour as keywords.
 ///
-/// This is what a syntax definition needs: the union of the words that carry
-/// meaning, whatever context they carry it in.
+/// A syntax definition needs this list. It is the union of all the words that
+/// have a meaning, in all contexts.
 pub fn highlight_keywords() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = DECLARATION_KEYWORDS
         .iter()
@@ -58,7 +58,7 @@ pub fn highlight_keywords() -> Vec<&'static str> {
     out
 }
 
-/// Every word that carries meaning anywhere, including type names.
+/// All the words that have a meaning in some context. The list includes type names.
 pub fn all_keywords() -> Vec<&'static str> {
     let mut out = highlight_keywords();
     out.extend(TYPE_NAMES);
@@ -74,8 +74,8 @@ mod tests {
 
     #[test]
     fn the_reserved_words_are_accounted_for() {
-        // Every word the parser refuses as something else has to be a word an
-        // editor colours, or the two disagree about what the language is.
+        // An editor must colour each word that the parser refuses as other
+        // syntax. If not, the editor and the parser do not agree about the language.
         let highlighted = highlight_keywords();
         for word in RESERVED_WORDS {
             assert!(

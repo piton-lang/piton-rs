@@ -1,9 +1,9 @@
-//! Typed fields for target metadata: YAML frontmatter, YAML documents and
-//! TOML, each encoded by a real encoder so text with quotes, colons or new
-//! lines is always valid where it lands.
+//! Typed fields for target metadata. The formats are YAML frontmatter, YAML
+//! documents and TOML. A real encoder encodes each format. Thus text with
+//! quotes, colons or new lines is always valid in the output.
 //!
-//! Belay writes its frontmatter and agent definitions with these, and the
-//! plugin host offers them to every plugin.
+//! Belay writes its frontmatter and agent definitions with these fields. The
+//! plugin host gives them to all plugins.
 
 use indexmap::IndexMap;
 use piton_core::Value;
@@ -11,8 +11,8 @@ use piton_core::Value;
 /// An ordered set of frontmatter fields.
 pub type Fields = IndexMap<String, FieldValue>;
 
-/// A frontmatter value. Keeping these typed means the encoder can quote each
-/// one according to the format rather than guessing from its text.
+/// A frontmatter value. The values have types. Thus the encoder quotes each
+/// value as the format requires. It does not guess from the text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
     Text(String),
@@ -23,8 +23,8 @@ pub enum FieldValue {
 }
 
 impl FieldValue {
-    /// Converts a resolved Piton value into a frontmatter field, if the value
-    /// has a representation there.
+    /// Converts a resolved Piton value into a frontmatter field. It does this
+    /// only when the value has a representation in frontmatter.
     pub fn from_value(value: &Value, anchors: &dyn piton_core::AnchorView) -> Option<FieldValue> {
         match value {
             // A reference has no representation in target metadata.
@@ -59,7 +59,7 @@ impl FieldValue {
     }
 }
 
-/// Encodes fields as a YAML frontmatter block, delimiters included.
+/// Encodes fields as a YAML frontmatter block, with the delimiters.
 pub fn frontmatter(fields: &Fields) -> String {
     let mut out = String::from("---\n");
     write_yaml_fields(fields, 0, &mut out);
@@ -137,12 +137,12 @@ fn toml_value(value: &FieldValue) -> String {
     }
 }
 
-/// Encodes a TOML string, using a multi-line basic string for text with
-/// newlines so a whole instruction body stays readable.
+/// Encodes a TOML string. Text with newlines uses a multi-line basic string.
+/// Thus a full instruction body stays easy to read.
 ///
-/// Control characters other than tab and newline are not allowed raw in
-/// either form, so they are escaped; so is any quote that would otherwise run
-/// into a closing delimiter.
+/// Neither form allows raw control characters, other than tab and newline.
+/// Thus the encoder escapes them. It also escapes a quote that would otherwise
+/// join a closing delimiter.
 pub fn toml_string(text: &str) -> String {
     let escape = |ch: char, out: &mut String| match ch {
         '\\' => out.push_str("\\\\"),
@@ -158,8 +158,9 @@ pub fn toml_string(text: &str) -> String {
         let chars: Vec<char> = text.chars().collect();
         for (index, ch) in chars.iter().enumerate() {
             if *ch == '"' {
-                // Escape a quote that starts a run of three, or that ends the
-                // text and would merge with the closing delimiter.
+                // Escape a quote that starts a run of three quotes. Also escape
+                // a quote at the end of the text. It would join the closing
+                // delimiter.
                 let next_two = chars.get(index + 1) == Some(&'"') && chars.get(index + 2) == Some(&'"');
                 if next_two || index + 1 == chars.len() {
                     out.push_str("\\\"");
@@ -185,11 +186,12 @@ pub fn toml_string(text: &str) -> String {
     out
 }
 
-/// Quotes a YAML scalar when its bare form would be read as something other
-/// than the same string.
+/// Quotes a YAML scalar when a reader would not read the bare form as the same
+/// string.
 ///
-/// Both YAML 1.1 and 1.2 readers are in use, so anything either would resolve
-/// to a boolean, null, number or timestamp is quoted, whatever its case.
+/// Tools use both YAML 1.1 and 1.2 readers. Thus the function quotes all text
+/// that either reader resolves to a boolean, null, number or timestamp. The
+/// letter case has no effect.
 pub fn yaml_scalar(text: &str) -> String {
     if !yaml_needs_quotes(text) {
         return text.to_string();
@@ -237,9 +239,9 @@ fn yaml_needs_quotes(text: &str) -> bool {
     looks_numeric(&lowered) || looks_like_timestamp(text)
 }
 
-/// True for anything a YAML reader could take as a number: decimal, float,
-/// exponent, hex, octal, binary, sexagesimal, `.inf` and `.nan`, with
-/// underscores and a sign allowed.
+/// True for all text that a YAML reader can read as a number. This includes
+/// decimal, float, exponent, hex, octal, binary, sexagesimal, `.inf` and
+/// `.nan`. The text can also have underscores and a sign.
 fn looks_numeric(lowered: &str) -> bool {
     let unsigned = lowered.trim_start_matches(['+', '-']);
     if matches!(unsigned, ".inf" | ".nan" | "inf" | "nan") {
@@ -257,7 +259,7 @@ fn looks_numeric(lowered: &str) -> bool {
     if digits.parse::<f64>().is_ok() {
         return true;
     }
-    // Sexagesimal integers such as 1:30, which YAML 1.1 reads as 90.
+    // Sexagesimal integers such as 1:30. YAML 1.1 reads 1:30 as 90.
     digits.contains(':')
         && digits
             .split(':')

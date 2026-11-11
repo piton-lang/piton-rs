@@ -1,10 +1,10 @@
-//! `piton untether` — adopt an installed package as the project's own source.
+//! `piton untether` — make an installed package part of the project source.
 //!
-//! An installed package is managed: `piton update` replaces it, and it refuses
-//! to do so once the files have been edited. Untethering is the way out of that
-//! arrangement. The package moves out of `tethers/` and into the source root,
-//! where it is ordinary project source that nothing will overwrite, and every
-//! import that named the package is rewritten to point at where it went.
+//! Piton manages an installed package. `piton update` replaces it. After a
+//! person edits the files, `piton update` refuses to replace it. An untether
+//! stops this management. The package moves from `tethers/` into the source
+//! root. There it is usual project source, and no command overwrites it. The
+//! command changes each import of the package to the new location.
 
 use std::path::Path;
 
@@ -46,8 +46,8 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
         return EXIT_ERRORS;
     }
 
-    // The imports are found before the move, because afterwards the package is
-    // no longer where the resolver would look for it.
+    // The command finds the imports before the move. After the move, the
+    // package is not in the location where the resolver looks.
     let sites = ops::imports_of(&configured, name);
 
     if let Some(parent) = to.parent() {
@@ -95,9 +95,9 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
     }
 
 
-    // Written as a root-absolute path, which resolves against the source root
-    // from any file. A relative one would have to be recomputed per importer,
-    // and would break again the moment a file moved.
+    // The command writes a root-absolute path. It resolves from the source
+    // root in all files. A relative path must change for each importer. Also,
+    // it breaks again when a file moves.
     let replacement = format!(
         "/{}",
         module::relative_path(&configured.source_root, &to)
@@ -119,12 +119,12 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
     EXIT_SUCCESS
 }
 
-/// Reports imports that live inside another installed package.
+/// Reports imports in a different installed package.
 ///
-/// Rewriting one would make that package differ from what the lock file
-/// recorded, and a package in that state cannot be updated. So it is left as it
-/// is and named, because the choice between an edited package and a broken
-/// import belongs to whoever has to live with it.
+/// A change to such an import makes that package different from the lock file
+/// record. Then no update is possible for that package. Thus the command does
+/// not change the import, but names it. The user must choose between an
+/// edited package and a broken import.
 fn report_managed(project: &piton_compile::Project, sites: &[ops::ImportSite], name: &str) {
     let managed: Vec<_> = sites.iter().filter(|site| site.managed).collect();
     if managed.is_empty() {
@@ -147,15 +147,15 @@ fn report_managed(project: &piton_compile::Project, sites: &[ops::ImportSite], n
     report::help("untether those packages too, or the imports will not resolve");
 }
 
-/// Moves a package out of `tethers/`, falling back to copy-and-delete across
-/// filesystems.
+/// Moves a package out of `tethers/`. Between filesystems, it copies and then
+/// deletes.
 ///
-/// `tethers/` and the source root are usually on the same device, where a
-/// rename is atomic; they need not be, and a package that cannot be untethered
-/// because a temporary directory lives elsewhere would be a strange limit.
+/// Usually, `tethers/` and the source root are on the same device. There, a
+/// rename is atomic. But they can be on different devices. A temporary
+/// directory on a different device must not stop an untether.
 ///
-/// Either way `tethers/` is removed when the package was the last thing in
-/// it.
+/// In the two cases, the function removes `tethers/` when it contains no other
+/// package.
 fn move_tree(project_root: &Path, name: &str, from: &Path, to: &Path) -> Result<(), Failure> {
     if std::fs::rename(from, to).is_ok() {
         ops::prune_empty_tethers(project_root);

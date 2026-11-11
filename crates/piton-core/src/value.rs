@@ -1,9 +1,9 @@
 //! The resolved value model.
 //!
-//! Piton has no runtime: compilation produces values, and adapters serialize
-//! those values. The model therefore only needs to describe what the language
-//! can *describe*, and it needs to keep enough structure for the Markdown
-//! adapter to tell prose from data.
+//! Piton has no runtime. Compilation makes values, and adapters serialize
+//! those values. Thus the model must describe only what the language can
+//! *describe*. The model must also keep sufficient structure. The Markdown
+//! adapter uses this structure to know prose from data.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 
 use crate::text::Text;
 
-/// Identifies one anchor declaration within a compilation.
+/// Identifies one anchor declaration in a compilation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AnchorId(pub u32);
 
@@ -22,10 +22,11 @@ impl fmt::Display for AnchorId {
     }
 }
 
-/// What a reference points at: an anchor, or a property on one.
+/// The target of a reference. The target is an anchor, or a property on an
+/// anchor.
 ///
-/// `path` is empty for a reference to the anchor itself, and holds the dot
-/// path for a reference to a property, so `@{Button.color}` is `Button` with
+/// For a reference to the anchor, `path` is empty. For a reference to a
+/// property, `path` holds the dot path. Thus `@{Button.color}` is `Button` with
 /// the path `["color"]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ref {
@@ -41,7 +42,7 @@ impl Ref {
         }
     }
 
-    /// `Anchor` or `Anchor.property`, the way the reference is written.
+    /// `Anchor` or `Anchor.property`, as the source writes the reference.
     pub fn display(&self, anchors: &dyn AnchorView) -> String {
         let mut out = anchors.name(self.anchor).to_string();
         for part in &self.path {
@@ -58,26 +59,26 @@ impl From<AnchorId> for Ref {
     }
 }
 
-/// An ordered map of properties. Declaration order is part of the compiled
-/// output, so insertion order is preserved everywhere.
+/// An ordered map of properties. The declaration order is part of the compiled
+/// output. Thus all code keeps the insertion order.
 pub type Properties = IndexMap<String, Value>;
 
 /// One element of an implicit mixed block.
 ///
-/// A block that combines prose, list items, and dictionary keys becomes an
-/// implicit list. The dictionary keys declared directly in such a block remain
-/// addressable, so they are kept as named entries rather than being folded into
-/// an anonymous map.
+/// A block that combines prose, list items and dictionary keys becomes an
+/// implicit list. You can still address the dictionary keys that the block
+/// declares directly. Thus they stay as named entries. They do not go into an
+/// anonymous map.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MixedItem {
     /// A run of prose.
     Text(Text),
-    /// An explicit list appearing inside the block.
+    /// An explicit list in the block.
     List(Vec<Value>),
     /// A `key: value` pair declared directly in the block.
     Entry(String, Value),
-    /// Any other value dropped into the block, such as the copy of an anchor
-    /// that `{Foo}` puts in the middle of some text.
+    /// A different value in the block. An example is the copy of an anchor that
+    /// `{Foo}` puts in the middle of some text.
     Value(Value),
 }
 
@@ -92,7 +93,7 @@ impl Mixed {
         Mixed { items }
     }
 
-    /// Looks up a directly declared dictionary key.
+    /// Finds a dictionary key that the block declares directly.
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.items.iter().find_map(|item| match item {
             MixedItem::Entry(name, value) if name == key => Some(value),
@@ -117,18 +118,19 @@ impl Mixed {
 pub enum Value {
     Null,
     Bool(bool),
-    /// Piton has a single numeric type; int and float are the same thing.
+    /// Piton has one numeric type. Int and float are the same type.
     Number(f64),
-    /// Explicit line breaks inside a string block are stored as `\n`.
+    /// The value stores explicit line breaks in a string block as `\n`.
     Str(Text),
     List(Vec<Value>),
     Dict(Properties),
-    /// An implicit list produced by mixing prose, lists, and dictionary keys.
+    /// An implicit list. A block that mixes prose, lists and dictionary keys
+    /// makes it.
     Mixed(Mixed),
-    /// An anchor resolved by identity. Serializing it inlines its content.
+    /// An anchor that resolves by identity. Serialization inlines its content.
     Anchor(AnchorId),
-    /// A reference produced by `@{...}`. Serializing it produces a link, not a
-    /// copy of the referenced content.
+    /// A reference that `@{...}` makes. Serialization makes a link. It does not
+    /// make a copy of the referenced content.
     Reference(Ref),
 }
 
@@ -141,7 +143,7 @@ impl Value {
         Value::Str(text)
     }
 
-    /// The name used in diagnostics and in `simple`/`complex` checks.
+    /// The name that diagnostics and `simple`/`complex` checks use.
     pub fn kind(&self) -> ValueKind {
         match self {
             Value::Null => ValueKind::Null,
@@ -169,8 +171,8 @@ impl Value {
         )
     }
 
-    /// Flattens a mixed block into plain list elements, grouping consecutive
-    /// dictionary entries into a single dictionary the way JSON output does.
+    /// Flattens a mixed block into plain list elements. It puts consecutive
+    /// dictionary entries into one dictionary, as the JSON output does.
     pub fn as_list_items(&self) -> Vec<Value> {
         match self {
             Value::List(items) => items.clone(),
@@ -206,8 +208,8 @@ impl Value {
         }
     }
 
-    /// Looks up a property for the `.` operator. Anchors are resolved through
-    /// `anchors`; list elements are intentionally not addressable.
+    /// Finds a property for the `.` operator. It resolves anchors through
+    /// `anchors`. You cannot address list elements, and this is intentional.
     pub fn property<'a>(&'a self, key: &str, anchors: &'a dyn AnchorView) -> Option<&'a Value> {
         match self {
             Value::Dict(map) => map.get(key),
@@ -217,12 +219,12 @@ impl Value {
         }
     }
 
-    /// True when the value is a dictionary that, recursively, contains only
-    /// dictionaries and simple scalars.
+    /// True when the value is a dictionary that contains only dictionaries and
+    /// simple scalars, at all levels.
     ///
     /// Belay renders these "pure dictionaries" as indentation-based structures
-    /// inside a code fence rather than as a run of headings, because a map of
-    /// data reads better as data than as document structure.
+    /// in a code fence. It does not render them as a run of headings. A map of
+    /// data is easier to read as data than as document structure.
     pub fn is_pure_dictionary(&self) -> bool {
         match self {
             Value::Dict(map) => map.values().all(|v| v.is_simple() || v.is_pure_dictionary()),
@@ -231,7 +233,8 @@ impl Value {
     }
 }
 
-/// The type names the language exposes, used for constraints and diagnostics.
+/// The type names that the language exposes. Constraints and diagnostics use
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueKind {
     String,
@@ -265,30 +268,31 @@ impl fmt::Display for ValueKind {
     }
 }
 
-/// Read-only access to resolved anchors, so serializers can follow anchor
-/// values without depending on the resolver.
+/// Read-only access to resolved anchors. Serializers use it to follow anchor
+/// values. Thus serializers do not depend on the resolver.
 pub trait AnchorView {
-    /// The anchor's source name, which is also its string representation.
+    /// The source name of the anchor. It is also the string representation of
+    /// the anchor.
     fn name(&self, id: AnchorId) -> &str;
-    /// The anchor's fully resolved properties, in output order.
+    /// The fully resolved properties of the anchor, in output order.
     fn properties(&self, id: AnchorId) -> &Properties;
-    /// The file the anchor was declared in.
+    /// The file that declared the anchor.
     fn source_path(&self, id: AnchorId) -> &Path;
-    /// Whether the anchor was declared `abstract`.
+    /// True when the declaration of the anchor is `abstract`.
     fn is_abstract(&self, id: AnchorId) -> bool;
-    /// The directory of the file being written, when there is one, so a
-    /// reference can be written relative to it.
+    /// The directory of the output file, when there is one. A reference uses
+    /// it to make a path relative to that directory.
     fn output_directory(&self) -> Option<&Path> {
         None
     }
-    /// Where the output for a source file is written. By default it sits next
-    /// to the source, which is where `piton compile --write` puts it.
+    /// The location of the output for a source file. By default it is next to
+    /// the source. `piton compile --write` puts it there.
     fn output_path(&self, source: &Path) -> PathBuf {
         source.to_path_buf()
     }
 }
 
-/// An [`AnchorView`] with no anchors, useful for serializing plain data.
+/// An [`AnchorView`] with no anchors. Use it to serialize plain data.
 pub struct EmptyAnchors;
 
 impl AnchorView for EmptyAnchors {
@@ -308,8 +312,8 @@ impl AnchorView for EmptyAnchors {
     }
 }
 
-/// Formats a number the way Piton prints it: integral values lose the trailing
-/// `.0` so `42` round-trips as `42`.
+/// Formats a number as Piton prints it. Integral values lose the `.0` at the
+/// end. Thus `42` round-trips as `42`.
 pub fn format_number(n: f64) -> String {
     if n.is_nan() {
         return "null".into();

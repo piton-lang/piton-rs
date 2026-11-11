@@ -1,17 +1,18 @@
 //! Packages, dependencies, and the tethers directory.
 //!
-//! Piton's strategy is managed vendored dependencies. An installed package is
-//! an ordinary part of the project -- plain files under `tethers/`, committed to
-//! version control, with every trace of the git repository it came from
-//! removed. Nothing is fetched at compile time and nothing resolves through a
-//! registry; what is on disk *is* the dependency.
+//! Piton uses managed vendored dependencies. An installed package is an
+//! ordinary part of the project. It is a set of plain files under `tethers/`.
+//! The project commits these files to version control. The install removes
+//! all traces of the source git repository. The compiler does not fetch
+//! anything at compile time. No name resolves through a registry. The files
+//! on disk *are* the dependency.
 //!
-//! That choice is what the rest of this module exists to protect. Because the
-//! files are ordinary, they can be edited, and an edited package must not be
-//! silently overwritten by an update. The lock file therefore records a digest
-//! of every installed file, and [`Installed::compare`] answers the one question
-//! the package commands ask before they touch anything: is this package still
-//! the one that was installed?
+//! The rest of this module protects that choice. The files are ordinary, thus
+//! a user can edit them. An update must not silently overwrite an edited
+//! package. Thus the lock file records a digest of each installed file.
+//! [`Installed::compare`] answers the one question that the package commands
+//! ask before they change a file. Is this package still the package that the
+//! install put there?
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -21,24 +22,24 @@ use piton_core::{Diagnostic, DiagnosticSink, Span, Value};
 
 use crate::digest;
 
-/// Directory, relative to the project root, that installed packages live in.
+/// The directory, relative to the project root, that holds installed packages.
 pub const TETHERS: &str = "tethers";
 
-/// Directory, relative to the source root, that untethered packages move to.
+/// The directory, relative to the source root, that gets untethered packages.
 pub const UNTETHERED: &str = "untethered";
 
-/// The lock file, relative to the project root (the directory holding
-/// `piton.config.pi`).
+/// The lock file, relative to the project root. The project root is the
+/// directory that holds `piton.config.pi`.
 pub const LOCK_FILE: &str = ".piton/tether.lock";
 
-/// How a dependency's version is selected.
+/// How the compiler selects the version of a dependency.
 ///
-/// A dependency with no specifier tracks the default branch, which is the only
-/// case where installing the same declaration twice can produce different
-/// files. Every other form names something fixed.
+/// A dependency with no specifier follows the default branch. Only in this
+/// case can two installs of the same declaration give different files. All
+/// other forms name a fixed version.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Pin {
-    /// The latest commit on the repository's primary branch.
+    /// The latest commit on the primary branch of the repository.
     #[default]
     Default,
     Commit(String),
@@ -63,7 +64,7 @@ impl Pin {
         }
     }
 
-    /// Rebuilds a pin from the two fields the lock file stores.
+    /// Makes a pin again from the two fields that the lock file stores.
     pub fn from_parts(kind: &str, value: Option<&str>) -> Pin {
         match (kind, value) {
             ("commit", Some(value)) => Pin::Commit(value.to_string()),
@@ -88,11 +89,11 @@ impl fmt::Display for Pin {
 /// A dependency declared in a project configuration or by a package.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dependency {
-    /// A git repository: a URL, or a path to one on disk.
+    /// A git repository. This is a URL or a path to a repository on disk.
     pub source: String,
     pub pin: Pin,
-    /// The packages to take from the repository, when it offers several and
-    /// only some are wanted. `None` takes all of them.
+    /// The packages to take from the repository. Use this when the repository
+    /// has many packages and you want only some. `None` takes all of them.
     pub packages: Option<Vec<String>>,
 }
 
@@ -105,14 +106,15 @@ impl Dependency {
         }
     }
 
-    /// The package name a source installs under when nothing else names it.
+    /// The package name for a source when the user gives no other name.
     ///
-    /// The last path segment of the repository, with a `.git` suffix removed.
-    /// A repository that carries its own configuration overrides this by
-    /// declaring packages; this is the fallback for one that does not.
+    /// This is the last path segment of the repository without a `.git`
+    /// suffix. A repository with its own configuration can declare packages.
+    /// Those declarations replace this name. This name is only for a
+    /// repository that does not declare packages.
     pub fn default_name(&self) -> String {
         let trimmed = self.source.trim_end_matches('/');
-        // `.` and `..` in a local path say where to go, not what it is called.
+        // `.` and `..` in a local path give a direction. They do not give a name.
         let last = trimmed
             .rsplit(['/', ':', '\\'])
             .find(|segment| !segment.is_empty() && *segment != "." && *segment != "..")
@@ -120,11 +122,11 @@ impl Dependency {
         last.trim_end_matches(".git").to_string()
     }
 
-    /// True when the source is a directory on disk rather than a URL.
+    /// True when the source is a directory on disk and not a URL.
     ///
-    /// A URL has a scheme (`https://`, `ssh://`, `file://`) or is git's
-    /// `user@host:path` shorthand; anything else is a path. A drive letter
-    /// (`C:\lib`) is a path, not a host called `C`.
+    /// A URL has a scheme (`https://`, `ssh://`, `file://`). Or it uses the
+    /// git shorthand `user@host:path`. All other sources are paths. A drive
+    /// letter (`C:\lib`) is a path. It is not a host with the name `C`.
     pub fn is_local(&self) -> bool {
         let source = self.source.trim();
         if source.is_empty() || source.contains("://") {
@@ -136,9 +138,9 @@ impl Dependency {
         }
     }
 
-    /// Where a local source is, with a relative path read from `base` -- the
-    /// directory holding the `piton.config.pi` that declared it -- and `~/`
-    /// read from the home directory. None for a URL.
+    /// The location of a local source. A relative path starts at `base`.
+    /// `base` is the directory of the `piton.config.pi` that declared the
+    /// source. A `~/` path starts at the home directory. None for a URL.
     pub fn local_path(&self, base: &Path) -> Option<PathBuf> {
         if !self.is_local() {
             return None;
@@ -152,32 +154,32 @@ impl Dependency {
     }
 }
 
-/// A package this project publishes, declared by a `package` anchor.
+/// A package that this project publishes. A `package` anchor declares it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageDecl {
-    /// The name the package installs under, and the directory directly beneath
-    /// `tethers/` it lands in. Never contains `/` and never starts with `@`;
-    /// see [`validate_name`].
+    /// The install name of the package. It is also the name of the package
+    /// directory directly below `tethers/`. It never contains `/`. It never
+    /// starts with `@`. Refer to [`validate_name`].
     pub name: String,
-    /// The directory whose contents are published, absolute.
+    /// The absolute path of the directory that the package publishes.
     pub root: PathBuf,
     pub dependencies: Vec<Dependency>,
 }
 
-/// A package recorded in the lock file.
+/// A package that the lock file records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
     pub name: String,
     pub source: String,
     pub pin: Pin,
-    /// The commit the files were taken from, when it could be determined.
+    /// The source commit of the files, if the install found it.
     pub commit: Option<String>,
-    /// Digest of every installed file, keyed by its path relative to the
-    /// package directory, in sorted order.
+    /// The digest of each installed file, in sorted order. The key is the
+    /// path of the file relative to the package directory.
     pub files: BTreeMap<String, String>,
 }
 
-/// What a package on disk looks like next to what the lock file recorded.
+/// A comparison of a package on disk with the lock file record.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Drift {
     pub modified: Vec<String>,
@@ -190,7 +192,7 @@ impl Drift {
         self.modified.is_empty() && self.added.is_empty() && self.removed.is_empty()
     }
 
-    /// A short description of what changed, for a diagnostic.
+    /// A short description of the changes, for a diagnostic.
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
         for (label, list) in [
@@ -205,7 +207,7 @@ impl Drift {
         parts.join(", ")
     }
 
-    /// Every changed path, sorted, for a report that lists them.
+    /// All changed paths in sorted order, for a report that lists them.
     pub fn paths(&self) -> Vec<String> {
         let mut all: Vec<String> = self
             .modified
@@ -220,7 +222,7 @@ impl Drift {
 }
 
 impl Installed {
-    /// Compares the files on disk with the ones recorded at install time.
+    /// Compares the files on disk with the files that the install recorded.
     pub fn compare(&self, directory: &Path) -> Drift {
         let current = digest_tree(directory);
         let mut drift = Drift::default();
@@ -243,7 +245,7 @@ impl Installed {
     }
 }
 
-/// The recorded state of every installed package.
+/// The recorded state of all installed packages.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Lock {
     pub packages: Vec<Installed>,
@@ -254,7 +256,7 @@ impl Lock {
         self.packages.iter().find(|entry| entry.name == name)
     }
 
-    /// Records a package, replacing any earlier entry for the same name.
+    /// Records a package. This replaces an earlier entry with the same name.
     pub fn insert(&mut self, entry: Installed) {
         match self
             .packages
@@ -272,11 +274,11 @@ impl Lock {
         Some(self.packages.remove(index))
     }
 
-    /// Reads the lock file, treating an absent or unreadable one as empty.
+    /// Reads the lock file. An absent or unreadable lock file is empty.
     ///
-    /// A missing lock file is not an error: a package can be committed without
-    /// one, and the commands that need it say so themselves with a message
-    /// about the package they were asked about.
+    /// An absent lock file is not an error. A project can commit a package
+    /// without a lock file. Each command that needs the lock file gives its
+    /// own message about the requested package.
     pub fn load(project_root: &Path) -> Lock {
         let Ok(text) = std::fs::read_to_string(project_root.join(LOCK_FILE)) else {
             return Lock::default();
@@ -294,10 +296,9 @@ impl Lock {
 
     /// Serializes the lock file.
     ///
-    /// Written by hand rather than through a serializer because the shape is
-    /// small and fixed, and because the ordering has to be stable: a lock file
-    /// is committed, so a rewrite that only reorders keys is a diff nobody
-    /// asked for.
+    /// This code writes the JSON by hand and does not use a serializer. The
+    /// shape is small and fixed. Also, the order must be stable. A project
+    /// commits the lock file. Thus a new order of keys gives an unwanted diff.
     pub fn to_json(&self) -> String {
         if self.packages.is_empty() {
             return "{\n  \"version\": 1,\n  \"packages\": []\n}\n".to_string();
@@ -357,9 +358,9 @@ fn null() -> String {
 
 /// Parses the lock file.
 ///
-/// Deliberately forgiving: an entry it cannot make sense of is skipped rather
-/// than failing the whole file, because the alternative is a project that
-/// cannot run any package command until someone repairs a generated file by
+/// This parser is tolerant on purpose. It ignores an entry that it cannot
+/// read. It does not fail on the full file. If it failed, the project could
+/// not run a package command. Then a person must repair a generated file by
 /// hand.
 fn parse_lock(text: &str) -> Option<Lock> {
     let value = json::parse(text)?;
@@ -402,10 +403,11 @@ fn parse_lock(text: &str) -> Option<Lock> {
     Some(lock)
 }
 
-/// Digests every file beneath a directory, keyed by relative path.
+/// Makes a digest of each file below a directory. The key is the relative path.
 ///
-/// Every file, not only `.pi` ones: a package may carry a README or a query
-/// file, and an edit to one of those is still an edit to the package.
+/// This includes all files, not only `.pi` files. A package can contain a
+/// README or a query file. An edit to such a file is also an edit to the
+/// package.
 pub fn digest_tree(directory: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let mut stack = vec![directory.to_path_buf()];
@@ -430,12 +432,11 @@ pub fn digest_tree(directory: &Path) -> BTreeMap<String, String> {
     out
 }
 
-/// Why a package name cannot be used, or `None` when it can.
+/// The reason that a package name is not valid, or `None` if it is valid.
 ///
-/// A name is one directory directly beneath `tethers/`, so it cannot contain
-/// `/`. A leading `@` is reserved for the packages bundled with the compiler,
-/// such as `@piton/belay`, and a name made only of dots would climb out of
-/// `tethers/` altogether.
+/// A name is one directory directly below `tethers/`. Thus it cannot contain
+/// `/`. A first `@` is only for the packages that the compiler bundles, for
+/// example `@piton/belay`. A name of only dots goes out of `tethers/`.
 pub fn validate_name(name: &str) -> Option<String> {
     if name.is_empty() {
         return Some("a package name cannot be empty".to_string());
@@ -456,20 +457,21 @@ pub fn validate_name(name: &str) -> Option<String> {
     None
 }
 
-/// Where a package's files live: one directory directly beneath `tethers/`.
+/// The location of the package files. This is one directory directly below
+/// `tethers/`.
 pub fn package_directory(project_root: &Path, name: &str) -> PathBuf {
     project_root.join(TETHERS).join(name)
 }
 
-/// Every installed package, discovered from the tethers directory.
+/// All installed packages, as found in the tethers directory.
 ///
-/// The lock file is not consulted. Every directory directly beneath `tethers/`
-/// is a package, whether or not it has an `index.pi`: one without an index is
-/// still a location its files are imported through, as in
-/// `from my-package/Foo import X`. That holds whether it was installed by
-/// `piton tether` or committed by hand, and resolution answering the same
-/// question the filesystem does is what keeps a checked-out project working
-/// before any command has been run in it.
+/// This function does not read the lock file. Each directory directly below
+/// `tethers/` is a package. This is true if it has an `index.pi` or not. A
+/// package without an index is still a location for imports of its files.
+/// An example is `from my-package/Foo import X`. This is true for a package
+/// from `piton tether` and for a package that a person committed by hand.
+/// Resolution gives the same answer as the filesystem. Thus a project from a
+/// checkout works before a user runs a command in it.
 pub fn installed_names(project_root: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(project_root.join(TETHERS)) else {
         return Vec::new();
@@ -484,12 +486,11 @@ pub fn installed_names(project_root: &Path) -> Vec<String> {
     found
 }
 
-/// Resolves a written module path whose first segment names an installed
+/// Resolves a written module path when its first segment names an installed
 /// package.
 ///
-/// Returns the path with the package name replaced by the directory it is
-/// installed in, leaving the rest of the path to resolve as any other path
-/// does.
+/// Returns the path with the install directory in place of the package name.
+/// The rest of the path resolves as all other paths do.
 pub fn resolve_prefix(project_root: &Path, text: &str) -> Option<PathBuf> {
     let (first, rest) = match text.split_once('/') {
         Some((first, rest)) => (first, Some(rest)),
@@ -509,11 +510,11 @@ pub fn resolve_prefix(project_root: &Path, text: &str) -> Option<PathBuf> {
 }
 
 
-/// True when a written module path could name a package rather than a location.
+/// True when a written module path can name a package and not a location.
 ///
-/// Relative and root-absolute paths are locations, and an `@` path is a bundled
-/// package. Everything else is a bare name, which is the form a package is
-/// imported by.
+/// Relative and root-absolute paths are locations. An `@` path is a bundled
+/// package. All other paths are bare names. An import of a package uses a
+/// bare name.
 pub fn is_bare_path(text: &str) -> bool {
     !text.is_empty()
         && !text.starts_with('.')
@@ -521,13 +522,13 @@ pub fn is_bare_path(text: &str) -> bool {
         && !text.starts_with('@')
 }
 
-/// A version pin exactly as it was written in the source, before evaluation.
+/// A version pin as the source wrote it, before evaluation.
 ///
-/// `@piton/config` types commit, tag, and branch as strings, so `tag: 1.0`
-/// pins the tag `1.0`. Evaluation reads an unquoted `1.0` as the number 1, and
-/// the number has lost the spelling, so the written text is collected from the
-/// syntax tree and consulted whenever a pin evaluated to something other than
-/// a string.
+/// `@piton/config` gives commit, tag, and branch the type string. Thus
+/// `tag: 1.0` pins the tag `1.0`. Evaluation reads an unquoted `1.0` as the
+/// number 1. The number does not keep the spelling. Thus this code collects
+/// the written text from the syntax tree. It uses that text when a pin
+/// evaluates to a value that is not a string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinLiteral {
     pub key: String,
@@ -537,7 +538,7 @@ pub struct PinLiteral {
 /// The version specifiers a dependency accepts.
 pub const PIN_KEYS: [&str; 3] = ["commit", "tag", "branch"];
 
-/// Collects the written text of every pin inside a `dependencies` value.
+/// Collects the written text of each pin in a `dependencies` value.
 pub fn pin_literals(value: &piton_syntax::ast::ValueNode, source: &str) -> Vec<PinLiteral> {
     use piton_syntax::ast::BlockItem;
 
@@ -590,16 +591,17 @@ fn unquote(text: &str) -> &str {
         .unwrap_or(text)
 }
 
-/// Reads the `dependencies` list of a configuration or package anchor.
+/// Reads the `dependencies` list of a configuration or a package anchor.
 ///
-/// A dependency is a URL, optionally followed by a dictionary holding one of
-/// `commit`, `tag`, or `branch`. The list compiles flat: a pin block indented
-/// beneath a URL arrives as the dictionary item that follows it, so a
-/// dictionary attaches to the dependency before it, and one with nothing
-/// before it is a pin for a dependency that was never named.
+/// A dependency is a URL. A dictionary can follow the URL. The dictionary
+/// holds one of `commit`, `tag`, or `branch`. The list compiles flat. A pin
+/// block with an indent below a URL becomes the next dictionary item. Thus a
+/// dictionary attaches to the dependency before it. A dictionary with no
+/// dependency before it is a pin for a dependency without a name.
 ///
-/// More than one specifier for one URL is an error: they can only disagree,
-/// and choosing between them quietly would install a version nobody chose.
+/// More than one specifier for one URL is an error. The specifiers can only
+/// disagree. A silent choice between them installs a version that nobody
+/// chose.
 pub fn read_dependencies(
     value: &Value,
     literals: &[PinLiteral],
@@ -608,7 +610,7 @@ pub fn read_dependencies(
     diagnostics: &mut DiagnosticSink,
 ) -> Vec<Dependency> {
     let mut out: Vec<Dependency> = Vec::new();
-    // How many specifiers the current dependency has been given.
+    // The number of specifiers that the current dependency has.
     let mut pins_for_last = 0usize;
     let mut used: Vec<bool> = vec![false; literals.len()];
     for item in value.as_list_items() {
@@ -640,7 +642,7 @@ pub fn read_dependencies(
                 };
                 for (key, pinned) in map {
                     if key == "packages" {
-                        // Which of the repository's packages to take.
+                        // The packages to take from the repository.
                         let names: Vec<String> = pinned
                             .as_list_items()
                             .iter()
@@ -701,7 +703,8 @@ pub fn read_dependencies(
     out
 }
 
-/// The text of one pin: a string as it evaluated, anything else as written.
+/// The text of one pin. A string is the evaluated value. All other values
+/// are the written text.
 fn pin_text(
     key: &str,
     value: &Value,
@@ -710,8 +713,8 @@ fn pin_text(
 ) -> Option<String> {
     if let Value::Str(text) = value {
         if let Some(text) = text.as_plain() {
-            // Quotes carry no meaning in a value, and no git ref contains one,
-            // so `tag: "v1"` is read as the tag it was clearly meant to be.
+            // Quotes have no meaning in a value. No git ref contains a quote.
+            // Thus `tag: "v1"` reads as the tag `v1`, as the user intended.
             let text = unquote(text.trim());
             mark_literal(key, text, literals, used);
             return Some(text.to_string());
@@ -723,7 +726,7 @@ fn pin_text(
         Value::Null => return None,
         _ => return None,
     };
-    // The first unused literal for this key that reads as the same value.
+    // The first unused literal for this key with the same value.
     for (index, literal) in literals.iter().enumerate() {
         if used[index] || literal.key != key {
             continue;
@@ -752,9 +755,10 @@ fn mark_literal(key: &str, text: &str, literals: &[PinLiteral], used: &mut [bool
 
 /// A JSON reader for the lock file.
 ///
-/// The compiler writes JSON through `piton-emit` and has never needed to read
-/// it. One generated file with a fixed shape is not enough to justify a parser
-/// dependency across the workspace, so this reads exactly that shape.
+/// The compiler writes JSON through `piton-emit`. Before this, it did not
+/// read JSON. One generated file with a fixed shape is not a good reason to
+/// add a parser dependency to the workspace. Thus this reader reads only
+/// that shape.
 mod json {
     use std::collections::BTreeMap;
 
@@ -942,7 +946,7 @@ mod tests {
         let text = lock.to_json();
         let parsed = parse_lock(&text).expect("parses");
         assert_eq!(parsed, lock);
-        // Sorted, so committing a lock file twice produces no diff.
+        // The lock keeps its packages in name order. Thus two commits of a lock file give no diff.
         assert_eq!(
             parsed.packages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
             vec!["alpha", "beta"]
@@ -1006,7 +1010,7 @@ mod tests {
         std::fs::write(root.join("tethers/stray.pi"), "a: 1\n").expect("write");
 
         assert_eq!(installed_names(&root), vec!["no-index", "with-index"]);
-        // Nested directories are the package's contents, not further packages.
+        // Nested directories are contents of the package. They are not packages.
         assert_eq!(
             resolve_prefix(&root, "no-index/Foo"),
             Some(root.join("tethers/no-index/Foo"))

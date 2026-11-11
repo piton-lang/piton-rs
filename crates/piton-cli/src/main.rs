@@ -16,12 +16,12 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
-/// Exit codes the commands agree on: success is 0, reported errors are 1.
+/// The exit codes of all commands. Success is 0. Reported errors are 1.
 pub const EXIT_SUCCESS: u8 = 0;
 pub const EXIT_ERRORS: u8 = 1;
 
-/// The version `piton --version` reports: the one the edge workflow
-/// publishes this commit as, like `0.1.562`. `build.rs` works it out.
+/// The version that `piton --version` shows, for example `0.1.562`. The edge
+/// workflow publishes this commit with this version. `build.rs` calculates it.
 pub const VERSION: &str = env!("PITON_BUILD_VERSION");
 
 #[derive(Parser)]
@@ -35,7 +35,7 @@ Markdown, and compiles Belay projects into the artifacts agentic coding tools re
 #[command(args_conflicts_with_subcommands = true, arg_required_else_help = true)]
 struct Cli {
     /// Replace this piton with the latest release, and show the old and new
-    /// versions. Not `piton update`, which updates packages
+    /// versions. This is not `piton update`. That command updates packages
     #[arg(long)]
     update: bool,
 
@@ -45,112 +45,85 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Build the project as configured by piton.config.pi
+    /// Build the project with the configuration in piton.config.pi
     Build {
         /// Path to a piton.config.pi file
         config: Option<PathBuf>,
-        /// Report what would be written without writing it
+        /// Report the files that the build would write. Do not write them
         #[arg(long)]
         dry_run: bool,
     },
 
     /// Check specific files or the project and report errors
     Check {
-        /// Optional file, directory, or glob. Defaults to the project, or to
-        /// every .pi file under the working directory when there is no
-        /// piton.config.pi
+        /// Optional file, directory, or glob. The default is the project.
+        /// When there is no piton.config.pi, the default is all .pi files
+        /// below the working directory
         paths: Vec<PathBuf>,
     },
 
     /// Compile Piton
     ///
-    /// Pointing at a single file writes the compiled result to stdout.
-    /// Glob-based paths need --write, because several results cannot share
-    /// one stream.
+    /// For a single file, the compiled result goes to stdout. A glob path
+    /// needs --write. Many results cannot use the same stream.
     Compile {
         /// File or glob
         path: String,
         /// Renderer: json, yaml, or markdown
         #[arg(long, default_value = "json")]
         renderer: String,
-        /// Write each result next to its input with the renderer's extension
+        /// Write each result next to its input, with the extension of the
+        /// renderer
         #[arg(long)]
         write: bool,
-        /// Wrap the result with the source files it was compiled from, for a
-        /// build tool that has to watch them
+        /// Put the result together with its source files. A build tool can
+        /// then watch these files
         #[arg(long)]
         dependencies: bool,
     },
 
     /// Apply canonical formatting
     Format {
-        /// File or glob; defaults to the project. `-` reads the source from
+        /// File or glob. The default is the project. `-` reads the source from
         /// stdin and writes the formatted text to stdout
         path: Option<String>,
-        /// Only check the files and report problems; do not write
+        /// Only check the files and report problems. Do not write
         #[arg(long)]
         check: bool,
     },
 
-    /// Start a new project from one of the built-in templates
-    ///
-    /// Without a directory, asks for the project's name and creates it in a
-    /// directory of that name. Without --template, asks which one to use, and
-    /// for a Belay template which adapters to build for. Nothing is overwritten: if any file the
-    /// template writes already exists, nothing is written. A template that
-    /// declares dependencies, like crux/project, has them tethered.
-    Init {
-        /// Directory to create the project in; asked for as the project's
-        /// name, or the current one when there is no terminal to ask on
-        directory: Option<PathBuf>,
-        /// Template to start from; `--list` names them
-        #[arg(long, short)]
-        template: Option<String>,
-        /// Belay adapter to build for, like `codex`; repeat it or separate
-        /// with commas for several
-        #[arg(long, short, value_delimiter = ',')]
-        adapter: Vec<String>,
-        /// List the templates and what each one sets up
-        #[arg(long, conflicts_with_all = ["directory", "template", "adapter", "no_tether"])]
-        list: bool,
-        /// Write the files only, leaving a template's dependencies for
-        /// `piton tether`
-        #[arg(long)]
-        no_tether: bool,
-    },
-
     /// Count lines of Piton source for specific files or the project
     Loc {
-        /// Optional file, directory, or glob; defaults to the project
+        /// Optional file, directory, or glob. The default is the project
         paths: Vec<PathBuf>,
     },
 
     /// Run the Piton language server
     Lsp {
-        /// Talk over stdin and stdout. That is the only transport, so this
-        /// changes nothing; it is accepted because many editors' language
-        /// clients pass it.
+        /// Use stdin and stdout. This is the only transport. Thus this flag
+        /// changes nothing. Many language clients of editors send it. Thus
+        /// the server accepts it.
         #[arg(long, hide = true)]
         stdio: bool,
     },
 
     /// Analyze which parts of the specbase are reachable
     ///
-    /// Reports what is reachable, what is unreachable, the depth of each
-    /// reachable anchor, and the path taken to it.
+    /// Reports the reachable parts, the unreachable parts, the depth of each
+    /// reachable anchor, and the path to it.
     Reach {
-        /// Optional file, glob, or anchor to start from; defaults to the
-        /// project's entry
+        /// Optional file, glob, or anchor at the start. The default is the
+        /// entry of the project
         targets: Vec<String>,
-        /// Don't list what nothing reaches
+        /// Do not list the unreachable parts
         #[arg(long = "no-unreachable")]
         no_unreachable: bool,
-        /// Don't show the path taken to each reachable anchor
+        /// Do not show the path to each reachable anchor
         #[arg(long = "no-paths")]
         no_paths: bool,
     },
 
-    /// List the project's plugins, the commands they add, and what each may do
+    /// List the plugins of the project, their commands, and their permissions
     Plugins,
 
     /// Remove a package from the project
@@ -159,67 +132,69 @@ enum Command {
         package: String,
     },
 
-    /// Print the part of the specification one anchor or property depends on
+    /// Print the part of the specification that one anchor or property needs
     ///
-    /// Follows what the target extends, reads, refers to, and embeds, and
-    /// what its types name, transitively, and prints it as one Markdown
-    /// document: the context an agent needs to implement that one thing.
+    /// Follows the anchors that the target extends, reads, refers to, and
+    /// embeds. Also follows the names in its types. It follows them
+    /// transitively. It prints the result as one Markdown document. This
+    /// document is the context that an agent needs to implement the target.
     Slice {
         /// `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name to
-        /// look up across the project
+        /// find in the project
         target: String,
     },
 
     /// Clone and "un-git" repositories into the tethers directory
     ///
-    /// On its own, installs everything in piton.config.pi's dependencies.
-    /// Given a source, adds it to piton.config.pi and installs it.
+    /// Without a source, installs all the dependencies in piton.config.pi.
+    /// With a source, adds it to piton.config.pi and installs it.
     Tether {
         /// Optional URL (or path) of the git repository
         source: Option<String>,
-        /// Install it under this name instead of the one it publishes
+        /// Install it with this name, not the name that it publishes
         #[arg(long = "as")]
         rename: Option<String>,
     },
 
-    /// Move an installed package into the source root, rewriting its imports
+    /// Move an installed package into the source root, and change its imports
     Untether {
         /// The name of the package to untether
         package: String,
         /// The name to give the untethered package
         #[arg(long = "as")]
         rename: Option<String>,
-        /// Don't rewrite any imports; simply move the package
+        /// Do not change imports. Only move the package
         #[arg(long = "no-rewrite")]
         no_rewrite: bool,
     },
 
     /// Update packages from the dependencies in piton.config.pi
     Update {
-        /// Packages to update; all of them when none are named
+        /// Packages to update. When there are no names, update all packages
         packages: Vec<String>,
-        /// Replace packages that were edited since they were installed,
-        /// discarding the edits
+        /// Replace packages with edits after their installation. This discards
+        /// the edits
         #[arg(long)]
         force: bool,
-        /// Show a diff of every file each update changes
+        /// Show a diff of each file that an update changes
         #[arg(long)]
         diff: bool,
     },
 }
 
 fn main() -> ExitCode {
-    // Plugins add commands from their declarations, so the CLI is built from
-    // the built-in commands and every plugin the project has, before parsing.
+    // Plugins add commands from their declarations. Thus, before it parses,
+    // the CLI gets the built-in commands and the commands of all plugins of
+    // the project.
     let (project, config_diagnostics, mut manifests, mut problems) = plugins::load();
     let mut command = Cli::command();
     plugins::withhold_builtins(&command, &mut manifests, &mut problems);
     command = plugins::add_commands(command, &manifests);
     let matches = command.get_matches();
 
-    // Plugins that inspect projects look before the command runs, and offer
-    // to update one written for an older Piton. Not before the language
-    // server, whose stdout is the editor's protocol.
+    // Plugins that inspect projects examine the project before the command
+    // runs. They offer to update a project for an older Piton. They do not
+    // run before the language server. Its stdout is the protocol of the editor.
     if matches.subcommand_name() != Some("lsp") && !matches.get_flag("update") {
         let running = plugins::matched(&manifests, &matches).map(|(manifest, _, _)| manifest.name.clone());
         if let Some(code) = inspection::offer(&project, &manifests, running.as_deref()) {
@@ -235,7 +210,7 @@ fn main() -> ExitCode {
     }
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     let Some(command) = cli.command else {
-        // `arg_required_else_help` means the only way here is `--update`.
+        // Because of `arg_required_else_help`, only `--update` comes here.
         let code = commands::self_update::run();
         report::flush();
         return ExitCode::from(code);
@@ -250,19 +225,6 @@ fn main() -> ExitCode {
             dependencies,
         } => commands::compile::run(&path, &renderer, write, dependencies),
         Command::Format { path, check } => commands::format::run(path.as_deref(), check),
-        Command::Init {
-            directory,
-            template,
-            adapter,
-            list,
-            no_tether,
-        } => commands::init::run(
-            directory.as_deref(),
-            template.as_deref(),
-            &adapter,
-            list,
-            no_tether,
-        ),
         Command::Loc { paths } => commands::loc::run(&paths),
         Command::Lsp { .. } => commands::lsp::run(),
         Command::Reach {
@@ -287,7 +249,7 @@ fn main() -> ExitCode {
             diff,
         } => commands::update::run(&packages, force, diff),
     };
-    // Problems are printed last, whatever the command printed before them.
+    // Problems always print last, after all other output of the command.
     report::flush();
     ExitCode::from(code)
 }

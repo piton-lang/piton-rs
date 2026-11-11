@@ -1,23 +1,23 @@
-//! Locating sources and projects for the commands.
+//! Finds the sources and the projects for the commands.
 
 use std::path::{Path, PathBuf};
 
 use globset::Glob;
 use piton_compile::{config, Compilation, Project};
 
-/// Loads the project rooted at the current working directory.
+/// Loads the project at the current working directory.
 pub fn current() -> (Project, piton_core::DiagnosticSink) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     config::load(&cwd, None)
 }
 
-/// Loads the project the working directory is inside: the nearest
-/// `piton.config.pi` in it or any directory above it, or the working
-/// directory on its own when there is none.
+/// Loads the project that contains the working directory. The project is at
+/// the nearest `piton.config.pi` in the working directory or in a directory
+/// above it. When there is no such file, the project is the working directory.
 ///
-/// `piton slice` is run from wherever someone is working, and what it prints
-/// is written for that place, so it looks upward where other commands only
-/// read the configuration in the working directory.
+/// A user runs `piton slice` from the directory where they work. Its output
+/// is for that directory. Thus it looks upward. Other commands read only the
+/// configuration in the working directory.
 pub fn enclosing() -> (Project, piton_core::DiagnosticSink) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let found = cwd
@@ -39,8 +39,8 @@ pub fn compile_project(project: Project) -> Compilation {
 
 /// Expands paths and globs into `.pi` files.
 ///
-/// A directory expands to every `.pi` file beneath it; a glob expands to its
-/// matches; a file is taken as-is.
+/// A directory expands to all `.pi` files below it. A glob expands to its
+/// matches. A file stays as it is.
 pub fn collect_sources(inputs: &[PathBuf], fallback_root: &Path) -> Result<Vec<PathBuf>, String> {
     if inputs.is_empty() {
         return Ok(walk(fallback_root));
@@ -96,21 +96,21 @@ pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
-/// Every `.pi` file beneath `root`, skipping build and VCS directories.
+/// All `.pi` files below `root`. It does not go into build and VCS directories.
 ///
-/// The same walk the compiler uses to find sources an editor has to know about,
-/// so a file the CLI counts and a file the language server opens are the same
-/// set.
+/// The compiler uses the same walk to find the sources that an editor must
+/// know. Thus the CLI counts the same set of files that the language server
+/// opens.
 pub fn walk(root: &Path) -> Vec<PathBuf> {
     piton_compile::module::sources(root)
 }
 
-/// Resolves a path the user typed to the form the module graph stores.
+/// Changes a path from the user to the form that the module graph keeps.
 ///
-/// A project is loaded from absolute paths, so a module is keyed by one. A
-/// relative path typed on the command line has to be resolved against the
-/// working directory before it will match anything, which is what makes
-/// `piton reach spec/Thing.pi` find the same module as the absolute form.
+/// The loader uses absolute paths for a project. Thus the key of a module is
+/// an absolute path. A relative path from the command line must join the
+/// working directory before it can match a key. Thus `piton reach
+/// spec/Thing.pi` finds the same module as the absolute form.
 pub fn canonical_target(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -119,12 +119,13 @@ pub fn canonical_target(path: &Path) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(path)
     };
-    // `canonicalize` also resolves symlinks, which would stop the result
-    // matching a graph keyed by the path as written; normalizing does not.
+    // `canonicalize` also resolves symlinks. Then the result would not match
+    // a graph with the written paths as keys. Normalization keeps symlinks.
     piton_compile::module::normalize(&absolute)
 }
 
-/// Shortens a path for display relative to the project root.
+/// Makes a path shorter for display. The path becomes relative to the project
+/// root.
 pub fn display(path: &Path, root: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)

@@ -1,51 +1,54 @@
-//! Writing what a build produces.
+//! This module writes the output of a build.
 //!
-//! Nothing that takes part in a build writes files itself. The renderer and
-//! every plugin with a build return what they would write, and this module
-//! checks all of it together, writes it, records what it wrote, and removes
-//! what an earlier build wrote and this one doesn't. So every producer gets
-//! the same guarantees: paths stay inside the project and inside what each
-//! producer may write, two producers never fight over a file, a file the
-//! build didn't write is never overwritten or deleted, and a build that stops
-//! never leaves half a file behind.
+//! No part of a build writes files itself. The renderer and each plugin with
+//! a build return the files that they want to write. This module checks all
+//! of these files together and writes them. It records the files that it
+//! wrote. It removes the files that an earlier build wrote and this build did
+//! not write. Thus each producer gets the same guarantees:
+//! - Paths stay in the project and in the area that each producer can write.
+//! - Two producers never write the same file.
+//! - The build never overwrites or deletes a file that it did not write.
+//! - A build that stops never leaves half a file.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 use globset::GlobSet;
 
-/// Where the build records the files it owns, relative to the project root.
+/// The file where the build records the files that it owns. It is relative
+/// to the project root.
 pub const MANIFEST: &str = ".piton/manifest.json";
 
-/// One file a build writes.
+/// One file that a build writes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutputFile {
     /// Relative to the project root, with forward slashes.
     pub path: String,
     pub data: Vec<u8>,
-    /// Whether to set the execute permission, for a copied script.
+    /// Tells if the execute permission is necessary. A copied script uses it.
     pub executable: bool,
-    /// What it was made from, for diagnostics: an anchor or a source file.
+    /// The source of the file, for diagnostics. It is an anchor or a source
+    /// file.
     pub origin: String,
-    /// Who produced it: `renderer`, or a plugin's name.
+    /// The producer of the file. It is `renderer` or the name of a plugin.
     pub owner: String,
-    /// A short description for `--dry-run`, like `skill, claude-code`.
+    /// A short description for `--dry-run`, for example `skill, claude-code`.
     pub label: String,
-    /// A name the editor's preview selects outputs by, like a Belay target
-    /// id; None when the producer gives none.
+    /// The preview of the editor uses this name to select outputs. An example
+    /// is a Belay target id. It is None when the producer gives no name.
     pub group: Option<String>,
 }
 
-/// Everything one build writes.
+/// All the files that one build writes.
 #[derive(Debug, Clone, Default)]
 pub struct BuildPlan {
     pub files: Vec<OutputFile>,
-    /// Labels recorded in the manifest, like each target's documentation
-    /// date, in the order producers gave them.
+    /// The labels that the manifest records, for example the documentation
+    /// date of each target. They are in the order that the producers gave.
     pub targets: Vec<(String, String)>,
 }
 
-/// A path as the manifest and the checks spell it.
+/// A path in the form that the manifest and the checks use.
 pub fn slash(path: &Path) -> String {
     path.components()
         .filter_map(|component| match component {
@@ -56,8 +59,8 @@ pub fn slash(path: &Path) -> String {
         .join("/")
 }
 
-/// Whether a path a producer gave stays inside the project: relative, with no
-/// `..`, and not empty.
+/// Tells if a path from a producer stays in the project. The path must be
+/// relative, must have no `..`, and must not be empty.
 pub fn is_safe(path: &str) -> bool {
     let candidate = Path::new(path);
     !path.is_empty()
@@ -67,11 +70,11 @@ pub fn is_safe(path: &str) -> bool {
             .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
 }
 
-/// Finds what is wrong with a plan before anything is written. `outputs`
-/// gives each producer's allowed paths; a producer it gives none for may
-/// write anywhere in the project, which is only the renderer and the
-/// compiler's own producers. `previous` is what the last build's manifest
-/// recorded.
+/// Finds the problems in a plan before this module writes a file. `outputs`
+/// gives the permitted paths of each producer. A producer with no entry can
+/// write to all of the project. Only the renderer and the producers of the
+/// compiler have no entry. `previous` holds the records of the manifest from
+/// the last build.
 pub fn check(
     plan: &BuildPlan,
     root: &Path,
@@ -137,8 +140,8 @@ fn producer(owner: &str) -> String {
     }
 }
 
-/// The files to write, with a path planned twice with the same contents kept
-/// once.
+/// The files to write. When the plan has a path two times with the same
+/// contents, this function keeps one of them.
 fn unique(plan: &BuildPlan) -> Vec<&OutputFile> {
     let mut seen = BTreeSet::new();
     plan.files
@@ -147,7 +150,8 @@ fn unique(plan: &BuildPlan) -> Vec<&OutputFile> {
         .collect()
 }
 
-/// Every path the plan writes, sorted and once each.
+/// All the paths that the plan writes. The list is in sorted order, and each
+/// path occurs one time.
 pub fn paths(plan: &BuildPlan) -> Vec<String> {
     plan.files
         .iter()
@@ -157,10 +161,11 @@ pub fn paths(plan: &BuildPlan) -> Vec<String> {
         .collect()
 }
 
-/// Writes a checked plan, returning the paths written. A file whose contents
-/// haven't changed is left alone, so its timestamp stays meaningful. Each
-/// file is written through a staging file beside it, then renamed into
-/// place, so a build that stops never leaves a half-written file.
+/// Writes a checked plan and returns the written paths. This function does
+/// not touch a file with the same contents. Thus its timestamp keeps its
+/// meaning. This function writes each file to a staging file next to it.
+/// Then it renames the staging file to the final path. Thus a build that
+/// stops never leaves half a file.
 pub fn write(plan: &BuildPlan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut written = Vec::new();
     for file in unique(plan) {
@@ -193,7 +198,7 @@ pub fn write(plan: &BuildPlan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(written)
 }
 
-/// Sets the execute bits a copied script had.
+/// Sets the execute bits that a copied script had.
 #[cfg(unix)]
 fn make_executable(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -211,9 +216,10 @@ fn make_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Removes what the previous build wrote and this one doesn't, and the
-/// directories that leaves empty. Only paths the manifest records are
-/// considered, so nothing the build didn't write is ever deleted.
+/// Removes the files that the previous build wrote and this build does not
+/// write. It also removes the directories that become empty. It examines
+/// only the paths that the manifest records. Thus it never deletes a file
+/// that the build did not write.
 pub fn clean_stale(previous: &BTreeSet<String>, plan: &BuildPlan, root: &Path) -> Vec<PathBuf> {
     let current: BTreeSet<String> = paths(plan).into_iter().collect();
     let mut removed = Vec::new();
@@ -243,8 +249,8 @@ fn prune_empty_parents(root: &Path, relative: &Path) {
     }
 }
 
-/// The manifest for a plan: `{"generated": [paths], "targets": {id: label}}`,
-/// paths in order.
+/// The manifest for a plan, `{"generated": [paths], "targets": {id: label}}`.
+/// The paths are in order.
 pub fn manifest(plan: &BuildPlan) -> String {
     let quote = |text: &str| serde_json::Value::String(text.to_string()).to_string();
     let paths = paths(plan);
@@ -276,7 +282,7 @@ pub fn manifest(plan: &BuildPlan) -> String {
     out
 }
 
-/// The paths a manifest document records.
+/// The paths that a manifest document records.
 pub fn manifest_paths(document: &str) -> BTreeSet<String> {
     serde_json::from_str::<serde_json::Value>(document)
         .ok()
@@ -291,7 +297,7 @@ pub fn manifest_paths(document: &str) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-/// What the last build recorded, or nothing when there is no manifest.
+/// The records of the last build. It is empty when there is no manifest.
 pub fn previous(root: &Path) -> BTreeSet<String> {
     std::fs::read_to_string(root.join(MANIFEST))
         .map(|text| manifest_paths(&text))
@@ -381,8 +387,8 @@ mod tests {
         write(&second, &root).unwrap();
         let mut removed = clean_stale(&previous, &second, &root);
         removed.sort();
-        // The manifest says the build owns keep/mine.md, so it goes; a path
-        // that would leave the project is never touched.
+        // The manifest says that the build owns keep/mine.md. Thus the build
+        // removes it. The build never touches a path outside the project.
         assert_eq!(removed, [PathBuf::from("keep/mine.md"), PathBuf::from("out/deep/b.md")]);
         assert!(!root.join("out/deep").exists(), "empty directories are pruned");
         assert_eq!(std::fs::read_to_string(root.join("out/a.md")).unwrap(), "A2");

@@ -1,15 +1,15 @@
-//! What a whole value means when it is not prose.
+//! The meaning of a whole value when the value is not prose.
 //!
-//! An unconstrained value is inferred from how it looks: `42` is a number,
-//! `true` a boolean, `null` nothing, and anything else a string. The evaluator
-//! decides that, and the parser marks the same values in the syntax tree, so
-//! the two share the rule here rather than each keeping a copy.
+//! The type of a value without a constraint comes from the text of the value.
+//! `42` is a number. `true` is a boolean. `null` is no value. All other text is
+//! a string. The evaluator uses this rule. The parser marks the same values in
+//! the syntax tree. Thus the two share the rule here, and neither keeps a copy.
 
 use crate::kind::SyntaxKind;
 
-/// Parses a Piton number literal: an optional minus, digits with `_` allowed
-/// between them, and at most one `.` with a digit on each side. `.5`, `5.`,
-/// `1e3` and `1__0` are not numbers.
+/// Parses a Piton number literal. A number literal has an optional minus and
+/// digits. A `_` can occur between two digits. A maximum of one `.` can occur,
+/// with a digit on each side of it. `.5`, `5.`, `1e3` and `1__0` are not numbers.
 pub fn parse_number_literal(text: &str) -> Option<f64> {
     let text = text.trim();
     let digits = text.strip_prefix('-').unwrap_or(text);
@@ -34,7 +34,7 @@ pub fn parse_number_literal(text: &str) -> Option<f64> {
     cleaned.parse::<f64>().ok()
 }
 
-/// The token a value written as exactly `text` is, when it is not prose.
+/// The token kind of a value with exactly the text `text`, when the value is not prose.
 pub fn whole_value_kind(text: &str) -> Option<SyntaxKind> {
     match text {
         "true" => Some(SyntaxKind::KW_TRUE),

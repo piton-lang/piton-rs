@@ -1,14 +1,14 @@
-//! SHA-256, for recording what an installed package contained.
+//! SHA-256. It records the contents of an installed package.
 //!
-//! The package lock file stores a digest of every installed file so an update
-//! can tell an untouched package from an edited one. That is the only thing
-//! hashed anywhere in the compiler, and the workspace keeps a short, deliberate
-//! dependency list, so the algorithm is written here rather than pulled in.
+//! The package lock file stores a digest of each installed file. Thus an update
+//! can tell an unchanged package from an edited package. The compiler makes no
+//! other hash. The workspace keeps a short and deliberate list of dependencies.
+//! Thus the algorithm is in this file and not in a dependency.
 //!
-//! FIPS 180-4, the standard form: one 64-byte block at a time, sixty-four
-//! rounds each, over eight working words.
+//! This is the standard form of FIPS 180-4. It operates on one 64-byte block
+//! at a time. Each block gets sixty-four rounds over eight working words.
 
-/// The first thirty-two bits of the fractional parts of the cube roots of the
+/// The first thirty-two bits of the fraction parts of the cube roots of the
 /// first sixty-four primes.
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -21,13 +21,13 @@ const K: [u32; 64] = [
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ];
 
-/// The first thirty-two bits of the fractional parts of the square roots of the
+/// The first thirty-two bits of the fraction parts of the square roots of the
 /// first eight primes.
 const H0: [u32; 8] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
-/// The SHA-256 digest of `bytes`, as lowercase hexadecimal.
+/// The SHA-256 digest of `bytes`, in lowercase hexadecimal.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(64);
     for word in sha256(bytes) {
@@ -39,8 +39,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 fn sha256(bytes: &[u8]) -> [u32; 8] {
     let mut state = H0;
 
-    // The message, padded: a one bit, zeroes to 56 bytes mod 64, then the
-    // length in bits as a big-endian u64.
+    // The message with padding. First comes a one bit. Then zeroes come until
+    // 56 bytes mod 64. Then the length in bits comes as a big-endian u64.
     let mut padded = bytes.to_vec();
     padded.push(0x80);
     while padded.len() % 64 != 56 {
@@ -100,9 +100,9 @@ fn sha256(bytes: &[u8]) -> [u32; 8] {
 mod tests {
     use super::*;
 
-    /// The published vectors from FIPS 180-4 and the NIST examples, including
-    /// the lengths that exercise each padding case: none, under a block, and
-    /// across a block boundary.
+    /// The published vectors from FIPS 180-4 and the NIST examples. They
+    /// include a length for each padding case. The cases are no padding,
+    /// padding in one block, and padding across a block boundary.
     #[test]
     fn known_vectors() {
         assert_eq!(

@@ -1,7 +1,7 @@
-//! Module loading and path resolution.
+//! Loads modules and resolves paths.
 //!
 //! A module is a `.pi` file. A directory becomes a module when it contains an
-//! `index.pi`, so an import may point at a directory rather than a file.
+//! `index.pi`. Thus an import can name a directory and not a file.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -20,8 +20,8 @@ pub struct ModuleId(pub u32);
 /// A loaded and parsed source file.
 pub struct Module {
     pub id: ModuleId,
-    /// The canonical path used as the module's identity. Bundled packages use
-    /// their package path, e.g. `@piton/belay`.
+    /// The canonical path that identifies the module. Bundled packages use
+    /// their package path, for example `@piton/belay`.
     pub path: PathBuf,
     pub source: String,
     pub parse: Parse,
@@ -32,11 +32,11 @@ impl Module {
         &self.parse.file
     }
 
-    /// The directory imports inside this module resolve relative to.
+    /// The directory that is the base for relative imports in this module.
     pub fn directory(&self) -> PathBuf {
-        // A package root stands in for that package's index file, so a relative
-        // import written in it resolves from inside the package rather than
-        // from beside it.
+        // A package root takes the place of the index file of that package.
+        // Thus a relative import in it resolves from the package directory.
+        // It does not resolve from the parent directory.
         let name = self.path.to_string_lossy();
         if prelude::PACKAGE_ROOTS.iter().any(|root| *root == name) {
             return self.path.clone();
@@ -47,26 +47,26 @@ impl Module {
             .unwrap_or_else(|| PathBuf::from("."))
     }
 
-    /// True when the module comes from a bundled package rather than the
-    /// project's own sources.
+    /// True when the module comes from a bundled package and not from the
+    /// sources of the project.
     pub fn is_package(&self) -> bool {
         prelude::is_package_path(&self.path.to_string_lossy())
     }
 }
 
-/// Every module loaded for a compilation.
+/// All modules that a compilation loaded.
 #[derive(Default)]
 pub struct ModuleGraph {
     modules: Vec<Module>,
     by_path: HashMap<PathBuf, ModuleId>,
-    /// Text supplied in place of what is on disk. The language server uses this
-    /// so analysis reflects unsaved buffers.
+    /// Text that replaces the text on disk. The language server uses this.
+    /// Thus the analysis shows the unsaved buffers.
     overrides: HashMap<PathBuf, String>,
 }
 
 impl ModuleGraph {
-    /// Creates a graph that reads the given buffers instead of the files they
-    /// shadow.
+    /// Creates a graph that reads the given buffers. It does not read the files
+    /// that the buffers shadow.
     pub fn with_overrides(overrides: HashMap<PathBuf, String>) -> ModuleGraph {
         ModuleGraph {
             overrides,
@@ -94,9 +94,9 @@ impl ModuleGraph {
         self.by_path.get(path).copied()
     }
 
-    /// Loads a module, reusing an already loaded one when the path repeats.
-    /// Circular imports are therefore harmless: the second visit finds the
-    /// module already registered.
+    /// Loads a module. When the path repeats, it uses the module that it
+    /// loaded before. Thus circular imports cause no problem. The second visit
+    /// finds the module in the graph.
     pub fn load(
         &mut self,
         path: &Path,
@@ -127,8 +127,8 @@ impl ModuleGraph {
         Some(self.insert(path.to_path_buf(), source))
     }
 
-    /// Registers a module whose text is already in hand, replacing any previous
-    /// copy. The language server uses this to swap in unsaved editor buffers.
+    /// Records a module from text that the caller gives. This replaces the
+    /// previous copy. The language server uses this for unsaved editor buffers.
     pub fn insert(&mut self, path: PathBuf, source: String) -> ModuleId {
         let parse = parser::parse(&source, &path);
         if let Some(existing) = self.by_path.get(&path).copied() {
@@ -152,32 +152,32 @@ impl ModuleGraph {
     }
 }
 
-/// Every Piton source file beneath a directory.
+/// All Piton source files below a directory.
 ///
-/// The compiler does not need this -- it follows imports from the entry, and a
-/// file nothing imports is not part of the program. An editor does: the file is
-/// on screen before anything imports it. So does anything offering a path to
-/// import, since the point of that is to reach somewhere the project does not
-/// reach yet.
+/// The compiler does not need this. It follows imports from the entry. A file
+/// that no module imports is not part of the program. An editor needs this,
+/// because the file is on the screen before a module imports it. A tool that
+/// suggests a path to import also needs it. Its purpose is to reach a file
+/// that the project does not reach yet.
 ///
-/// Unbounded: formatting, checking and indexing all answer for every file, and
-/// stopping early would pass a tree on the strength of whichever files the
-/// directory listing happened to return first.
+/// This function has no limit. The format, check and index tools must give a
+/// result for each file. If the walk stops early, a tool can approve a tree
+/// from only the first files that the directory list gave.
 pub fn sources(root: &Path) -> Vec<PathBuf> {
     sources_up_to(root, usize::MAX)
 }
 
-/// The first `limit` Piton source files beneath a directory, for callers that
-/// run on a keystroke. A tree with more files than that is one where walking to
-/// the end helps nobody, so which ones are kept is unspecified.
+/// The first `limit` Piton source files below a directory. This is for callers
+/// that run on each keystroke. For a tree with more files, a full walk helps
+/// no one. Thus this function does not specify the set of files that it keeps.
 pub fn sources_up_to(root: &Path, limit: usize) -> Vec<PathBuf> {
-    // Build output and dependency directories hold no source anyone edits.
+    // Build output and dependency directories hold no source that a person edits.
     //
-    // `tethers` is the interesting one: an installed package *is* Piton source,
-    // and it is committed with the project, but it is not the project's source.
-    // Counting it, formatting it, or checking it would all report on someone
-    // else's work -- and formatting it would rewrite files the lock file has a
-    // digest of, which is how an update ends up refusing to run.
+    // `tethers` is the important one. An installed package *is* Piton source.
+    // The project commits it, but it is not the source of the project. A count,
+    // a format or a check of it reports on the work of another person. Also, a
+    // format rewrites files that have a digest in the lock file. Then an update
+    // refuses to run.
     const SKIP: [&str; 5] = ["target", ".git", "node_modules", ".piton", packages::TETHERS];
 
     let mut found = Vec::new();
@@ -209,12 +209,12 @@ pub fn sources_up_to(root: &Path, limit: usize) -> Vec<PathBuf> {
     found
 }
 
-/// The two roots module resolution needs.
+/// The two roots that module resolution needs.
 ///
-/// They differ: absolute imports are written against the configured source
-/// root, while `tethers/` sits beside `piton.config.pi` at the project root.
-/// Carrying them together keeps every caller from having to remember which of
-/// the two a given lookup wants.
+/// The two roots are different. Absolute imports start at the configured source
+/// root. But `tethers/` is next to `piton.config.pi` at the project root. This
+/// type keeps the two roots together. Thus a caller does not need to know which
+/// root each search needs.
 #[derive(Debug, Clone, Copy)]
 pub struct Roots<'a> {
     pub source_root: &'a Path,
@@ -222,8 +222,8 @@ pub struct Roots<'a> {
 }
 
 impl<'a> Roots<'a> {
-    /// Roots for a tree that is its own project, which is what a single file
-    /// compiled without configuration has.
+    /// Roots for a tree that is its own project. A single file that compiles
+    /// without configuration has these roots.
     pub fn flat(root: &'a Path) -> Roots<'a> {
         Roots {
             source_root: root,
@@ -232,14 +232,15 @@ impl<'a> Roots<'a> {
     }
 }
 
-/// Where a module path is being resolved from.
+/// The start location for the resolution of a module path.
 pub struct ResolutionContext<'a> {
-    /// Directory of the file containing the import.
+    /// The directory of the file that contains the import.
     pub from_directory: &'a Path,
-    /// The project's source root, which absolute paths resolve against.
+    /// The source root of the project. Absolute paths resolve from it.
     pub source_root: &'a Path,
-    /// The project root, which `tethers/` sits beside. A path written as a bare
-    /// name is looked for there before it is read as a relative location.
+    /// The project root. `tethers/` is next to it. For a path that is a bare
+    /// name, the resolver first searches there. Then it reads the path as a
+    /// relative location.
     pub project_root: &'a Path,
 }
 
@@ -252,20 +253,21 @@ impl<'a> ResolutionContext<'a> {
         }
     }
 
-    /// A context for a tree that is its own project, where a bare name can only
-    /// name a package installed beneath that same tree.
+    /// A context for a tree that is its own project. In it, a bare name can only
+    /// name a package that is installed below that same tree.
     pub fn flat(from_directory: &'a Path, root: &'a Path) -> Self {
         ResolutionContext::new(from_directory, Roots::flat(root))
     }
 }
 
-/// Resolves a written module path to a file on disk, or to a bundled package.
+/// Resolves a module path from the source to a file on disk or to a bundled
+/// package.
 ///
-/// Relative paths resolve against the importing file's directory, absolute
-/// paths against the project's configured root, and `@`-prefixed paths name a
-/// bundled package. A bare name whose leading segments match an installed
-/// package resolves inside that package. A path that names a directory resolves
-/// to its `index.pi`.
+/// Relative paths resolve from the directory of the file with the import. Absolute
+/// paths resolve from the configured root of the project. Paths with an `@`
+/// prefix name a bundled package. A bare name can start with the segments of an
+/// installed package. Then it resolves in that package. A path that names a
+/// directory resolves to its `index.pi`.
 pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, ResolveError> {
     if text.starts_with('@') {
         if prelude::is_package(text) {
@@ -274,8 +276,8 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         return Err(ResolveError::UnknownPackage(text.to_string()));
     }
 
-    // An installed package stands in for the directory it was installed into,
-    // and the rest of the path then resolves as any other path does.
+    // An installed package takes the place of its install directory. The
+    // remainder of the path then resolves as all other paths do.
     let installed = packages::is_bare_path(text)
         .then(|| packages::resolve_prefix(context.project_root, text))
         .flatten();
@@ -287,8 +289,8 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
     };
     let base = normalize(&base);
 
-    // A relative import written inside a bundled package resolves against that
-    // package's virtual filesystem, never against the disk.
+    // A relative import in a bundled package resolves in the virtual file system
+    // of that package. It never resolves on the disk.
     let key = base.to_string_lossy().replace('\\', "/");
     if prelude::is_package_path(&key) {
         if prelude::is_package(&key) {
@@ -304,10 +306,10 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         });
     }
 
-    // `.` and `..`, alone or ending a path, always name a directory, so they
-    // mean its index -- never a sibling file that happens to share the
-    // directory's name.
-    // A package named on its own is its directory, for the same reason.
+    // `.` and `..`, alone or at the end of a path, always name a directory.
+    // Thus they mean its index. They never mean a sibling file with the same
+    // name as the directory.
+    // A package name alone is its directory, for the same reason.
     let index = base.join("index.pi");
     if names_directory(text) || (installed.is_some() && !text.contains('/')) {
         if index.is_file() {
@@ -319,7 +321,7 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         });
     }
 
-    // `./Foo` may mean `./Foo.pi` or `./Foo/index.pi`.
+    // `./Foo` can mean `./Foo.pi` or `./Foo/index.pi`.
     let with_extension = if base.extension().is_some_and(|e| e == "pi") {
         base.clone()
     } else {
@@ -337,8 +339,8 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
     })
 }
 
-/// True when a written path can only name a directory: `.` or `..` on its own,
-/// or a path whose last segment is one of them.
+/// True when a path can only name a directory. This is `.` or `..` alone, or a
+/// path whose last segment is one of them.
 fn names_directory(text: &str) -> bool {
     let trimmed = text.trim_end_matches('/');
     let last = trimmed.rsplit('/').next().unwrap_or(trimmed);
@@ -383,8 +385,8 @@ impl ResolveError {
     }
 }
 
-/// Removes `.` and `..` components without touching the filesystem, so paths
-/// stay stable whether or not the target exists.
+/// Removes `.` and `..` components. It does not use the file system. Thus the
+/// paths are stable, whether or not the target exists.
 pub fn normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
@@ -472,7 +474,7 @@ mod tests {
         let root = scratch("dots");
         std::fs::create_dir_all(root.join("a/b")).expect("dirs");
         std::fs::write(root.join("a/index.pi"), "x: 1\n").expect("write");
-        // A sibling named like the directory, which `..` must not pick.
+        // A sibling with the same name as the directory. `..` must not select it.
         std::fs::write(root.join("a.pi"), "x: 2\n").expect("write");
         std::fs::write(root.join("a/b/index.pi"), "x: 3\n").expect("write");
         std::fs::write(root.join("a/b.pi"), "x: 4\n").expect("write");
@@ -484,7 +486,7 @@ mod tests {
         assert_eq!(resolve(".", &context).unwrap(), root.join("a/b/index.pi"));
         assert_eq!(resolve("../b/.", &context).unwrap(), root.join("a/b/index.pi"));
         assert_eq!(resolve("../b/..", &context).unwrap(), root.join("a/index.pi"));
-        // Without the dot, a file still wins over a directory of the same name.
+        // Without the dot, a file wins over a directory of the same name.
         assert_eq!(resolve("../b", &context).unwrap(), root.join("a/b.pi"));
 
         std::fs::remove_file(root.join("a/b/index.pi")).expect("remove");

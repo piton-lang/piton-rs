@@ -28,6 +28,10 @@
 
 [Migration](./scope/migrate/index.md#migration)
 
+## Initialization
+
+[Initialization](./scope/init/index.md#initialization)
+
 ## Testing
 
 [Testing](./scope/testing/index.md#testing)

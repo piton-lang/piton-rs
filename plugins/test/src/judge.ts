@@ -157,8 +157,10 @@ export interface Launcher {
   program: string;
   /** The options that select the model, empty for the tool's default. */
   modelOptions: string[];
+  /** The prompt as text. Codex and Muse take it as an argument, so it is
+   * the short prompt that points to the reference. */
   fluency: string;
-  /** OpenCode reads its instructions from a file. */
+  /** The file that holds the full prompt. Claude and OpenCode read it. */
   promptFile: string | null;
 }
 
@@ -172,8 +174,8 @@ export function launch(launcher: Launcher, request: string): { args: string[]; e
         args: [
           "-p",
           request,
-          "--append-system-prompt",
-          launcher.fluency,
+          "--append-system-prompt-file",
+          launcher.promptFile ?? "",
           "--allowedTools",
           "Read,Grep,Glob",
           "--disallowedTools",

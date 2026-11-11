@@ -1,13 +1,13 @@
 //! Checks the JavaScript packages against the compiler they call.
 //!
 //! `vite-plugin-piton` and `astro-piton` are the only parts of this repository
-//! that are not Rust, and neither can be run from a Rust test. What they are
-//! is a caller of the `piton` binary, and a caller can drift: rename a flag
-//! here and the plugin keeps spawning the old one, failing at build time in
-//! someone else's project rather than in this suite.
+//! that are not Rust. A Rust test cannot run them. But each is a caller of the
+//! `piton` binary, and a caller can drift. If a flag gets a new name here, the
+//! plugin continues to use the old flag. Then it fails at build time in a
+//! different project, not in this suite.
 //!
-//! So the command line the plugin writes is read back out of its source and
-//! checked against the compiler that has to accept it.
+//! Thus this test reads the command line from the source of the plugin. It
+//! checks that command line against the compiler that must accept it.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,7 +27,7 @@ fn read(relative: &str) -> String {
 }
 
 fn binary() -> PathBuf {
-    // The integration binary sits next to the test binary.
+    // The integration binary is next to the test binary.
     let mut path = std::env::current_exe().expect("test binary");
     path.pop();
     if path.ends_with("deps") {
@@ -46,8 +46,8 @@ fn the_plugin_spawns_a_command_the_compiler_accepts() {
         );
     }
 
-    // And the compiler still takes them. A renamed flag fails here rather than
-    // in a project that installed the plugin.
+    // Also, the compiler still accepts them. A renamed flag fails here, not in
+    // a project that installed the plugin.
     let help = Command::new(binary())
         .args(["compile", "--help"])
         .output()
@@ -75,9 +75,9 @@ fn the_plugin_spawns_a_command_the_compiler_accepts() {
 
 #[test]
 fn the_plugin_offers_the_renderers_the_compiler_has() {
-    // The plugin names the renderers once, in `renderers.ts`: the type it
-    // accepts and the check it runs on a virtual-module path. Both have to
-    // agree with the compiler, and the plugin has to use that check.
+    // The plugin names the renderers one time, in `renderers.ts`. There, it
+    // gives the type that it accepts and the check for a virtual-module path.
+    // The two must agree with the compiler. The plugin must use that check.
     let plugin = read("packages/vite-plugin-piton/src/index.ts");
     let renderers = read("packages/vite-plugin-piton/src/renderers.ts");
 
@@ -142,8 +142,8 @@ fn the_specified_packages_exist() {
 
 #[test]
 fn the_plugin_covers_every_feature_the_specification_lists() {
-    // `spec/scope/tooling/vite/index.pi` names four, and each one is a thing
-    // the plugin has to actually do rather than a thing it could claim.
+    // `spec/scope/tooling/vite/index.pi` names four. The plugin must really do
+    // each one. A claim is not sufficient.
     let plugin = read("packages/vite-plugin-piton/src/index.ts");
     // imports .pi files
     assert!(plugin.contains(".pi"), "{plugin}");
@@ -153,6 +153,6 @@ fn the_plugin_covers_every_feature_the_specification_lists() {
     assert!(plugin.contains("addWatchFile"), "{plugin}");
     // virtual modules
     assert!(plugin.contains("virtual:piton/"), "{plugin}");
-    // and the configurable default renderer the `renderers` property describes
+    // and the configurable default renderer from the `renderers` property
     assert!(plugin.contains("options.renderer"), "{plugin}");
 }

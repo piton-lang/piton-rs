@@ -299,13 +299,15 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
     );
   }
 
-  const fluency = agents.fluency(tool.name);
+  // Belay gives the prompt of the tool. Claude and OpenCode read it from a
+  // file. Codex and Muse get a short prompt that points to the reference.
+  const prompt = agents.prompt(tool.name);
   const launcher: Launcher = {
     agent: tool.name,
     program: tool.program,
     modelOptions: model === null ? [] : agents.modelOptions(tool.name, model),
-    fluency,
-    promptFile: tool.name === "opencode" ? ctx.temporaryFile(fluency, ".md") : null,
+    fluency: prompt.text,
+    promptFile: prompt.file,
   };
 
   const progress = new Progress(ctx, tests.length);
@@ -406,6 +408,7 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
 interface Agents {
   list(): { name: string; program: string; target: string }[];
   fluency(name: string): string;
+  prompt(name: string): { text: string; file: string | null };
   models(name: string): Promise<string[]>;
   modelFlag(name: string, value: Json | undefined): Promise<{ model: string | null } | { exit: number }>;
   modelOptions(name: string, model: string): string[];

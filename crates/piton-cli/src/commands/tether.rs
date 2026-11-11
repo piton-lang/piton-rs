@@ -1,18 +1,21 @@
 //! `piton tether` — clone repositories into the tethers directory.
 //!
-//! Tethering is how a dependency arrives. The repository is cloned, stripped of
-//! every trace of git, and copied into `tethers/` under the name it publishes
-//! itself as. From that point it is ordinary project source: committed, read by
-//! the compiler from disk, and never fetched again until someone asks.
+//! A tether adds a dependency. The command clones the repository and removes
+//! all git data. Then it copies the repository into `tethers/` with the name
+//! that the repository publishes. After this, it is usual project source. The
+//! user commits it. The compiler reads it from disk. No command fetches it
+//! again until a person asks.
 //!
-//! On its own, `piton tether` installs everything `piton.config.pi` lists under
-//! `dependencies`. Given a source, it installs it and then adds it to the list,
-//! so the configuration and `tethers/` agree about what the project depends
-//! on. A source that fails to install, or that publishes a package name
-//! another package already has, changes nothing.
+//! Without a source, `piton tether` installs all items that `piton.config.pi`
+//! lists under `dependencies`. With a source, it installs the source. Then it
+//! adds the source to the list. Thus the configuration and `tethers/` agree
+//! about the dependencies of the project. A source can fail to install. A
+//! source can publish a package name that a different package already has.
+//! In these two cases, the command changes nothing.
 //!
-//! A source is a URL or a directory on disk. A relative path is read from the
-//! directory holding `piton.config.pi`, wherever piton happens to run.
+//! A source is a URL or a directory on disk. A relative path starts at the
+//! directory of `piton.config.pi`. The directory where piton runs has no
+//! effect.
 
 use std::path::Path;
 
@@ -42,8 +45,8 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
     let source = as_configured(&configured, source);
     let source = source.as_str();
 
-    // A repository already named in `dependencies` brings its pin with it, so
-    // tethering and building agree about which version the project wants.
+    // A repository that `dependencies` already names keeps its pin. Thus the
+    // tether and the build agree about the version that the project needs.
     let declared = configured
         .dependencies
         .iter()
@@ -54,10 +57,11 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
         packages: declared.and_then(|dependency| dependency.packages.clone()),
     };
 
-    // The configuration is edited in memory first, so a source it can't
-    // record stops before anything is fetched, and written only once the
-    // install has succeeded: a source that fails to clone, or that conflicts
-    // with another package, is not added.
+    // The command edits the configuration in memory first. Thus, if the
+    // configuration cannot record a source, the command stops before a fetch.
+    // The command writes the configuration only after a successful install.
+    // Thus it does not add a source that fails to clone. It also does not add
+    // a source that conflicts with a different package.
     let edit = match &configured.config_path {
         Some(config_path) => {
             let text = match std::fs::read_to_string(config_path) {
@@ -104,11 +108,12 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
     EXIT_SUCCESS
 }
 
-/// A source as the configuration should record it.
+/// A source in the form that the configuration must record.
 ///
-/// A relative path typed on the command line is written from the working
-/// directory, but the configuration reads it from its own, so when the two
-/// differ it is rewritten to lead to the same place from there.
+/// A relative path on the command line starts at the working directory. But
+/// the configuration reads it from the directory of the configuration. When
+/// the two directories are different, this function changes the path. Then
+/// the path goes to the same location from the directory of the configuration.
 fn as_configured(configured: &Project, source: &str) -> String {
     let relative = Dependency::new(source).is_local()
         && Path::new(source).is_relative()
@@ -138,7 +143,7 @@ fn as_configured(configured: &Project, source: &str) -> String {
     }
 }
 
-/// Installs everything the configuration depends on.
+/// Installs all dependencies of the configuration.
 pub fn install_all(configured: &Project) -> u8 {
     if configured.config_path.is_none() {
         report::fail("no piton.config.pi, so there is no dependency list to install from");
@@ -152,9 +157,9 @@ pub fn install_all(configured: &Project) -> u8 {
     install(configured, &configured.dependencies, None, false)
 }
 
-/// Installs `dependencies`, all or nothing. `guard_owners` refuses a package
-/// already tethered from another source instead of replacing it, which is what
-/// adding a new source needs.
+/// Installs all `dependencies`, or none of them. With `guard_owners`, it
+/// refuses a package that a different source already tethered. It does not
+/// replace that package. A new source needs this behaviour.
 fn install(
     configured: &Project,
     dependencies: &[Dependency],
@@ -204,11 +209,12 @@ fn install(
     EXIT_SUCCESS
 }
 
-/// Prints configuration diagnostics, returning true when any was an error.
+/// Prints configuration diagnostics. Returns true when one or more are errors.
 ///
-/// A package command acts on what the configuration says, so a configuration
-/// that could not be read correctly -- two pins on one dependency, say -- has
-/// to stop it rather than install something nobody asked for.
+/// A package command obeys the configuration. Thus a configuration with a
+/// read problem must stop the command. An example is two pins on one
+/// dependency. If not, the command can install a package that nobody asked
+/// for.
 pub fn report_config_errors(
     configured: &Project,
     diagnostics: &piton_core::DiagnosticSink,

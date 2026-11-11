@@ -1,8 +1,8 @@
 //! Syntax kinds for the lossless concrete syntax tree.
 
-/// Every token and node kind rowan can hold.
+/// All the token kinds and node kinds that rowan can hold.
 ///
-/// The discriminants are stable because rowan stores them as raw `u16`s.
+/// The discriminants do not change, because rowan keeps them as raw `u16` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
 #[allow(non_camel_case_types)]
@@ -16,13 +16,13 @@ pub enum SyntaxKind {
     IDENT,
     NUMBER,
     QUOTED_STRING,
-    /// A run of ordinary prose.
+    /// A sequence of usual prose.
     PROSE,
-    /// A backslash used as an escape delimiter.
+    /// A backslash that is an escape delimiter.
     BACKSLASH,
-    /// A backslash run that delimits a multi-line escape block.
+    /// A sequence of backslashes that is the limit of a multi-line escape block.
     ESCAPE_MARK,
-    /// Literal content inside a multi-line escape block.
+    /// The literal content in a multi-line escape block.
     ESCAPE_TEXT,
     PATH,
 
@@ -105,7 +105,7 @@ pub enum SyntaxKind {
     EXPR_LITERAL,
     EXPR_NAME,
 
-    /// Must remain last; used to bound the conversion from `u16`.
+    /// This kind must stay last. It is the limit for the conversion from `u16`.
     __LAST,
 }
 
@@ -138,15 +138,15 @@ impl From<SyntaxKind> for rowan::SyntaxKind {
     }
 }
 
-/// Reserved words. These cannot be used as property names; a line such as
-/// `null: The absence of a value` is prose, not a property, which is why such
-/// lines do not appear as headings in compiled output.
+/// Reserved words. A property name cannot be a reserved word. Thus a line such
+/// as `null: The absence of a value` is prose, not a property. For this reason,
+/// such lines do not show as headings in the compiled output.
 pub const RESERVED_WORDS: &[&str] = &[
     "use", "from", "import", "export", "anchor", "abstract", "as", "extends", "pass", "null",
     "true", "false", "this", "self", "super",
 ];
 
-/// True when `word` cannot be used as a property or variable name.
+/// True when `word` cannot be a property name or a variable name.
 pub fn is_reserved(word: &str) -> bool {
     RESERVED_WORDS.contains(&word)
 }
@@ -160,8 +160,8 @@ impl rowan::Language for Piton {
 
     fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
         assert!(raw.0 < SyntaxKind::__LAST as u16);
-        // SAFETY: `SyntaxKind` is `#[repr(u16)]` with contiguous discriminants
-        // from 0, and the assertion above bounds the value.
+        // SAFETY: `SyntaxKind` is `#[repr(u16)]`. Its discriminants are contiguous
+        // and start at 0. The assertion above keeps the value in that range.
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }
 

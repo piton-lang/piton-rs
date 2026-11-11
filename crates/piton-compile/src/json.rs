@@ -1,10 +1,11 @@
-//! Piton values as JSON, the way a plugin sees them.
+//! Piton values as JSON, in the form that a plugin sees.
 //!
-//! Plugins run outside the compiler, so what they read from it has to be
-//! plain data. Strings are their plain text, with references written as the
-//! names they point at. An anchor that appears as a value is not inlined,
-//! which could repeat a large part of the project, but named, as
-//! `{"$anchor": "Name"}`; a reference is `{"$reference": "Name.path"}`.
+//! Plugins run outside the compiler. Thus the data that they read from the
+//! compiler must be plain data. A string becomes its plain text. Each
+//! reference in it becomes the name of its target. An anchor in a value
+//! position does not become inline, because that can repeat a large part of
+//! the project. The anchor becomes its name, as `{"$anchor": "Name"}`. A
+//! reference becomes `{"$reference": "Name.path"}`.
 
 use piton_core::{AnchorView, MixedItem, Properties, Value};
 use serde_json::{Map, Number, Value as Json};
@@ -54,7 +55,7 @@ pub fn value(value: &Value, anchors: &dyn AnchorView) -> Json {
     }
 }
 
-/// An anchor's or dictionary's properties, as a JSON object in their order.
+/// The properties of an anchor or dictionary, as a JSON object in their order.
 pub fn properties_map(properties: &Properties, anchors: &dyn AnchorView) -> Map<String, Json> {
     properties
         .iter()
@@ -62,7 +63,7 @@ pub fn properties_map(properties: &Properties, anchors: &dyn AnchorView) -> Map<
         .collect()
 }
 
-/// A whole number is written without a fraction, as Piton writes it.
+/// A whole number has no fraction in the output. Piton writes it the same way.
 fn number_json(number: f64) -> Json {
     if number.fract() == 0.0 && number.abs() < 9.0e15 {
         Json::Number(Number::from(number as i64))
@@ -71,18 +72,21 @@ fn number_json(number: f64) -> Json {
     }
 }
 
-/// One value, as JSON that keeps what [`value`] flattens: text says which
-/// references it holds, a dictionary is distinct from a block that mixes
-/// keys with other items, keys keep their order whatever they look like, and
-/// an anchor or reference carries its id.
+/// One value, as JSON. This JSON keeps the data that [`value`] removes.
+/// Text tells which references it holds. A dictionary is different from a
+/// block with keys and other items. Keys keep their order, whatever their
+/// form. An anchor or a reference has its id.
 ///
-/// Each value is an object with a `kind`: `null`, `boolean` and `number`
-/// with a `value`; `text` with its plain `text` and its `references`, each
-/// `{id, path}`; `list` with its `items`; `dictionary` with its `entries`,
-/// each `[key, value]`; `mixed` with its `items`, where a key written in the
-/// block is `{kind: "entry", key, value}`; `anchor` with its `id` and
-/// `name`; and `reference` with its `id`, `path` and the `name` it is
-/// written as.
+/// Each value is an object with a `kind`. These are the kinds:
+/// - `null`, `boolean` and `number` have a `value`.
+/// - `text` has its plain `text` and its `references`. Each reference is
+///   `{id, path}`.
+/// - `list` has its `items`.
+/// - `dictionary` has its `entries`. Each entry is `[key, value]`.
+/// - `mixed` has its `items`. A key in the block becomes
+///   `{kind: "entry", key, value}`.
+/// - `anchor` has its `id` and `name`.
+/// - `reference` has its `id`, `path` and the `name` in the source.
 pub fn typed(value: &Value, anchors: &dyn AnchorView) -> Json {
     match value {
         Value::Null => serde_json::json!({ "kind": "null" }),
@@ -131,7 +135,7 @@ pub fn typed(value: &Value, anchors: &dyn AnchorView) -> Json {
     }
 }
 
-/// Properties as `[key, value]` pairs in their order, each value [`typed`].
+/// Properties as `[key, value]` pairs in their order. Each value is [`typed`].
 pub fn typed_properties(properties: &Properties, anchors: &dyn AnchorView) -> Json {
     Json::Array(
         properties

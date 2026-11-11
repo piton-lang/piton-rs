@@ -1,12 +1,14 @@
 from ./agent export *
 from ./scope/belay import Belay
 from ./scope/founding-thesis import FoundingThesis
+from ./scope/init import Initialization
 from ./scope/language import Language
 from ./scope/migrate import Migration
 from ./scope/package-management import PackageManagement
 from ./scope/plugins import Plugins
 from ./scope/testing import Testing
 from ./scope/tooling import Tooling
+from ./shape export *
 
 export anchor Specification:
     FoundingThesis: @{FoundingThesis}
@@ -16,4 +18,5 @@ export anchor Specification:
     PackageManagement: @{PackageManagement}
     Plugins: @{Plugins}
     Migration: @{Migration}
+    Initialization: @{Initialization}
     Testing: @{Testing}

@@ -1,11 +1,11 @@
 //! Interpolated text.
 //!
-//! Most Piton strings are plain text, but a string may embed `@{...}`
-//! references, and a reference has to survive until serialization: the Markdown
-//! adapter turns it into a link relative to the file being written, while a
-//! structured adapter has to represent identity some other way. Resolving it to
-//! a name during evaluation would throw that away, so a string keeps its
-//! segments.
+//! Most Piton strings are plain text. But a string can contain `@{...}`
+//! references. A reference must stay in the text until serialization. The
+//! Markdown adapter changes it into a link relative to the output file. A
+//! structured adapter must show the identity in a different way. If evaluation
+//! changes the reference into a name, the text loses the identity. Thus a string keeps
+//! its segments.
 
 use std::fmt;
 
@@ -15,12 +15,12 @@ use crate::value::{AnchorId, AnchorView, Ref};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Segment {
     Literal(String),
-    /// An anchor, or a property on one, whose identity is preserved until
-    /// output serialization.
+    /// An anchor, or a property on an anchor. The segment keeps its identity
+    /// until output serialization.
     Reference(Ref),
 }
 
-/// A string value, possibly containing embedded references.
+/// A string value. It can contain references.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Text {
     segments: Vec<Segment>,
@@ -59,7 +59,7 @@ impl Text {
         })
     }
 
-    /// True when the text carries no references and can be treated as a plain
+    /// True when the text has no references. Then you can use it as a plain
     /// `&str`.
     pub fn is_plain(&self) -> bool {
         !self
@@ -68,7 +68,7 @@ impl Text {
             .any(|s| matches!(s, Segment::Reference(_)))
     }
 
-    /// Borrows the text as a plain string when it holds at most one literal.
+    /// Borrows the text as a plain string when it has one literal or less.
     pub fn as_plain(&self) -> Option<&str> {
         match self.segments.as_slice() {
             [] => Some(""),
@@ -77,13 +77,13 @@ impl Text {
         }
     }
 
-    /// The anchors this text refers to. A reference to a property counts as
-    /// a reference to the anchor it is on.
+    /// The anchors that this text refers to. A reference to a property counts
+    /// as a reference to the anchor of that property.
     pub fn references(&self) -> impl Iterator<Item = AnchorId> + '_ {
         self.refs().map(|target| target.anchor)
     }
 
-    /// Every reference in this text, with its property path.
+    /// All references in this text, with their property paths.
     pub fn refs(&self) -> impl Iterator<Item = &Ref> + '_ {
         self.segments.iter().filter_map(|s| match s {
             Segment::Reference(target) => Some(target),
@@ -120,9 +120,9 @@ impl Text {
         self
     }
 
-    /// Renders the text with every reference replaced by the referenced
-    /// anchor's source name. This is the plain-text fallback used when a target
-    /// has no distinct reference representation inside prose.
+    /// Renders the text. The source name of the anchor replaces each
+    /// reference. A target uses this plain-text form when it has no special
+    /// form for references in prose.
     pub fn render_plain(&self, anchors: &dyn AnchorView) -> String {
         let mut out = String::new();
         for segment in &self.segments {
@@ -134,7 +134,7 @@ impl Text {
         out
     }
 
-    /// Renders the text with each reference replaced by `render`'s output.
+    /// Renders the text. The output of `render` replaces each reference.
     pub fn render_with(&self, mut render: impl FnMut(&Ref) -> String) -> String {
         let mut out = String::new();
         for segment in &self.segments {
@@ -146,7 +146,8 @@ impl Text {
         out
     }
 
-    /// Drops leading and trailing whitespace from the outermost literal runs.
+    /// Removes whitespace from the start of the text when the first segment is
+    /// a literal. It does the same at the end of the text.
     pub fn trim(&self) -> Text {
         let mut segments = self.segments.clone();
         if let Some(Segment::Literal(first)) = segments.first_mut() {
@@ -173,7 +174,7 @@ impl From<String> for Text {
 }
 
 impl fmt::Display for Text {
-    /// Displays references as `@{anchor#n}`; use [`Text::render_plain`] when a
+    /// Displays references as `@{anchor#n}`. Use [`Text::render_plain`] when a
     /// real name is available.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for segment in &self.segments {

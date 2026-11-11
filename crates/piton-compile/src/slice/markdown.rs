@@ -1,19 +1,20 @@
-//! Renders a slice as one Markdown document, for pasting into a prompt.
+//! Renders a slice as one Markdown document. A user can paste it into a prompt.
 //!
-//! Values are written with the same Markdown rules `piton compile` uses. Two
-//! things differ, because the reader is holding one document rather than a
-//! tree of files: a reference is written as the name it points at, since the
-//! declaration it names is further down the same page; and an embedded anchor
-//! is written the same way rather than copied in, since the slice already
-//! holds it once.
+//! The values use the same Markdown rules as `piton compile`. The reader has
+//! one document and not a tree of files. Thus two things are different. First,
+//! a reference becomes the name of its target. The declaration of that name is
+//! lower on the same page. Second, an embedded anchor also becomes its name and
+//! not a copy. The slice already holds the anchor one time.
 //!
-//! A slice can cite either the source or a compiled output. [`render`] says
-//! which `.pi` file each declaration is in. [`render_compiled`] says where a
-//! build compiled it instead, and turns every name it cites into a link there,
-//! for an agent that reads the compiled documents rather than the source.
+//! A slice can cite the source or a compiled output. [`render`] tells the `.pi`
+//! file of each declaration. [`render_compiled`] tells where a build compiled
+//! the declaration. It also makes each name that it cites into a link to that
+//! location. This is for an agent that reads the compiled documents and not
+//! the source.
 //!
-//! Headings name declarations exactly as the source does -- `SaveButton`,
-//! `SaveButton.color` -- so the names used in the text can be found.
+//! Headings name declarations exactly as the source does, for example
+//! `SaveButton` and `SaveButton.color`. Thus a reader can find the names in
+//! the text.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -26,9 +27,9 @@ use crate::eval::constraint_label;
 use crate::store::VariableId;
 use crate::Compilation;
 
-/// Renders `slice` citing the source, with each path written relative to
-/// `base`, the directory the reader is in: `../ui.pi` when `base` is a
-/// sibling of the file's directory.
+/// Renders `slice` with citations of the source. Each path is relative to
+/// `base`, the directory of the reader. For example, the path is `../ui.pi`
+/// when `base` is a sibling of the directory of the file.
 pub fn render(compilation: &Compilation, slice: &Slice, base: &Path) -> String {
     Writer {
         compilation,
@@ -38,16 +39,18 @@ pub fn render(compilation: &Compilation, slice: &Slice, base: &Path) -> String {
     .render()
 }
 
-/// Renders `slice` citing a compiled output: `links` says where each anchor,
-/// or property on one, was compiled to.
+/// Renders `slice` with citations of a compiled output. `links` tells the
+/// output location of each anchor and of each property of an anchor.
 ///
-/// An anchor with no document of its own that is embedded by value, `{...}`,
-/// is cited where it was inlined: the section of the property that embeds it.
+/// An anchor can have no document of its own. Then another anchor embeds it by
+/// value, `{...}`. The citation for such an anchor is the section of the property
+/// that embeds it.
 ///
-/// The source is never cited. Anything the slice reaches that has no
-/// compiled location of its own was still compiled, into something that
-/// does: an abstract anchor into the anchors that extend it, a value that is
-/// read into whatever reads it. Such an anchor is described without a place.
+/// This function never cites the source. An item in the slice can have no
+/// compiled location of its own. But the build compiled it into an item with
+/// a location. An abstract anchor goes into the anchors that extend it. A
+/// value goes into the items that read it. The description of such an anchor
+/// has no location.
 pub fn render_compiled(
     compilation: &Compilation,
     slice: &Slice,
@@ -62,8 +65,8 @@ pub fn render_compiled(
     .render()
 }
 
-/// Where `target` was compiled under `links`: its own document, or the
-/// section of whatever embeds it.
+/// The compiled location of `target` under `links`. This is its own document,
+/// or the section of the item that embeds it.
 pub fn compiled_location(
     compilation: &Compilation,
     links: &dyn emit::LinkResolver,
@@ -72,13 +75,13 @@ pub fn compiled_location(
     Located::new(compilation, links).link(target)
 }
 
-/// A compiled output's locations, extended to anchors that only exist
-/// inlined into another's document.
+/// The locations of a compiled output. They also include anchors that exist
+/// only inline in the document of another anchor.
 struct Located<'a> {
     links: &'a dyn emit::LinkResolver,
-    /// Every property in the compilation that embeds each anchor, `{...}`,
-    /// in declaration order. What embeds an anchor is upstream of it, so the
-    /// slice itself never holds it.
+    /// For each anchor, all properties in the compilation that embed it,
+    /// `{...}`, in declaration order. An embedder is upstream of the anchor.
+    /// Thus the slice never holds it.
     embedders: HashMap<AnchorId, Vec<(AnchorId, String)>>,
 }
 
@@ -101,8 +104,8 @@ impl<'a> Located<'a> {
         Located { links, embedders }
     }
 
-    /// Where `target` was compiled, and whether that is inside another
-    /// anchor's section because it was embedded there.
+    /// The compiled location of `target`. Also, true when that location is in
+    /// the section of another anchor that embeds `target`.
     fn find(&self, target: &Ref) -> Option<(String, bool)> {
         if let Some(link) = self.links.link(target) {
             return Some((link, false));
@@ -112,12 +115,12 @@ impl<'a> Located<'a> {
             .map(|link| (link, true))
     }
 
-    /// The section of the first property that embeds `anchor` and was
-    /// itself compiled somewhere, following embeddings outward.
+    /// The section of the first property that embeds `anchor` and has a
+    /// compiled location. The search follows embeddings outward.
     ///
-    /// `path` is what is wanted inside `anchor`, and grows with each step
-    /// out, so the link lands on the deepest heading the build wrote:
-    /// `Cli.commands` inside `Tooling.cli` becomes `Tooling.cli.commands`.
+    /// `path` is the target in `anchor`. It gets longer with each step out.
+    /// Thus the link goes to the deepest heading of the build. For example,
+    /// `Cli.commands` in `Tooling.cli` becomes `Tooling.cli.commands`.
     fn embedding(
         &self,
         anchor: AnchorId,
@@ -155,7 +158,7 @@ impl emit::LinkResolver for Located<'_> {
     }
 }
 
-/// What the document points its reader at.
+/// The location that the document gives to its reader.
 #[derive(Clone, Copy)]
 enum Cite<'a> {
     Source(&'a Path),
@@ -211,18 +214,18 @@ sections below.\n\n"
 
     fn source_path(&self, base: &Path, module: crate::ModuleId) -> String {
         let path = &self.compilation.graph().get(module).path;
-        // A bundled package's file is not on disk, so it has no path from
-        // anywhere and is written as its name.
+        // The file of a bundled package is not on disk. Thus it has no path,
+        // and the output shows its name.
         if !path.is_absolute() {
             return path.display().to_string();
         }
         piton_emit::relative_link(base, path)
     }
 
-    /// Where the reader finds `entity`: its source file, or the place it was
-    /// compiled to. A variable is never compiled on its own -- its value is
-    /// part of whatever reads it -- and neither is an anchor with no document
-    /// of its own, so neither has a compiled location.
+    /// The location where the reader finds `entity`. This is its source file
+    /// or its compiled location. A variable never compiles alone. Its value is
+    /// part of the items that read it. An anchor with no document of its own
+    /// also never compiles alone. Thus neither has a compiled location.
     fn location(&self, entity: &Entity) -> Option<String> {
         match self.cite {
             Cite::Source(base) => Some(self.source_path(base, entity.module(self.compilation))),
@@ -233,8 +236,8 @@ sections below.\n\n"
         }
     }
 
-    /// A name the text mentions: a code span, or a link to where it was
-    /// compiled.
+    /// A name in the text. It is a code span, or a link to its compiled
+    /// location.
     fn name(&self, entity: &Entity) -> String {
         let name = entity.display(self.compilation);
         match (self.cite, entity) {
@@ -260,8 +263,8 @@ sections below.\n\n"
         };
         let mut facts = match self.location(&Entity::Anchor(anchor)) {
             Some(location) => vec![format!("{kind} {place} `{location}`")],
-            // With nowhere of its own, what it says is compiled into the
-            // anchors that extend it, or that read or name it.
+            // It has no location of its own. Its content compiles into the
+            // anchors that extend it, read it or name it.
             None if def.is_abstract => {
                 vec![format!("{kind}, compiled into the anchors that extend it")]
             }
@@ -306,9 +309,9 @@ sections below.\n\n"
             facts.push(format!("Type: {}.", constraints(&slot.constraints)));
         }
 
-        // A property the anchor only inherits says where from, and when the
-        // declaration it inherits is already in the slice with the same value,
-        // the value is not written out twice.
+        // A property that the anchor only inherits tells its source. The slice
+        // can already hold the inherited declaration with the same value. Then
+        // the output does not write the value two times.
         let mut repeated = false;
         if slot.owner != anchor {
             let owner = store.anchor(slot.owner);
@@ -369,7 +372,7 @@ sections below.\n\n"
         }
     }
 
-    /// The entities `from` depends on through `relation`, as they are cited.
+    /// The entities that `from` depends on through `relation`, as citations.
     fn targets(&self, from: &Entity, relation: Relation) -> Vec<String> {
         self.slice
             .edges_from(from)
@@ -395,7 +398,7 @@ sections below.\n\n"
     }
 }
 
-/// The anchors `value` embeds by value, `{...}`, at any depth.
+/// The anchors that `value` embeds by value, `{...}`, at all depths.
 fn embedded_in(value: &Value, out: &mut Vec<AnchorId>) {
     match value {
         Value::Anchor(anchor) => out.push(*anchor),
@@ -414,7 +417,7 @@ fn embedded_in(value: &Value, out: &mut Vec<AnchorId>) {
     }
 }
 
-/// The reference that points at an anchor or a property.
+/// The reference to an anchor or a property.
 fn reference(entity: &Entity) -> Ref {
     match entity {
         Entity::Anchor(anchor) => Ref::anchor(*anchor),
@@ -452,9 +455,9 @@ fn paragraph(text: &str, out: &mut String) {
     out.push_str("\n\n");
 }
 
-/// The value with every embedded anchor written as its name. The slice holds
-/// each anchor it embeds as a declaration of its own, so copying it in again
-/// would only say the same thing twice.
+/// The value with each embedded anchor as its name. The slice holds each
+/// embedded anchor as a separate declaration. Thus a copy only repeats the
+/// same data.
 fn by_name(value: &Value) -> Value {
     match value {
         Value::Anchor(anchor) => Value::Reference(Ref::anchor(*anchor)),

@@ -1,10 +1,10 @@
-//! What the server knows about, as against what the project reaches.
+//! The files that the server knows, compared to the files that the project reaches.
 //!
-//! The compiler follows imports from the entry point, and a file nothing
-//! imports is not part of the program. An editor cannot work that way: the file
-//! is open on screen, and "nothing imports this yet" is the normal state of a
-//! file someone is in the middle of writing. These tests hold the server to
-//! knowing about every source in the project, reached or not.
+//! The compiler follows imports from the entry point. A file that no file
+//! imports is not part of the program. An editor cannot operate like that. The
+//! file is open on the screen. Usually no file imports a file that a person
+//! writes now. These tests make sure that the server knows each source in
+//! the project, reached or not.
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +24,7 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    /// A project with one reached file and one that nothing imports.
+    /// A project with one reached file and one file that no file imports.
     fn new(name: &str) -> Fixture {
         let dir = std::env::temp_dir().join(format!("piton-lsp-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -63,7 +63,7 @@ impl Fixture {
         world
     }
 
-    /// The world with a file open, the way `did_open` leaves it.
+    /// The world with an open file, as `did_open` leaves it.
     fn opened(&self, relative: &str) -> World {
         let path = self.path(relative);
         let text = std::fs::read_to_string(&path).expect("readable");
@@ -123,9 +123,9 @@ fn a_file_nothing_imports_still_gets_diagnostics() {
 
 #[test]
 fn opening_an_unimported_file_does_not_hide_the_project() {
-    // The old fallback compiled such a file as its own entry point, which
-    // replaced the project's compilation wholesale: while the file was open,
-    // the rest of the specbase did not exist as far as the editor could tell.
+    // The old fallback compiled such a file as its own entry point. This
+    // replaced all of the compilation of the project. While the file was
+    // open, the editor did not see the rest of the specbase.
     let fixture = Fixture::new("orphan-open");
     let world = fixture.opened("spec/Orphan.pi");
 
@@ -161,8 +161,8 @@ fn an_unimported_file_can_be_navigated_like_any_other() {
 
 #[test]
 fn a_buffer_from_outside_the_project_is_compiled_too() {
-    // A file opened from somewhere the project root does not cover is still a
-    // file being edited, and the editor has asked for diagnostics on it.
+    // The user still edits a file that is open from a location outside the
+    // project root. The editor asked for diagnostics on it.
     let fixture = Fixture::new("outside");
     fixture.write(
         "notes/Scratch.pi",
@@ -184,8 +184,8 @@ fn a_buffer_from_outside_the_project_is_compiled_too() {
 
 #[test]
 fn an_unsaved_buffer_wins_over_the_file_on_disk() {
-    // Loading every source from disk must not undo the whole point of the
-    // overrides: what is on screen is what gets compiled.
+    // The load of all sources from disk must not cancel the purpose of the
+    // overrides. The compiler compiles the text that is on the screen.
     let fixture = Fixture::new("unsaved");
     let path = fixture.path("spec/Orphan.pi");
 
@@ -209,11 +209,11 @@ fn an_unsaved_buffer_wins_over_the_file_on_disk() {
 
 #[test]
 fn a_file_written_behind_the_editors_back_is_picked_up() {
-    // Nothing in the editor knows about a file a branch switch or a script
-    // wrote: `didChange` fires only for buffers it has open. The server is told
-    // by the file watcher it registers, and answering that means recompiling
-    // from disk, so a source that appeared since the last build has to appear
-    // with it.
+    // The editor does not know about a file that a branch switch or a script
+    // wrote. `didChange` fires only for buffers that are open in the editor.
+    // The file watcher that the server registers tells the server. The answer
+    // is a recompile from disk. Thus a new source must also be in the
+    // new build.
     let fixture = Fixture::new("appeared");
     let world = fixture.world();
     assert!(!loaded(&world, &fixture.path("spec/Later.pi")));
@@ -251,8 +251,8 @@ fn rereading_the_configuration_moves_the_source_root() {
     let world = fixture.world();
     assert!(loaded(&world, &fixture.path("spec/Orphan.pi")));
 
-    // A new root with its own entry: nothing under the old one is the project
-    // any more.
+    // A new root with its own entry. No file below the old root is part of
+    // the project now.
     fixture.write(
         "other/index.pi",
         "export anchor Elsewhere:\n    description: A different tree\n",
@@ -287,7 +287,7 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
     );
     let world = fixture.opened("spec/Home.pi");
 
-    // The missing entry is reported...
+    // The server reports that there is no entry...
     let diagnostics = world.diagnostics_by_file();
     assert!(
         diagnostics
@@ -295,8 +295,8 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
             .is_some_and(|found| !found.is_empty()),
         "{diagnostics:?}"
     );
-    // ...and every other file still loads, with nothing reported as unused
-    // for want of an entry to reach it from.
+    // ...and all other files still load. The server does not report them
+    // as unused because there is no entry to reach them from.
     let home = fixture.path("spec/Home.pi");
     assert!(loaded(&world, &home));
     assert!(loaded(&world, &fixture.path("spec/Reached.pi")));
@@ -306,7 +306,7 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
         diagnostics.get(&home)
     );
 
-    // So the file being written still completes.
+    // Thus completion still operates in the file that the user writes.
     let text = std::fs::read_to_string(&home).expect("readable");
     let offset = text.find("    \n").expect("blank body line") + 4;
     let position = offset_to_position(&text, offset);
@@ -316,8 +316,8 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
         Some(CompletionResponse::List(list)) => list.items.into_iter().map(|item| item.label).collect(),
         None => Vec::new(),
     };
-    // `title` is written already, so it is not offered a second time; what
-    // the page still lacks is.
+    // The page already has `title`. Thus the list does not offer it a second
+    // time. The list offers the keys that the page does not have yet.
     assert!(labels.contains(&"path".to_string()), "{labels:?}");
     assert!(!labels.contains(&"title".to_string()), "{labels:?}");
 }

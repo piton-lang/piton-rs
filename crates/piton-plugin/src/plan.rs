@@ -1,10 +1,10 @@
-//! Reading the plan a plugin's build returns.
+//! This module reads the plan that the build of a plugin returns.
 //!
-//! The plan is plain data from the plugin's code, so everything in it is
-//! checked here before it becomes anything the host writes: files and copies
-//! become output files owned by the plugin, a copy is read only if the plugin
-//! may read files and the source is inside the project, and diagnostics keep
-//! the source location they point at.
+//! The plan is plain data from the code of the plugin. Thus this module
+//! checks all of the plan before the host writes it. Files and copies become
+//! output files that the plugin owns. The host reads a copy only if the
+//! plugin can read files and the source is in the project. Diagnostics keep
+//! their source location.
 
 use std::path::{Path, PathBuf};
 
@@ -14,13 +14,14 @@ use serde_json::Value as Json;
 use crate::manifest::Manifest;
 use crate::output::{is_safe, OutputFile};
 
-/// What a plugin's build planned.
+/// The plan that the build of a plugin made.
 #[derive(Debug, Default)]
 pub struct PluginPlan {
     pub files: Vec<OutputFile>,
     pub diagnostics: Vec<Diagnostic>,
     pub targets: Vec<(String, String)>,
-    /// Where each anchor was placed, by name, for commands that cite output.
+    /// The location of each anchor, by name. Commands that cite output use
+    /// it.
     pub locations: Vec<(String, String)>,
 }
 
@@ -28,8 +29,8 @@ fn text<'a>(value: &'a Json, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Json::as_str)
 }
 
-/// Reads a plan. A malformed plan is an error naming what is wrong; nothing
-/// of it is used.
+/// Reads a plan. A malformed plan is an error that names the problem. The
+/// host then uses no part of the plan.
 pub fn read(manifest: &Manifest, plan: &Json, root: &Path) -> Result<PluginPlan, String> {
     let owner = &manifest.name;
     let mut out = PluginPlan::default();

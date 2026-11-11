@@ -1,8 +1,8 @@
-//! `piton check` — validate without emitting anything.
+//! `piton check` — validate and write nothing.
 //!
-//! Checking covers syntax, imports, references, types, inheritance,
-//! composition, exports, and circular dependencies. It emits no artifacts, and
-//! it exits non-zero when any error was reported.
+//! The check examines syntax, imports, references, types, inheritance,
+//! composition, exports, and circular dependencies. It emits no artifacts.
+//! When it reports an error, it exits with a non-zero code.
 
 use std::path::PathBuf;
 
@@ -17,9 +17,9 @@ pub fn run(paths: &[PathBuf]) -> u8 {
     }
     let (project, diagnostics) = project::current();
     if project.config_path.is_none() {
-        // Without a project there is no entry to start from, so every file
-        // under the working directory is checked on its own -- the same set
-        // `piton loc` and `piton format` work on.
+        // Without a project, there is no entry. Thus the check examines each
+        // file below the working directory separately. `piton loc` and
+        // `piton format` use the same set of files.
         return check_files(&[]);
     }
     check_project(project, diagnostics)
@@ -30,8 +30,8 @@ fn check_project(project: piton_compile::Project, mut diagnostics: DiagnosticSin
     let compilation = project::compile_project(project);
     diagnostics.extend(compilation.diagnostics.iter().cloned());
 
-    // Plugins with a build plan it, so their diagnostics are checked too;
-    // nothing is written.
+    // Plugins with a build make their plan. Thus the check also examines their
+    // diagnostics. It writes no files.
     let (_, _, manifests, _) = crate::plugins::load();
     let (plans, failures) = crate::plugins::plan_builds(&compilation.project, &manifests);
     for plan in plans {
@@ -55,8 +55,8 @@ fn check_project(project: piton_compile::Project, mut diagnostics: DiagnosticSin
     }
 }
 
-/// Checks specific files. Each file is compiled as its own entry point so a
-/// file can be checked without its project.
+/// Checks specific files. Each file compiles as its own entry point. Thus the
+/// check can examine a file without its project.
 fn check_files(paths: &[PathBuf]) -> u8 {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let sources = match project::collect_sources(paths, &cwd) {
@@ -79,8 +79,8 @@ fn check_files(paths: &[PathBuf]) -> u8 {
         let source = project::canonical_target(source);
         let project = configured.with_entry(&source);
         let compilation = Compilation::build(project);
-        // Only report problems in the requested files; a shared dependency
-        // would otherwise be reported once per file that reaches it.
+        // Report problems only in the requested files. If not, the check
+        // reports a shared dependency one time for each file that reaches it.
         let relevant: Vec<_> = compilation
             .diagnostics
             .iter()

@@ -1,7 +1,7 @@
-//! Line counting.
+//! Counts lines.
 //!
-//! `piton loc` reports total, code, comment, and blank lines. A line that holds
-//! both code and a trailing comment counts as code, so the categories sum to the
+//! `piton loc` reports total, code, comment, and blank lines. A line with code
+//! and a comment at its end counts as code. Thus the categories add up to the
 //! total.
 
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ impl Counts {
     }
 }
 
-/// Counts grouped by file, which is the grouping `piton loc` reports.
+/// Counts in groups by file. `piton loc` reports this grouping.
 #[derive(Debug, Clone, Default)]
 pub struct Report {
     pub files: Vec<(PathBuf, Counts)>,
@@ -42,8 +42,8 @@ impl Report {
 
 /// Counts the lines in one source text.
 ///
-/// A multi-line escape block is content, so its lines count as code even when
-/// they look like comments.
+/// A multi-line escape block is content. Thus its lines count as code, also
+/// when they look like comments.
 pub fn count(source: &str) -> Counts {
     let mut counts = Counts::default();
     let mut escape_run: Option<usize> = None;
@@ -54,7 +54,7 @@ pub fn count(source: &str) -> Counts {
         let backslashes = (!trimmed.is_empty() && trimmed.chars().all(|c| c == '\\'))
             .then(|| trimmed.chars().count());
 
-        // A multi-line escape block is content, whatever it contains.
+        // A multi-line escape block is content, all of it.
         if let Some(run) = escape_run {
             counts.code += 1;
             if backslashes == Some(run) {
@@ -80,7 +80,7 @@ pub fn count(source: &str) -> Counts {
         }
     }
 
-    // A file that does not end in a newline still has that last line.
+    // A file without a newline at its end also has that last line.
     if source.ends_with('\n') || source.is_empty() {
         // `lines()` already handled it.
     }
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn a_code_fence_is_just_text() {
-        // Code blocks aren't special, so a comment line inside one is a comment.
+        // Code blocks are not special. Thus a comment line in a code block is a comment.
         let source = "anchor A:\n    body:\n        ```\n        // a comment\n        ```\n";
         assert_eq!(count(source).comments, 1);
     }

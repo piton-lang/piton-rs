@@ -1,26 +1,28 @@
-//! Every syntax highlighter, run over one corpus and compared with the parser.
+//! Runs every syntax highlighter over one corpus and compares it with the parser.
 //!
 //! `editors/` ships a tree-sitter grammar, a TextMate grammar, a Sublime
-//! syntax, a Kate definition and a Vim syntax file. Each is an approximation of
-//! the parser written in a different regex dialect, and checking them by
-//! reading their source only catches a missing keyword. Here each one is run,
-//! by the tool that runs it in an editor where that is possible, over the
-//! fixtures in `editors/fixtures/`, and what it paints every byte is compared
-//! with what the parser says the byte is.
+//! syntax, a Kate definition and a Vim syntax file. Each one approximates the
+//! parser in a different regex dialect. A read of their source finds only a
+//! keyword that is not there. Thus this test runs each one over the fixtures in
+//! `editors/fixtures/`. Where possible, it uses the tool that runs it in an
+//! editor. The test compares the class that each tool gives to each byte with
+//! the class that the parser gives.
 //!
-//! The parser's answer is `piton_syntax::highlight::classify`, written out as
-//! `editors/fixtures/<name>.expected`. A tool's answer is a scope, capture,
-//! item or group name per byte, read back to a class through
-//! `editors/fixtures/scopes.toml`. Where a format cannot do what the parser
-//! does -- a regex engine that cannot see the line above, say -- the deviation
-//! is written down in `editors/fixtures/gaps.toml` with its reason, and an entry
-//! there has to keep failing, so the list cannot go stale.
+//! The answer of the parser is `piton_syntax::highlight::classify`. The
+//! `editors/fixtures/<name>.expected` files contain this answer. The answer of a
+//! tool is a scope, capture, item or group name for each byte. The test reads
+//! that name back to a class through `editors/fixtures/scopes.toml`. Sometimes a
+//! format cannot do what the parser does. An example is a regex engine that
+//! cannot see the line above. Then `editors/fixtures/gaps.toml` records the
+//! deviation and its reason. An entry there must continue to fail. Thus the
+//! list cannot become old.
 //!
-//! The tools are not all installed everywhere. A runner whose tool is missing
-//! says so and passes, unless `PITON_REQUIRE_EDITOR_TOOLS=1`, which CI sets.
+//! Not all machines have the tools. If the tool of a runner is
+//! missing, the runner says so and passes. This is not true when
+//! `PITON_REQUIRE_EDITOR_TOOLS=1`. CI sets that value.
 //!
 //! `PITON_BLESS=1 cargo test -p piton-syntax --test highlight_corpus`
-//! rewrites the `.expected` files from the parser, and the review happens on
+//! writes the `.expected` files again from the parser. The review occurs on
 //! the diff.
 
 use std::collections::{BTreeMap, HashMap};
@@ -50,7 +52,7 @@ fn fixtures_dir() -> PathBuf {
     editors().join("fixtures")
 }
 
-/// One fixture: its source, and the class the parser gives every byte of it.
+/// One fixture. It holds the source and the class that the parser gives to each byte.
 struct Fixture {
     name: String,
     path: PathBuf,
@@ -58,7 +60,7 @@ struct Fixture {
     golden: Vec<Option<Class>>,
 }
 
-/// What every byte is, with `None` for plain text.
+/// The class of each byte. `None` is plain text.
 type Painting = Vec<Option<Class>>;
 
 fn fixtures() -> Vec<Fixture> {
@@ -92,10 +94,10 @@ fn fixtures() -> Vec<Fixture> {
         .collect()
 }
 
-/// The canonical name of every class in one format, read from `scopes.toml`.
+/// The canonical name of every class in one format, from `scopes.toml`.
 ///
-/// The table is keyed by class; a runner needs it the other way round, from the
-/// name a tool printed to the class it stands for.
+/// The table uses the class as the key. A runner needs the opposite direction,
+/// from the name that a tool printed to the class of that name.
 fn reverse_map(format: &str) -> HashMap<String, Class> {
     let mut out = HashMap::new();
     for (class, name) in scope_table(format) {
@@ -108,7 +110,7 @@ fn reverse_map(format: &str) -> HashMap<String, Class> {
     out
 }
 
-/// `(class, name)` for every row of `scopes.toml`, in one format's column.
+/// `(class, name)` for every row of `scopes.toml`, from the column of one format.
 fn scope_table(format: &str) -> Vec<(Class, String)> {
     let text = std::fs::read_to_string(fixtures_dir().join("scopes.toml")).expect("scopes.toml");
     let table: toml::Table = text.parse().expect("scopes.toml is TOML");
@@ -136,7 +138,7 @@ fn scope_table(format: &str) -> Vec<(Class, String)> {
 // Comparison and gaps
 // ---------------------------------------------------------------------------
 
-/// A line of a fixture on which one format is allowed to disagree.
+/// A line of a fixture where one format can disagree.
 #[derive(Debug)]
 struct Gap {
     format: String,
@@ -176,7 +178,7 @@ fn gaps(format: &str) -> Vec<Gap> {
     out
 }
 
-/// One stretch of a line where a tool and the parser disagree.
+/// One part of a line where a tool and the parser disagree.
 struct Mismatch {
     line: usize,
     start: usize,
@@ -189,11 +191,12 @@ fn class_name(class: Option<Class>) -> &'static str {
     class.map_or("Plain", Class::name)
 }
 
-/// Compares a tool's painting of every fixture with the parser's, and fails
-/// with the first disagreements unless `gaps.toml` excuses their lines.
+/// Compares the classes that a tool gives each fixture with the classes from
+/// the parser. It fails with the first disagreements, unless `gaps.toml`
+/// excuses their lines.
 ///
-/// Whitespace is not compared: a tool may paint the space between a key and its
-/// value either way, and nobody can see the difference.
+/// The function does not compare whitespace. A tool can give either class to
+/// the space between a key and its value, and nobody can see the difference.
 fn compare(format: &str, paintings: &[(&Fixture, Painting)]) {
     let gaps = gaps(format);
     let mut problems: Vec<String> = Vec::new();
@@ -300,8 +303,8 @@ fn compare(format: &str, paintings: &[(&Fixture, Painting)]) {
 // Tools
 // ---------------------------------------------------------------------------
 
-/// Whether a tool can be run. A missing one skips its runner with a message,
-/// unless CI has asked for every tool to be present.
+/// Tells if a tool can run. If a tool is not there, its runner shows a message
+/// and does not run. This is not true when CI requires all tools.
 fn have(tool: &str, version_flag: &str) -> bool {
     let found = Command::new(tool)
         .arg(version_flag)
@@ -329,7 +332,7 @@ fn run(command: &mut Command) -> String {
     String::from_utf8(output.stdout).expect("tool output is UTF-8")
 }
 
-/// A fresh scratch directory for one runner.
+/// A new scratch directory for one runner.
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("highlight-corpus").join(name);
     let _ = std::fs::remove_dir_all(&dir);
@@ -349,7 +352,7 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// Byte offset of the start of every line.
+/// The byte offset of the start of each line.
 fn line_starts(source: &str) -> Vec<usize> {
     std::iter::once(0)
         .chain(source.match_indices('\n').map(|(at, _)| at + 1))
@@ -360,11 +363,11 @@ fn line_starts(source: &str) -> Vec<usize> {
 // Runners
 // ---------------------------------------------------------------------------
 
-/// The parser's own classification, against the files a reviewer reads.
+/// The classification of the parser, against the files that a reviewer reads.
 ///
-/// Also runs the classifier over the whole specification, which is the largest
-/// body of real Piton there is, to make sure it neither panics nor leaves a
-/// class run straddling a line.
+/// It also runs the classifier over the full specification. The specification
+/// is the largest body of real Piton. This makes sure that the classifier does
+/// not panic. It also makes sure that no class run goes across a line.
 #[test]
 fn golden() {
     let bless = std::env::var("PITON_BLESS").is_ok_and(|value| value == "1");
@@ -409,7 +412,7 @@ fn golden() {
             );
             previous_end = span.end;
         }
-        // `render_expected` cuts runs at line breaks; it must never need to.
+        // `render_expected` cuts runs at line breaks. It must never have a reason to do this.
         for (span, class) in &classes {
             assert!(
                 !source[span.start..span.end].contains('\n'),
@@ -440,15 +443,15 @@ fn spec_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// The tree-sitter grammar and its `highlights.scm`, which Zed, Helix, Neovim
-/// and Emacs all read.
+/// The tree-sitter grammar and its `highlights.scm`. Zed, Helix, Neovim and
+/// Emacs all read them.
 ///
-/// The grammar is generated and compiled in a scratch copy, because
-/// `editors/tree-sitter-piton/src` is generated output the repository does not
-/// keep, and the query is run by the CLI. A capture paints its node; a node
-/// inside another captured node paints over it, which is what every editor
-/// does with nested captures. Two captures on one node are a failure on their
-/// own, because which one wins differs between Neovim and tree-sitter-highlight.
+/// The test generates and compiles the grammar in a scratch copy, because
+/// `editors/tree-sitter-piton/src` is generated output. The repository does not
+/// keep that output. The CLI runs the query. A capture paints its node. A node
+/// in a different captured node paints over that node. Every editor does this
+/// with nested captures. Two captures on one node are a failure. The reason is
+/// that Neovim and tree-sitter-highlight select different winners.
 #[test]
 fn tree_sitter() {
     if !have("tree-sitter", "--version") {
@@ -477,12 +480,12 @@ fn tree_sitter() {
 
         let mut captures: Vec<(usize, usize, String)> = Vec::new();
         for line in output.lines() {
-            // With `--captures` each line starts `pattern: N, capture: ...`.
+            // With `--captures`, each line starts with `pattern: N, capture: ...`.
             let Some((_, rest)) = line.split_once("capture: ") else {
                 continue;
             };
-            // `capture: 3 - keyword, start: (0, 0), end: (0, 3), text: ...`,
-            // where the index is left out for some captures.
+            // `capture: 3 - keyword, start: (0, 0), end: (0, 3), text: ...`.
+            // Some captures do not show the index.
             let rest = match rest.split_once(" - ") {
                 Some((index, rest)) if index.bytes().all(|b| b.is_ascii_digit()) => rest,
                 _ => rest,
@@ -511,7 +514,7 @@ fn tree_sitter() {
             }
         }
 
-        // Outer nodes first, so that an inner capture paints over them.
+        // Outer nodes go first. Thus an inner capture paints over them.
         captures.sort_by_key(|(start, end, _)| std::cmp::Reverse(end - start));
         let mut painting: Painting = vec![None; fixture.source.len()];
         for (start, end, name) in captures {
@@ -525,7 +528,7 @@ fn tree_sitter() {
     compare("tree-sitter", &paintings);
 }
 
-/// The TextMate grammar, through VS Code's own engine.
+/// The TextMate grammar, through the engine of VS Code.
 #[test]
 fn textmate() {
     let vscode = editors().join("vscode");
@@ -566,9 +569,9 @@ fn textmate() {
 
 /// The innermost scope in a stack that is exactly a canonical name.
 ///
-/// Exactly, not by prefix: `string.unquoted.verbatim.piton` must not be read as
-/// a quoted string, and a scope the table does not name is plain text however
-/// it is spelled.
+/// The match must be exact, not a prefix. Thus `string.unquoted.verbatim.piton`
+/// is not a quoted string. A scope that the table does not name is plain text,
+/// whatever its spelling.
 fn innermost<S: AsRef<str>>(scopes: &[S], names: &HashMap<String, Class>) -> Option<Class> {
     scopes
         .iter()
@@ -589,9 +592,10 @@ fn utf16_to_byte(text: &str, units: usize) -> usize {
 
 /// The Sublime syntax, through `syntect`.
 ///
-/// syntect is a reimplementation of Sublime's engine, not Sublime itself, so a
-/// place where the two differ is recorded as a gap rather than worked around in
-/// the definition. It needs no tool installed, so this runner never skips.
+/// syntect is a new implementation of the Sublime engine. It is not Sublime.
+/// Where the two are different, `gaps.toml` records a gap. The definition does
+/// not contain a workaround. syntect needs no installed tool. Thus this runner
+/// always runs.
 #[test]
 fn sublime() {
     use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxSetBuilder};
@@ -603,8 +607,8 @@ fn sublime() {
         SyntaxDefinition::load_from_str(&text, true, Some("Piton"))
             .unwrap_or_else(|error| panic!("{} does not load: {error}", path.display())),
     );
-    // The fences embed JSON and YAML, which ship with Sublime rather than with
-    // this package. They are present here, and empty.
+    // The fences embed JSON and YAML. Sublime ships these syntaxes, but this
+    // package does not. Here they are present, and empty.
     for (name, scope) in [("JSON", "source.json"), ("YAML", "source.yaml")] {
         let stub = format!(
             "%YAML 1.2\n---\nname: {name}\nscope: {scope}\ncontexts:\n  main: []\n"
@@ -627,8 +631,8 @@ fn sublime() {
         let mut stack = ScopeStack::new();
         let mut painting: Painting = vec![None; fixture.source.len()];
         let mut line_start = 0;
-        // Sublime feeds each line with its newline, which `$` and `\n` in a
-        // pattern rely on.
+        // Sublime gives each line with its newline. The `$` and `\n` in a pattern
+        // need that newline.
         for line in fixture.source.split_inclusive('\n') {
             let ops = state
                 .parse_line(line, &set)
@@ -663,9 +667,9 @@ fn sublime() {
 
 /// The Vim syntax file, in Vim.
 ///
-/// `dump.vim` asks Vim for the effective syntax group of every byte, which is
-/// the group a colour scheme styles: the innermost item, with transparent ones
-/// seen through, and a region's `matchgroup` on its delimiters.
+/// `dump.vim` asks Vim for the effective syntax group of each byte. A colour
+/// scheme gives a style to that group. It is the innermost item, but Vim looks
+/// through transparent items. On its delimiters, a region uses its `matchgroup`.
 #[test]
 fn vim() {
     if !have("vim", "--version") {
@@ -718,11 +722,12 @@ qall!
     compare("vim", &paintings);
 }
 
-/// The Kate definition, through KSyntaxHighlighting's command-line highlighter.
+/// The Kate definition, through the command-line highlighter of
+/// KSyntaxHighlighting.
 ///
-/// `--syntax-trace=format` writes, under every line, a `|` where each format
-/// starts and the format's name beneath it. That is read back into a format
-/// name per character.
+/// `--syntax-trace=format` writes a row under each line. The row has a `|`
+/// where each format starts, and the name of the format below it. The test
+/// reads that back into a format name for each character.
 #[test]
 fn kate() {
     if !have("ksyntaxhighlighter6", "--version") {
@@ -778,13 +783,14 @@ fn strip_ansi(text: &str) -> String {
     out
 }
 
-/// The class of every character of every source line, from the trace.
+/// The class of each character of each source line, from the trace.
 ///
-/// Each source line is followed by a marker row -- a `|` at the column where
-/// each format begins -- and then label rows. A label starts at the column of
-/// the marker it names; a marker whose label did not fit on a row stays a `|`
-/// there and is named on a later one. Names can contain spaces (`List Marker`),
-/// so a label is matched against the known names first.
+/// After each source line, there is a marker row and then label rows. The
+/// marker row has a `|` at the column where each format starts. A label starts
+/// at the column of the marker that it names. Sometimes a label does not fit
+/// on a row. Then its marker stays a `|` there, and a later row names it.
+/// Names can contain spaces (`List Marker`). Thus the code matches a label
+/// against the known names first.
 fn read_kate_trace(
     source: &str,
     trace: &str,
@@ -804,8 +810,8 @@ fn read_kate_trace(
             out.push(classes);
             continue;
         }
-        // The source line itself. An empty line still has a marker and a
-        // label below it, for the format its line break is in.
+        // The source line itself. An empty line also has a marker and a label
+        // below it, for the format that contains its line break.
         row += 1;
         let markers: Vec<usize> = rows
             .get(row)
@@ -822,8 +828,8 @@ fn read_kate_trace(
         let mut labels: BTreeMap<usize, String> = BTreeMap::new();
         while labels.len() < markers.len() && row < rows.len() {
             let label_row = &rows[row];
-            // A label is written over the markers it is wider than, so a
-            // column inside the previous label on this row starts nothing.
+            // A label covers the markers in its width. Thus a column in the previous
+            // label on this row starts no format.
             let mut covered = 0;
             for &column in &markers {
                 if labels.contains_key(&column) || column < covered {

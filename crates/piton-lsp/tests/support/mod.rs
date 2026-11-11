@@ -9,9 +9,9 @@
 //!     title: $0Hi
 //! ```
 //!
-//! Each `//- /path` line starts a file. The file holding `$0` is opened as a
-//! buffer, the way an editor would have it, with the marker taken out; the
-//! marker is the cursor every position-taking helper uses.
+//! Each `//- /path` line starts a file. The file that holds `$0` opens as a
+//! buffer, as in an editor, without the marker. The marker is the cursor for
+//! all helpers that take a position.
 
 #![allow(dead_code)]
 
@@ -24,14 +24,14 @@ use piton_lsp::world::{ClientCaps, World};
 use piton_lsp::{TOKEN_MODIFIERS, TOKEN_TYPES};
 use tower_lsp::lsp_types::*;
 
-/// The configuration most workspaces need: sources under `spec/`, entered at
-/// `spec/index.pi`.
+/// The configuration that most workspaces need. The sources are below `spec/`,
+/// and the entry is `spec/index.pi`.
 pub const CONFIG: &str = "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n";
 
 pub struct Workspace {
     pub dir: PathBuf,
     pub world: World,
-    /// The file holding the cursor, relative to `dir`.
+    /// The file that holds the cursor, relative to `dir`.
     pub file: String,
     pub offset: usize,
 }
@@ -122,7 +122,7 @@ impl Workspace {
         offset_to_position(&text, offset + delta)
     }
 
-    /// The text a range covers in a file.
+    /// The text that a range covers in a file.
     pub fn slice(&self, relative: &str, range: Range) -> String {
         let text = self.text(relative);
         let start = position_to_offset(&text, range.start);
@@ -130,7 +130,7 @@ impl Workspace {
         text[start..end].to_string()
     }
 
-    /// `file:line` of a location, the line counted from 1.
+    /// `file:line` of a location. The line count starts at 1.
     pub fn place(&self, location: &Location) -> String {
         let path = location.uri.to_file_path().expect("a file");
         format!(
@@ -144,7 +144,7 @@ impl Workspace {
         features::hover(&self.world, &self.uri(&self.file), self.position())
     }
 
-    /// The hover's Markdown and the text its range covers.
+    /// The Markdown of the hover and the text that its range covers.
     pub fn hover_text(&self) -> Option<(String, String)> {
         let hover = self.hover()?;
         let HoverContents::Markup(markup) = hover.contents else {
@@ -171,7 +171,7 @@ impl Workspace {
         labels
     }
 
-    /// Every semantic token of a file: line and column (0-based, UTF-16), the
+    /// All semantic tokens of a file: line and column (0-based, UTF-16), the
     /// text, the type and the modifiers.
     pub fn tokens(&self, relative: &str) -> Vec<(u32, u32, String, String, Vec<String>)> {
         let Some(SemanticTokensResult::Tokens(tokens)) =
@@ -220,7 +220,7 @@ impl Workspace {
     }
 }
 
-/// An inlay hint's label as one string.
+/// The label of an inlay hint as one string.
 pub fn hint_label(hint: &InlayHint) -> String {
     match &hint.label {
         InlayHintLabel::String(text) => text.clone(),
@@ -228,7 +228,7 @@ pub fn hint_label(hint: &InlayHint) -> String {
     }
 }
 
-/// Applies edits to a text, back to front.
+/// Applies edits to a text, from the back to the front.
 pub fn apply(text: &str, edits: &[TextEdit]) -> String {
     let mut sorted: Vec<&TextEdit> = edits.iter().collect();
     sorted.sort_by_key(|edit| (edit.range.start.line, edit.range.start.character));
@@ -241,8 +241,8 @@ pub fn apply(text: &str, edits: &[TextEdit]) -> String {
     out
 }
 
-/// The edits a workspace edit makes, per file relative to `dir`, whichever
-/// form it came in.
+/// The edits that a workspace edit makes, for each file relative to `dir`, in
+/// all forms of the edit.
 pub fn edits_by_file(dir: &Path, edit: &WorkspaceEdit) -> Vec<(String, Vec<TextEdit>)> {
     let relative = |uri: &Url| {
         let path = uri.to_file_path().expect("a file");

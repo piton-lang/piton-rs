@@ -1,16 +1,16 @@
-//! Running a plugin's command in QuickJS.
+//! This module runs the command of a plugin in QuickJS.
 //!
-//! One runtime runs one command. The plugin's modules are loaded through a
-//! loader that only knows `@piton/plugin` and the plugin's own files, each
-//! transpiled from TypeScript as it is imported. The plugin reaches the
-//! machine through one host function, `__piton`, and every operation is
-//! checked against the capabilities its declaration lists.
+//! One runtime runs one command. A loader loads the modules of the plugin.
+//! The loader knows only `@piton/plugin` and the files of the plugin. It
+//! transpiles each file from TypeScript at import. The plugin gets access to
+//! the machine through one host function, `__piton`. The host checks each
+//! operation against the capabilities in the declaration.
 //!
-//! JavaScript runs on this thread only. What a plugin waits for, a process's
-//! output or a timer, is gathered by threads or deadlines and handed back
-//! here, where the event loop resolves the promise that was waiting for it.
-//! So a plugin running eight processes at once is eight pending promises, not
-//! eight threads of JavaScript.
+//! JavaScript runs only on this thread. A plugin can wait for the output of a
+//! process or for a timer. Threads or deadlines collect these results and
+//! give them to this thread. Then the event loop resolves the promise that
+//! waits. Thus a plugin with eight processes at the same time has eight
+//! promises that wait. It does not have eight threads of JavaScript.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -30,54 +30,87 @@ use serde_json::{json, Value as Json};
 use crate::manifest::{is_declaration, load_order, placeholder_marker, Manifest, Source};
 use crate::transpile::transpile;
 
-/// The API module plugins import, embedded.
+/// The embedded API module that plugins import.
 const API: &str = include_str!("../api/index.ts");
-/// The name plugins import it by.
+/// The name that plugins use to import the API module.
 const API_MODULE: &str = "@piton/plugin";
 
-/// Where text a plugin writes goes.
+/// The destination of the text that a plugin writes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Stream {
     Stdout,
     Stderr,
 }
 
-/// What the CLI provides that the plugin host can't decide by itself: how
-/// output looks, how problems are reported, and how a slice is printed.
-/// Everything else is the host's own.
+/// The services that the CLI gives and the plugin host cannot decide itself.
+/// They are the look of output, the report of problems, and the print of a
+/// slice. The host owns all other behaviour.
 pub trait Services {
     fn project(&self) -> &Project;
-    /// Writes text, removing colour where it isn't shown.
+    /// Writes text. It removes colour where the output cannot show colour.
     fn write(&self, stream: Stream, text: &str);
-    /// Text in a named style.
+    /// Gives text in a named style.
     fn paint(&self, style: &str, text: &str) -> String;
-    /// A problem or outcome without a location: `error`, `warning`, `help`,
-    /// `note`, `done` or `stopped`.
+    /// Reports a problem or result without a location. The kind is `error`,
+    /// `warning`, `help`, `note`, `done` or `stopped`.
     fn report(&self, kind: &str, message: &str);
-    /// A problem with a location, shown with the source it points at.
+    /// Reports a problem with a location. It shows the source at that
+    /// location.
     fn diagnostic(&self, diagnostic: Diagnostic);
-    /// Reports a compilation's diagnostics, returning whether any are errors.
+    /// Reports the diagnostics of a compilation. Returns true if one or more
+    /// are errors.
     fn compilation_diagnostics(&self, compilation: &Compilation) -> bool;
-    /// Prints the slice of `target` from `compilation`, citing where `links`
-    /// says each anchor was compiled instead of the source, and returns the
+    /// Prints the slice of `target` from `compilation`. For each anchor, it
+    /// cites the compiled location from `links`, not the source. Returns the
     /// exit code.
     fn slice(&self, compilation: &Compilation, target: &str, links: &dyn piton_emit::markdown::LinkResolver) -> u8;
-    /// Asks the user to choose one of `options` on the terminal, returning
-    /// the index chosen, or None when they cancel. Only called when stdin and
-    /// stdout are terminals. Without a way to ask, there is no choice.
+    /// Asks the user to choose one of `options` on the terminal. Returns the
+    /// chosen index, or None when the user cancels. The host calls it only
+    /// when stdin and stdout are terminals. If the host cannot ask, there is
+    /// no choice.
     fn choose(&self, _message: &str, _options: &[String]) -> Option<usize> {
         None
     }
+    /// Asks the user to type an answer on the terminal. Returns the answer,
+    /// or None when the user cancels. The host calls it only when stdin and
+    /// stdout are terminals.
+    fn ask(&self, _message: &str, _help: Option<&str>) -> Option<String> {
+        None
+    }
+    /// Asks the user to select items of `options` on the terminal. At the
+    /// start, `defaults` gives the selected items. The user must select
+    /// `minimum` items or more. Returns the selected indexes, or None when
+    /// the user cancels. The host calls it only when stdin and stdout are
+    /// terminals.
+    fn choose_many(&self, _message: &str, _options: &[String], _defaults: &[usize], _minimum: usize) -> Option<Vec<usize>> {
+        None
+    }
+    /// Writes the files of a new project into `directory`. Each file is a
+    /// path relative to `directory` and its contents. Prints each written
+    /// path. If a file exists, it writes nothing. Then the error holds the
+    /// files that exist.
+    fn scaffold(&self, _directory: &Path, _files: &[(String, String)]) -> Result<Result<(), Vec<String>>, String> {
+        Err("this host cannot start projects".to_string())
+    }
+    /// Tethers the dependencies of the project in `directory` and returns
+    /// the result. It is `none` when the project has no dependencies or no
+    /// configuration. It is `pending` when the project has dependencies and
+    /// the caller sets `check`. Else it is `installed` or `failed`. A configuration
+    /// with errors gives a report and `failed`.
+    fn tether(&self, _directory: &Path, _check: bool) -> String {
+        "failed".to_string()
+    }
 }
 
-/// How a command ended, when it didn't return an exit code.
+/// The reason that a command stopped without an exit code.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Failure {
-    /// The runtime couldn't be set up, or the plugin's code didn't load.
+    /// The host could not make the runtime, or the code of the plugin did not
+    /// load.
     Load(String),
-    /// The plugin's code threw.
+    /// The code of the plugin threw an exception.
     Threw(String),
-    /// The plugin waited for something that can never happen.
+    /// The plugin waited for an event that can never occur.
     Stalled,
 }
 
@@ -91,7 +124,7 @@ impl std::fmt::Display for Failure {
     }
 }
 
-/// What a process's reader threads send back.
+/// The messages that the reader threads of a process send.
 enum Event {
     Line(u64, Stream, String),
     Closed(u64),
@@ -102,9 +135,9 @@ type Waiter = Persistent<Function<'static>>;
 struct Process {
     child: Child,
     lines: VecDeque<(Stream, String)>,
-    /// How many of its two streams are still open.
+    /// The number of its two streams that are open.
     open: u8,
-    /// Its exit code, once it has exited; the inner None is a signal.
+    /// Its exit code, after it exits. The inner None means a signal.
     exit: Option<Option<i32>>,
     next_waiters: VecDeque<Waiter>,
     wait_waiters: Vec<Waiter>,
@@ -121,30 +154,31 @@ struct State {
 }
 
 struct Host {
-    /// Every plugin loaded into this runtime: the one invoked and what it
-    /// requires.
+    /// All plugins in this runtime. They are the invoked plugin and its
+    /// requirements.
     plugins: Vec<Manifest>,
     services: Rc<dyn Services>,
     state: RefCell<State>,
     sender: Sender<Event>,
 }
 
-/// What a run asks of its plugin.
+/// The request of a run to its plugin.
 #[derive(Debug, Clone)]
 pub enum Invocation {
-    /// One of its commands, with its arguments by name.
+    /// One of its commands, with the arguments by name.
     Command { name: String, arguments: Json },
-    /// Its build: the plan of what it would write.
+    /// Its build. It gives the plan of the files that it wants to write.
     Build,
-    /// Its inspect hook: what it finds out of date in the project.
+    /// Its inspect hook. It gives the parts of the project that are out of
+    /// date.
     Inspect,
-    /// Its reach hook: the anchors it reaches itself.
+    /// Its reach hook. It gives the anchors that it reaches itself.
     Reach,
 }
 
-/// Runs one of a plugin's commands with its arguments, returning the exit
-/// code it chose. `plugins` is every plugin the project has; the ones `main`
-/// requires are loaded with it.
+/// Runs a command of a plugin with its arguments. Returns the exit code
+/// from the plugin. `plugins` holds all plugins of the project. The host also
+/// loads the plugins that `main` requires.
 pub fn run_command(
     plugins: &[Manifest],
     main: &str,
@@ -161,23 +195,24 @@ pub fn run_command(
     Ok(value.as_f64().unwrap_or(0.0).clamp(0.0, 255.0) as u8)
 }
 
-/// Runs a plugin's inspect hook, returning its findings, as JSON.
+/// Runs the inspect hook of a plugin. Returns its findings as JSON.
 pub fn run_inspect(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
     run(plugins, main, Invocation::Inspect, services)
 }
 
-/// Runs a plugin's reach hook, returning the anchors it reaches, as JSON.
+/// Runs the reach hook of a plugin. Returns the anchors that it reaches, as
+/// JSON.
 pub fn run_reach(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
     run(plugins, main, Invocation::Reach, services)
 }
 
-/// Runs a plugin's build, returning the plan it made, as JSON.
+/// Runs the build of a plugin. Returns its plan as JSON.
 pub fn run_build(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
     run(plugins, main, Invocation::Build, services)
 }
 
-/// Runs a plugin in a runtime of its own, with what it requires, and returns
-/// what its handler resolved to.
+/// Runs a plugin and its requirements in a separate runtime. Returns the
+/// value that its handler resolved to.
 pub fn run(
     plugins: &[Manifest],
     main: &str,
@@ -210,8 +245,8 @@ pub fn run(
     let result = start(&context, &host, &order, main, &invocation)
         .and_then(|()| event_loop(&runtime, &context, &host, &receiver));
 
-    // Whatever happened, nothing the command started outlives it, and every
-    // handle into the runtime is let go before the runtime is.
+    // In all cases, all things that the command started stop with it. The
+    // host releases each handle into the runtime before the runtime.
     host.shutdown();
     context.with(|ctx| {
         let _ = ctx.globals().remove("__piton");
@@ -220,8 +255,8 @@ pub fn run(
 }
 
 /// Installs the host function and starts the run. The API module takes the
-/// host function for itself before any plugin's code is imported, so a
-/// plugin only ever reaches the host through its own context.
+/// host function before the import of plugin code. Thus a plugin can get
+/// access to the host only through its own context.
 fn start(
     context: &Context,
     host: &Rc<Host>,
@@ -265,7 +300,7 @@ fn start(
     })
 }
 
-/// Runs jobs and delivers events until the command has finished.
+/// Runs jobs and delivers events until the command is complete.
 fn event_loop(
     runtime: &Runtime,
     context: &Context,
@@ -305,8 +340,8 @@ fn event_loop(
         match receiver.recv_timeout(timeout) {
             Ok(event) => {
                 host.accept(event);
-                // Take everything else already waiting, so a burst of output
-                // is delivered in one pass.
+                // Take all other events that wait. Thus a burst of output
+                // arrives in one pass.
                 while let Ok(event) = receiver.try_recv() {
                     host.accept(event);
                 }
@@ -316,7 +351,7 @@ fn event_loop(
     }
 }
 
-/// The run's outcome, once its promise has settled.
+/// The result of the run, after its promise settles.
 fn finished(ctx: &Ctx<'_>) -> Option<Result<Json, Failure>> {
     let done: Object = ctx.globals().get("__piton_done").ok()?;
     if let Ok(value) = done.get::<_, String>("value") {
@@ -326,7 +361,7 @@ fn finished(ctx: &Ctx<'_>) -> Option<Result<Json, Failure>> {
     Some(Err(Failure::Threw(error.trim_end().to_string())))
 }
 
-/// The text of the exception being thrown, with its stack when it has one.
+/// The text of the current exception, with its stack when it has one.
 fn exception_text(ctx: &Ctx<'_>, error: Error) -> String {
     if !matches!(error, Error::Exception) {
         return error.to_string();
@@ -363,7 +398,7 @@ fn install<'js>(ctx: &Ctx<'js>, host: Rc<Host>) -> rquickjs::Result<()> {
     ctx.globals().set("__piton", function)
 }
 
-/// What an operation returns: data now, or a promise for later.
+/// The result of an operation. It is data now, or a promise for later.
 enum Reply<'js> {
     Json(Json),
     Promise(Value<'js>),
@@ -653,6 +688,7 @@ impl Host {
                     Some(cwd) => self.inside_project(cwd)?,
                     None => self.project().root.clone(),
                 };
+                check_sizes(&program, &args, field(payload, "env"))?;
                 let mut command = Command::new(&program);
                 command.args(&args).current_dir(cwd);
                 if let Some(env) = field(payload, "env").as_object() {
@@ -660,8 +696,8 @@ impl Host {
                         command.env(key, value.as_str().unwrap_or(""));
                     }
                 }
-                // The program has the terminal: its input, its output, and
-                // its prompts are the user's, and the plugin waits for it.
+                // The program has the terminal. The user sees its output and
+                // prompts and gives its input. The plugin waits for it.
                 let status = command.status().map_err(|error| {
                     if error.kind() == std::io::ErrorKind::NotFound {
                         format!("`{program}` is not on PATH")
@@ -687,12 +723,85 @@ impl Host {
                     .as_array()
                     .map(|items| items.iter().map(|item| item.as_str().unwrap_or("").to_string()).collect())
                     .unwrap_or_default();
-                // A menu needs someone at a terminal to answer it.
+                // A menu needs a person at a terminal to answer it.
                 if options.is_empty() || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
                     Json::Null
                 } else {
                     json!(self.services.choose(&message, &options).filter(|index| *index < options.len()))
                 }
+            }
+            "resources" => {
+                let directory = text_field(payload, "path")?;
+                json!(manifest.source.list(directory.trim_start_matches("./")))
+            }
+            "format" => {
+                let source = text_field(payload, "source")?;
+                let path = field(payload, "path").as_str().unwrap_or("index.pi");
+                json!(piton_syntax::format::format(&source, Path::new(path)))
+            }
+            "ask" => {
+                if !manifest.capabilities.interactive {
+                    return Err(Self::refuse(manifest, "ask the user", "interactive"));
+                }
+                let message = text_field(payload, "message")?;
+                let help = field(payload, "help").as_str();
+                if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                    Json::Null
+                } else {
+                    json!(self.services.ask(&message, help))
+                }
+            }
+            "chooseMany" => {
+                if !manifest.capabilities.interactive {
+                    return Err(Self::refuse(manifest, "ask the user to choose", "interactive"));
+                }
+                let message = text_field(payload, "message")?;
+                let options: Vec<String> = field(payload, "options")
+                    .as_array()
+                    .map(|items| items.iter().map(|item| item.as_str().unwrap_or("").to_string()).collect())
+                    .unwrap_or_default();
+                let defaults: Vec<usize> = field(payload, "defaults")
+                    .as_array()
+                    .map(|items| items.iter().filter_map(Json::as_u64).map(|index| index as usize).filter(|index| *index < options.len()).collect())
+                    .unwrap_or_default();
+                let minimum = field(payload, "minimum").as_u64().unwrap_or(0) as usize;
+                if options.is_empty() || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                    Json::Null
+                } else {
+                    json!(self
+                        .services
+                        .choose_many(&message, &options, &defaults, minimum)
+                        .map(|chosen| chosen.into_iter().filter(|index| *index < options.len()).collect::<Vec<_>>()))
+                }
+            }
+            "scaffold" => {
+                if !manifest.capabilities.scaffold {
+                    return Err(Self::refuse(manifest, "start a project", "scaffold"));
+                }
+                let directory = scaffold_directory(&text_field(payload, "directory")?);
+                let mut files = Vec::new();
+                for file in field(payload, "files").as_array().ok_or("`files` has to be a list")? {
+                    let path = text_field(file, "path")?;
+                    if path.is_empty()
+                        || path.starts_with('/')
+                        || path.split(['/', '\\']).any(|part| part == "..")
+                    {
+                        return Err(format!("`{path}` has to be a path inside the new project"));
+                    }
+                    files.push((path, text_field(file, "contents")?));
+                }
+                match self.services.scaffold(&directory, &files)? {
+                    Ok(()) => json!({ "existing": [] }),
+                    Err(existing) => json!({ "existing": existing }),
+                }
+            }
+            "tether" => {
+                if !manifest.capabilities.scaffold {
+                    return Err(Self::refuse(manifest, "tether a new project's dependencies", "scaffold"));
+                }
+                let directory = scaffold_directory(&text_field(payload, "directory")?);
+                let check = field(payload, "check").as_bool().unwrap_or(false);
+                json!(self.services.tether(&directory, check))
             }
             "resource" => {
                 let path = text_field(payload, "path")?;
@@ -716,7 +825,8 @@ impl Host {
         Ok(Reply::Json(reply))
     }
 
-    /// A new promise, and the function that resolves it, kept until then.
+    /// A new promise, and the function that resolves it. The host keeps the
+    /// function until that time.
     fn promise<'js>(&self, ctx: &Ctx<'js>) -> Result<(Value<'js>, Waiter), String> {
         let (promise, resolve, _reject) = ctx.promise().map_err(|error| error.to_string())?;
         Ok((promise.into_value(), Persistent::save(ctx, resolve)))
@@ -729,7 +839,8 @@ impl Host {
             .ok_or_else(|| "no compilation has that handle".to_string())
     }
 
-    /// The project's settings anchor for this plugin, if it lists one.
+    /// The settings anchor of the project for this plugin, if the project
+    /// lists one.
     fn settings(&self, manifest: &Manifest) -> Result<Json, String> {
         let Some(settings) = &manifest.settings else {
             return Ok(Json::Null);
@@ -768,7 +879,7 @@ impl Host {
         }))
     }
 
-    /// The anchors a query matches, ordered by file, then name.
+    /// The anchors that a query matches, in the order of file, then name.
     fn anchors(&self, compilation: &Compilation, query: &Json) -> Json {
         let store = compilation.store();
         let base = match field(query, "extends") {
@@ -778,7 +889,7 @@ impl Host {
                 let name = extends.get("name").and_then(Json::as_str).unwrap_or("");
                 match self.lookup(compilation, module, name) {
                     Some(base) => Some(base),
-                    // Nothing loaded the module, so nothing can extend it.
+                    // No code loaded the module. Thus no anchor can extend it.
                     None => return json!([]),
                 }
             }
@@ -827,8 +938,8 @@ impl Host {
         Json::Array(found.into_iter().map(|(_, _, record)| record).collect())
     }
 
-    /// An exported anchor of a module: a bundled package by its path, or an
-    /// installed package by its name.
+    /// An exported anchor of a module. A bundled package uses its path. An
+    /// installed package uses its name.
     fn lookup(&self, compilation: &Compilation, module: &str, name: &str) -> Option<AnchorId> {
         let path = if module.starts_with('@') {
             PathBuf::from(module)
@@ -882,7 +993,7 @@ impl Host {
         Ok(())
     }
 
-    /// A path a plugin named, which has to be inside the project.
+    /// A path that a plugin named. The path must be in the project.
     fn inside_project(&self, path: &str) -> Result<PathBuf, String> {
         let root = &self.project().root;
         let joined = piton_compile::module::normalize(&root.join(path));
@@ -905,6 +1016,7 @@ impl Host {
             Some(cwd) => self.inside_project(cwd)?,
             None => self.project().root.clone(),
         };
+        check_sizes(&program, &args, field(payload, "env"))?;
         let mut command = Command::new(&program);
         command
             .args(&args)
@@ -971,7 +1083,7 @@ impl Host {
         Ok(id)
     }
 
-    /// Takes in what a reader thread sent.
+    /// Accepts the message from a reader thread.
     fn accept(&self, event: Event) {
         let mut state = self.state.borrow_mut();
         match event {
@@ -983,8 +1095,8 @@ impl Host {
             Event::Closed(id) => {
                 if let Some(process) = state.processes.get_mut(&id) {
                     process.open = process.open.saturating_sub(1);
-                    // Both streams are closed, so the process is done
-                    // writing; waiting for it now won't block for long.
+                    // The process closed both streams. Thus it wrote all
+                    // its output. A wait for it now will not block for long.
                     if process.open == 0 {
                         process.exit = Some(process.child.wait().ok().and_then(|status| status.code()));
                     }
@@ -993,8 +1105,8 @@ impl Host {
         }
     }
 
-    /// Resolves every promise whose answer has arrived, returning whether it
-    /// resolved any.
+    /// Resolves each promise that has its answer. Returns true if it resolved
+    /// one or more.
     fn deliver(&self, ctx: &Ctx<'_>) -> rquickjs::Result<bool> {
         let mut ready: Vec<(Waiter, String)> = Vec::new();
         {
@@ -1024,8 +1136,8 @@ impl Host {
             state.timers = waiting;
             ready.extend(due.into_iter().map(|(_, waiter)| (waiter, "null".to_string())));
         }
-        // The state is released first: resolving runs no JavaScript yet, but
-        // a resolved function may call back into the host.
+        // The host releases the state first. The resolve step runs no
+        // JavaScript yet. But a resolved function can call the host again.
         let delivered = !ready.is_empty();
         for (waiter, answer) in ready {
             let resolve = waiter.restore(ctx)?;
@@ -1047,7 +1159,8 @@ impl Host {
         self.state.borrow().timers.iter().map(|(deadline, _)| *deadline).min()
     }
 
-    /// Stops what the command started and lets go of the runtime's values.
+    /// Stops all that the command started. Releases the values of the
+    /// runtime.
     fn shutdown(&self) {
         let mut state = self.state.borrow_mut();
         for process in state.processes.values_mut() {
@@ -1068,7 +1181,7 @@ impl Host {
     }
 }
 
-/// The anchor a payload's `id` names.
+/// The anchor that the `id` of a payload names.
 fn anchor_of(compilation: &Compilation, payload: &Json) -> Result<AnchorId, String> {
     let id = field(payload, "id").as_u64().ok_or("`id` has to be an anchor's id")?;
     if id as usize >= compilation.store().anchors.len() {
@@ -1081,9 +1194,10 @@ fn location(file: &Path, span: Span) -> Json {
     json!({ "file": file, "start": span.start, "end": span.end })
 }
 
-/// Every file under a directory, recursively, as paths relative to it with
-/// forward slashes, in order, with whether each is executable and whether it
-/// is a symbolic link, which is never followed.
+/// All files below a directory, in order. Each path is relative to the
+/// directory and uses forward slashes. Each entry tells if the file is
+/// executable. It also tells if the file is a symbolic link. This function
+/// never follows a symbolic link.
 fn list_files(directory: &Path) -> Result<Vec<Json>, String> {
     let mut found = Vec::new();
     let mut stack = vec![directory.to_path_buf()];
@@ -1121,7 +1235,49 @@ fn list_files(directory: &Path) -> Result<Vec<Json>, String> {
         .collect())
 }
 
-/// Whether `program` can be found on PATH.
+/// The largest argument or environment string that Linux accepts, in bytes.
+/// The kernel calls this limit MAX_ARG_STRLEN.
+const MAX_ARGUMENT: usize = 32 * 4096;
+
+/// Refuses an argument or an environment value that is too large for the
+/// system. Without this check, the start fails with "Argument list
+/// too long", and the message does not tell which argument.
+fn check_sizes(program: &str, args: &[String], env: &Json) -> Result<(), String> {
+    if !cfg!(target_os = "linux") {
+        return Ok(());
+    }
+    for (index, arg) in args.iter().enumerate() {
+        if arg.len() >= MAX_ARGUMENT {
+            return Err(format!(
+                "cannot run `{program}`: argument {} is {} bytes, and the operating system accepts fewer than {MAX_ARGUMENT} bytes in one argument",
+                index + 1,
+                arg.len()
+            ));
+        }
+    }
+    for (key, value) in env.as_object().into_iter().flatten() {
+        let size = key.len() + 1 + value.as_str().map_or(0, str::len);
+        if size >= MAX_ARGUMENT {
+            return Err(format!(
+                "cannot run `{program}`: the environment variable `{key}` is {size} bytes, and the operating system accepts fewer than {MAX_ARGUMENT} bytes in one variable"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Returns the directory of a new project, as the user wrote it. The path is
+/// relative to the working directory. It is not relative to a parent
+/// project.
+fn scaffold_directory(directory: &str) -> PathBuf {
+    if directory.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(directory)
+    }
+}
+
+/// True if PATH contains `program`.
 pub fn on_path(program: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;
@@ -1136,12 +1292,14 @@ pub fn on_path(program: &str) -> bool {
     })
 }
 
-/// Resolves what a plugin imports: `@piton/plugin`, or a relative path to
-/// one of its own files, with `.ts`, `.js` or `/index.ts` tried after it.
+/// Resolves an import of a plugin. The import is `@piton/plugin`, or a
+/// relative path to a file of the plugin. The resolver also tries the path
+/// with `.ts`, `.js` or `/index.ts` added.
 ///
-/// Each plugin's modules are named under the plugin's name, like
-/// `test/src/tags.ts`, so two plugins in one runtime never share a module,
-/// and a path that leads out of a plugin's own directory is refused.
+/// The name of each module starts with the name of its plugin, for example
+/// `test/src/tags.ts`. Thus two plugins in one runtime never share a module.
+/// The resolver refuses a path that goes out of the directory of the
+/// plugin.
 struct PluginResolver {
     sources: HashMap<String, Source>,
 }
@@ -1162,7 +1320,7 @@ fn join(base: &str, name: &str) -> String {
     parts.join("/")
 }
 
-/// A module name split into its plugin and the path inside it.
+/// A module name, divided into its plugin and the path in that plugin.
 fn split(module: &str) -> Option<(&str, &str)> {
     module.split_once('/')
 }
@@ -1189,8 +1347,8 @@ impl Resolver for PluginResolver {
         let Some((plugin, _)) = split(&path) else {
             return Err(Error::new_resolving_message(base, name, "it is outside the plugin"));
         };
-        // Only the run's own bootstrap names a plugin; a plugin's code stays
-        // inside its own directory.
+        // Only the bootstrap of the run names a plugin. The code of a plugin
+        // stays in its own directory.
         if base != "<piton>" && split(base).map(|(owner, _)| owner) != Some(plugin) {
             return Err(Error::new_resolving_message(base, name, "it is outside the plugin"));
         }
@@ -1207,7 +1365,7 @@ impl Resolver for PluginResolver {
     }
 }
 
-/// Loads a resolved module, transpiling TypeScript as it goes.
+/// Loads a resolved module. It transpiles TypeScript during the load.
 struct PluginLoader {
     sources: HashMap<String, Source>,
 }
@@ -1245,7 +1403,7 @@ mod tests {
         assert_eq!(join("<piton>", "./test/src/index.ts"), "test/src/index.ts");
         assert_eq!(join("test/src/index.ts", "./tags"), "test/src/tags");
         assert_eq!(join("test/src/a/b.ts", "../c"), "test/src/c");
-        // Leaving the plugin's directory lands outside its name.
+        // A path out of the directory of the plugin goes out of its name.
         assert_eq!(split(&join("test/src/index.ts", "../../belay/src/x")), Some(("belay", "src/x")));
     }
 }

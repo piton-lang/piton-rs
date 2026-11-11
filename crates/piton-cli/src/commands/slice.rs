@@ -1,14 +1,15 @@
 //! `piton slice` — print the part of the specification one thing depends on.
 //!
-//! The target is `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name
-//! looked up across the project. The result is one Markdown document on
-//! stdout, meant to be handed to an agent as-is.
+//! The target is `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name.
+//! The command finds a bare name in the project. The result is one Markdown
+//! document on stdout. An agent gets this document as it is.
 //!
-//! A plugin can have the slice cite what it compiles rather than the source,
-//! like Belay's `piton belay slice --adapter`: it gives [`cite`] where each
-//! anchor was compiled, and the slice is found and printed here, the same way.
-//! The source is never cited then: whatever the slice reaches was compiled
-//! somewhere, if only into the documents of what extends or reads it.
+//! A plugin can make the slice cite its compiled output, not the source. An
+//! example is `piton belay slice --adapter` of Belay. The plugin gives
+//! [`cite`] the compiled location of each anchor. This module finds and prints
+//! the slice in the same way. Then the slice never cites the source. Each
+//! part that the slice reaches has a location in the compiled output. That location can
+//! be only the documents of the anchors that extend or read it.
 
 use piton_compile::slice::{self, Target};
 use piton_compile::Compilation;
@@ -30,9 +31,9 @@ pub fn run(target: &str) -> u8 {
 
     let (configured, _) = project::enclosing();
     let (compilation, entry) = match &target.file {
-        // The project's own build, so the chain from its entry can be traced;
-        // a file that build doesn't reach is compiled from itself instead,
-        // and has no chain.
+        // The build of the project. Thus the command can trace the chain from
+        // its entry. When that build does not reach a file, the file compiles
+        // from itself. That file has no chain.
         Some(file) => {
             let Some(path) = existing(file) else {
                 return EXIT_ERRORS;
@@ -47,13 +48,13 @@ pub fn run(target: &str) -> u8 {
                 None => (Compilation::build(configured.with_entry(&path)), Some(path)),
             }
         }
-        // A bare name could be declared anywhere, including a file nothing
-        // imports yet, so the whole source tree is compiled to look for it.
+        // Any file can declare a bare name, also a file that no file imports
+        // yet. Thus the command compiles the full source tree to find it.
         None => {
             let mut project = configured;
             if !project.entry.is_file() {
-                // Without a configuration there is no entry, and compiling
-                // the workspace only needs one to start from.
+                // Without a configuration, there is no entry. The compilation
+                // of the workspace needs only one entry to start.
                 match piton_compile::module::sources(&project.source_root).first() {
                     Some(first) => project = project.with_entry(first),
                     None => {
@@ -105,15 +106,16 @@ pub fn run(target: &str) -> u8 {
     EXIT_SUCCESS
 }
 
-/// The directory the command runs in, which every path printed is written
-/// relative to.
+/// The directory where the command runs. All printed paths are relative to
+/// this directory.
 fn here() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// A target's locations, which are relative to the project root, rewritten
-/// relative to where the command runs, so the reader can follow them from
-/// there: `../../.claude/reference/ui.md#color` from `spec/components`.
+/// The locations of a target, relative to the project root. This function
+/// makes them relative to the directory where the command runs. Thus the
+/// reader can follow them from that directory. An example is
+/// `../../.claude/reference/ui.md#color` from `spec/components`.
 struct Rebased<'a> {
     links: &'a dyn LinkResolver,
     root: &'a Path,
@@ -135,8 +137,8 @@ impl LinkResolver for Rebased<'_> {
     }
 }
 
-/// The module file `file` names, a directory standing for its index, or
-/// `None` once that has been reported.
+/// The module file that `file` names. A directory names its index. Returns
+/// `None` after it reports a problem.
 fn existing(file: &Path) -> Option<PathBuf> {
     let mut path = project::canonical_target(file);
     if path.is_dir() {
@@ -150,8 +152,8 @@ fn existing(file: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Prints a target that did not resolve, with the source line when the
-/// problem has one.
+/// Prints a target that did not resolve. When the problem has a source line,
+/// it prints that line too.
 fn fail(compilation: &Compilation, diagnostic: &Diagnostic) {
     let source = if diagnostic.span == Span::default() {
         None
@@ -164,9 +166,10 @@ fn fail(compilation: &Compilation, diagnostic: &Diagnostic) {
     );
 }
 
-/// Prints the slice of `target` from a compilation the caller made from the
-/// project's entry, the way a build compiles it, citing where `links` says
-/// each anchor was compiled. Returns the exit code.
+/// Prints the slice of `target` from a compilation of the caller. The caller
+/// compiled from the entry of the project, as a build does. For each anchor,
+/// the slice cites the compiled location that `links` gives. Returns the exit
+/// code.
 pub fn cite(compilation: &Compilation, target: &str, links: &dyn LinkResolver) -> u8 {
     let target = match Target::parse(target) {
         Ok(target) => target,
@@ -210,8 +213,9 @@ pub fn cite(compilation: &Compilation, target: &str, links: &dyn LinkResolver) -
         }
     };
 
-    // What the target depends on is compiled into whatever uses it, but the
-    // target itself has to be somewhere, or there is nothing to point at.
+    // The dependencies of the target compile into the anchors that use them.
+    // But the target must have a location. If not, the slice cannot refer to
+    // it.
     if let slice::Entity::Anchor(anchor) | slice::Entity::Property(anchor, _) = &entity {
         let def = compilation.store().anchor(*anchor);
         let target = piton_core::Ref::anchor(*anchor);

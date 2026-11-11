@@ -75,6 +75,10 @@ Starts a program the plugin may run, with arguments, and optionally a working di
 
 Runs a program the plugin may run with the terminal, so its input, output and prompts are the user's, and returns its exit code when it ends.
 
+### Argument Size
+
+spawn and exec refuse an argument or environment value too large for the operating system, which on Linux is 128 KiB or more, before the program starts. The error names which one and its size. A plugin that has more to pass writes it to a temporary file.
+
 ### Apply Edits
 
 Writes proposed edits, each a file in the project and its whole new contents, for a command the user ran to make them. Each path has to be among the edits the plugin's capabilities list. Returns the paths changed.
@@ -86,6 +90,30 @@ Asks the user to choose one item from a menu on the terminal, and gives the item
 ### Resource
 
 The text of a file in the plugin's own directory, like a prompt it ships with. No capability is needed: the files are the plugin's.
+
+### Resources
+
+Every file under a directory of the plugin's own, recursively, as paths relative to it with forward slashes, sorted, like the templates the init plugin ships with. No capability is needed.
+
+### Ask
+
+Asks the user to type an answer on the terminal, and gives the answer, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
+
+### Choose Many
+
+Asks the user to check any items of a list on the terminal, some checked to start with and at least a number of them, and gives the indexes checked, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
+
+### Format
+
+Piton source in the canonical format, as `piton format` writes it.
+
+### Scaffold
+
+Writes a new project's files into a directory named relative to where piton was run, never over a file, and prints each path written; when any file exists, writes none and gives the ones that exist. Needs the scaffold capability.
+
+### Tether
+
+Tethers the dependencies a new project's configuration declares, and says none, installed or failed; asked only to check, it says pending when there are some. Needs the scaffold capability.
 
 ### On Path
 

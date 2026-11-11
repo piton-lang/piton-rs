@@ -1,10 +1,10 @@
 //! Value evaluation.
 //!
-//! Piton has no runtime, so "evaluation" means folding a declaration down to the
-//! value an adapter will serialize. Values are produced lazily and memoized:
-//! anchors resolve by identity, so `${A}` inside `B` never forces `A`'s
-//! properties, which is what makes circular *references* legal while circular
-//! *values* stay an error.
+//! Piton has no runtime. Thus "evaluation" means to fold a declaration down to the
+//! value that an adapter will serialize. The evaluator makes values only when a read
+//! needs them, and keeps each value for the next read. Anchors resolve by identity.
+//! Thus `${A}` inside `B` does not force the properties of `A`. For this reason,
+//! circular *references* are legal, but circular *values* stay an error.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,11 +22,11 @@ use crate::module::ModuleId;
 use crate::resolve::Resolution;
 use crate::store::{Slot, Symbol, VariableId};
 
-/// Where an expression is being evaluated from.
+/// The location from which the evaluator evaluates an expression.
 #[derive(Debug, Clone, Copy)]
 struct Context {
     module: ModuleId,
-    /// The anchor whose body the expression is written in. `this` binds here.
+    /// The anchor whose body contains the expression. `this` binds here.
     this: Option<AnchorId>,
     /// The most derived anchor in the chain. `self` binds here.
     derived: Option<AnchorId>,
@@ -45,17 +45,17 @@ impl Context {
     }
 }
 
-/// A value together with how it was written.
+/// A value and the form in which the source wrote it.
 #[derive(Debug, Clone)]
 struct Evaluated {
     value: Value,
-    /// True for a string that is explicitly a string: a `"..."` inside an
-    /// expression, or the result of `${...}`. It never coerces to another type.
+    /// True for a string that is explicitly a string. This is a `"..."` inside an
+    /// expression, or the result of `${...}`. It never coerces to a different type.
     quoted: bool,
-    /// The source text of a literal, when the value was inferred from one.
+    /// The source text of a literal, if the evaluator inferred the value from one.
     ///
-    /// Coercing a literal keeps it exactly as written, so `x:: string: 1.0` is
-    /// "1.0" even though the number it was read as prints as `1`.
+    /// A coerced literal keeps its source text exactly. Thus `x:: string: 1.0` is
+    /// "1.0", but the number that the evaluator read prints as `1`.
     literal: Option<String>,
 }
 
@@ -77,7 +77,7 @@ impl Evaluated {
     }
 }
 
-/// A value evaluation can read: a property as seen from one anchor, or a
+/// A value that evaluation can read. This is a property as one anchor sees it, or a
 /// top-level variable.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Read {
@@ -85,13 +85,13 @@ pub enum Read {
     Variable(VariableId),
 }
 
-/// What each property and variable read while it was evaluated, in the order
-/// it read them.
+/// The properties and variables that each property and variable read during its
+/// evaluation, in the order of the reads.
 ///
-/// Evaluation folds `${Other.name}` into plain text, so once it is done the
-/// value no longer says where it came from. Tooling that has to know what a
-/// declaration depends on -- `piton slice` -- asks this instead of guessing
-/// from the result.
+/// Evaluation folds `${Other.name}` into plain text. After evaluation, the
+/// value does not show its origin. Some tools must know the dependencies of a
+/// declaration, for example `piton slice`. These tools use this record. They do not
+/// guess from the result.
 pub type Reads = HashMap<Read, IndexSet<Read>>;
 
 pub struct Outcome {
@@ -135,25 +135,25 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
 
 struct Evaluator<'a> {
     resolution: &'a Resolution,
-    /// Cache keyed by the derived anchor, because `self` changes what a property
-    /// evaluates to.
+    /// A cache with the derived anchor as its key. The reason is that `self` changes
+    /// the value of a property.
     properties: HashMap<(AnchorId, String), Value>,
     property_stack: Vec<(AnchorId, String)>,
     variables: HashMap<VariableId, Value>,
     variable_stack: Vec<VariableId>,
     anchors: HashMap<AnchorId, Properties>,
     reads: Reads,
-    /// What is being evaluated right now, innermost last, so a read can be
-    /// charged to whatever asked for it.
+    /// The items that the evaluator evaluates now, with the innermost item last. Thus
+    /// each read goes to the item that asked for it.
     frames: Vec<Read>,
-    /// Frame depths at which reads are not recorded, because they only
-    /// resolve where a reference points.
+    /// Frame depths at which the evaluator does not record reads. The reads at these
+    /// depths only find the target of a reference.
     muted: Vec<usize>,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> Evaluator<'a> {
-    /// Records that whatever is being evaluated read `read`.
+    /// Records that the current item read `read`.
     fn note(&mut self, read: Read) {
         if self.muted.last() == Some(&self.frames.len()) {
             return;
@@ -191,8 +191,8 @@ impl<'a> Evaluator<'a> {
             .collect();
         let mut properties = Properties::new();
         for name in names {
-            // An abstract slot declares a shape, not a value. It contributes
-            // ordering and a constraint, and nothing to the output.
+            // An abstract slot declares a shape, not a value. It gives an
+            // order and a constraint, but it adds no output.
             let declared = self
                 .resolution
                 .store
@@ -243,8 +243,8 @@ impl<'a> Evaluator<'a> {
             return Value::Null;
         };
         if !slot.has_value {
-            // Reading an unimplemented abstract slot is already reported where
-            // the concrete anchor is declared; do not pile a type error on top.
+            // The concrete anchor declaration already reports a read of an
+            // abstract slot without an implementation. Do not add a type error to it.
             return Value::Null;
         }
 
@@ -258,12 +258,12 @@ impl<'a> Evaluator<'a> {
         value
     }
 
-    /// Evaluates the declaration a slot points at, with `self` bound to
+    /// Evaluates the declaration of a slot, with `self` bound to
     /// `derived`.
     ///
-    /// This is usually the slot `derived` itself resolved to, but `super.x`
-    /// reads a base's declaration of `x` while `self` still means the anchor
-    /// the lookup started from, because `self` travels through inheritance.
+    /// Usually this is the slot to which `derived` resolved. But `super.x`
+    /// reads the declaration of `x` in a base, while `self` still means the start
+    /// anchor of the lookup. The reason is that `self` goes through inheritance.
     fn slot_value(&mut self, derived: AnchorId, slot: &Slot, name: &str) -> Value {
         let owner = self.resolution.store.anchor(slot.owner);
         let owner_module = owner.module;
@@ -303,9 +303,9 @@ impl<'a> Evaluator<'a> {
         )
     }
 
-    /// Reads `name` through `super`: everything the anchor inherits, merged
-    /// left to right with the last in line winning, so a property only an
-    /// earlier base has is still found.
+    /// Reads `name` through `super`. This is all that the anchor inherits, merged
+    /// from left to right. The last item wins. Thus the read also finds a property
+    /// that only an earlier base has.
     fn super_field(&mut self, context: &Context, name: &str, span: Span) -> Evaluated {
         let Some(this) = context.this else {
             self.error(
@@ -386,8 +386,8 @@ impl<'a> Evaluator<'a> {
         let decl = decl.clone();
 
         if !decl.value.declared {
-            // `x:: number` with no value. Only an abstract anchor can leave a
-            // property without one.
+            // `x:: number` with no value. Only an abstract anchor can have a
+            // property without a value.
             self.error(
                 "missing-value",
                 format!(
@@ -446,8 +446,8 @@ impl<'a> Evaluator<'a> {
         if let Some(inline) = &node.inline {
             if !inline.is_blank() {
                 match pieces.first_mut() {
-                    // A same-line fragment and the indented prose under it are
-                    // one paragraph, so `description: :` followed by text reads
+                    // A fragment on the same line and the indented prose under it are
+                    // one paragraph. Thus `description: :` with text after it reads
                     // as `: text`.
                     Some(Piece::Prose(lines)) => lines.insert(0, inline.clone()),
                     _ => pieces.insert(0, Piece::Prose(vec![inline.clone()])),
@@ -489,9 +489,9 @@ impl<'a> Evaluator<'a> {
                 }
                 Evaluated::plain(Value::Dict(map))
             }
-            // Mixing kinds produces an implicit list. Dictionary keys declared
-            // directly in the block stay addressable, so they are kept as named
-            // entries rather than folded into an anonymous map.
+            // A mix of kinds gives an implicit list. Dictionary keys that the block
+            // declares directly stay addressable. Thus they stay as named
+            // entries. They do not go into an anonymous map.
             _ => {
                 let mut items: Vec<MixedItem> = Vec::new();
                 let mut run: Vec<Piece> = Vec::new();
@@ -548,11 +548,11 @@ impl<'a> Evaluator<'a> {
 
     /// Builds a block that has `+` or `++` lines in it.
     ///
-    /// Blocks are built from top to bottom. A line starting with `+` or `++`
-    /// takes everything above it and combines it with that line's value, the
-    /// same way the operator does in an expression. Lines after it keep adding
-    /// to the result, which is how `+ {super.items}` followed by `- D` gives
-    /// the base's items and then D.
+    /// The evaluator builds blocks from top to bottom. A line that starts with `+` or `++`
+    /// takes all the lines above it and combines them with the value of that line. This
+    /// is the same as the operator in an expression. Lines after it continue to add
+    /// to the result. Thus `+ {super.items}` and then `- D` give
+    /// the items of the base and then D.
     fn merged_block(&mut self, pieces: &[Piece], context: &Context, span: Span) -> Evaluated {
         let mut accumulated: Option<Value> = None;
         let mut segment: Vec<Piece> = Vec::new();
@@ -566,7 +566,7 @@ impl<'a> Evaluator<'a> {
                     }
                     let operand = self.prose_line_value(&merge.value, context).value;
                     accumulated = Some(match accumulated {
-                        // A block with just `+ {x}` in it is the same as `{x}`.
+                        // A block that contains only `+ {x}` is the same as `{x}`.
                         None => operand,
                         Some(previous) => {
                             let operator = match op {
@@ -574,11 +574,11 @@ impl<'a> Evaluator<'a> {
                                 MergeOp::Concat => BinaryOp::Concat,
                             };
                             let operand = match (&previous, operand) {
-                                // Merging nothing into a list leaves the list.
+                                // A merge of no value into a list gives the same list.
                                 (Value::List(_) | Value::Mixed(_), Value::Null) => {
                                     Value::List(Vec::new())
                                 }
-                                // A single value merged into a list is one more item.
+                                // A merge of a single value into a list adds one item.
                                 (Value::List(_) | Value::Mixed(_), other)
                                     if !matches!(other, Value::List(_) | Value::Mixed(_)) =>
                                 {
@@ -606,8 +606,8 @@ impl<'a> Evaluator<'a> {
         Evaluated::plain(accumulated.unwrap_or(Value::Null))
     }
 
-    /// Evaluates a property declared inside a value block, applying its own
-    /// constraints.
+    /// Evaluates a property that a value block declares, and applies the
+    /// constraints of that property.
     fn property_in_place(&mut self, property: &Property, context: &Context) -> Value {
         let evaluated = self.value_node(&property.value, context);
         self.constrain(
@@ -626,9 +626,9 @@ impl<'a> Evaluator<'a> {
                 Piece::ListItem(item) => {
                     let value = self.value_node(&item.value, context);
                     match value.value {
-                        // `- text` with an indented list under it contributes
-                        // the text and the nested list as siblings, which is how
-                        // `[Level 1, [Level 2]]` is written in block form.
+                        // `- text` with an indented list under it gives the text
+                        // and the nested list as siblings. This is the block form of
+                        // `[Level 1, [Level 2]]`.
                         Value::Mixed(mixed) => {
                             for entry in split_nested_list(mixed) {
                                 items.push(entry);
@@ -645,7 +645,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn prose_value(&mut self, pieces: &[Piece], context: &Context) -> Evaluated {
-        // A value written as exactly one interpolation keeps its intrinsic type.
+        // A value that is exactly one interpolation keeps its intrinsic type.
         if let [Piece::Prose(lines)] = pieces {
             if lines.len() == 1 {
                 if let Some(interpolation) = lines[0].sole_interpolation() {
@@ -672,8 +672,8 @@ impl<'a> Evaluator<'a> {
                     paragraphs.push(vec![Part::Text(parts_text(parts).trim())]);
                 }
                 Piece::Escape(block) => {
-                    // The delimiters were consumed by the parser; what is left
-                    // is taken exactly as written, with no interpolation and no
+                    // The parser consumed the delimiters. The evaluator takes the
+                    // other text exactly as it is, with no interpolation and no
                     // literal inference.
                     let mut text = Text::empty();
                     for (index, line) in block.lines.iter().enumerate() {
@@ -688,8 +688,8 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        // A list, dictionary, or anchor dropped into text with `{x}` turns the
-        // whole value into an implicit list: the text around it, and the value.
+        // A list, dictionary, or anchor in text with `{x}` changes the
+        // full value into an implicit list. The list holds the text around it, and the value.
         if paragraphs.iter().flatten().any(|part| matches!(part, Part::Value(_))) {
             let mut items: Vec<MixedItem> = Vec::new();
             let mut buffer = Text::empty();
@@ -715,8 +715,8 @@ impl<'a> Evaluator<'a> {
         let mut combined = Text::empty();
         for (index, paragraph) in paragraphs.into_iter().enumerate() {
             if index > 0 {
-                // A blank line in the source is how an explicit line break is
-                // written, so paragraphs join with a newline rather than a
+                // A blank line in the source gives an explicit line break.
+                // Thus paragraphs join with a newline, not with a
                 // space.
                 combined.push_literal("\n");
             }
@@ -730,10 +730,10 @@ impl<'a> Evaluator<'a> {
         infer(combined, single_line)
     }
 
-    /// Splits one prose line into text and the values `{x}` drops into it.
+    /// Splits one prose line into text and the values that `{x}` puts into it.
     ///
-    /// A simple value is written into the text. A list, dictionary, or anchor
-    /// is kept whole, because it makes the text around it an implicit list.
+    /// A simple value goes into the text. A list, dictionary, or anchor
+    /// stays whole, because it changes the text around it into an implicit list.
     fn prose_line_parts(&mut self, line: &ProseLine, context: &Context) -> Vec<Part> {
         let mut parts = Vec::new();
         for segment in &line.segments {
@@ -776,16 +776,16 @@ impl<'a> Evaluator<'a> {
         self.sigil_value(interpolation.sigil, &interpolation.expr, context, interpolation.span)
     }
 
-    /// Applies what a sigil asks for to the expression inside it.
+    /// Applies the operation of a sigil to the expression inside it.
     fn sigil_value(&mut self, sigil: Sigil, expr: &Expr, context: &Context, span: Span) -> Evaluated {
         match sigil {
             Sigil::Standard => self.expr(expr, context),
             Sigil::Stringify => {
                 let value = self.expr(expr, context).value;
                 let text = match &value {
-                    // A named list or dictionary becomes its name, like
-                    // `Anchor.propertyName`, or just the variable name at the
-                    // top of a file.
+                    // A named list or dictionary becomes its name, for example
+                    // `Anchor.propertyName`. At the top of a file, it becomes only
+                    // the variable name.
                     Value::List(_) | Value::Mixed(_) | Value::Dict(_) => {
                         match self.expr_name(expr, context) {
                             Some(name) => Text::plain(name),
@@ -830,7 +830,7 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// The name a list or dictionary is known by, for `${...}`.
+    /// The name of a list or dictionary, for `${...}`.
     fn expr_name(&mut self, expr: &Expr, context: &Context) -> Option<String> {
         match &expr.kind {
             ExprKind::Paren(inner) => self.expr_name(inner, context),
@@ -852,8 +852,8 @@ impl<'a> Evaluator<'a> {
         self.resolution.store.anchor(anchor).name.clone()
     }
 
-    /// Works out what `@{...}` points at without copying it: an anchor, or a
-    /// property on one.
+    /// Finds the target of `@{...}` and does not copy it. The target is an anchor, or a
+    /// property on an anchor.
     fn reference_target(&mut self, expr: &Expr, context: &Context) -> Option<Ref> {
         match &expr.kind {
             ExprKind::Paren(inner) | ExprKind::Nested(Sigil::Reference, inner) => {
@@ -881,10 +881,10 @@ impl<'a> Evaluator<'a> {
             },
             ExprKind::Field(base, field) => {
                 let mut target = self.reference_target(base, context)?;
-                // The property has to exist; reading it also reports a missing
-                // one the same way any other access does. It is only read to
-                // find where the reference points, which is not a dependency
-                // on its value.
+                // The property must exist. The read also reports a property that is not
+                // there, as all other access does. The only purpose of the read is to
+                // find the target of the reference. Thus it is not a dependency
+                // on the value.
                 self.muted.push(self.frames.len());
                 let value = if target.path.is_empty() {
                     let anchor = target.anchor;
@@ -895,7 +895,7 @@ impl<'a> Evaluator<'a> {
                 };
                 self.muted.pop();
                 match value {
-                    // A property holding an anchor points at that anchor.
+                    // A property that holds an anchor points to that anchor.
                     Value::Anchor(anchor) => Some(Ref::anchor(anchor)),
                     Value::Reference(inner) => Some(inner),
                     _ => {
@@ -912,7 +912,7 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// The value a reference points at.
+    /// The value at the target of a reference.
     fn ref_value(&mut self, target: &Ref) -> Value {
         let mut value = Value::Anchor(target.anchor);
         for part in &target.path {
@@ -1017,8 +1017,8 @@ impl<'a> Evaluator<'a> {
                 Evaluated::plain(result)
             }
             ExprKind::Ternary(condition, consequent, alternative) => {
-                // Only the selected branch is evaluated. There is no truthiness
-                // in Piton, so the condition has to be a boolean.
+                // The evaluator evaluates only the selected branch. Piton has no truthiness.
+                // Thus the condition must be a boolean.
                 match self.expr(condition, context).value {
                     Value::Bool(true) => self.expr(consequent, context),
                     Value::Bool(false) => self.expr(alternative, context),
@@ -1213,7 +1213,7 @@ impl<'a> Evaluator<'a> {
                     items.extend(right.value.as_list_items());
                     Value::List(dedup_keep_last(items))
                 }
-                // A shallow merge: keys from both, the right side wins.
+                // A shallow merge. The result has the keys from both sides. The right side wins.
                 (Value::Dict(a), Value::Dict(b)) => {
                     let mut merged = a.clone();
                     for (key, value) in b {
@@ -1222,17 +1222,17 @@ impl<'a> Evaluator<'a> {
                     Value::Dict(merged)
                 }
                 (a, b) if is_text(a) && is_text(b) && (is_string(a) || is_string(b)) => {
-                    // One side is a string and the other a simple value, which
-                    // is turned into a string first: `2 + "Hello"` is `2Hello`.
+                    // One side is a string and the other side is a simple value. The
+                    // evaluator changes the value into a string first: `2 + "Hello"` is `2Hello`.
                     let mut text = self.stringify(a, context, span);
                     let right_text = self.stringify(b, context, span);
                     text.push_text(&right_text);
                     Value::Str(text)
                 }
                 (a, b) if (is_string(a) && b.is_complex()) || (a.is_complex() && is_string(b)) => {
-                    // A list, dictionary, or anchor next to a string is not
-                    // turned into text. It makes an implicit list, the same as
-                    // putting `{x}` in the middle of some text.
+                    // A list, dictionary, or anchor next to a string does not
+                    // change into text. It makes an implicit list. This is the same as
+                    // `{x}` in the middle of some text.
                     let mut items = Vec::new();
                     push_mixed(&mut items, a.clone());
                     push_mixed(&mut items, b.clone());
@@ -1254,10 +1254,10 @@ impl<'a> Evaluator<'a> {
                     items.extend(right.value.as_list_items());
                     Value::List(items)
                 }
-                // A deep merge: dictionaries under the same key merge too, all
-                // the way down. Otherwise the right side wins.
+                // A deep merge. Dictionaries under the same key also merge, at
+                // all levels. In other cases, the right side wins.
                 (Value::Dict(a), Value::Dict(b)) => Value::Dict(deep_merge(a, b)),
-                // On strings `++` joins them with a line break.
+                // On strings, `++` joins the strings with a line break.
                 (a, b) if is_text(a) && is_text(b) && (is_string(a) || is_string(b)) => {
                     let mut text = self.stringify(a, context, span);
                     text.push_literal("\n");
@@ -1286,7 +1286,7 @@ impl<'a> Evaluator<'a> {
             Value::Number(n) => Text::plain(format_number(*n)),
             Value::Bool(b) => Text::plain(if *b { "true" } else { "false" }),
             Value::Null => Text::plain("null"),
-            // Stringifying an anchor yields its source name.
+            // The string form of an anchor is its source name.
             Value::Anchor(id) => Text::plain(self.resolution.store.anchor(*id).name.clone()),
             Value::Reference(target) => Text::reference(target.clone()),
             other => {
@@ -1331,7 +1331,7 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Applies type constraints left to right, using the first type the value
+    /// Applies type constraints from left to right. It uses the first type that the value
     /// can validly represent.
     fn constrain(
         &mut self,
@@ -1393,15 +1393,15 @@ impl<'a> Evaluator<'a> {
             TypeName::Complex => value.is_complex().then(|| value.clone()),
             TypeName::String => match value {
                 Value::Str(_) => Some(value.clone()),
-                // Numbers can be coerced into strings. A literal keeps exactly
-                // what was written; an expression's result is what gets coerced.
+                // Numbers can coerce into strings. A literal keeps its source text
+                // exactly. For an expression, the evaluator coerces the result.
                 Value::Number(n) => Some(Value::Str(Text::plain(
                     evaluated
                         .literal
                         .clone()
                         .unwrap_or_else(|| format_number(*n)),
                 ))),
-                // Booleans and null are never coerced.
+                // Booleans and null never coerce.
                 _ => None,
             },
             TypeName::Number => match value {
@@ -1453,8 +1453,8 @@ impl<'a> Evaluator<'a> {
                 };
                 let store = &self.resolution.store;
                 if constraint.extends {
-                    // `extends A` is satisfied by any concrete anchor whose
-                    // chain includes A.
+                    // Each concrete anchor that has A in its chain satisfies
+                    // `extends A`.
                     (!store.anchor(*anchor).is_abstract && store.inherits_from(*anchor, target))
                         .then(|| value.clone())
                 } else {
@@ -1491,15 +1491,15 @@ fn collect_pieces(block: &Block, out: &mut Vec<Piece>) {
     }
 }
 
-/// Anything indented under a list item isn't part of that item; it becomes the
-/// next item. So `- text` with a nested list under it contributes the text and
-/// the list as siblings, and a dictionary indented under an item is one
-/// dictionary right after it.
+/// Content with an indent under a list item is not part of that item. It becomes the
+/// next item. Thus `- text` with a nested list under it gives the text and
+/// the list as siblings. A dictionary with an indent under an item is one
+/// dictionary after that item.
 fn split_nested_list(mixed: Mixed) -> Vec<Value> {
     Value::Mixed(mixed).as_list_items()
 }
 
-/// Adds what comes after a `+` line to everything built so far.
+/// Adds the value after a `+` line to all the values that the block built before it.
 fn continue_block(accumulated: Option<Value>, next: Value) -> Value {
     let Some(previous) = accumulated else {
         return next;
@@ -1515,7 +1515,7 @@ fn continue_block(accumulated: Option<Value>, next: Value) -> Value {
             items.extend(more);
             Value::List(items)
         }
-        // More text after a joined string continues it like a following line.
+        // More text after a joined string continues the string, as a subsequent line does.
         (Value::Str(mut text), Value::Str(more)) => {
             text.push_literal(" ");
             text.push_text(&more);
@@ -1536,7 +1536,7 @@ fn continue_block(accumulated: Option<Value>, next: Value) -> Value {
     }
 }
 
-/// Adds a value to an implicit list, keeping text as text and lists as lists.
+/// Adds a value to an implicit list. Text stays as text and lists stay as lists.
 fn push_mixed(items: &mut Vec<MixedItem>, value: Value) {
     match value {
         Value::Null => {}
@@ -1561,7 +1561,7 @@ enum Part {
     Value(Value),
 }
 
-/// Joins text parts. Only called once there are no values among them.
+/// Joins text parts. Call it only when the parts contain no values.
 fn parts_text(parts: Vec<Part>) -> Text {
     let mut text = Text::empty();
     for part in parts {
@@ -1576,14 +1576,14 @@ fn is_string(value: &Value) -> bool {
     matches!(value, Value::Str(_))
 }
 
-/// A value `+` can turn into text: a simple value, or a reference.
+/// A value that `+` can change into text: a simple value, or a reference.
 fn is_text(value: &Value) -> bool {
     value.is_simple() || matches!(value, Value::Reference(_))
 }
 
 /// A plain anchor type only matches anchors that directly implement it. If an
-/// anchor has more than one abstract, the one that counts is the one that
-/// wins: the keyword's abstract, or else the right-most one.
+/// anchor has more than one abstract, only the abstract that wins counts.
+/// This is the abstract of the keyword, or else the right-most abstract.
 fn direct_match(store: &crate::store::Store, anchor: AnchorId, target: AnchorId) -> bool {
     if anchor == target {
         return !store.anchor(anchor).is_abstract;
@@ -1612,10 +1612,10 @@ fn deep_merge(left: &Properties, right: &Properties) -> Properties {
     merged
 }
 
-/// Applies literal inference to text that was not constrained to a type.
+/// Applies literal inference to text that has no type constraint.
 ///
-/// Quotes are ordinary characters, so `"false"` is the string `"false"`,
-/// quotes and all.
+/// Quotes are ordinary characters. Thus `"false"` is the string `"false"`,
+/// with the quotes.
 fn infer(text: Text, single_line: bool) -> Evaluated {
     let Some(plain) = text.as_plain() else {
         return Evaluated::plain(Value::Str(text));
@@ -1641,10 +1641,10 @@ fn infer(text: Text, single_line: bool) -> Evaluated {
     }
 }
 
-/// Parses a number only when the whole string is one, honouring the underscore
-/// separators the language allows.
+/// Parses a number only when the full string is a number. It accepts the underscore
+/// separators that the language allows.
 ///
-/// A leading 0 is mandatory for decimals, so `.5` is not a number, and there is
+/// Decimals must start with a 0. Thus `.5` is not a number. There is
 /// no exponent notation.
 fn parse_number_literal(text: &str) -> Option<f64> {
     piton_syntax::literal::parse_number_literal(text)
@@ -1673,8 +1673,8 @@ fn compare(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     }
 }
 
-/// Concatenation order is preserved and duplicates are removed by keeping the
-/// last occurrence, so merging `[A, B, C]` into `[A, B, C, D]` yields
+/// Keeps the concatenation order. It removes duplicates and keeps the
+/// last occurrence. Thus a merge of `[A, B, C]` into `[A, B, C, D]` gives
 /// `[D, A, B, C]`.
 fn dedup_keep_last(items: Vec<Value>) -> Vec<Value> {
     let mut keep = vec![true; items.len()];
@@ -1706,42 +1706,42 @@ fn describe_constraint(constraint: &TypeConstraint) -> String {
     out
 }
 
-/// Exposed so the type checker can describe constraints the same way.
+/// Public, so that the type checker can describe constraints in the same way.
 pub fn constraint_label(constraint: &TypeConstraint) -> String {
     describe_constraint(constraint)
 }
 
 // ---------------------------------------------------------------------------
-// Probing (editor tooling)
+// Probes (editor tools)
 // ---------------------------------------------------------------------------
 
-/// One `+` or `++` line of a block, as the block was built.
+/// One `+` or `++` line of a block, at the time the compiler built the block.
 #[derive(Debug, Clone)]
 pub struct BlockStep {
     /// The `+`/`++` line.
     pub span: Span,
     pub op: MergeOp,
-    /// Everything above the line, combined; `None` when nothing was.
+    /// The combination of all lines above the line. `None` if there were no lines.
     pub before: Option<Value>,
-    /// The line's own value.
+    /// The value of the line.
     pub operand: Value,
-    /// The result of combining the two.
+    /// The result of the combination of the two.
     pub after: Value,
 }
 
-/// Evaluates single expressions and block steps after a compile, against the
-/// values that compile already produced.
+/// Evaluates single expressions and block steps after a compile. It uses the
+/// values that the compile produced.
 ///
-/// For editor tooling: a hover that explains how `+` combined two inputs uses
-/// the compiler's own rules rather than a second copy of them. Nothing is
-/// reported; a result that would have raised a diagnostic comes back as `None`.
+/// This is for editor tools. For example, a hover can explain how `+` combined two inputs.
+/// The hover uses the rules of the compiler, not a second copy of them. The probe
+/// reports no diagnostics. If a result causes a diagnostic, the probe returns `None`.
 pub struct Probe<'a> {
     evaluator: Evaluator<'a>,
 }
 
 impl<'a> Probe<'a> {
-    /// A probe seeded with the values already stored on `resolution` (which
-    /// `Compilation::from_resolution` fills in), so nothing is evaluated twice.
+    /// A probe that starts with the values that `resolution` already stores.
+    /// `Compilation::from_resolution` fills in these values. Thus the probe evaluates no value two times.
     pub fn new(resolution: &'a Resolution) -> Probe<'a> {
         let mut evaluator = Evaluator {
             resolution,
@@ -1790,14 +1790,14 @@ impl<'a> Probe<'a> {
         (!failed).then_some(value)
     }
 
-    /// The value of `expr` as written in `module`, inside `this` when it is in
+    /// The value of `expr` in `module`, inside `this` when `expr` is in
     /// an anchor body.
     pub fn expr(&mut self, module: ModuleId, this: Option<AnchorId>, expr: &Expr) -> Option<Value> {
         let context = self.context(module, this);
         self.checked(|evaluator| evaluator.expr(expr, &context).value)
     }
 
-    /// The value of one prose line, interpolations included.
+    /// The value of one prose line, with its interpolations.
     pub fn line(
         &mut self,
         module: ModuleId,
@@ -1808,7 +1808,7 @@ impl<'a> Probe<'a> {
         self.checked(|evaluator| evaluator.prose_line_value(line, &context).value)
     }
 
-    /// Combines two values with `+` or `++` exactly as an expression would.
+    /// Combines two values with `+` or `++` exactly as an expression does.
     pub fn combine(
         &mut self,
         module: ModuleId,
@@ -1828,9 +1828,9 @@ impl<'a> Probe<'a> {
         })
     }
 
-    /// How a value block with `+`/`++` lines was built, one entry per line.
+    /// The steps that built a value block with `+`/`++` lines, one entry for each line.
     ///
-    /// Mirrors `Evaluator::merged_block`, recording each step.
+    /// It does the same as `Evaluator::merged_block`, and records each step.
     pub fn block_steps(
         &mut self,
         module: ModuleId,
@@ -1956,7 +1956,7 @@ mod tests {
             Value::Str(_)
         ));
         assert!(matches!(infer(Text::plain("null"), true).value, Value::Null));
-        // Quotes are just characters.
+        // Quotes are only characters.
         let quoted = infer(Text::plain("\"false\""), true);
         assert_eq!(quoted.value, Value::Str(Text::plain("\"false\"")));
         assert!(matches!(infer(Text::plain(".5"), true).value, Value::Str(_)));

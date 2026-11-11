@@ -1,8 +1,8 @@
 //! Editor feature implementations.
 //!
-//! These all work from the same two inputs: the resolved compilation and the
-//! occurrence index. Answering from the resolved program is what lets an editor
-//! show where an inherited value actually came from.
+//! All of them use the same two inputs: the resolved compilation and the
+//! occurrence index. Answers from the resolved program let an editor show the
+//! true origin of an inherited value.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -24,11 +24,11 @@ use crate::index::{Role, Target};
 use crate::world::World;
 use crate::{TOKEN_MODIFIERS, TOKEN_TYPES};
 
-/// Converts a compiler diagnostic into the editor's form.
+/// Converts a compiler diagnostic into the form of the editor.
 ///
-/// `text_of` supplies the text of other files, so a label pointing into one
-/// (the first import, the base that constrained a property) lands on the right
-/// line there rather than at the top of the file.
+/// `text_of` supplies the text of other files. Thus a label that points into
+/// one (the first import, the base that constrained a property) goes to the
+/// correct line in that file, not to the top of the file.
 pub fn to_lsp_diagnostic(
     diagnostic: &Diagnostic,
     text: &str,
@@ -81,7 +81,7 @@ pub fn to_lsp_diagnostic(
     }
 }
 
-/// Everything a feature needs about the file under the cursor.
+/// All the data that a feature needs about the file below the cursor.
 struct Cursor<'a> {
     compilation: &'a Compilation,
     module: piton_compile::ModuleId,
@@ -132,8 +132,8 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
         parts.push(markdown);
         range = Some(span);
     }
-    // A composition is explained on its own operator, even though `+` is not
-    // a named occurrence. Plain text gets nothing: a string is a string.
+    // The hover explains a composition on its operator, although `+` is not
+    // a named occurrence. Plain text gets no hover: a string is a string.
     let compositions = world.analysis.compositions_at(cursor.module, cursor.offset);
     let mut seen = HashSet::new();
     for composition in &compositions {
@@ -148,8 +148,8 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
                 .copied();
         }
     }
-    // Where a construct compiles to is a fact about its declaration, so it is
-    // shown on the name that declares it, not on every word of its value.
+    // The compiled output of a construct is a fact about its declaration.
+    // Thus the hover shows it on the declared name, not on each word of its value.
     let declaring = occurrence.is_some_and(|item| item.role == Role::Definition);
     if declaring {
         if let Some(note) = mapping_note(&world.analysis, &cursor.path, cursor.offset) {
@@ -168,7 +168,7 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
     })
 }
 
-/// `this`, `self` or `super` under the cursor, and what it stands for there.
+/// `this`, `self` or `super` below the cursor, and the item that it identifies there.
 fn describe_self_reference(cursor: &Cursor<'_>) -> Option<(Span, String)> {
     let parse = &cursor.compilation.graph().get(cursor.module).parse;
     let token = parse
@@ -212,9 +212,8 @@ fn describe_self_reference(cursor: &Cursor<'_>) -> Option<(Span, String)> {
     Some((span, markdown))
 }
 
-/// A path as the person reading it would write it: relative to the
-/// workspace, with `/` between the parts. A bundled package keeps its `@`
-/// path.
+/// A path as the reader would write it. It is relative to the workspace,
+/// with `/` between the parts. A bundled package keeps its `@` path.
 fn shown_path(world: &World, path: &Path) -> String {
     match path.strip_prefix(&world.root) {
         Ok(relative) => slash_path(relative),
@@ -222,8 +221,8 @@ fn shown_path(world: &World, path: &Path) -> String {
     }
 }
 
-/// `[`spec/Base.pi:2`](file:///.../spec/Base.pi#L2)`, a link to the line a
-/// span starts on. A bundled package has no file to open, so it is named
+/// `[`spec/Base.pi:2`](file:///.../spec/Base.pi#L2)`, a link to the line where
+/// a span starts. A bundled package has no file to open. Thus it gets a name
 /// without a link.
 fn source_link(world: &World, path: &Path, span: Span) -> String {
     let shown = shown_path(world, path);
@@ -258,7 +257,7 @@ fn mapping_note(
     Some(lines.join("\n"))
 }
 
-/// A value as the project's configured renderer writes it, fenced for a hover.
+/// A value as the configured renderer of the project writes it, fenced for a hover.
 fn rendered(compilation: &Compilation, output: &OutputSettings, value: &piton_core::Value) -> String {
     let (language, text) = match output.renderer {
         Adapter::Json => ("json", piton_emit::json::value(value, compilation)),
@@ -278,8 +277,8 @@ fn rendered(compilation: &Compilation, output: &OutputSettings, value: &piton_co
     )
 }
 
-/// The first sentence or line of an anchor's `description`, for places that
-/// have room for a summary: symbol search, hierarchy items, outlines.
+/// The first sentence or line of the `description` of an anchor. Locations
+/// with space for a summary use it: symbol search, hierarchy items, outlines.
 pub fn summary(compilation: &Compilation, anchor: AnchorId) -> Option<String> {
     let description = compilation
         .store()
@@ -303,9 +302,9 @@ pub fn summary(compilation: &Compilation, anchor: AnchorId) -> Option<String> {
     })
 }
 
-/// Builds the documentation shown for a target: what it is, where it came
-/// from, its inheritance chain, and the value it resolves to. Sections are
-/// separated by a blank line and left out when they would be empty.
+/// Builds the documentation for a target. It shows the kind of target, its
+/// origin, its inheritance chain, and its resolved value. A blank line
+/// separates the sections. An empty section does not show.
 fn describe(world: &World, from: &Path, target: &Target) -> Option<String> {
     let compilation = world.compilation.as_ref()?;
     let output = &world.output;
@@ -363,7 +362,7 @@ fn describe(world: &World, from: &Path, target: &Target) -> Option<String> {
             sections.push(declared);
 
             if !def.properties.is_empty() && !def.is_abstract {
-                // The compiled interpretation is often the real question.
+                // Often the compiled interpretation is the real question.
                 sections.push(rendered(compilation, output, &piton_core::Value::Anchor(*anchor)));
             }
         }
@@ -388,8 +387,8 @@ fn describe(world: &World, from: &Path, target: &Target) -> Option<String> {
             let slot = def.slots.get(name)?;
             sections.push(format!("`{name}` on `{}`", def.name));
             if slot.owner != *anchor {
-                // Knowing which base contributed a value is the whole point of
-                // structural inheritance being visible.
+                // Structural inheritance is visible so that the user can see
+                // which base gave a value.
                 sections.push(format!("Inherited from `{}`", store.anchor(slot.owner).name));
             } else if let Some(replaced) = replaces_value(compilation, *anchor, name) {
                 sections.push(format!("Overrides `{}.{name}`", store.anchor(replaced).name));
@@ -453,10 +452,10 @@ fn key_value<'a>(
     Some(value)
 }
 
-/// The base whose value of `name` an anchor's own declaration replaces: the
-/// right-most base that has it, when that base gave it a value. Writing a
-/// property an abstract base only requires is implementing it, not
-/// overriding it.
+/// The base with a value of `name` that the declaration of an anchor replaces.
+/// This is the right-most base that has it, when that base gave it a value.
+/// When an anchor writes a property that an abstract base only requires, it
+/// implements the property. It does not override it.
 pub fn replaces_value(compilation: &Compilation, anchor: AnchorId, name: &str) -> Option<AnchorId> {
     let base = overridden(compilation, anchor, name)?;
     compilation
@@ -468,8 +467,8 @@ pub fn replaces_value(compilation: &Compilation, anchor: AnchorId, name: &str) -
         .then_some(base)
 }
 
-/// The base whose declaration of `name` an anchor's own declaration replaces:
-/// the right-most base that has it.
+/// The base with a declaration of `name` that the declaration of an anchor
+/// replaces. This is the right-most base that has it.
 pub fn overridden(compilation: &Compilation, anchor: AnchorId, name: &str) -> Option<AnchorId> {
     let store = compilation.store();
     let def = store.anchor(anchor);
@@ -495,7 +494,7 @@ fn truncate(text: &str, limit: usize) -> String {
 // Navigation
 // ---------------------------------------------------------------------------
 
-/// The location a target is declared at.
+/// The location of the declaration of a target.
 fn definition_location(world: &World, target: &Target) -> Option<Location> {
     let compilation = world.compilation.as_ref()?;
     let (path, span) = match target {
@@ -511,7 +510,7 @@ fn definition_location(world: &World, target: &Target) -> Option<Location> {
             )
         }
         Target::Property(anchor, name) => {
-            // Land on the declaration that actually supplies the value.
+            // Go to the declaration that supplies the value.
             let slot = compilation.store().anchor(*anchor).slots.get(name)?;
             let owner = compilation.store().anchor(slot.owner);
             (
@@ -534,8 +533,8 @@ fn definition_location(world: &World, target: &Target) -> Option<Location> {
     })
 }
 
-/// Where a nested key was written: in the anchor that supplies the property
-/// it sits in, walking down the dictionaries by name.
+/// The location of a nested key. It is in the anchor that supplies the
+/// property that holds it. The search goes down the dictionaries by name.
 fn key_declaration(
     compilation: &Compilation,
     anchor: AnchorId,
@@ -566,8 +565,8 @@ pub fn definition(world: &World, uri: &Url, position: Position) -> Option<GotoDe
     let occurrence = index.at(cursor.offset)?;
     let origin = span_to_range(&cursor.text, occurrence.span);
 
-    // On the declaration of a property that replaces an inherited one, the
-    // interesting place to go is the declaration it replaces.
+    // On the declaration of a property that replaces an inherited property,
+    // the useful target is the declaration that it replaces.
     let target = match (&occurrence.target, occurrence.role) {
         (Target::Property(anchor, name), Role::Definition) => {
             match overridden(cursor.compilation, *anchor, name) {
@@ -578,7 +577,7 @@ pub fn definition(world: &World, uri: &Url, position: Position) -> Option<GotoDe
         (target, _) => target.clone(),
     };
 
-    // A module path navigates to the module's own file.
+    // A module path goes to the file of the module.
     let (location, whole) = if let Target::Module(written) = &target {
         let resolved = resolve_module_path(world, &cursor.path, written)?;
         let location = Location {
@@ -604,8 +603,8 @@ pub fn definition(world: &World, uri: &Url, position: Position) -> Option<GotoDe
     })
 }
 
-/// The whole declaration a target names, for an editor that shows it: an
-/// anchor's or a variable's from its first line to the end of its body.
+/// The full declaration that a target names, for an editor that shows it. For
+/// an anchor or a variable, it goes from its first line to the end of its body.
 fn declaration_range(world: &World, target: &Target) -> Option<Range> {
     let compilation = world.compilation.as_ref()?;
     let (path, span) = match target {
@@ -639,11 +638,11 @@ fn trimmed(source: &str, span: Span) -> Span {
     Span::new(start, (span.start + text.trim_end().len()).max(start))
 }
 
-/// The anchors a name's type names, for `textDocument/typeDefinition`.
+/// The anchors that the type of a name identifies, for `textDocument/typeDefinition`.
 ///
-/// On a property or a variable, the anchors its constraints name, in the
-/// order they are written; on an anchor, the anchor itself. A built-in type
-/// is nowhere to go.
+/// On a property or a variable, these are the anchors that its constraints
+/// name, in source order. On an anchor, it is the anchor itself. A built-in
+/// type has no target.
 pub fn type_definition(
     world: &World,
     uri: &Url,
@@ -691,8 +690,8 @@ pub fn type_definition(
     (!locations.is_empty()).then_some(request::GotoTypeDefinitionResponse::Array(locations))
 }
 
-/// Every occurrence in this file of what is under the cursor. A declaration
-/// is where it is written; anything else is where it is read.
+/// All occurrences in this file of the item below the cursor. A declaration
+/// is where the source writes it. All other occurrences are reads.
 pub fn document_highlight(
     world: &World,
     uri: &Url,
@@ -727,7 +726,7 @@ fn resolve_module_path(world: &World, from: &Path, written: &Path) -> Option<Pat
     module_path_from(&world.project, from, &written.to_string_lossy())
 }
 
-/// Resolves the text of a module path against the file that wrote it.
+/// Resolves the text of a module path relative to the file that contains it.
 fn module_path_from(project: &Project, from: &Path, written: &str) -> Option<PathBuf> {
     let context = piton_compile::module::ResolutionContext::new(from.parent()?, project.roots());
     piton_compile::module::resolve(written, &context).ok()
@@ -775,12 +774,12 @@ pub fn references(
     Some(out)
 }
 
-/// Builds a predicate for everything that counts as a reference to `target`.
+/// Builds a predicate for all occurrences that are references to `target`.
 ///
-/// A user keyword is sugar for `extends`, so writing `type Strings:` references
-/// the `Type` anchor just as surely as `extends Type` would. A property that
-/// overrides an inherited one is a reference to the same idea, so the family it
-/// belongs to is included too.
+/// A user keyword is sugar for `extends`. Thus `type Strings:` references the
+/// `Type` anchor in the same way as `extends Type`. A property that overrides
+/// an inherited property is a reference to the same idea. Thus the predicate
+/// also includes its family.
 fn related_to<'a>(
     compilation: &'a Compilation,
     target: &'a Target,
@@ -798,8 +797,8 @@ fn related_to<'a>(
                     && (compilation.store().inherits_from(*anchor, *other_anchor)
                         || compilation.store().inherits_from(*other_anchor, *anchor))
             }
-            // A nested key is only ever the same key at the same path, never a
-            // property that happens to share its name.
+            // A nested key is only the same key at the same path. It is never
+            // a property that has the same name.
             (Target::Key(anchor, path), Target::Key(other_anchor, other_path)) => {
                 path == other_path
                     && (compilation.store().inherits_from(*anchor, *other_anchor)
@@ -814,8 +813,8 @@ fn related_to<'a>(
 // Rename
 // ---------------------------------------------------------------------------
 
-/// Whether a target is declared in a bundled package, which the user cannot
-/// edit.
+/// Whether a bundled package declares a target. The user cannot edit a bundled
+/// package.
 fn in_package(compilation: &Compilation, target: &Target) -> Option<String> {
     let module = match target {
         Target::Anchor(anchor) | Target::Keyword(_, Some(anchor)) | Target::Property(anchor, _) => {
@@ -840,7 +839,7 @@ fn in_package(compilation: &Compilation, target: &Target) -> Option<String> {
     })
 }
 
-/// Checks that something can be renamed, and says why not when it cannot.
+/// Checks that a rename of an item is possible. If not, it gives the reason.
 fn renameable(compilation: &Compilation, occurrence: &crate::index::Occurrence) -> Result<(), String> {
     match &occurrence.target {
         Target::Module(_) => Err("A module path is renamed by moving its file.".into()),
@@ -877,7 +876,7 @@ pub fn prepare_rename(
     }))
 }
 
-/// Whether `name` can be written where `target` is declared.
+/// Whether `name` is valid at the declaration of `target`.
 fn valid_new_name(target: &Target, name: &str) -> Result<(), String> {
     let key_characters = !name.is_empty()
         && name
@@ -915,9 +914,9 @@ fn valid_new_name(target: &Target, name: &str) -> Result<(), String> {
     })
 }
 
-/// Where `name` would collide with something already there: a top-level
-/// name in a module the rename touches, or a property of an anchor in the
-/// renamed property's family.
+/// The locations where `name` would collide with an item that exists. This is a
+/// top-level name in a module that the rename changes. It is also a property
+/// of an anchor in the family of the renamed property.
 fn collision(
     compilation: &Compilation,
     target: &Target,
@@ -981,9 +980,9 @@ pub fn rename(
     let mut texts: HashMap<PathBuf, String> = HashMap::new();
     let mut touched = Vec::new();
     for (module, occurrence) in world.index.matching(|candidate| related(candidate)) {
-        // Only rewrite occurrences spelled the same way. A keyword alias and an
-        // aliased import bind other names for the same thing, and renaming one
-        // must not silently rewrite the other.
+        // Rewrite only occurrences with the same spelling. A keyword alias and
+        // an aliased import bind other names for the same item. A rename of
+        // one must not also rewrite the other without a message.
         if occurrence.text != written {
             continue;
         }
@@ -1013,9 +1012,9 @@ pub fn rename(
     Ok(Some(workspace_edit(world, edits)))
 }
 
-/// A set of edits in the form the client asked for: versioned per document
-/// when it supports that, so an edit computed against an old buffer is
-/// refused rather than applied in the wrong place.
+/// A set of edits in the form that the client asked for. When the client
+/// supports it, the edits have a version for each document. Thus the client
+/// refuses an edit for an old buffer. It does not apply it at the wrong location.
 pub fn workspace_edit(world: &World, edits: HashMap<PathBuf, Vec<TextEdit>>) -> WorkspaceEdit {
     let mut paths: Vec<PathBuf> = edits.keys().cloned().collect();
     paths.sort();
@@ -1049,7 +1048,7 @@ pub fn workspace_edit(world: &World, edits: HashMap<PathBuf, Vec<TextEdit>>) -> 
     }
 }
 
-/// The same edit, in the form the client asked for (see [`workspace_edit`]).
+/// The same edit, in the form that the client asked for (see [`workspace_edit`]).
 fn versioned(world: &World, edit: WorkspaceEdit) -> WorkspaceEdit {
     let Some(changes) = edit.changes else {
         return edit;
@@ -1061,14 +1060,14 @@ fn versioned(world: &World, edit: WorkspaceEdit) -> WorkspaceEdit {
     workspace_edit(world, by_path)
 }
 
-/// Rewrites the module paths a file move breaks, before the move happens.
+/// Rewrites the module paths that a file move breaks, before the move occurs.
 ///
-/// Every `use` and `from` path that resolves into a moved file or folder is
-/// pointed at its new place, and a moved file's own relative paths are
-/// pointed back at what they named. A path keeps its style: rooted stays
-/// rooted, relative stays relative, `.pi` stays written or left off, and a
-/// path to a folder's index stays a path to the folder. Package paths never
-/// change.
+/// Each `use` and `from` path that resolves into a moved file or folder gets
+/// its new location. The function also changes the relative paths in a
+/// moved file. Thus they still point to the same items. A path keeps its style. A rooted path
+/// stays rooted, and a relative path stays relative. `.pi` stays or stays
+/// absent. A path to the index of a folder stays a path to the folder.
+/// Package paths never change.
 pub fn will_rename_files(world: &World, files: &[FileRename]) -> Option<WorkspaceEdit> {
     let compilation = world.compilation.as_ref()?;
     let moves: Vec<(PathBuf, PathBuf)> = files
@@ -1082,7 +1081,7 @@ pub fn will_rename_files(world: &World, files: &[FileRename]) -> Option<Workspac
     if moves.is_empty() {
         return None;
     }
-    // Where a path ends up, if a move takes it somewhere.
+    // The new location of a path, if a move changes it.
     let moved = |path: &Path| -> Option<PathBuf> {
         moves.iter().find_map(|(old, new)| {
             if path == old {
@@ -1140,8 +1139,8 @@ pub fn will_rename_files(world: &World, files: &[FileRename]) -> Option<Workspac
     Some(workspace_edit(world, edits))
 }
 
-/// The text of a module path that names `target` from a file at `from`, in
-/// the style `written` was in.
+/// The text of a module path that names `target` from a file at `from`. It
+/// uses the same style as `written`.
 fn rewrite_module_path(project: &Project, written: &str, target: &Path, from: &Path) -> Option<String> {
     let index = format!("index.{}", piton_syntax::language::EXTENSION);
     let names_folder = target.file_name().is_some_and(|name| name == index.as_str())
@@ -1263,8 +1262,8 @@ pub fn document_symbols(world: &World, uri: &Url) -> Option<DocumentSymbolRespon
     Some(DocumentSymbolResponse::Nested(symbols))
 }
 
-/// The properties of a block as symbols, each with the keys of its own
-/// dictionary beneath it. List items are values, not names, and are left out.
+/// The properties of a block as symbols. Each has the keys of its dictionary
+/// below it. List items are values, not names. Thus the function does not include them.
 fn property_symbols(block: &ast::Block, text: &str, kind: SymbolKind) -> Vec<DocumentSymbol> {
     block
         .properties()
@@ -1288,8 +1287,8 @@ fn property_symbols(block: &ast::Block, text: &str, kind: SymbolKind) -> Vec<Doc
         .collect()
 }
 
-/// The constraints as they are written, `string` or `Foo[]`, joined the way
-/// they chain.
+/// The constraints as the source writes them, `string` or `Foo[]`. The join
+/// follows their chain.
 fn constraint_text(text: &str, constraints: &[ast::TypeConstraint]) -> Option<String> {
     (!constraints.is_empty()).then(|| {
         constraints
@@ -1324,7 +1323,7 @@ fn symbol(
 
 #[allow(deprecated)]
 /// How well a name matches a query: 0 for the same name, 1 for a prefix, 2
-/// for a substring, 3 for the query's letters in order. Case is ignored.
+/// for a substring, 3 for the letters of the query in order. Case has no effect.
 pub fn match_tier(name: &str, query: &str) -> Option<u8> {
     let name = name.to_lowercase();
     let query = query.to_lowercase();
@@ -1344,7 +1343,7 @@ pub fn match_tier(name: &str, query: &str) -> Option<u8> {
         .then_some(3)
 }
 
-/// The most symbols one search returns.
+/// The maximum number of symbols that one search returns.
 const WORKSPACE_SYMBOL_LIMIT: usize = 256;
 
 #[allow(deprecated)]
@@ -1373,7 +1372,7 @@ pub fn workspace_symbols(world: &World, query: &str) -> Option<Vec<SymbolInforma
         )
     });
     for (name, path, span, kind) in anchors.chain(variables) {
-        // A bundled package has no file the editor could open.
+        // A bundled package has no file that the editor can open.
         if path.to_string_lossy().starts_with('@') {
             continue;
         }
@@ -1423,42 +1422,41 @@ pub fn workspace_symbols(world: &World, query: &str) -> Option<Vec<SymbolInforma
 // Completion
 // ---------------------------------------------------------------------------
 
-/// What the cursor is in the middle of writing.
+/// The text that the cursor is in the middle of.
 ///
-/// Everything Piton offers is contextual. The words that belong at the head of
-/// an unindented line are not the ones that belong after `extends`, and neither
-/// set belongs inside `@{...}`, where the only thing that can appear is
-/// something a reference can resolve to. Classifying the line first and
-/// building the list second keeps that from collapsing into one chain of
-/// special cases, and keeps suggestions out of the places where the text is not
-/// Piton at all.
+/// All that Piton offers depends on context. The words at the head of an
+/// unindented line are not the words after `extends`. Neither set is correct
+/// inside `@{...}`. There, only a target of a reference can occur. Thus the
+/// server first classifies the line, then makes the list. This prevents one
+/// long chain of special cases. It also prevents suggestions in locations
+/// where the text is not Piton.
 #[derive(Debug, PartialEq, Eq)]
 enum Context<'a> {
-    /// Nothing sensible can be offered: a comment, a verbatim block, or the
-    /// middle of a name the editor is in no position to invent.
+    /// No useful offer is possible. Examples are a comment, a verbatim block,
+    /// or the middle of a name that the editor cannot invent.
     Nothing,
-    /// After `use` or `from`, where a module path goes.
+    /// After `use` or `from`, at the location of a module path.
     ModulePath,
-    /// After `from <path>`, where `import` or `export` goes.
+    /// After `from <path>`, at the location of `import` or `export`.
     ImportDirection,
-    /// After `from <path> import`, where the imported names go.
+    /// After `from <path> import`, at the location of the imported names.
     ImportName { module: &'a str },
-    /// The head of an unindented line, with the modifiers already written.
+    /// The head of an unindented line, after the modifiers that it already has.
     Declaration { exported: bool, is_abstract: bool },
     /// After `extends` in a declaration head.
     Bases,
     /// Inside a `::` type constraint.
     TypeConstraint,
-    /// Inside an interpolation, with the sigil that opened it and the path
+    /// Inside an interpolation. It holds the sigil that opened it, and the path
     /// before a trailing `.`, if there is one.
     Expression {
         sigil: &'a str,
         member_of: Option<&'a str>,
     },
-    /// Where a value goes. The key is the one whose constraints say what is
-    /// valid there; a list item has none to name.
+    /// The location of a value. The key is the key with the constraints that
+    /// tell which values are valid. A list item has no key to name.
     Value { key: Option<&'a str> },
-    /// The head of an indented line, where a key goes.
+    /// The head of an indented line, at the location of a key.
     Body,
 }
 
@@ -1494,10 +1492,10 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         Site::Value { key } => Context::Value { key: key.as_deref() },
     };
 
-    // Selecting a candidate takes the place of what the cursor is in the middle
-    // of writing rather than being appended to it: `anc` becomes `anchor`, not
-    // `ancanchor`. Every item the context offers replaces the same span, so it
-    // is computed once here.
+    // A selected candidate replaces the partial word at the cursor. It does
+    // not append to it: `anc` becomes `anchor`, not `ancanchor`. All items of
+    // the context replace the same span. Thus the server calculates the span
+    // one time here.
     let lines = LineIndex::new(&cursor.text, Encoding::Utf16);
     let start = replace_start(&context, &cursor.text, cursor.offset);
     let word_end = cursor.offset
@@ -1506,8 +1504,8 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
             .unwrap_or(cursor.text.len() - cursor.offset);
     let insert = lines.range(Span::new(start, cursor.offset));
     let replace = lines.range(Span::new(start, word_end));
-    // A key completed where its colon is already written keeps that colon
-    // rather than gaining a second one.
+    // When the source already has the colon of a completed key, the key keeps
+    // that colon. It does not get a second colon.
     let colon_follows = cursor.text[word_end..].starts_with(':');
 
     let mut items = match context {
@@ -1526,8 +1524,8 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         }
         Context::TypeConstraint => type_names(&cursor),
         Context::Expression { sigil, member_of } => expression(&cursor, sigil, member_of),
-        // A list item holds the value of the key above it, so that key's
-        // constraints are what say which values belong in it.
+        // A list item holds the value of the key above it. Thus the constraints
+        // of that key tell which values are valid in it.
         Context::Value { key } => values(&cursor, key),
         Context::Body => body(&cursor),
     };
@@ -1537,8 +1535,8 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
             block_keys,
             block_has_items,
         } => {
-            // A key the body already has is not offered again, and `pass` only
-            // says something in a body with nothing else in it.
+            // The list does not offer a key that the body already has. `pass`
+            // has a meaning only in an otherwise empty body.
             items.retain(|item| {
                 if item.label == "pass" {
                     return !block_has_items;
@@ -1559,10 +1557,10 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
     let items: Vec<CompletionItem> = items
         .into_iter()
         .map(|mut item| {
-            // The edit is what says what gets written. `insert_text` says the
-            // same thing where the two differ -- a body's key takes its colon,
-            // a wrapped reference takes its braces -- and an edit is the only
-            // form that also says what it stands in for.
+            // The edit tells what the editor writes. `insert_text` tells the
+            // same thing where the two are different. A key of a body gets its
+            // colon, and a wrapped reference gets its braces. Only an edit also
+            // tells which text it replaces.
             let written = item
                 .insert_text
                 .clone()
@@ -1579,8 +1577,8 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
                     new_text: written,
                 })
             });
-            // The compilation the item was made from, so resolving it after
-            // another compile does not describe something else.
+            // The compilation that made the item. Thus a resolve after a
+            // different compile does not describe a different item.
             if let Some(serde_json::Value::Object(data)) = &mut item.data {
                 data.insert("gen".into(), serde_json::json!(generation));
             }
@@ -1591,29 +1589,28 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
     Some(CompletionResponse::Array(items))
 }
 
-/// Where the text being completed begins.
+/// The start of the text that the user completes.
 ///
-/// The edit has to cover the word under the cursor -- that is what makes a
-/// candidate replace it -- and what counts as that word depends on where the
-/// cursor is. A module path is written whole (`@piton/belay`, `./lib/Type`),
-/// a member is only ever the segment after the last dot, everything inside
-/// `{...}` follows a brace and a sigil that are not part of the name, and a
-/// `-` written against a list value is the item's marker rather than the
-/// word's.
+/// The edit must cover the word below the cursor. Thus a candidate replaces
+/// the word. The extent of that word depends on the cursor location. A module
+/// path is one full word (`@piton/belay`, `./lib/Type`). A member is only the
+/// segment after the last dot. Inside `{...}`, a name comes after a brace and
+/// a sigil that are not part of the name. A `-` directly before a list value
+/// is the marker of the item, not part of the word.
 fn replace_start(context: &Context<'_>, text: &str, cursor: usize) -> usize {
     let in_word = |character: char| {
         let name = character.is_alphanumeric() || character == '_' || character == '-';
         match context {
-            // The brace and sigil were already written, and a dot opens the
-            // member that follows, so a name stops at both.
+            // The source already has the brace and sigil. A dot opens the
+            // member after it. Thus a name stops at both.
             Context::Expression { .. } => name,
-            // A path carries characters no name would: `@`, `/`, and `.`.
+            // A path contains characters that a name does not: `@`, `/`, and `.`.
             Context::ModulePath => !character.is_whitespace(),
-            // `*` is a name of its own in an import list.
+            // `*` is a separate name in an import list.
             Context::ImportName { .. } => name || character == '*',
-            // `@` and `#` are half-written sigils: completing an anchor into a
-            // reference value turns the `@` into `@{...}` rather than stacking
-            // another one in front of it.
+            // `@` and `#` are partial sigils. When the editor completes an
+            // anchor into a reference value, the `@` becomes `@{...}`. The
+            // editor does not add a second `@` in front of it.
             _ => name || character == '@' || character == '#',
         }
     };
@@ -1626,22 +1623,22 @@ fn replace_start(context: &Context<'_>, text: &str, cursor: usize) -> usize {
         start = index;
     }
 
-    // `-` never begins a name, so a run that starts with one is the marker of
-    // the list item it sits in front of (`- nu` stops at the space; `-nu` does
-    // not). The marker is left in place either way -- the value goes after it.
+    // A name never starts with `-`. Thus a run that starts with `-` is the
+    // marker of the list item after it (`- nu` stops at the space; `-nu` does
+    // not). The marker stays in all cases. The value goes after it.
     if text[start..cursor].starts_with('-') {
         start += '-'.len_utf8();
     }
     start
 }
 
-/// Fills in the documentation for the item the editor asked about.
+/// Adds the documentation for the item that the editor asked about.
 ///
-/// Completion runs on every keystroke and a list can be hundreds of items long,
-/// while the documentation for one anchor renders its whole compiled value.
-/// Building that for every item every time would be the slowest thing the
-/// server does, so each item carries only the identity of what it names, and
-/// the description is built here, for the one item the cursor settled on.
+/// Completion runs on each keystroke, and a list can have hundreds of items.
+/// The documentation for one anchor renders its full compiled value. To build
+/// it for each item each time would be the slowest operation of the server.
+/// Thus each item holds only the identity of the item that it names. This
+/// function builds the description only for the item that the cursor selects.
 pub fn resolve_completion(world: &World, mut item: CompletionItem) -> CompletionItem {
     let Some(compilation) = world.compilation.as_ref() else {
         return item;
@@ -1653,8 +1650,8 @@ pub fn resolve_completion(world: &World, mut item: CompletionItem) -> Completion
         .and_then(serde_json::Value::as_u64)
         == Some(world.generation);
     if !current {
-        // Made from an earlier compilation: the ids it carries may name
-        // something else now, and no description beats a wrong one.
+        // An earlier compilation made this item. Its ids can now name a
+        // different item. No description is better than a wrong description.
         return item;
     }
     let Some(target) = item.data.as_ref().and_then(target_from_data) else {
@@ -1670,7 +1667,7 @@ pub fn resolve_completion(world: &World, mut item: CompletionItem) -> Completion
     item
 }
 
-/// The identity an item carries so `completionItem/resolve` can find it again.
+/// The identity that an item holds, so that `completionItem/resolve` can find it again.
 fn data_for(target: &Target) -> Option<serde_json::Value> {
     match target {
         Target::Anchor(anchor) => Some(serde_json::json!({ "anchor": anchor.0 })),
@@ -1694,21 +1691,21 @@ fn target_from_data(data: &serde_json::Value) -> Option<Target> {
     Some(Target::Variable(piton_compile::VariableId(variable as u32)))
 }
 
-// --- Classifying the line ---------------------------------------------------
+// --- Classify the line ------------------------------------------------------
 
-/// Whether the line beginning at `line_start` sits inside an escape block.
+/// Whether the line that starts at `line_start` is inside an escape block.
 ///
-/// An escape block is verbatim: its contents are not Piton, so a `{` inside
-/// one opens nothing and a `//` starts no comment. It is opened and closed by
-/// a line of its own, so counting the delimiters above the cursor answers it.
-/// A code fence is just text, so it isn't verbatim.
+/// An escape block is verbatim. Its contents are not Piton. Thus a `{` inside
+/// it opens nothing, and a `//` starts no comment. A separate line opens it and
+/// a separate line closes it. Thus a count of the delimiters above the cursor
+/// gives the answer. A code fence is only text. Thus it is not verbatim.
 fn verbatim_at(text: &str, line_start: usize) -> bool {
     let mut escape: Option<usize> = None;
     for line in text[..line_start].lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\\') {
-            // An escape block closes on a run of the same length as the one
-            // that opened it, which is what lets a block contain a shorter run.
+            // A run with the same length as the first run closes an escape
+            // block. Thus a block can contain a shorter run.
             escape = match escape {
                 Some(open) if trimmed.len() == open => None,
                 other => other.or(Some(trimmed.len())),
@@ -1718,7 +1715,7 @@ fn verbatim_at(text: &str, line_start: usize) -> bool {
     escape.is_some()
 }
 
-// --- Building the list ------------------------------------------------------
+// --- Build the list ---------------------------------------------------------
 
 fn keywords(words: &[&str]) -> Vec<CompletionItem> {
     words
@@ -1731,12 +1728,12 @@ fn keywords(words: &[&str]) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// Every module a `use` or `from` could name.
+/// All modules that a `use` or `from` can name.
 ///
-/// The compiled graph holds only what the project already reaches, and the
-/// point of completing an import is to reach something new, so the source root
-/// is read from disk as well. The bundled packages are not on disk at all --
-/// they live inside the compiler -- so they are named outright.
+/// The compiled graph holds only what the project already reaches. The
+/// purpose of import completion is to reach a new item. Thus the server also
+/// reads the source root from disk. The bundled packages are not on disk.
+/// They are inside the compiler. Thus the server names them directly.
 fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let source_root = &compilation.project.source_root;
@@ -1763,18 +1760,18 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         );
     }
 
-    // An installed package is imported by its name, so that is what is offered
-    // -- not the relative path to the directory it happens to sit in.
+    // An import of an installed package uses its name. Thus the list offers the
+    // name, not the relative path to the directory of the package.
     let project_root = &compilation.project.root;
     let installed = piton_compile::packages::installed_names(project_root);
     for name in &installed {
         offer(name.clone(), Some("installed package".into()), &mut items);
     }
 
-    // Completion runs on a keystroke, so the walk is bounded.
+    // Completion runs on a keystroke. Thus the walk has a limit.
     let mut files = piton_compile::module::sources_up_to(source_root, 5000);
-    // A module already in the graph may sit outside the source root -- an
-    // installed package does -- and is worth offering even so.
+    // A module in the graph can be outside the source root. An installed
+    // package is an example. The list still offers it.
     files.extend(
         compilation
             .graph()
@@ -1803,8 +1800,8 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     items
 }
 
-/// How a file inside an installed package is imported: through the package
-/// name, not through a relative path that climbs out of the source root.
+/// How to import a file inside an installed package. The import uses the name
+/// of the package, not a relative path that goes out of the source root.
 fn package_import_path(
     project_root: &Path,
     installed: &[String],
@@ -1828,12 +1825,12 @@ fn package_import_path(
     None
 }
 
-/// The names a module exports, for `from <path> import ...`.
+/// The names that a module exports, for `from <path> import ...`.
 fn import_names(cursor: &Cursor<'_>, written: &str) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
 
-    // A path that names no module exports nothing, and saying otherwise would
-    // be offering names that do not exist.
+    // A path that names no module exports nothing. If the list gave names, it
+    // would offer names that do not exist.
     let Some(module) = module_path_from(&compilation.project, &cursor.path, written)
         .and_then(|path| compilation.graph().id_for(&path))
     else {
@@ -1872,8 +1869,8 @@ fn declaration_heads(
     let compilation = cursor.compilation;
     let mut words: Vec<&str> = Vec::new();
     if !exported && !is_abstract {
-        // `export` and `abstract` both come before the keyword, and an import
-        // takes neither.
+        // `export` and `abstract` both come before the keyword. An import
+        // accepts neither.
         words.extend(["export", "use", "from"]);
     }
     if !is_abstract {
@@ -1882,8 +1879,8 @@ fn declaration_heads(
     words.push("anchor");
     let mut items = keywords(&words);
 
-    // A user keyword is sugar for `extends`, so it opens a declaration exactly
-    // where `anchor` does.
+    // A user keyword is sugar for `extends`. Thus it opens a declaration at
+    // the same location as `anchor`.
     for (keyword, anchor) in &compilation.resolution.scope(cursor.module).keywords {
         let def = compilation.store().anchor(*anchor);
         items.push(CompletionItem {
@@ -1897,11 +1894,11 @@ fn declaration_heads(
     items
 }
 
-/// The anchors a module can name.
+/// The anchors that a module can name.
 ///
-/// `inheriting` narrows the list to the anchors a constraint would accept, and
-/// `wrap` writes the interpolation around the name when the place the cursor is
-/// in needs one.
+/// `inheriting` limits the list to the anchors that a constraint accepts.
+/// `wrap` writes the interpolation around the name when the cursor location
+/// needs one.
 fn anchors_in_scope(
     cursor: &Cursor<'_>,
     inheriting: Option<AnchorId>,
@@ -1920,8 +1917,8 @@ fn anchors_in_scope(
         }
         let mut item = symbol_completion(compilation, &name, symbol);
         if let Some(sigil) = wrap {
-            // A value that has to be an anchor is written as a reference to
-            // one, so completing it should write the braces too.
+            // A value that must be an anchor is a reference to an anchor. Thus
+            // the completion also writes the braces.
             item.insert_text = Some(format!("{sigil}{name}}}"));
         }
         items.push(item);
@@ -1929,14 +1926,14 @@ fn anchors_in_scope(
     items
 }
 
-/// Which of the names a module exports are worth offering.
+/// The exported names of a module that the list offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Only {
-    /// Anything exported.
+    /// All exported items.
     Anything,
-    /// An anchor, because nothing else can go where the cursor is.
+    /// An anchor, because no other item is valid at the cursor.
     Anchors,
-    /// An anchor a constraint would accept.
+    /// An anchor that a constraint accepts.
     AnchorsInheriting(AnchorId),
 }
 
@@ -1953,14 +1950,14 @@ impl Only {
     }
 }
 
-/// Names other modules export that this one cannot yet see.
+/// Names that other modules export and that this module cannot see yet.
 ///
-/// Completing one of these writes the import as well. Knowing which file a
-/// symbol lives in is exactly what the editor is for, and it is the part a
-/// person has to go and look up otherwise.
+/// A completion of one of these also writes the import. The editor must know
+/// the file of each symbol. Without the editor, a person must find that file
+/// manually.
 fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
-    // Every name in the project would be a list nobody reads, and a name that
-    // is already in scope is a name the editor has offered already.
+    // All names in the project would make a list that nobody reads. The editor
+    // already offered each name that is in scope.
     const LIMIT: usize = 400;
 
     let compilation = cursor.compilation;
@@ -1973,10 +1970,10 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
     let insert = insertion_point(compilation, cursor.module, &cursor.text);
     let at = offset_to_position(&cursor.text, insert);
 
-    // A name re-exported by an index is exported from several modules, and
-    // they all lead to the same symbol. It is offered once, imported from the
-    // shortest path -- usually the index, which is what re-exporting it was
-    // for -- rather than once per module that passes it along.
+    // When an index re-exports a name, several modules export it. They all go
+    // to the same symbol. The list offers it one time, with an import from the
+    // shortest path. This is usually the index, which is the purpose of the
+    // re-export. The list does not offer it one time for each module.
     let mut chosen: Vec<(String, Symbol, String)> = Vec::new();
     for module in compilation.graph().iter() {
         if module.id == cursor.module {
@@ -2021,8 +2018,8 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
                 description: Some(written.clone()),
                 ..Default::default()
             });
-            // Below everything already in scope: a name the file can already
-            // see is almost always the one that was meant.
+            // These go below all items in scope. A name that the file can
+            // already see is almost always the correct name.
             item.sort_text = Some(format!("9{name}"));
             item.additional_text_edits = Some(vec![TextEdit {
                 range: Range { start: at, end: at },
@@ -2033,7 +2030,7 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// The types a `::` constraint accepts.
+/// The types that a `::` constraint accepts.
 fn type_names(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     let mut items: Vec<CompletionItem> = piton_syntax::language::TYPE_NAMES
         .iter()
@@ -2044,16 +2041,16 @@ fn type_names(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
             ..Default::default()
         })
         .collect();
-    // `p:: extends Operator:` accepts any anchor whose chain includes one.
+    // `p:: extends Operator:` accepts all anchors with a chain that includes one.
     items.extend(keywords(&["extends"]));
-    // An anchor's name is a type as well, and constraining to one is how a
-    // property says which anchors it will take.
+    // The name of an anchor is also a type. A constraint to an anchor tells
+    // which anchors a property accepts.
     items.extend(anchors_in_scope(cursor, None, None));
     items.extend(importable(cursor, Only::Anchors));
     items
 }
 
-/// What can be written inside an interpolation.
+/// The items that are valid inside an interpolation.
 fn expression(cursor: &Cursor<'_>, sigil: &str, member_of: Option<&str>) -> Vec<CompletionItem> {
     if let Some(path) = member_of {
         return members(cursor, path);
@@ -2062,8 +2059,8 @@ fn expression(cursor: &Cursor<'_>, sigil: &str, member_of: Option<&str>) -> Vec<
     let compilation = cursor.compilation;
     let mut items = Vec::new();
 
-    // `@{...}` has to resolve to a referenceable anchor, so a variable or a
-    // literal in there is an error waiting to be written.
+    // `@{...}` must resolve to an anchor that a reference can target. Thus a
+    // variable or a literal in it would cause an error.
     let references_only = sigil == "@{";
     for (name, symbol) in compilation.resolution.visible_names(cursor.module) {
         if references_only && !matches!(symbol, Symbol::Anchor(_)) {
@@ -2099,12 +2096,12 @@ fn expression(cursor: &Cursor<'_>, sigil: &str, member_of: Option<&str>) -> Vec<
     items
 }
 
-/// The members of whatever `path` resolves to.
+/// The members of the item that `path` resolves to.
 ///
-/// `self.` and `this.` reach the enclosing anchor, `super.` its first base, and
-/// a name reaches the anchor it refers to. Past the first segment the walk
-/// continues through the resolved value, so `Config.frameworks.` offers what is
-/// actually in there.
+/// `self.` and `this.` go to the anchor that contains them, and `super.` to its first
+/// base. A name goes to the anchor that it refers to. After the first segment,
+/// the walk continues through the resolved value. Thus `Config.frameworks.`
+/// offers the real contents.
 fn members(cursor: &Cursor<'_>, path: &str) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let mut segments = path.split('.');
@@ -2118,8 +2115,8 @@ fn members(cursor: &Cursor<'_>, path: &str) -> Vec<CompletionItem> {
         };
         let rest: Vec<&str> = segments.filter(|segment| !segment.is_empty()).collect();
         return match rest.split_first() {
-            // `super` is everything the anchor inherits, merged the way
-            // inheritance merges it, so every base contributes.
+            // `super` is all that the anchor inherits. The merge is the same as
+            // the merge of inheritance. Thus each base adds members.
             None => super_slots(compilation, anchor),
             Some((first, deeper)) => {
                 let Some(base) = crate::index::super_provider(compilation, anchor, first) else {
@@ -2147,13 +2144,13 @@ fn members(cursor: &Cursor<'_>, path: &str) -> Vec<CompletionItem> {
     let def = compilation.store().anchor(anchor);
     let rest: Vec<&str> = segments.filter(|segment| !segment.is_empty()).collect();
     if rest.is_empty() {
-        // At the anchor itself, the slots are the answer: they carry what was
-        // inherited as well as what was written here.
+        // At the anchor itself, the slots are the answer. They hold the
+        // inherited items and the items that the anchor writes.
         return slots_of(compilation, anchor);
     }
 
-    // Past the anchor, the resolved value is the only thing that knows the
-    // shape, because a nested key may have come from a base or an expression.
+    // After the anchor, only the resolved value knows the shape. A nested key
+    // can come from a base or an expression.
     let Some(value) = def.properties.get(rest[0]) else {
         return Vec::new();
     };
@@ -2192,8 +2189,8 @@ fn nested_members<'a>(
         .collect()
 }
 
-/// What `super.` reaches: the slots of every base, the right-most base
-/// winning a name more than one of them has.
+/// The items that `super.` reaches: the slots of all bases. When more than one
+/// base has a name, the right-most base wins.
 fn super_slots(compilation: &Compilation, anchor: AnchorId) -> Vec<CompletionItem> {
     let store = compilation.store();
     let mut seen: Vec<String> = Vec::new();
@@ -2210,7 +2207,7 @@ fn super_slots(compilation: &Compilation, anchor: AnchorId) -> Vec<CompletionIte
     items
 }
 
-/// An anchor's properties, its inherited ones included.
+/// The properties of an anchor, with the inherited properties.
 fn slots_of(compilation: &Compilation, anchor: AnchorId) -> Vec<CompletionItem> {
     let def = compilation.store().anchor(anchor);
     def.slots
@@ -2228,7 +2225,7 @@ fn slots_of(compilation: &Compilation, anchor: AnchorId) -> Vec<CompletionItem> 
         .collect()
 }
 
-/// What a value may be, according to the constraints on the key above it.
+/// The permitted values, from the constraints on the key above.
 fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let declared = key.and_then(|key| {
@@ -2238,10 +2235,10 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
     });
 
     let Some((anchor, slot)) = declared.filter(|(_, slot)| !slot.constraints.is_empty()) else {
-        // Nothing says what belongs here, so there is nothing to propose. A
-        // value in Piton is prose by default, and `property: ` with a list of
-        // every anchor in the project under it is the editor guessing at a
-        // sentence it cannot possibly guess.
+        // No constraint tells what belongs here. Thus there is no proposal. A
+        // value in Piton is prose by default. A list of all anchors in the
+        // project below `property: ` would be a guess at a sentence. The
+        // editor cannot guess that sentence.
         return Vec::new();
     };
 
@@ -2250,38 +2247,38 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
         match &constraint.name {
             ast::TypeName::Boolean => items.extend(constants(&["true", "false"])),
             ast::TypeName::Null => items.extend(constants(&["null"])),
-            // `anchor` admits nothing but an anchor, so every anchor is a
-            // candidate. `complex` is not the same thing: it admits a list or
-            // a dictionary too, which are written rather than chosen.
+            // `anchor` accepts only an anchor. Thus each anchor is a candidate.
+            // `complex` is different. It also accepts a list or a dictionary.
+            // The user writes those. The user does not select them.
             ast::TypeName::Anchor => items.extend(anchors(cursor, None, "{")),
             ast::TypeName::Reference => items.extend(anchors(cursor, None, "@{")),
             ast::TypeName::Named(name) => {
                 match constraint_type(cursor, anchor, &slot, name) {
                     Some(base) => items.extend(anchors(cursor, Some(base), "{")),
-                    // A constraint naming something that does not resolve
-                    // accepts nothing, and offering everything instead would
-                    // be inventing an answer.
+                    // A constraint that names an unresolved item accepts
+                    // nothing. An offer of all items would invent an answer.
                     None => {}
                 }
             }
-            // Everything else describes the shape of a value rather than
-            // naming which values there are. `any`, `simple` and `complex` say
-            // "a value"; a string, a number, a list or a dictionary is written
-            // rather than chosen. A list of every anchor in the project under
-            // any of them is the editor guessing at prose.
+            // All other constraints describe the shape of a value. They do not
+            // name the permitted values. `any`, `simple` and `complex` mean
+            // "a value". The user writes a string, a number, a list or a
+            // dictionary. The user does not select it. A list of all anchors
+            // in the project would be a guess at prose.
             _ => {}
         }
     }
     items
 }
 
-/// The anchor a constraint's type name refers to.
+/// The anchor that the type name of a constraint refers to.
 ///
-/// The name was written wherever the constraint was, which is not necessarily
-/// here: a property carries its constraints down the inheritance chain, and the
-/// names in them were resolved against the imports of the file that wrote them.
-/// The slot records which anchor supplied the *value*, not which supplied the
-/// constraint, so every file along the chain is tried.
+/// The type name is at the location of the constraint. That is not always
+/// here. A property carries its constraints down the inheritance chain. The
+/// names in them resolved against the imports of the file that contains them.
+/// The slot records the anchor that supplied the *value*. It does not record
+/// the anchor that supplied the constraint. Thus the lookup tries each file
+/// in the chain.
 fn constraint_type(
     cursor: &Cursor<'_>,
     anchor: AnchorId,
@@ -2307,11 +2304,11 @@ fn constraint_type(
     None
 }
 
-/// Every anchor that fits, in scope or not, written as an interpolation.
+/// All anchors that fit, in scope or not, written as an interpolation.
 ///
-/// A property constrained to an anchor is the case where the name being
-/// offered is most likely to live in a file this one has never mentioned, so
-/// the ones that need an import are here too, with the import attached.
+/// When a property has a constraint to an anchor, the offered name is most
+/// probably in a file that this file never mentioned. Thus the list also
+/// includes the anchors that need an import, with the import attached.
 fn anchors(cursor: &Cursor<'_>, inheriting: Option<AnchorId>, sigil: &str) -> Vec<CompletionItem> {
     let mut items = anchors_in_scope(cursor, inheriting, Some(sigil));
     items.extend(importable(
@@ -2344,7 +2341,7 @@ fn constants(words: &[&str]) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// The keys that belong in the anchor body the cursor is inside.
+/// The keys that belong in the anchor body that contains the cursor.
 fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let Some(anchor) = enclosing_anchor(cursor) else {
@@ -2361,8 +2358,8 @@ fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
             kind: Some(CompletionItemKind::PROPERTY),
             detail: (slot.owner != anchor).then(|| format!("inherited from {}", owner.name)),
             insert_text: Some(format!("{name}: ")),
-            // A property an abstract base left without a value has to be
-            // written, so it belongs at the top of the list.
+            // The user must write a property that an abstract base left
+            // without a value. Thus it goes to the top of the list.
             sort_text: Some(format!("{}{name}", if required { '0' } else { '1' })),
             label_details: required.then(|| CompletionItemLabelDetails {
                 description: Some("required".into()),
@@ -2373,7 +2370,7 @@ fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         });
     }
 
-    // An anchor with nothing to say still has to say so.
+    // An anchor with no content must still state this.
     items.push(CompletionItem {
         label: "pass".into(),
         kind: Some(CompletionItemKind::KEYWORD),
@@ -2384,7 +2381,7 @@ fn body(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     items
 }
 
-/// One completion for a name that resolved to something.
+/// One completion for a name that resolved to an item.
 fn symbol_completion(compilation: &Compilation, name: &str, symbol: Symbol) -> CompletionItem {
     match symbol {
         Symbol::Anchor(anchor) => {
@@ -2414,14 +2411,14 @@ fn symbol_completion(compilation: &Compilation, name: &str, symbol: Symbol) -> C
     }
 }
 
-/// The anchor whose body the cursor is in.
+/// The anchor with the body that contains the cursor.
 ///
-/// A declaration's span covers what was written, and what is being written is
-/// past the end of it: a body with nothing in it yet ends where its header
-/// does, which is exactly when the keys it can carry are most worth offering.
-/// So the search falls back to the last declaration above the cursor and
-/// confirms that nothing between the two has returned to column zero, which is
-/// the only thing that ends an indented body.
+/// The span of a declaration covers the written text. The text that the user
+/// writes now is after its end. A body with no content yet ends where its
+/// header ends. At that time, an offer of its keys is most useful. Thus the
+/// search also tries the last declaration above the cursor. It then makes sure
+/// that no line between the two starts at column zero. Only such a line ends
+/// an indented body.
 fn enclosing_anchor(cursor: &Cursor<'_>) -> Option<AnchorId> {
     let compilation = cursor.compilation;
     let ast = compilation.graph().get(cursor.module).ast();
@@ -2449,13 +2446,13 @@ fn enclosing_anchor(cursor: &Cursor<'_>) -> Option<AnchorId> {
         .map(|def| def.id)
 }
 
-/// Whether any line between two offsets starts at column zero with something
-/// other than whitespace.
+/// Whether a line between two offsets has text that is not whitespace at
+/// column zero.
 fn returns_to_column_zero(text: &str, from: usize, to: usize) -> bool {
     let from = from.min(to);
     text[from..to]
         .split('\n')
-        // `from` is the end of a line that has already been accounted for.
+        // `from` is the end of a line that the check already examined.
         .skip(1)
         .any(|line| !line.is_empty() && !line.starts_with([' ', '\t']))
 }
@@ -2465,20 +2462,19 @@ fn returns_to_column_zero(text: &str, from: usize, to: usize) -> bool {
 // ---------------------------------------------------------------------------
 
 pub fn formatting(text: &str, path: &Path) -> Vec<TextEdit> {
-    // The editor's formatting path is autoformat: it normalizes structure but
-    // never rewrites commented content, because that is what a save-time format
-    // must not do. The explicit `piton format` command is the one that
-    // normalizes comments.
+    // The formatting path of the editor is autoformat. It normalizes structure,
+    // but it never rewrites commented content. A format on save must not do
+    // that. Only the explicit `piton format` command normalizes comments.
     let formatted = format::autoformat(text, path);
     line_edits(text, &formatted)
 }
 
-/// The edits that turn `old` into `new`, one per run of changed lines.
+/// The edits that change `old` into `new`, one for each run of changed lines.
 ///
-/// A single edit replacing the whole document would do the same to the text,
-/// but an editor applying it loses the cursor, the selections and the marks
-/// in every line, changed or not. Not every client works out the smaller edit
-/// for itself, so the server sends it.
+/// One edit that replaces the full document would make the same text. But an
+/// editor that applies it loses the cursor, the selections and the marks in
+/// all lines, changed or not. Not all clients calculate the smaller edit
+/// themselves. Thus the server sends it.
 fn line_edits(old: &str, new: &str) -> Vec<TextEdit> {
     if old == new {
         return Vec::new();
@@ -2515,20 +2511,19 @@ fn line_edits(old: &str, new: &str) -> Vec<TextEdit> {
     edits
 }
 
-/// The indentation a new line should carry, after the newline that opened it.
+/// The indentation of a new line, after the newline that opened it.
 ///
-/// A declaration or a key that ends in a colon opens a block, and the block is
-/// the indented lines beneath it -- so pressing enter there should land one
-/// level in, not back at the margin. Every other line continues at the
-/// indentation it was already at.
+/// A declaration or a key that ends in a colon opens a block. The block is
+/// the indented lines below it. Thus enter at that line must go one level in,
+/// not back to the margin. All other lines keep their current indentation.
 ///
-/// This is the language server's job rather than the editor's because the
-/// grammar cannot say it. Indentation is deliberately outside the grammar, so
-/// no node spans a body for a tree-sitter indent query to measure, and the
-/// editors that have no tree-sitter at all have nothing else to go on.
+/// The language server does this, not the editor, because the grammar cannot
+/// express it. Indentation is intentionally outside the grammar. Thus no node
+/// spans a body, so a tree-sitter indent query has nothing to measure. Also,
+/// editors without tree-sitter have no other data.
 pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option<Vec<TextEdit>> {
-    // Only the newline is interesting. A client may send others if it asks for
-    // them; nothing else changes the indentation of a line.
+    // Only the newline is important. A client can send other characters if it
+    // asks for them. No other character changes the indentation of a line.
     if typed != "\n" && typed != "\r\n" {
         return None;
     }
@@ -2539,13 +2534,13 @@ pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option
         .map(|index| index + 1)
         .unwrap_or(0);
     if line_start == 0 {
-        // Nothing above to take the indentation from.
+        // There is no line above to supply the indentation.
         return None;
     }
     let previous = previous_line(text, line_start);
 
-    // Inside a fenced block or an escape block the text is verbatim, and
-    // reindenting it would change what it says.
+    // Inside a fenced block or an escape block, the text is verbatim. A change
+    // to its indentation would change its meaning.
     if verbatim_at(text, line_start) {
         return None;
     }
@@ -2556,12 +2551,12 @@ pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option
         wanted_indent(previous)
     };
 
-    // The line may already carry indentation: some editors copy the one above
-    // across, some compute their own, and the cursor may sit anywhere inside
-    // it -- or still at the margin. Measure the whole leading run rather than
-    // just the part before the cursor and replace all of it. Replacing only
-    // what sits before the cursor would stack the two together, and the line
-    // would end up twice as deep as it should be.
+    // The line can already have indentation. Some editors copy the indentation
+    // of the line above, and some calculate their own. The cursor can be at
+    // any position in it, or still at the margin. Thus measure the full leading
+    // run, not only the part before the cursor, and replace all of it. If only
+    // the part before the cursor changes, the two parts add together. Then the
+    // line would have two times the correct depth.
     let written = text[line_start..]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
@@ -2578,14 +2573,14 @@ pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option
     }])
 }
 
-/// The indentation after a line that is completely empty.
+/// The indentation after a line that is fully empty.
 ///
-/// Some editors, Zed among them, strip the whitespace from a blank line as
-/// Enter leaves it, so an indented blank line reaches the server as an empty
-/// one and looks like it sits at the margin. So an empty line is measured from
-/// the last line with content above it: the depth that line leads into, less
-/// one level for each empty line since, which is how deep the blank lines
-/// would have been had they kept their indentation.
+/// Some editors, for example Zed, remove the whitespace from a blank line when
+/// Enter leaves it. Thus an indented blank line comes to the server as an empty
+/// line, and it looks like it is at the margin. Thus the server measures an
+/// empty line from the last line above with content. It takes the depth that
+/// that line opens, less one level for each empty line after it. That is the
+/// depth of the blank lines if they had kept their indentation.
 fn indent_after_emptied_lines(text: &str, line_start: usize) -> String {
     let mut end = line_start - 1;
     let mut blank = 0usize;
@@ -2604,30 +2599,30 @@ fn indent_after_emptied_lines(text: &str, line_start: usize) -> String {
     }
 }
 
-/// The line above the one starting at `line_start`, without its newline.
+/// The line above the line that starts at `line_start`, without its newline.
 fn previous_line(text: &str, line_start: usize) -> &str {
     let above = &text[..line_start - 1];
     let start = above.rfind('\n').map(|index| index + 1).unwrap_or(0);
     above[start..].trim_end_matches('\r')
 }
 
-/// The indentation the line after `previous` should carry.
+/// The indentation of the line after `previous`.
 ///
-/// Two rules apply, and which one fires depends on the line being left behind.
-/// A declaration or key that ends in a colon opens a block, so the line after
-/// it lands one level in. A blank line is the opposite case: pressing enter on
-/// a blank line inside an indented block backs the new line *out* one level, so
-/// working down through blank lines walks you up and out of the nesting instead
-/// of holding you at the depth you started at.
+/// Two rules apply. The line that the cursor leaves decides which rule fires.
+/// A declaration or key that ends in a colon opens a block. Thus the line
+/// after it goes one level in. A blank line is the opposite case. Enter on a
+/// blank line inside an indented block moves the new line *out* one level.
+/// Thus a walk down through blank lines moves up and out of the nesting. It
+/// does not stay at the start depth.
 fn wanted_indent(previous: &str) -> String {
     let width = previous
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
 
-    // The line being left is blank and indented: dedent the new line by one
-    // level. A blank line at the margin has nothing to dedent out of, so it
-    // falls through and stays put.
+    // The cursor leaves a blank, indented line. Thus the new line moves out
+    // one level. A blank line at the margin has no level to move out of. Thus
+    // the next rule applies and the line does not move.
     if previous.trim().is_empty() && width > 0 {
         return " ".repeat(width.saturating_sub(format::INDENT));
     }
@@ -2637,18 +2632,18 @@ fn wanted_indent(previous: &str) -> String {
     } else {
         width
     };
-    // Four spaces, and not configurable: `piton format` writes them whatever
-    // the file already uses, so typing anything else only makes work.
+    // Four spaces. This is not configurable. `piton format` always writes four
+    // spaces, whatever the file uses. Thus any other value only adds work.
     " ".repeat(width)
 }
 
-/// Whether the line ends by opening a block for the lines beneath it. The
+/// Whether the line ends with the start of a block for the lines below it. The
 /// parser decides; see [`piton_syntax::cursor::opens_block`].
 fn opens_a_block(line: &str) -> bool {
     piton_syntax::cursor::opens_block(line)
 }
 
-/// How many bytes `chars` characters of leading whitespace occupy.
+/// The number of bytes in `chars` characters of leading whitespace.
 fn indent_bytes(line: &str, chars: usize) -> usize {
     line.char_indices()
         .nth(chars)
@@ -2656,8 +2651,8 @@ fn indent_bytes(line: &str, chars: usize) -> usize {
         .unwrap_or(line.len())
 }
 
-/// The line a span ends on, not counting the blank lines it takes in after
-/// its last line of content.
+/// The line where a span ends. This does not include the blank lines that the
+/// span contains after its last line of content.
 fn last_content_line(lines: &LineIndex<'_>, span: Span) -> u32 {
     let text = &lines.text()[span.start..span.end.min(lines.text().len())];
     lines.position(span.start + text.trim_end().len()).line
@@ -2672,12 +2667,12 @@ fn fold(start: u32, end: u32, kind: Option<FoldingRangeKind>) -> FoldingRange {
     }
 }
 
-/// Folding ranges, from the buffer's own syntax.
+/// Folding ranges, from the syntax of the buffer.
 ///
-/// Declarations, properties whose value is a block, escape blocks, and runs of
-/// comment or import lines fold. An escape block sitting directly inside a
-/// code fence folds with the fence, which is how it reads. Every range is
-/// whole lines, so a client folding by line loses nothing.
+/// These fold: declarations, properties with a block value, escape blocks, and
+/// runs of comment or import lines. An escape block directly inside a code
+/// fence folds with the fence, because the two read as one. Each range is full
+/// lines. Thus a client that folds by line loses nothing.
 pub fn folding(text: &str, path: &Path) -> Vec<FoldingRange> {
     let parse = piton_syntax::parser::parse(text, path);
     let lines = LineIndex::new(text, Encoding::Utf16);
@@ -2716,7 +2711,7 @@ pub fn folding(text: &str, path: &Path) -> Vec<FoldingRange> {
         }
     }
 
-    // Runs of whole-line comments, and runs of imports.
+    // Runs of full-line comments, and runs of imports.
     let mut runs: Vec<(u32, u32, FoldingRangeKind)> = Vec::new();
     let extend = |line: u32, last: u32, kind: FoldingRangeKind, runs: &mut Vec<_>| {
         match runs.last_mut() {
@@ -2750,13 +2745,13 @@ pub fn folding(text: &str, path: &Path) -> Vec<FoldingRange> {
     out
 }
 
-/// Spans that grow outward from `offset`: the word, each enclosing
-/// expression, the interpolation, the value, the property, each enclosing
-/// block, the declaration, the file.
+/// Spans that grow outward from `offset`. These are the word, each expression
+/// around it, the interpolation, the value, the property, each block around
+/// it, the declaration, and the file.
 fn selection_spans(parse: &piton_syntax::parser::Parse, text: &str, offset: usize) -> Vec<Span> {
     let mut spans = Vec::new();
 
-    // The word, or the operator, under the cursor.
+    // The word, or the operator, below the cursor.
     let token = parse
         .syntax()
         .token_at_offset(rowan::TextSize::from(offset as u32))
@@ -2780,7 +2775,7 @@ fn selection_spans(parse: &piton_syntax::parser::Parse, text: &str, offset: usiz
         spans.push(Span::new(usize::from(range.start()), usize::from(range.end())));
     }
 
-    // Expressions, innermost first.
+    // Expressions, the innermost first.
     let mut expressions = Vec::new();
     for item in &parse.file.items {
         let mut values: Vec<&ast::ValueNode> = Vec::new();
@@ -2813,7 +2808,7 @@ fn selection_spans(parse: &piton_syntax::parser::Parse, text: &str, offset: usiz
     expressions.sort_by_key(|span: &Span| span.len());
     spans.extend(expressions);
 
-    // The syntax around it.
+    // The syntax around the expression.
     if let Some(token) = token {
         for node in token.parent_ancestors() {
             let wanted = matches!(
@@ -2842,7 +2837,7 @@ fn selection_spans(parse: &piton_syntax::parser::Parse, text: &str, offset: usiz
     }
     spans.push(trimmed(text, Span::new(0, text.len())));
 
-    // Each step has to be wider than the last.
+    // Each step must be wider than the step before it.
     let mut out: Vec<Span> = Vec::new();
     for span in spans {
         let widens = out
@@ -2943,10 +2938,11 @@ pub fn code_actions(world: &World, uri: &Url, range: Range) -> Option<CodeAction
     code_actions_for(world, uri, range, None)
 }
 
-/// The actions for a range. Each one belongs to something there: an
-/// unresolved name, a declaration's header line, an import. Whole-file source
-/// actions come only when the client asks for that kind, or, for organizing
-/// imports, when the range is on an import; prose offers nothing.
+/// The actions for a range. Each action belongs to an item in the range: an
+/// unresolved name, the header line of a declaration, or an import. Source
+/// actions for the full file come only when the client asks for that kind.
+/// The organize-imports action also comes when the range is on an import.
+/// Prose gets no actions.
 pub fn code_actions_for(
     world: &World,
     uri: &Url,
@@ -2969,7 +2965,7 @@ pub fn code_actions_for(
             continue;
         };
 
-        // Offer to import the symbol from wherever it is exported.
+        // Offer to import the symbol from each location that exports it.
         for source in modules_exporting(compilation, name) {
             let source_path = compilation.graph().get(source).path.clone();
             let written = import_path(&cursor.path, &source_path, &world.project.source_root);
@@ -2992,7 +2988,7 @@ pub fn code_actions_for(
             }));
         }
 
-        // Or to create it.
+        // Or offer to create it.
         let end_of_file = cursor.text.len();
         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: format!("Create anchor `{name}`"),
@@ -3031,8 +3027,8 @@ pub fn code_actions_for(
     };
     let items = &compilation.graph().get(cursor.module).ast().items;
 
-    // Offer to export a declaration that nothing outside the file can see,
-    // from its header line rather than from anywhere in its value.
+    // Offer to export a declaration that no file outside this file can see.
+    // The offer comes from its header line, not from any location in its value.
     for item in items {
         let (name, span, exported) = match item {
             Item::Anchor(decl) => (&decl.name, decl.span, decl.exported),
@@ -3094,8 +3090,8 @@ pub fn code_actions_for(
         }));
     }
 
-    // Every edit goes out versioned when the client takes that, so a fix
-    // computed against an older buffer is refused rather than misapplied.
+    // When the client accepts versions, each edit has a version. Thus the
+    // client refuses a fix for an older buffer. It does not apply it incorrectly.
     for action in &mut actions {
         if let CodeActionOrCommand::CodeAction(action) = action {
             if let Some(edit) = action.edit.take() {
@@ -3119,8 +3115,8 @@ fn edit_action(title: String, kind: CodeActionKind, uri: &Url, edits: Vec<TextEd
     })
 }
 
-/// A local name for `name` imported from `path` that says where it came
-/// from: `./lib/Type` gives `LibType`, `./other` gives `OtherButton`.
+/// A local name for `name` from `path` that shows its origin. `./lib/Type`
+/// gives `LibType`, and `./other` gives `OtherButton`.
 fn qualified_alias(path: &str, name: &str) -> String {
     let trimmed = path.trim_end_matches('/').trim_end_matches(".pi");
     let mut segments: Vec<&str> = trimmed
@@ -3146,8 +3142,8 @@ fn qualified_alias(path: &str, name: &str) -> String {
     format!("{words}{name}")
 }
 
-/// "Qualify an ambiguous reference": give one of the imports behind an
-/// ambiguous name an alias, and say at the reference which one is meant.
+/// "Qualify an ambiguous reference". This gives an alias to one of the imports
+/// of an ambiguous name. It then names that import at the reference.
 fn qualify_actions(
     world: &World,
     cursor: &Cursor<'_>,
@@ -3181,9 +3177,9 @@ fn qualify_actions(
                 range: span_to_range(&cursor.text, binding.entry_span),
                 new_text: format!("{original} {alias}"),
             }];
-            // Every reference meant the winning binding, so qualifying that
-            // one rewrites them all; qualifying another only rewrites the
-            // reference the action was asked from.
+            // All references used the binding that won. Thus a change to that
+            // binding rewrites all of them. A change to a different binding
+            // rewrites only the reference where the user asked for the action.
             let rewritten: Vec<Span> = if position == ambiguity.winner {
                 ambiguity.references.clone()
             } else {
@@ -3209,10 +3205,10 @@ fn qualify_actions(
     actions
 }
 
-/// "Resolve a simple inheritance conflict": when two bases disagree about a
-/// property, say which one should win -- by reordering `extends`, by writing
-/// the property on the child, or, for abstracts whose constraints cannot
-/// both hold, by dropping one of them.
+/// "Resolve a simple inheritance conflict". Two bases have different values for
+/// a property. The action selects the base that wins. It can change the order
+/// of `extends`, or write the property on the child. For abstracts with
+/// constraints that cannot both be true, it removes one of the abstracts.
 fn conflict_actions(
     cursor: &Cursor<'_>,
     uri: &Url,
@@ -3226,7 +3222,7 @@ fn conflict_actions(
 
     for (item_index, item) in ast.items.iter().enumerate() {
         let Item::Anchor(decl) = item else { continue };
-        // Asked from the declaration's header line.
+        // The user asked from the header line of the declaration.
         let header_end = cursor.text[decl.span.start..]
             .find('\n')
             .map(|offset| decl.span.start + offset)
@@ -3262,7 +3258,7 @@ fn conflict_actions(
         let rewrite_extends = |order: &[&str]| -> Option<TextEdit> {
             let span = list_span?;
             if order.is_empty() {
-                // Drop ` extends ...` altogether.
+                // Remove all of ` extends ...`.
                 let keyword = cursor.text[..span.start].rfind("extends")?;
                 let from = cursor.text[..keyword].trim_end().len();
                 return Some(TextEdit {
@@ -3276,8 +3272,8 @@ fn conflict_actions(
             })
         };
 
-        // Abstracts whose constraints cannot both hold: the compiler says
-        // so, and the fix is to implement one of them, not both.
+        // Abstracts with constraints that cannot both be true. The compiler
+        // reports this. The fix is to implement one of them, not both.
         let conflicting = compilation.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == "conflicting-abstracts"
                 && paths_equal(&diagnostic.file, &cursor.path)
@@ -3304,8 +3300,8 @@ fn conflict_actions(
             }
         }
 
-        // Properties more than one base supplies, with different values,
-        // that the child does not settle itself.
+        // Properties that more than one base supplies, with different values.
+        // The child does not set them itself.
         let own: Vec<&str> = decl.body.properties().map(|p| p.name.as_str()).collect();
         let indent = decl
             .body
@@ -3341,8 +3337,9 @@ fn conflict_actions(
                 }
                 let loser_name = store.anchor(loser).name.clone();
                 let winner_name = store.anchor(winner).name.clone();
-                // Moving the base last in `extends` makes it win -- unless
-                // the winner came from a keyword, which is always last.
+                // The base wins when it moves to the last position in `extends`.
+                // This is not true when the winner came from a keyword, which is
+                // always last.
                 let movable = explicit.iter().any(|(_, _, id)| *id == Some(loser))
                     && explicit.iter().any(|(_, _, id)| *id == Some(winner));
                 if movable {
@@ -3411,7 +3408,7 @@ fn modules_exporting(compilation: &Compilation, name: &str) -> Vec<piton_compile
         .collect()
 }
 
-/// The path text an import should use to reach `target` from `from`.
+/// The path text that an import uses to reach `target` from `from`.
 fn import_path(from: &Path, target: &Path, _source_root: &Path) -> String {
     if target.to_string_lossy().starts_with('@') {
         return target.to_string_lossy().to_string();
@@ -3420,7 +3417,7 @@ fn import_path(from: &Path, target: &Path, _source_root: &Path) -> String {
     let stripped = target.with_extension("");
     let relative = piton_compile::module::relative_path(directory, &stripped);
     let text = relative.to_string_lossy().replace('\\', "/");
-    // `index` is written as the directory it lives in.
+    // An import of `index` uses the name of its directory.
     let text = text
         .strip_suffix("/index")
         .map(str::to_string)
@@ -3432,7 +3429,7 @@ fn import_path(from: &Path, target: &Path, _source_root: &Path) -> String {
     }
 }
 
-/// Where a new import declaration goes: after the last existing one.
+/// The location of a new import declaration: after the last import.
 fn insertion_point(
     compilation: &Compilation,
     module: piton_compile::ModuleId,
@@ -3458,13 +3455,14 @@ fn insertion_point(
 // Inlay hints
 // ---------------------------------------------------------------------------
 
-/// Inlay hints: only what the source does not already say.
+/// Inlay hints. They show only data that the source does not already show.
 ///
-/// Two kinds. After a name whose value is a single `{...}` and that no
-/// constraint types, the type it turns out to have, written the way a
-/// constraint is (`:: number`), so accepting the hint makes it explicit.
-/// And after a member read through `this`, `super` or an anchor, `← Owner`
-/// when the value comes from an anchor other than the one named.
+/// There are two kinds. The first kind goes after a name with a value that is a
+/// single `{...}` and that has no constraint type. It shows the type of the result
+/// in the form of a constraint (`:: number`). Thus when the user accepts the
+/// hint, the type becomes explicit. The second kind goes after a member that the
+/// source reads through `this`, `super` or an anchor. It shows `← Owner` when
+/// the value comes from a different anchor than the named anchor.
 pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHint>> {
     let cursor = file_context(world, uri)?;
     let compilation = cursor.compilation;
@@ -3535,8 +3533,8 @@ pub fn inlay_hints(world: &World, uri: &Url, range: Range) -> Option<Vec<InlayHi
     Some(out)
 }
 
-/// Whether a value is one `{...}` and nothing else: the form whose type is
-/// not written anywhere. `${...}`, `#{...}` and `@{...}` say theirs.
+/// Whether a value is only one `{...}`. The source does not write the type of
+/// this form. `${...}`, `#{...}` and `@{...}` show their types.
 fn is_sole_expression(value: &ast::ValueNode) -> bool {
     value.block.is_none()
         && value.inline_list.is_none()
@@ -3547,8 +3545,8 @@ fn is_sole_expression(value: &ast::ValueNode) -> bool {
             .is_some_and(|interpolation| interpolation.sigil == ast::Sigil::Standard)
 }
 
-/// The type a value has, as a constraint would name it, and the anchor when
-/// it is one.
+/// The type of a value, as a constraint would name it, and the anchor when the
+/// value is an anchor.
 fn inferred_type(compilation: &Compilation, value: &piton_core::Value) -> (String, Option<AnchorId>) {
     use piton_core::Value;
     let simple = |value: &Value| -> Option<&'static str> {
@@ -3587,7 +3585,7 @@ fn type_hint(
     let (kind, anchor) = inferred_type(compilation, value);
     let text = format!(":: {kind}");
     let position = lines.position(name.end);
-    // Writing the hint in only works where the name it uses means that anchor.
+    // An inserted hint is correct only where its name identifies that anchor.
     let writable = match anchor {
         Some(anchor) => matches!(
             compilation.resolution.lookup(cursor.module, &kind),
@@ -3623,7 +3621,7 @@ fn type_hint(
     })
 }
 
-/// Every line of prose in a block, at any depth: values, list items,
+/// All lines of prose in a block, at all depths: values, list items,
 /// composition lines, paragraphs.
 fn prose_lines<'a>(block: &'a ast::Block, out: &mut Vec<&'a ast::ProseLine>) {
     fn value<'a>(node: &'a ast::ValueNode, out: &mut Vec<&'a ast::ProseLine>) {
@@ -3646,8 +3644,8 @@ fn prose_lines<'a>(block: &'a ast::Block, out: &mut Vec<&'a ast::ProseLine>) {
     }
 }
 
-/// `← Owner` after each member whose value comes from an anchor other than
-/// the one it is read through.
+/// `← Owner` after each member with a value from an anchor that is not the
+/// anchor that the source reads it through.
 fn supplier_hints(
     world: &World,
     cursor: &Cursor<'_>,
@@ -3687,9 +3685,9 @@ fn supplier_hints(
         let mut fields = Vec::new();
         walk(&interpolation.expr, &mut fields);
         for (base, field) in fields {
-            // The anchor the member is read through, and the one that supplies
-            // it. `self` is whichever anchor is being compiled, so it has no
-            // one answer to give.
+            // The anchor that the source reads the member through, and the
+            // anchor that supplies it. `self` is the anchor that the compiler
+            // compiles. Thus it has no single answer.
             let (named, supplier) = match &base.kind {
                 ExprKind::This => {
                     let Some(slot) = store.anchor(anchor).slots.get(&field.value) else {
@@ -3768,13 +3766,12 @@ mod modifier {
     pub const IMPORTED: u32 = 1 << 5;
 }
 
-/// The semantic tokens of a file: one per resolved name and module path.
+/// The semantic tokens of a file: one for each resolved name and module path.
 ///
-/// Everything else -- comments, keywords, literals, operators, prose -- is the
-/// syntax definition's to colour, and the server says nothing about it. That
-/// keeps the two layers from disagreeing: a token arriving can only refine a
-/// name with what resolving it found, never repaint text the grammar already
-/// coloured.
+/// The syntax definition colours all other text: comments, keywords, literals,
+/// operators, prose. The server gives no tokens for it. Thus the two layers
+/// cannot disagree. A token can only add the result of resolution to a name.
+/// It never changes the colour of text that the grammar already coloured.
 pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult> {
     let cursor = file_context(world, uri)?;
     let index = world.index.get(cursor.module)?;
@@ -3809,8 +3806,8 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
             }
             Target::Property(anchor, name) => {
                 let mut modifiers = declared;
-                // A property read through `self`, `super` or an anchor whose
-                // value a base supplies is an inherited value.
+                // A property that the source reads through `self`, `super` or an
+                // anchor, with a value from a base, is an inherited value.
                 if occurrence.role == Role::Reference
                     && store
                         .anchor(*anchor)
@@ -3860,7 +3857,7 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
         raw.push((occurrence.span, kind, modifiers));
     }
 
-    // Where two occurrences overlap, the innermost names the text.
+    // Where two occurrences overlap, the innermost occurrence names the text.
     raw.sort_by_key(|(span, _, _)| (span.start, span.len()));
     let mut kept: Vec<(Span, u32, u32)> = Vec::new();
     for entry in raw {
@@ -3884,8 +3881,8 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
     for (span, kind, modifiers) in kept {
         let start = lines.position(span.start);
         let end = lines.position(span.end);
-        // A name cannot hold a line break, so a token spanning lines is a
-        // span gone wrong; dropping it beats telling the client nonsense.
+        // A name cannot contain a line break. Thus a token on more than one line
+        // is a bad span. It is better to discard it than to send bad data.
         if end.line != start.line {
             debug_assert!(false, "a semantic token spans lines: {span:?}");
             continue;
@@ -3924,7 +3921,7 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
         if !paths_equal(&mapping.source_file, &cursor.path) {
             continue;
         }
-        // One lens per construct, not one per adapter slice of the same span.
+        // One lens for each construct, not one for each adapter slice of the same span.
         if !seen.insert(mapping.source_span.start) {
             continue;
         }
@@ -3960,7 +3957,7 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
         });
     }
 
-    // An overriding property links to the declaration it replaces.
+    // A property that overrides links to the declaration that it replaces.
     if let Some(compilation) = world.compilation.as_ref() {
         for def in compilation
             .store()
@@ -3973,8 +3970,8 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
                 continue;
             };
             for property in decl.body.properties() {
-                // Writing what an abstract base requires is implementing it;
-                // only replacing a value is worth a line of its own.
+                // A property that an abstract base requires is an implementation.
+                // Only a replaced value gets its own line.
                 let Some(base) = replaces_value(compilation, def.id, &property.name) else {
                     continue;
                 };
@@ -4005,21 +4002,21 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
     Some(lenses)
 }
 
-/// The command a source-to-output code lens runs: open the compiled file at
-/// the slice the construct produced.
+/// The command of a source-to-output code lens. It opens the compiled file at
+/// the slice that the construct made.
 pub const SOURCE_TO_OUTPUT: &str = "piton.sourceToOutput";
-/// The command an "overrides" code lens runs: open a location.
+/// The command of an "overrides" code lens. It opens a location.
 pub const SHOW_LOCATION: &str = "piton.showLocation";
 
-/// What running a command should do: show a document, or tell the user why
-/// it cannot.
+/// The result of a command. It shows a document, or it tells the user why it
+/// cannot.
 #[derive(Debug, PartialEq)]
 pub enum CommandOutcome {
     Show(ShowDocumentParams),
     Message(String),
 }
 
-/// `workspace/executeCommand` for the commands the server's code lenses use.
+/// `workspace/executeCommand` for the commands of the code lenses of the server.
 pub fn execute_command(
     _world: &World,
     command: &str,
@@ -4061,7 +4058,7 @@ pub fn execute_command(
     }
 }
 
-/// `piton/sourceToOutput`: which compiled slices a source position produced.
+/// `piton/sourceToOutput`: the compiled slices that a source position made.
 pub fn source_to_output(world: &World, params: &serde_json::Value) -> serde_json::Value {
     let Some(uri) = params
         .get("uri")
@@ -4102,7 +4099,7 @@ pub fn source_to_output(world: &World, params: &serde_json::Value) -> serde_json
     serde_json::Value::Array(hits)
 }
 
-/// `piton/outputToSource`: which source construct produced a compiled offset.
+/// `piton/outputToSource`: the source construct that made a compiled offset.
 pub fn output_to_source(world: &World, params: &serde_json::Value) -> serde_json::Value {
     let Some(path) = params.get("path").and_then(|value| value.as_str()) else {
         return serde_json::Value::Null;
@@ -4136,24 +4133,24 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
 // ---------------------------------------------------------------------------
 // Hierarchy
 //
-// Inheritance is the structure of a specbase: an abstract anchor declares a
-// shape, keywords are inheritance spelled as syntax, and what a concrete anchor
-// resolves to is the whole chain above it flattened. Two navigations follow
-// from that, and they answer opposite questions.
+// Inheritance is the structure of a specbase. An abstract anchor declares a
+// shape. Keywords are inheritance in the form of syntax. A concrete anchor
+// resolves to the flat merge of the full chain above it. Two navigations come
+// from this, and they answer opposite questions.
 //
-// `implementation` goes down one step: from a base to everything that extends
-// it. Go-to-definition already goes up, and without this the relationship is
-// only traversable in one direction -- which is the wrong one when the question
-// is "who uses this shape?".
+// `implementation` goes down one step: from a base to all anchors that extend
+// it. Go-to-definition already goes up. Without `implementation`, the user can
+// move along the relation in only one direction. That is the wrong direction
+// for the question "which anchors use this shape?".
 //
-// The type hierarchy goes both ways and keeps going, so an editor can show the
-// tree rather than one step of it.
+// The type hierarchy goes in the two directions and continues. Thus an editor
+// can show the tree, not only one step of it.
 // ---------------------------------------------------------------------------
 
-/// The anchor a cursor is on, however it was named.
+/// The anchor below the cursor, whatever name the source uses for it.
 ///
-/// A keyword *is* the anchor it aliases, so landing on `skill` and landing on
-/// `Skill` have to give the same answer.
+/// A keyword *is* the anchor that it aliases. Thus `skill` and `Skill` must
+/// give the same answer.
 fn anchor_at(world: &World, uri: &Url, position: Position) -> Option<AnchorId> {
     let cursor = cursor(world, uri, position)?;
     let index = world.index.get(cursor.module)?;
@@ -4165,7 +4162,7 @@ fn anchor_at(world: &World, uri: &Url, position: Position) -> Option<AnchorId> {
     }
 }
 
-/// Every anchor that names `base` among its bases, directly.
+/// All anchors that directly name `base` in their bases.
 fn derived(compilation: &Compilation, base: AnchorId) -> Vec<AnchorId> {
     let mut found: Vec<AnchorId> = compilation
         .store()
@@ -4180,9 +4177,10 @@ fn derived(compilation: &Compilation, base: AnchorId) -> Vec<AnchorId> {
 
 /// `textDocument/implementation`.
 ///
-/// From a base anchor: what extends it, then what composes it with `{X}`.
-/// From a property: the declarations in descendants that override it -- the
-/// other direction of go-to-definition on an overriding property.
+/// From a base anchor, it gives the anchors that extend it, then the anchors
+/// that compose it with `{X}`. From a property, it gives the declarations in
+/// descendants that override it. This is the opposite direction of
+/// go-to-definition on a property that overrides.
 pub fn implementations(
     world: &World,
     uri: &Url,
@@ -4232,7 +4230,7 @@ pub fn implementations(
     (!locations.is_empty()).then_some(request::GotoImplementationResponse::Array(locations))
 }
 
-/// How a hierarchy item relates to the one it was asked from.
+/// The relation of a hierarchy item to the item that the request came from.
 #[derive(Clone, Copy)]
 enum Relation {
     Itself,
@@ -4276,14 +4274,14 @@ fn hierarchy_item(world: &World, anchor: AnchorId, relation: Relation) -> Option
         uri: location.uri,
         range: location.range,
         selection_range: location.range,
-        // The anchor's own identity, so a later supertypes/subtypes call does
-        // not have to find it again by position in a file that may since have
-        // been edited.
+        // The identity of the anchor. Thus a later supertypes or subtypes call
+        // does not have to find it again by position. The file can have
+        // changed after this call.
         data: Some(serde_json::json!({ "anchor": anchor.0 })),
     })
 }
 
-/// Reads the anchor identity back out of a hierarchy item.
+/// Reads the anchor identity from a hierarchy item.
 fn hierarchy_anchor(world: &World, item: &TypeHierarchyItem) -> Option<AnchorId> {
     let compilation = world.compilation.as_ref()?;
     let id = item
@@ -4293,8 +4291,8 @@ fn hierarchy_anchor(world: &World, item: &TypeHierarchyItem) -> Option<AnchorId>
         .and_then(serde_json::Value::as_u64)
         .map(|id| AnchorId(id as u32))
         .filter(|id| (id.0 as usize) < compilation.store().anchors.len());
-    // A stale id, from an item prepared before a recompilation, falls back to
-    // the name -- which is what the editor is really showing.
+    // An old id, from an item made before a recompilation, uses the name
+    // instead. The name is what the editor shows.
     id.filter(|id| compilation.store().anchor(*id).name == item.name)
         .or_else(|| compilation.find_anchor(&item.name))
 }
@@ -4309,8 +4307,8 @@ pub fn prepare_type_hierarchy(
     hierarchy_item(world, anchor, Relation::Itself).map(|item| vec![item])
 }
 
-/// `typeHierarchy/supertypes`: the bases an anchor extends, in declaration
-/// order (the order collisions resolve in), then the anchors it composes.
+/// `typeHierarchy/supertypes`: the bases that an anchor extends, in declaration
+/// order (the order that resolves collisions). Then the anchors that it composes.
 pub fn type_hierarchy_supertypes(
     world: &World,
     item: &TypeHierarchyItem,
@@ -4330,8 +4328,8 @@ pub fn type_hierarchy_supertypes(
     Some(items)
 }
 
-/// `typeHierarchy/subtypes`: everything that extends this anchor, then
-/// everything that composes it.
+/// `typeHierarchy/subtypes`: all anchors that extend this anchor. Then all
+/// anchors that compose it.
 pub fn type_hierarchy_subtypes(
     world: &World,
     item: &TypeHierarchyItem,
@@ -4352,13 +4350,13 @@ pub fn type_hierarchy_subtypes(
 // Compiled output preview
 // ---------------------------------------------------------------------------
 
-/// `piton/preview`: a file, or the anchor under a position, as it compiles.
+/// `piton/preview`: a file, or the anchor at a position, in its compiled form.
 ///
-/// Parameters: `uri`, an optional `position` (`{line, character}`) naming an
-/// anchor to preview on its own, and an optional `renderer` -- `json`, `yaml`,
-/// `markdown`, or a Belay target id such as `claude` -- defaulting to the
-/// renderer the project is configured with. The answer carries the renderer
-/// used, the file the output is written to, and the text.
+/// Parameters: `uri`, an optional `position` (`{line, character}`) that names
+/// an anchor to preview alone, and an optional `renderer`. The renderer is
+/// `json`, `yaml`, `markdown`, or a Belay target id such as `claude`. The
+/// default is the configured renderer of the project. The answer holds the
+/// renderer, the output file, and the text.
 pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
     let failure = |message: &str| serde_json::json!({ "error": message });
     let Some(uri) = params
@@ -4408,8 +4406,8 @@ pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
         });
     }
 
-    // Anything else names a group of plugin output, like a Belay target id,
-    // as the plugin builds planned it at the last save.
+    // All other values name a group of plugin output, for example a Belay
+    // target id. This is the output that the plugin builds planned at the last save.
     let target = requested.unwrap_or_default();
     let files: Vec<&piton_plugin::output::OutputFile> = world
         .plugin_plans
@@ -4417,8 +4415,8 @@ pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
         .flat_map(|plan| plan.files.iter())
         .filter(|file| file.group.as_deref() == Some(target))
         .filter(|file| {
-            // `origin` names the anchor a file came from, or every anchor a
-            // combined file carries, comma separated.
+            // `origin` names the anchor that a file came from. For a combined
+            // file, it names all of its anchors, with commas between them.
             file.origin.split(',').map(str::trim).any(|origin| {
                 compilation.store().anchors.iter().any(|def| {
                     def.name == origin

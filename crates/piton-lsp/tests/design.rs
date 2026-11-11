@@ -1,9 +1,9 @@
-//! The editor features, held to exact answers.
+//! Tests that make sure the editor features give exact answers.
 //!
-//! Each test writes a small workspace, puts the cursor somewhere with `$0`,
-//! and checks the whole answer -- the tokens, the hover text, the edits --
-//! rather than a fragment of it, so a change in behaviour shows up as a
-//! failing line here and not as a surprise in an editor.
+//! Each test writes a small workspace and puts the cursor at a position with
+//! `$0`. It then checks the full answer (the tokens, the hover text, the
+//! edits), not only a part of it. Thus a change in behaviour shows as a
+//! failed line here, not as a surprise in an editor.
 
 mod support;
 
@@ -423,8 +423,8 @@ $0",
             .collect::<Vec<_>>()
     };
 
-    // `spec/types` sits beside `spec/lib`, so the moved file's own
-    // `../Keywords.pi` still names the same file and is left as it is.
+    // `spec/types` is next to `spec/lib`. Thus `../Keywords.pi` in the moved
+    // file still names the same file, and the rename does not change it.
     let moved = rename("spec/lib/Type.pi", "spec/types/Type.pi");
     assert_eq!(
         moved,
@@ -674,18 +674,18 @@ $0",
             "10:5 :: Foo edit",
             "11:5 :: string[] edit",
             "12:5 :: list edit",
-            // `super` names no one anchor, so whoever supplies it is news.
+            // `super` names no single anchor. Thus the supplier is new data.
             "13:5 :: string[] edit",
             "13:19 \u{2190} Foo -",
-            // An inherited value read through `this` names its supplier; the
-            // anchor's own does not.
+            // An inherited value that the source reads through `this` names
+            // its supplier. The own value of the anchor does not.
             "14:5 :: number edit",
             "15:5 :: number edit",
             "15:16 \u{2190} Foo -",
-            // Read through an anchor whose base supplies it.
+            // The source reads it through an anchor whose base supplies it.
             "16:5 :: string edit",
             "16:13 \u{2190} Root -",
-            // `self` is whichever anchor is compiled, so it names no supplier.
+            // `self` is the anchor that the compiler compiles. Thus it names no supplier.
             "17:5 :: number edit",
         ]
     );

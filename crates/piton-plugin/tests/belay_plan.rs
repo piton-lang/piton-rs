@@ -1,5 +1,5 @@
-//! Checks the output plan against the Belay specification, one rule at a
-//! time, on small sandbox projects.
+//! Examines the output plan against the Belay specification. Each test
+//! examines one rule on a small sandbox project.
 
 mod belay;
 
@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use piton_compile::{config, Compilation};
 use piton_plugin::output;
 
-/// Writes a plan the way `piton build` does: checked whole against what the
-/// last build recorded, then written, then recorded in the manifest. A plan
-/// with problems, or with errors among its diagnostics, writes nothing.
+/// Writes a plan as `piton build` does. First it examines the full plan
+/// against the record of the last build. Then it writes the plan. Then it
+/// records the plan in the manifest. A plan with problems or with error
+/// diagnostics writes nothing.
 fn write(plan: &belay::Plan, root: &std::path::Path) -> Result<(), String> {
     let previous = output::previous(root);
     let mut problems = output::check(&plan.build, root, &previous, &|_: &str| None);
@@ -61,7 +62,7 @@ impl Sandbox {
         self
     }
 
-    /// Writes a configuration with the given adapters and extra belay-config
+    /// Writes a configuration with the given adapters and more belay-config
     /// lines.
     fn configure(&self, adapters: &[&str], extra: &str) -> &Sandbox {
         let imports = adapters.join(", ");
@@ -413,7 +414,7 @@ fn a_command_skill_opencode_is_told_to_hide_needs_no_choice() {
         "spec/index.pi",
         "use @piton/belay\n\nexport command Release:\n    description: Cut a release\n    prompt: Go.\n",
     );
-    // A later pattern decides over an earlier one.
+    // A later pattern wins against an earlier pattern.
     sandbox.write(
         "opencode.json",
         "{\n  \"permission\": {\"skill\": {\"*\": \"allow\", \"x-*\": \"deny\"}}\n}\n",
@@ -446,16 +447,16 @@ fn shared_projects_write_one_reference_tree_and_one_agents_md() {
         );
     let built = sandbox.plan();
     built.assert_clean();
-    // The first adapter listed owns the one reference tree.
+    // The first adapter in the list owns the single reference tree.
     assert!(built.has(".codex/reference/Style.md"));
     assert!(!built.has(".opencode/reference/Style.md"), "{:?}", built.paths());
-    // Both tools read the one AGENTS.md, which links into that tree.
+    // Both tools read the single AGENTS.md. It links into that tree.
     assert!(built.file("src/AGENTS.md").contains("../.codex/reference/Style.md"));
-    // OpenCode discovers the Codex skill, so it writes no copy of its own.
+    // OpenCode finds the Codex skill. Thus OpenCode writes no copy.
     assert!(built.has(".agents/skills/tidy/SKILL.md"));
     assert!(!built.has(".opencode/skills/tidy/SKILL.md"), "{:?}", built.paths());
 
-    // Deployed apart, each tool gets its own tree and they can no longer
+    // With separate deployment, each tool gets its own tree. The tools do not
     // share AGENTS.md.
     sandbox.configure(&["CodexAdapter", "OpenCodeAdapter"], "    crossDiscovery: separate\n");
     let built = sandbox.plan();
@@ -493,7 +494,7 @@ fn muse_leaves_agents_out_and_still_gets_its_references() {
     assert!(warning.message.contains("`Reviewer`"), "{}", warning.message);
     assert!(built.has(".muse/reference/index.md"), "{:?}", built.paths());
     assert!(!built.paths().iter().any(|path| path.contains("agents/reviewer")), "{:?}", built.paths());
-    // With nowhere else to link, the agent is documented in the reference tree.
+    // No other target has the agent. Thus the link goes to the reference tree.
     let skill = built.file(".agents/skills/tidy/SKILL.md");
     assert!(skill.contains("../../../.muse/reference/index.md#style"), "{skill}");
     assert!(skill.contains("../../../.muse/reference/index.md#reviewer"), "{skill}");
@@ -506,11 +507,11 @@ fn muse_shares_the_skills_and_commands_codex_and_claude_write() {
     sandbox.configure(&["CodexAdapter", "MuseAdapter"], "").write("spec/index.pi", spec);
     let built = sandbox.plan();
     built.assert_clean();
-    // Muse honours the Codex policy file, so the one copy serves both.
+    // Muse obeys the Codex policy file. Thus one copy serves both tools.
     assert!(built.file(".agents/skills/x-release/SKILL.md").contains("name: x-release"));
     assert!(built.has(".agents/skills/x-release/agents/openai.yaml"));
     assert!(built.paths().iter().all(|path| !path.starts_with(".muse/")), "{:?}", built.paths());
-    // The agent Muse can't load is linked where Codex writes it.
+    // Muse cannot load the agent. The link goes to the Codex agent file.
     assert!(built.file(".agents/skills/tidy/SKILL.md").contains("../../../.codex/agents/reviewer.toml"));
 
     sandbox.configure(&["ClaudeCodeAdapter", "MuseAdapter"], "").write("spec/index.pi", spec);
@@ -539,8 +540,8 @@ fn the_target_versions_are_recorded() {
         "use @piton/belay\n\nexport skill Tidy:\n    useWhen: asked\n",
     );
     let built = sandbox.plan();
-    // The manifest records, for each target, when its documentation was
-    // last checked.
+    // For each target, the manifest records the date of the last
+    // documentation check.
     let manifest = output::manifest(&built.plan.build);
     assert!(manifest.contains("\"targets\""), "{manifest}");
     assert!(manifest.contains("\"claude-code\": \"2026-09-21\""), "{manifest}");
@@ -580,7 +581,7 @@ fn existing_files_the_build_does_not_own_are_not_overwritten() {
         "hand written\n"
     );
 
-    // Once the manifest records it, the build owns it.
+    // When the manifest records a file, the build owns the file.
     sandbox.write(
         output::MANIFEST,
         "{\n  \"generated\": [\n    \".claude/skills/tidy/SKILL.md\"\n  ]\n}\n",
@@ -700,8 +701,8 @@ fn a_vendored_skill_is_copied_as_it_is_for_each_target() {
         .expect("blob planned");
     assert_eq!(blob.data(), &[0u8, 159, 146, 150]);
 
-    // Writing keeps the bytes and the execute permission, and records the
-    // copies so a later build can remove them.
+    // The write keeps the bytes and the execute permission. The manifest
+    // records the copies. Thus a later build can remove them.
     write(&built.plan, &sandbox.dir).expect("write");
     assert_eq!(
         std::fs::read(sandbox.dir.join(".claude/skills/designer/scripts/blob.bin")).expect("read"),

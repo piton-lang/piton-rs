@@ -1,8 +1,8 @@
 //! Parses every `.pi` file in the repository.
 //!
-//! The specification is written in Piton, so the specification itself is the
-//! parser's acceptance suite: it must parse without errors and the lossless tree
-//! must reproduce every byte.
+//! The specification uses Piton. Thus the specification itself is the
+//! acceptance suite of the parser. It must parse without errors. The lossless
+//! tree must reproduce every byte.
 
 use std::path::{Path, PathBuf};
 
@@ -64,13 +64,13 @@ fn the_specification_parses_cleanly() {
     assert!(failures.is_empty(), "{} problems:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// Every name the program knows about is a token of its own in the tree.
+/// Every name that the program knows is a separate token in the tree.
 ///
-/// Editors read the tree, not the AST: highlighting, completion and the
-/// golden classification all ask what token is at a position. A header or
-/// import line whose words are left as prose is a line nothing can colour or
-/// complete, and a name whose AST span is not exactly one token is a name
-/// rename and hover miss.
+/// Editors read the tree, not the AST. The highlighter, the completion feature
+/// and the golden classification all ask which token is at a position. Sometimes a
+/// header or import line keeps its words as prose. Then no editor can colour or
+/// complete that line. Sometimes the AST span of a name is not exactly one
+/// token. Then rename and hover miss that name.
 #[test]
 fn names_in_the_specification_are_tokens() {
     use piton_syntax::ast::{BlockItem, Item};

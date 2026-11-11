@@ -1,12 +1,12 @@
 //! Workspace state.
 //!
 //! The server keeps the open buffers and one compiled view of the project.
-//! Analysis always runs over the whole reachable program, because that is the
-//! only way a question about inheritance or reachability has a true answer.
+//! Analysis always runs over the full reachable program. Only then does a
+//! question about inheritance or reachability have a true answer.
 //!
-//! What it avoids is compiling when nothing changed: the buffers a compilation
-//! was built from are remembered, and a request for a fresh view is a no-op
-//! until one of them (or the project on disk) moves.
+//! The server does not compile when no change occurred. It records the
+//! buffers that a compilation used. A request for a new view does nothing
+//! until one of these buffers (or the project on disk) changes.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,10 +19,10 @@ use piton_syntax::language;
 use crate::analysis::Analysis;
 use crate::index::Index;
 
-/// Where `piton compile` writes, and in which format.
+/// The location where `piton compile` writes, and the format.
 ///
-/// Read from the project configuration's `output` and `renderer`. The defaults
-/// are the specification's: `./dist`, as JSON.
+/// The values come from `output` and `renderer` in the project configuration.
+/// The defaults come from the specification: `./dist`, as JSON.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputSettings {
     pub directory: PathBuf,
@@ -30,14 +30,14 @@ pub struct OutputSettings {
 }
 
 impl OutputSettings {
-    /// The compiled file a module produces: the output directory, then the
-    /// module's path relative to the source root, with the renderer's
-    /// extension.
+    /// The compiled file that a module makes. It is the output directory, then
+    /// the path of the module relative to the source root, with the extension
+    /// of the renderer.
     pub fn output_for(&self, project: &Project, module: &Path) -> PathBuf {
         self.output_with(project, module, self.renderer)
     }
 
-    /// The same, for a renderer other than the configured one.
+    /// The same, for a renderer that is not the configured renderer.
     pub fn output_with(&self, project: &Project, module: &Path, adapter: Adapter) -> PathBuf {
         let relative = module
             .strip_prefix(&project.source_root)
@@ -54,9 +54,9 @@ impl OutputSettings {
     }
 }
 
-/// The output directory and renderer the project is configured with
-/// (`output` and `renderer` in `piton.config.pi`; `./dist` and JSON when left
-/// out).
+/// The output directory and renderer from the project configuration
+/// (`output` and `renderer` in `piton.config.pi`). When the configuration
+/// does not give them, they are `./dist` and JSON.
 pub fn output_settings(project: &Project) -> OutputSettings {
     OutputSettings {
         directory: project.output_dir.clone(),
@@ -70,11 +70,12 @@ pub fn is_config_file(path: &Path) -> bool {
         .is_some_and(|name| name == language::CONFIG_FILE)
 }
 
-/// What the client said it can do, read once at `initialize`. Everything
-/// defaults to off, which is what a client that says nothing supports.
+/// The capabilities that the client gave at `initialize`. The server reads
+/// them one time. All are off by default, because a client that gives no
+/// capabilities supports none.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ClientCaps {
-    /// `textDocument.definition.linkSupport`: answer with `LocationLink`.
+    /// `textDocument.definition.linkSupport`: the answer is a `LocationLink`.
     pub link_support: bool,
     /// `workspace.workspaceEdit.documentChanges`: versioned edits.
     pub document_changes: bool,
@@ -89,45 +90,45 @@ pub struct ClientCaps {
 }
 
 pub struct World {
-    /// The workspace folder the server was pointed at, so the configuration
-    /// can be read again when it changes.
+    /// The workspace folder of the server. The server uses it to read the
+    /// configuration again when the configuration changes.
     pub root: PathBuf,
     pub project: Project,
     pub output: OutputSettings,
-    /// What reading the configuration reported: unknown settings, a bad
-    /// renderer, a missing `piton-config` anchor.
+    /// The problems that the configuration read found. Examples are unknown
+    /// settings, a bad renderer, and no `piton-config` anchor.
     pub config_diagnostics: Vec<Diagnostic>,
-    /// Unsaved editor buffers, keyed by path.
+    /// Editor buffers that the user did not save, by path.
     pub documents: HashMap<PathBuf, String>,
-    /// The version the client gave each open buffer.
+    /// The version that the client gave to each open buffer.
     pub versions: HashMap<PathBuf, i32>,
-    /// What the client supports.
+    /// The features that the client supports.
     pub caps: ClientCaps,
-    /// Counts compilations, so an answer prepared against one can tell it is
-    /// being asked about after another.
+    /// The count of compilations. An answer made for one compilation can use
+    /// it to know that a question comes after a different compilation.
     pub generation: u64,
     pub compilation: Option<Compilation>,
     pub index: Index,
     /// Import, composition, conflict, and source-map analysis of `compilation`.
     pub analysis: Analysis,
-    /// Paths that had diagnostics last time, so cleared files get an empty
-    /// publish rather than stale squiggles.
+    /// Paths that had diagnostics the last time. Thus files without problems
+    /// get an empty publish, not old squiggles.
     pub last_reported: Vec<PathBuf>,
-    /// The buffers `compilation` was built from, and their versions.
+    /// The buffers that `compilation` used, and their versions.
     compiled_documents: HashMap<PathBuf, String>,
     compiled_versions: HashMap<PathBuf, i32>,
-    /// Set when something outside the buffers changed: the configuration, a
-    /// file on disk, a closed buffer.
+    /// The server sets it when a change occurs outside the buffers. Examples
+    /// are the configuration, a file on disk, and a closed buffer.
     stale: bool,
-    /// What each plugin build planned at the last save.
+    /// The plans of each plugin build at the last save.
     pub plugin_plans: Vec<piton_plugin::plan::PluginPlan>,
-    /// What each plugin said it reaches at the last save, by file and name.
+    /// The items that each plugin reached at the last save, by file and name.
     pub plugin_reached: Vec<(PathBuf, String)>,
-    /// Set when a save or the configuration means the plans should be made
-    /// again. Typing never sets it.
+    /// The server sets it when a save or the configuration makes new plans
+    /// necessary. A keystroke never sets it.
     plans_stale: bool,
-    /// The file most recently edited, which stands in for the project when
-    /// there is no configuration.
+    /// The file that the user edited last. It is the project when there is no
+    /// configuration.
     focus: Option<PathBuf>,
 }
 
@@ -158,17 +159,17 @@ impl World {
         }
     }
 
-    /// Reads `piton.config.pi` again.
-    ///
-    /// The configuration names the source root and the entry point, so a change
-    /// to it is a change to which files are the project at all -- not something
-    /// a recompile of the old project would notice.
-    /// A file was saved: plugin builds are planned again at the next refresh.
+    /// The user saved a file. The next refresh plans the plugin builds again.
     pub fn saved(&mut self) {
         self.plans_stale = true;
         self.stale = true;
     }
 
+    /// Reads `piton.config.pi` again.
+    ///
+    /// The configuration names the source root and the entry point. Thus a
+    /// change to it changes the set of files in the project. A recompile of the
+    /// old project would not see this change.
     pub fn reload_project(&mut self) {
         self.plans_stale = true;
         let (project, diagnostics) = config::load(&self.root, None);
@@ -183,19 +184,19 @@ impl World {
         self.documents.insert(path, text);
     }
 
-    /// An open buffer at the version the client numbered it.
+    /// An open buffer, at the version number that the client gave it.
     pub fn open_document(&mut self, path: PathBuf, text: String, version: i32) {
         self.versions.insert(path.clone(), version);
         self.set_document(path, text);
     }
 
-    /// The version of the buffer the current compilation read, for a file
-    /// that was open then.
+    /// The version of the buffer that the current compilation read, for a file
+    /// that was open at that time.
     pub fn compiled_version(&self, path: &Path) -> Option<i32> {
         self.compiled_versions.get(path).copied()
     }
 
-    /// The version of an open buffer now.
+    /// The current version of an open buffer.
     pub fn version(&self, path: &Path) -> Option<i32> {
         self.versions.get(path).copied()
     }
@@ -209,19 +210,20 @@ impl World {
         self.stale = true;
     }
 
-    /// Marks the compilation out of date for a reason the buffers do not show,
-    /// such as a file written on disk.
+    /// Marks the compilation as old for a reason that the buffers do not show.
+    /// An example is a file that changed on disk.
     pub fn invalidate(&mut self) {
         self.stale = true;
     }
 
-    /// Whether the compilation no longer matches the buffers or the disk.
+    /// Whether the compilation is different from the buffers or the disk.
     pub fn needs_compile(&self) -> bool {
         self.stale || self.compilation.is_none() || self.compiled_documents != self.documents
     }
 
-    /// The current text of a file: the open buffer if there is one, otherwise
-    /// what the compilation loaded, otherwise the file on disk.
+    /// The current text of a file. This is the open buffer if there is one.
+    /// If not, it is the text that the compilation loaded. If not, it is the
+    /// file on disk.
     pub fn text(&self, path: &Path) -> Option<String> {
         if let Some(text) = self.documents.get(path) {
             return Some(text.clone());
@@ -234,7 +236,7 @@ impl World {
         std::fs::read_to_string(path).ok()
     }
 
-    /// Recompiles only when something changed since the last compilation.
+    /// Recompiles only when a change occurred after the last compilation.
     /// Returns whether it compiled.
     pub fn refresh(&mut self, focus: Option<&Path>) -> bool {
         if !self.needs_compile() {
@@ -244,24 +246,24 @@ impl World {
         true
     }
 
-    /// Recompiles the project with the current buffers in place.
+    /// Recompiles the project with the current buffers.
     ///
-    /// Every source under the project root is loaded, not only what the entry
-    /// point reaches. Reachability is a question `piton reach` answers, not a
-    /// way to decide which files exist: a file nothing imports yet is a file
-    /// someone is in the middle of writing, and it needs diagnostics, symbols,
-    /// and somewhere to jump to like any other.
+    /// The server loads all sources below the project root, not only the
+    /// sources that the entry point reaches. `piton reach` answers questions
+    /// about reachability. Reachability does not decide which files exist. A
+    /// file that no file imports yet is a file that a person writes now. It
+    /// needs diagnostics, symbols, and jump targets, as all files do.
     pub fn recompile(&mut self, focus: Option<&Path>) {
         if let Some(path) = focus {
             self.focus = Some(path.to_path_buf());
         }
         let mut project = self.project.clone();
         if project.config_path.is_none() {
-            // With no configuration there is no project to speak of, so the
-            // file being edited is the whole of it. With nothing being edited
-            // either, there is nothing to compile: compiling the workspace
-            // directory as though it were an entry point would only produce
-            // noise (and would race the first `didOpen`).
+            // When there is no configuration, there is no project. Thus the
+            // file that the user edits is the full project. When the user
+            // edits no file, there is nothing to compile. A compile of the
+            // workspace directory as an entry point would only make noise.
+            // It would also race the first `didOpen`.
             let focus = self
                 .focus
                 .clone()
@@ -277,8 +279,8 @@ impl World {
             }
         }
 
-        // A buffer open from outside the project root is still being edited,
-        // and so is the file the edit just arrived for.
+        // The user still edits a buffer that is open from outside the project
+        // root. The user also edits the file that the edit came for.
         let mut outside: Vec<PathBuf> = self.documents.keys().cloned().collect();
         outside.extend(focus.map(Path::to_path_buf));
 
@@ -304,11 +306,11 @@ impl World {
         self.stale = false;
     }
 
-    /// Diagnostics grouped by the file they belong to.
+    /// Diagnostics, in groups by the file that they belong to.
     pub fn diagnostics_by_file(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let mut out: HashMap<PathBuf, Vec<Diagnostic>> = HashMap::new();
-        // Every open buffer gets an entry, so clearing a problem clears the
-        // squiggle.
+        // Each open buffer gets an entry. Thus when a problem goes away, its
+        // squiggle also goes away.
         for path in self.documents.keys() {
             out.entry(path.clone()).or_default();
         }
@@ -317,13 +319,13 @@ impl World {
         }
         if let Some(compilation) = &self.compilation {
             for diagnostic in compilation.diagnostics.iter() {
-                // A diagnostic with no file has nowhere to be shown.
+                // A diagnostic without a file has no location to show.
                 if diagnostic.file.as_os_str().is_empty() {
                     continue;
                 }
                 if diagnostic.file.to_string_lossy().starts_with('@') {
-                    // Problems inside a bundled package are not the user's to
-                    // fix and have no editable file to attach to.
+                    // The user cannot fix problems inside a bundled package.
+                    // Also, these problems have no editable file.
                     continue;
                 }
                 out.entry(diagnostic.file.clone())
@@ -341,9 +343,9 @@ impl World {
                 continue;
             }
             let list = out.entry(diagnostic.file.clone()).or_default();
-            // The configuration is read on its own and, when it is open, also
-            // compiled with the workspace, so the same problem can arrive
-            // twice.
+            // The server reads the configuration separately. When it is open,
+            // the server also compiles it with the workspace. Thus the same
+            // problem can occur two times.
             let repeated = list.iter().any(|seen| {
                 seen.code == diagnostic.code
                     && seen.span == diagnostic.span

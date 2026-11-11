@@ -1,9 +1,5 @@
 # Init
 
-## Description
-
-Starts a new project from one of the templates that come with the compiler.
-
 ## Command Name
 
 init
@@ -23,10 +19,14 @@ list: List the groups and their templates, each with what it sets up, and do not
 no-tether: Write the template's files only, leaving the dependencies its configuration declares for piton tether to install later.
 ```
 
+## Description
+
+Starts a new project from one of the templates that come with the compiler. It is the command of the init plugin, not a command the compiler has itself. It is standalone: it runs wherever it is invoked, inside a project or not, whatever the configuration there says, and writes relative to the directory it is run in.
+
 ## Templates
 
-Templates come in groups. Each group is a directory in create-templates/ at the root of the compiler's repository, and each template is a directory in its group, which holds exactly the files a new project gets, laid out as the project lays them out. A template is named with its group, `group/template`. The group and each template have a `.template` file that describes them in one line, which is not written into the project. A group holding a `.preferred` file is the one to recommend: it comes before the others, which stay in name order, and is marked as recommended wherever groups are offered.
-The templates are compiled into the binary when the compiler is built, so init needs no network, and a release always writes the templates it was released with. Adding a template is adding a directory; nothing in the compiler lists them.
+Templates come in groups. Each group is a directory in the templates/ directory of the init plugin, plugins/init/templates in the compiler's repository, and each template is a directory in its group, which holds exactly the files a new project gets, laid out as the project lays them out. A template is named with its group, `group/template`. The group and each template have a `.template` file that describes them in one line, which is not written into the project. A group holding a `.preferred` file is the one to recommend: it comes before the others, which stay in name order, and is marked as recommended wherever groups are offered. Template files are text.
+The templates are embedded with the plugin's files when the compiler is built, so init needs no network, and a release always writes the templates it was released with. The plugin reads them from its own directory at run time, so adding or editing a template is adding or editing a directory: nothing in the compiler or in the plugin's code lists them.
 Every template has to start a project that checks without problems, is already formatted, and builds, for each adapter it can be built for.
 
 ## Bundled Templates
@@ -56,7 +56,7 @@ Without a template named, init asks which group to start from, then which templa
 ## Adapters
 
 A template is a Belay template when its configuration lists Belay adapters, and the adapters it lists are the default. After the template is chosen, init asks which of the adapters @piton/belay exports to build for, as a list with a box to check beside each, naming the platform and its target id. The defaults start checked, and at least one has to be. With --adapter, or with no terminal to ask on, it doesn't ask; without --adapter it keeps the defaults.
-The chosen adapters replace the listed ones in the configuration written, both in its import from @piton/belay and in its adapters list, each once and in the order @piton/belay exports them. The configuration is written canonically formatted.
+The chosen adapters replace the listed ones in the configuration written, both in its import from @piton/belay and in its adapters list, each once and in the order @piton/belay exports them. The configuration is written canonically formatted, with the compiler's formatter.
 Files a template keeps in `.adapters/<target id>/` are written only when that adapter is chosen, at their path beneath it. A template uses them for what one platform needs and the others don't, like the opencode.json that has OpenCode load the instructions placed in src/.
 
 ## Tethering
@@ -65,7 +65,7 @@ When the configuration written declares dependencies, init tethers them once the
 
 ## Safety
 
-Init never overwrites a file. When any file the template would write already exists, it names each one and writes none of them. Escape or Ctrl+C at any question stops init before anything is written.
+Init never overwrites a file. The host writes the project, through the scaffold capability, and when any file the template would write already exists, it writes none of them, and init names each one. Escape or Ctrl+C at any question stops init before anything is written.
 
 ## Output
 

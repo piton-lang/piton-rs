@@ -1,9 +1,11 @@
-//! What a plugin's inspect hook finds, and the edits it proposes.
+//! The findings of the inspect hook of a plugin, and the edits that it
+//! proposes.
 //!
 //! A plugin never changes a source file itself. Its inspect hook returns
-//! findings, each with the edits that would fix it, and the host decides,
-//! with the user, whether to apply them. Every edit is checked here: the path
-//! stays in the project and among the edits the plugin's capabilities list.
+//! findings. Each finding has the edits that can fix it. The host and the
+//! user decide if they apply the edits. This module checks each edit. The
+//! path must stay in the project. The path must also agree with the edits
+//! that the capabilities of the plugin list.
 
 use std::path::{Path, PathBuf};
 
@@ -12,25 +14,26 @@ use serde_json::Value as Json;
 use crate::manifest::Manifest;
 use crate::output::is_safe;
 
-/// One file a finding changes: its whole contents before and after.
+/// One file that a finding changes. It holds the full contents before and
+/// after the change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Edit {
     /// Relative to the project root, with forward slashes.
     pub path: String,
-    /// What is there now, or None when the file doesn't exist.
+    /// The current contents, or None when the file does not exist.
     pub before: Option<Vec<u8>>,
     pub after: Vec<u8>,
 }
 
-/// Something out of date, and the edits that fix it.
+/// A problem that is out of date, and the edits that fix it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Finding {
     pub message: String,
     pub edits: Vec<Edit>,
 }
 
-/// Reads edits a plugin proposed, `[{path, contents}]`, checking each. An
-/// edit that changes nothing is dropped.
+/// Reads the edits that a plugin proposed, `[{path, contents}]`, and checks
+/// each edit. This function removes an edit that changes nothing.
 pub fn read_edits(manifest: &Manifest, edits: &Json, root: &Path) -> Result<Vec<Edit>, String> {
     let globs = manifest.capabilities.edit_globs();
     let mut out = Vec::new();
@@ -45,7 +48,8 @@ pub fn read_edits(manifest: &Manifest, edits: &Json, root: &Path) -> Result<Vec<
             .get("contents")
             .and_then(Json::as_str)
             .ok_or_else(|| format!("the edit of `{path}` has no contents"))?;
-        // An absolute path inside the project is written relative to it.
+        // This code makes an absolute path in the project relative to the
+        // project.
         let path = match Path::new(&path).strip_prefix(root) {
             Ok(relative) if Path::new(&path).is_absolute() => crate::output::slash(relative),
             _ => path,
@@ -68,7 +72,7 @@ pub fn read_edits(manifest: &Manifest, edits: &Json, root: &Path) -> Result<Vec<
     Ok(out)
 }
 
-/// Reads what an inspect hook returned, `{findings: [{message, edits}]}`.
+/// Reads the result of an inspect hook, `{findings: [{message, edits}]}`.
 pub fn read(manifest: &Manifest, inspection: &Json, root: &Path) -> Result<Vec<Finding>, String> {
     let mut findings = Vec::new();
     for finding in inspection.get("findings").and_then(Json::as_array).into_iter().flatten() {
@@ -83,8 +87,9 @@ pub fn read(manifest: &Manifest, inspection: &Json, root: &Path) -> Result<Vec<F
     Ok(findings)
 }
 
-/// Writes edits, each file whole through a staging file beside it, so a
-/// write that stops never leaves half a file. Returns the paths changed.
+/// Writes edits. It writes each full file through a staging file next to it.
+/// Thus a write that stops never leaves half a file. Returns the paths that
+/// it changed.
 pub fn apply(edits: &[Edit], root: &Path) -> std::io::Result<Vec<PathBuf>> {
     let plan = crate::output::BuildPlan {
         files: edits

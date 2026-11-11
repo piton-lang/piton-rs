@@ -1,8 +1,8 @@
 //! YAML serialization.
 //!
-//! The value model maps onto YAML directly. Scalars are quoted only when
-//! leaving them bare would change how YAML reads them, which keeps prose
-//! readable while staying unambiguous.
+//! The value model maps directly to YAML. The adapter quotes a scalar only when
+//! YAML reads the bare scalar differently. Thus prose stays easy to read, and
+//! it has only one meaning.
 
 use piton_core::{format_number, AnchorId, AnchorView, Properties, Ref, Value};
 
@@ -16,7 +16,7 @@ pub fn declarations(map: &Properties, anchors: &dyn AnchorView) -> String {
     out
 }
 
-/// Renders a single value as a YAML document.
+/// Renders one value as a YAML document.
 pub fn value(value: &Value, anchors: &dyn AnchorView) -> String {
     let mut out = String::new();
     match value {
@@ -144,7 +144,7 @@ fn write_list(
     }
 }
 
-/// Writes a block under a `- ` bullet, moving the first line onto the bullet.
+/// Writes a block below a `- ` bullet. It moves the first line onto the bullet.
 fn push_block(out: &mut String, pad: &str, block: &str) {
     let mut lines = block.lines();
     match lines.next() {
@@ -160,7 +160,7 @@ fn push_block(out: &mut String, pad: &str, block: &str) {
     }
 }
 
-/// Same as JSON, with the YAML output file.
+/// The same as JSON, with the YAML output file.
 fn reference_text(id: AnchorId, anchors: &dyn AnchorView) -> String {
     crate::reference_location(anchors, &Ref::anchor(id), "yaml")
 }
@@ -190,8 +190,9 @@ fn render_key(key: &str) -> String {
     }
 }
 
-/// Quotes a scalar, using a double-quoted form when the bare text would be
-/// ambiguous or would not survive a round trip.
+/// Quotes a scalar. It uses a double-quoted form when the bare text has more
+/// than one meaning. It also uses that form when the bare text changes in a
+/// round trip.
 pub fn quote(text: &str) -> String {
     let needs_quotes = text.is_empty()
         || text.contains('\n')

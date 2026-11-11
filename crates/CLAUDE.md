@@ -1,0 +1,18 @@
+# Comment Language
+
+Write all code comments in ASD-STE100 Simplified Technical English. This applies to each comment and each doc comment in all code, in Rust, TypeScript and every other language.
+
+## Rules
+
+- Write sentences of 20 words or fewer.
+- Use approved words. Use one word for one meaning.
+- Write technical names as they are.
+- Put one topic in each sentence.
+- Use the active voice.
+- Use the simple present, simple past or simple future tense.
+- Do not use -ing forms, contractions or phrasal verbs.
+- Use articles. Write noun clusters of 3 words or fewer.
+
+## Existing Comments
+
+The rule applies to each comment that exists now, not only to the comments that you add or change. When you find a comment that does not obey the rule, write it again in ASD-STE100.

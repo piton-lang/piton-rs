@@ -1,10 +1,10 @@
-//! Rendering diagnostics, problems, and outcomes for the terminal.
+//! Renders diagnostics, problems, and outcomes for the terminal.
 //!
-//! What a command produced, and how it went, is printed as it happens.
-//! Problems -- diagnostics, errors, warnings, and the help and notes under
-//! them -- are held back and printed together once the command is done, with
-//! the count of them last, so they are the last thing on the screen whatever
-//! the command printed before them. [`flush`] prints them; `main` calls it.
+//! The output and the result of a command print immediately. Problems are
+//! diagnostics, errors, warnings, and the help and notes below them. They
+//! wait, and print together when the command ends. Their count prints last.
+//! Thus the problems are always the last text on the screen. [`flush`] prints
+//! them. `main` calls [`flush`].
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -17,20 +17,21 @@ use piton_core::{diagnostics, DiagnosticSink};
 
 use crate::style::{self, paint};
 
-/// The problems held back until the command is done, as styled text.
+/// The problems that wait until the command ends, as styled text.
 static DEFERRED: Mutex<String> = Mutex::new(String::new());
 
-/// Whether the command printed an outcome, so the problems after it are set
-/// apart by a blank line.
+/// Whether the command printed an outcome. If it did, a blank line comes
+/// before the problems.
 static OUTCOME: AtomicBool = AtomicBool::new(false);
 
-/// Holds `text` back until [`flush`].
+/// Keeps `text` until [`flush`].
 fn defer(text: impl AsRef<str>) {
     let mut deferred = DEFERRED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     deferred.push_str(text.as_ref());
 }
 
-/// Prints the problems held back, last. Called once, when the command is done.
+/// Prints the problems that wait, last. `main` calls it once, when the command
+/// ends.
 pub fn flush() {
     let deferred = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
     if deferred.is_empty() {
@@ -42,8 +43,8 @@ pub fn flush() {
     anstream::eprint!("{deferred}");
 }
 
-/// Holds diagnostics with source context back until the command is done,
-/// returning whether any were errors.
+/// Keeps diagnostics with source context until the command ends. Returns
+/// whether one or more diagnostics are errors.
 pub fn diagnostics(sink: &DiagnosticSink, sources: &dyn Fn(&Path) -> Option<String>, root: &Path) -> bool {
     let mut cache: HashMap<PathBuf, Option<String>> = HashMap::new();
     for diagnostic in sink.iter() {
@@ -56,7 +57,7 @@ pub fn diagnostics(sink: &DiagnosticSink, sources: &dyn Fn(&Path) -> Option<Stri
     sink.has_errors()
 }
 
-/// Holds back a one-line count of the problems found, which ends the output.
+/// Keeps a one-line count of the problems. This count is the end of the output.
 pub fn summary(sink: &DiagnosticSink) {
     let errors = sink.error_count();
     let warnings = sink.warning_count();
@@ -88,14 +89,14 @@ pub fn plural<'a>(count: usize, one: &'a str, many: &'a str) -> &'a str {
     }
 }
 
-/// An error that is not tied to a source location, printed with the other
-/// problems when the command is done.
+/// An error without a source location. It prints with the other problems when
+/// the command ends.
 pub fn fail(message: impl std::fmt::Display) {
     defer(format!("{} {message}\n", paint(style::ERROR, "error:")));
 }
 
-/// A warning that is not tied to a source location, printed with the other
-/// problems when the command is done.
+/// A warning without a source location. It prints with the other problems when
+/// the command ends.
 pub fn warn(message: impl std::fmt::Display) {
     defer(format!("{} {message}\n", paint(style::WARNING, "warning:")));
 }
@@ -110,8 +111,8 @@ pub fn note(message: impl std::fmt::Display) {
     defer(format!("  {} {message}\n", paint(style::NOTE, "note:")));
 }
 
-/// Prints how the command went, on stderr: `✓` and the message in green.
-/// This is the line to read first, so it stands out.
+/// Prints the result of the command on stderr, as `✓` and the message in
+/// green. The user must read this line first. Thus it is easy to see.
 pub fn done(message: impl std::fmt::Display) {
     OUTCOME.store(true, Ordering::Relaxed);
     anstream::eprintln!(
@@ -121,8 +122,8 @@ pub fn done(message: impl std::fmt::Display) {
     );
 }
 
-/// Prints that the command stopped short, on stderr: `✗` and the message in
-/// red, before the problems that stopped it.
+/// Prints on stderr that the command did not complete. It prints `✗` and the
+/// message in red, before the problems that stopped the command.
 pub fn stopped(message: impl std::fmt::Display) {
     OUTCOME.store(true, Ordering::Relaxed);
     anstream::eprintln!(
@@ -132,21 +133,21 @@ pub fn stopped(message: impl std::fmt::Display) {
     );
 }
 
-/// A path the command wrote, for stdout. On a terminal it is marked as added
-/// with its directory dimmed; piped, it is the bare path.
+/// A path that the command wrote, for stdout. On a terminal, it has an "added"
+/// mark and a dim directory. In a pipe, it is only the path.
 pub fn added(path: impl std::fmt::Display) -> String {
     let path = path.to_string();
     marked(path.clone(), "+", style::SUCCESS).unwrap_or(path)
 }
 
-/// A path the command removed, for stdout: marked like [`added`] on a
-/// terminal, and `removed <path>` piped.
+/// A path that the command removed, for stdout. On a terminal, it has a mark
+/// like [`added`]. In a pipe, it is `removed <path>`.
 pub fn removed(path: impl std::fmt::Display) -> String {
     let path = path.to_string();
     marked(path.clone(), "-", style::ERROR).unwrap_or_else(|| format!("removed {path}"))
 }
 
-/// `path` marked for a terminal, or None when stdout isn't one.
+/// `path` with a mark for a terminal. None when stdout is not a terminal.
 fn marked(path: String, mark: &str, mark_style: anstyle::Style) -> Option<String> {
     if !std::io::stdout().is_terminal() {
         return None;
@@ -165,9 +166,9 @@ fn marked(path: String, mark: &str, mark_style: anstyle::Style) -> Option<String
     Some(out)
 }
 
-/// A rendered diagnostic with colour: its severity, the gutter and carets
-/// under the quoted source, and the labels beneath it. The text is unchanged,
-/// so it reads the same when the colour is stripped.
+/// A rendered diagnostic with colour. The colour shows the severity, the gutter,
+/// the carets below the quoted source, and the labels below it. The text does
+/// not change. Thus the text stays the same without the colour.
 fn styled(rendered: &str) -> String {
     let mut severity = style::ERROR;
     let mut out = String::new();

@@ -1,9 +1,9 @@
 //! The Piton language server.
 //!
-//! Every feature here answers a question about the *resolved* program rather
-//! than about raw syntax: hovering a user keyword finds the anchor it aliases,
-//! going to the definition of an inherited property lands on the base that
-//! declares it, and renaming a symbol reaches the imports that carry it.
+//! Each feature here answers a question about the *resolved* program, not
+//! about raw syntax. A hover on a user keyword finds the anchor that it
+//! aliases. Go-to-definition on an inherited property goes to the base that
+//! declares it. A rename of a symbol also changes the imports that carry it.
 
 mod plugins;
 pub mod analysis;
@@ -25,11 +25,11 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use world::World;
 
-/// Semantic token types, in the order the client is told about them.
+/// Semantic token types, in the order that the server gives them to the client.
 ///
-/// The server colours what only the resolved program knows: what a name is.
-/// Comments, keywords, literals, operators and prose are the syntax
-/// definition's, so they have no type here.
+/// The server colours the data that only the resolved program knows: the kind
+/// of a name. The syntax definition colours comments, keywords, literals,
+/// operators and prose. Thus they have no type here.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::CLASS,     // anchors
     SemanticTokenType::PROPERTY,  // properties and dictionary keys
@@ -38,9 +38,9 @@ pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::NAMESPACE, // module paths
 ];
 
-/// Semantic token modifiers. The last three are Piton's own: a property whose
-/// value a base supplies, a declaration other files can import, and a name
-/// declared in another file.
+/// Semantic token modifiers. The last three are specific to Piton. They mark a
+/// property with a value from a base, a declaration that other files can
+/// import, and a name that another file declares.
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DECLARATION,
     SemanticTokenModifier::ABSTRACT,
@@ -50,30 +50,30 @@ pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::new("imported"),
 ];
 
-/// Why the server is recompiling, which decides whether other open files
-/// have to be told to ask again.
+/// The reason for a recompile. It decides whether the server must tell the
+/// other open files to ask again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
-    /// Typing in a buffer. The client asks again for that buffer itself.
+    /// The user types in a buffer. The client asks again for that buffer itself.
     Edit,
-    /// A save, a file changed on disk, a closed buffer, a new configuration:
-    /// anything another file's tokens, hints and lenses may depend on.
+    /// A save, a file change on disk, a closed buffer, a new configuration.
+    /// The tokens, hints and lenses of other files can depend on these.
     Elsewhere,
 }
 
-/// Whether a recompile for `trigger` should ask the client to refresh the
-/// semantic tokens, inlay hints and code lenses of every open file.
+/// Whether a recompile for `trigger` must ask the client to refresh the
+/// semantic tokens, inlay hints and code lenses of all open files.
 ///
-/// Not after an edit: the client re-requests the buffer being edited on its
-/// own, and refreshing every other file on each keystroke would make them
-/// flicker. Cross-file effects appear when the edit is saved.
+/// This does not occur after an edit. The client itself asks again for the
+/// buffer that the user edits. A refresh of all other files on each keystroke
+/// would make them flicker. Effects on other files show when the user saves.
 pub fn refreshes_after(trigger: Trigger) -> bool {
     trigger == Trigger::Elsewhere
 }
 
-/// The folder the server works in: the first workspace folder, else the
-/// deprecated root URI that older clients still send, else the directory it
-/// was started in.
+/// The folder of the server. This is the first workspace folder. If there is
+/// none, it is the deprecated root URI that old clients still send. If there is
+/// none, it is the directory where the server started.
 pub fn workspace_root(params: &InitializeParams) -> Option<PathBuf> {
     params
         .workspace_folders
@@ -86,7 +86,7 @@ pub fn workspace_root(params: &InitializeParams) -> Option<PathBuf> {
         })
 }
 
-/// What the client can do, read from its capabilities.
+/// The features of the client, from its capabilities.
 pub fn client_caps(capabilities: &ClientCapabilities) -> world::ClientCaps {
     let text = capabilities.text_document.as_ref();
     let workspace = capabilities.workspace.as_ref();
@@ -119,8 +119,8 @@ pub fn client_caps(capabilities: &ClientCapabilities) -> world::ClientCaps {
     }
 }
 
-/// Everything the server offers, in one place so a test can hold it to the
-/// design.
+/// All features that the server offers. They are in one location, so that a
+/// test can compare them to the design.
 pub fn server_capabilities() -> ServerCapabilities {
     let pi_files = FileOperationRegistrationOptions {
         filters: vec![
@@ -161,9 +161,9 @@ pub fn server_capabilities() -> ServerCapabilities {
                 ":".into(),
                 "/".into(),
             ]),
-            // The list is built on every keystroke and the description of an
-            // anchor renders its whole compiled value, so the description is
-            // built later, for the one item the cursor settles on.
+            // The server makes the list on each keystroke. The description of
+            // an anchor renders its full compiled value. Thus the server makes
+            // the description later, only for the item that the cursor selects.
             resolve_provider: Some(true),
             ..Default::default()
         }),
@@ -180,9 +180,9 @@ pub fn server_capabilities() -> ServerCapabilities {
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
-        // Pressing enter after a line that ends in a colon should land inside
-        // the block it opened. The grammar cannot say that -- indentation is
-        // not in it -- so the server does.
+        // When the user presses enter after a line that ends in a colon, the
+        // cursor must go inside the block that the line opened. The grammar
+        // does not include indentation. Thus the server does this.
         document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
             first_trigger_character: "\n".into(),
             more_trigger_character: None,
@@ -232,28 +232,28 @@ pub fn server_capabilities() -> ServerCapabilities {
     }
 }
 
-/// How long typing has to pause before the server recompiles on its own.
+/// The duration of a pause in keystrokes before the server recompiles by itself.
 ///
-/// A request (hover, completion, ...) never waits for this: it compiles first
-/// if the buffers moved since the last compilation. The pause only decides
-/// when diagnostics are republished while someone is still typing.
+/// A request (hover, completion, ...) never waits for this. It compiles first
+/// if the buffers changed after the last compilation. The pause only decides
+/// when the server publishes diagnostics again while a person types.
 const DEBOUNCE: Duration = Duration::from_millis(250);
 
 pub struct Backend {
     client: Client,
     world: Arc<RwLock<World>>,
-    /// Whether the client said it would accept a file watcher registered after
-    /// `initialize`.
+    /// Whether the client accepts a file watcher that the server registers
+    /// after `initialize`.
     watching: AtomicBool,
-    /// Whether the client can take a type hierarchy registration.
+    /// Whether the client accepts a type hierarchy registration.
     hierarchy: AtomicBool,
-    /// Bumped on every edit, so a debounced recompile can tell it was
-    /// overtaken by a later keystroke.
+    /// The server increases it on each edit. Thus a debounced recompile can
+    /// know that a later keystroke came before it.
     generation: Arc<AtomicU64>,
 }
 
-/// Recompiles if anything changed and publishes diagnostics for every file
-/// that has or had them.
+/// Recompiles if a change occurred. Publishes diagnostics for each file that
+/// has diagnostics or had them before.
 async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>, trigger: Trigger) {
     let (published, caps) = {
         let mut world = world.write().await;
@@ -273,8 +273,8 @@ async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>,
                     .iter()
                     .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text, &text_of))
                     .collect::<Vec<_>>();
-                // The version of the buffer these were computed from, so a
-                // client can drop them if the buffer has moved on since.
+                // The version of the buffer that these came from. Thus a
+                // client can discard them if the buffer changed after that.
                 Some((url, items, world.compiled_version(&path)))
             })
             .collect::<Vec<_>>();
@@ -285,8 +285,8 @@ async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>,
         client.publish_diagnostics(url, diagnostics, version).await;
     }
     if refreshes_after(trigger) {
-        // A failure only means the client did not take the request; the
-        // next request it makes is answered from the new compilation anyway.
+        // A failure only means that the client did not accept the request.
+        // The new compilation answers the next request of the client in all cases.
         if caps.semantic_refresh {
             let _ = client.semantic_tokens_refresh().await;
         }
@@ -311,11 +311,11 @@ impl Backend {
         }
     }
 
-    /// The world, compiled against the current buffers.
+    /// The world, compiled with the current buffers.
     ///
-    /// Edits are compiled lazily (see [`DEBOUNCE`]), so a request that arrives
-    /// mid-typing compiles first -- positions in the buffer have to agree with
-    /// the spans in the compilation.
+    /// The server compiles edits lazily (see [`DEBOUNCE`]). Thus a request that
+    /// comes while a person types compiles first. The positions in the buffer
+    /// must agree with the spans in the compilation.
     async fn fresh(&self) -> tokio::sync::RwLockReadGuard<'_, World> {
         if self.world.read().await.needs_compile() {
             publish(&self.client, &self.world, None, Trigger::Edit).await;
@@ -326,11 +326,11 @@ impl Backend {
     /// Asks the client to tell the server when a `.pi` file appears, changes or
     /// goes away on disk.
     ///
-    /// Nothing else will say so. `didChange` fires only for buffers the editor
-    /// has open, so a file written by `piton tether`, a scaffolding script, a
-    /// branch switch or a second editor is invisible until someone happens to
-    /// type in an open buffer -- and a file that has just been created is
-    /// exactly the file with nothing open in it.
+    /// No other source gives this data. `didChange` fires only for buffers that
+    /// are open in the editor. Thus the server does not see a file from
+    /// `piton tether`, a script that makes files, a branch switch or a second editor.
+    /// It sees the file only when a person types in an open buffer. A new file
+    /// is exactly the file that has no open buffer.
     async fn watch_sources(&self) {
         if !self.watching.load(Ordering::Relaxed) {
             return;
@@ -339,7 +339,7 @@ impl Backend {
         let options = DidChangeWatchedFilesRegistrationOptions {
             watchers: vec![FileSystemWatcher {
                 glob_pattern: GlobPattern::String(pattern),
-                // Created, changed and deleted: the default, said out loud.
+                // Created, changed and deleted. This is the default, but we state it.
                 kind: Some(WatchKind::all()),
             }],
         };
@@ -361,13 +361,13 @@ impl Backend {
         }
     }
 
-    /// Tells the client the server answers type hierarchy requests.
+    /// Tells the client that the server answers type hierarchy requests.
     ///
-    /// Registered rather than declared: the `ServerCapabilities` struct in this
-    /// version of `lsp-types` has no `typeHierarchyProvider` field, and dynamic
-    /// registration is the protocol's own second way of saying the same thing.
-    /// A client that does not support it simply never asks, which is the same
-    /// outcome as not advertising the feature.
+    /// The server registers it and does not declare it. The `ServerCapabilities`
+    /// struct in this version of `lsp-types` has no `typeHierarchyProvider`
+    /// field. Dynamic registration is the second method of the protocol to say
+    /// the same thing. A client without support never asks. The result is the
+    /// same as when the server does not advertise the feature.
     async fn offer_type_hierarchy(&self) {
         if !self.hierarchy.load(Ordering::Relaxed) {
             return;
@@ -402,21 +402,21 @@ impl Backend {
         Ok(features::preview(&world, &params))
     }
 
-    /// Recompiles, if anything changed, and republishes diagnostics.
+    /// Recompiles if a change occurred, and publishes diagnostics again.
     async fn refresh(&self, focus: Option<PathBuf>, trigger: Trigger) {
         publish(&self.client, &self.world, focus, trigger).await;
     }
 
-    /// The buffer as it is now, for the requests that only need its syntax:
-    /// formatting, folding, selection. They never wait for a compile, so they
-    /// keep working while the file is half-written.
+    /// The current buffer, for the requests that only need its syntax. These
+    /// are formatting, folding and selection. They never wait for a compile.
+    /// Thus they operate while the file is only partly written.
     async fn buffer(&self, uri: &Url) -> Option<(PathBuf, String)> {
         let path = convert::url_to_path(uri)?;
         let text = self.world.read().await.text(&path)?;
         Some((path, text))
     }
 
-    /// Recompiles after typing pauses, unless another edit arrives first.
+    /// Recompiles after a pause in keystrokes, if no other edit comes first.
     fn schedule(&self, focus: PathBuf) {
         let ticket = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let generation = self.generation.clone();
@@ -513,11 +513,11 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let path = convert::url_to_path(&params.text_document.uri);
         if path.as_deref().is_some_and(world::is_config_file) {
-            // The configuration decides the source root, the entry, and where
-            // output goes; the saved version is the one the compiler reads.
+            // The configuration decides the source root, the entry, and the
+            // output location. The compiler reads the saved version.
             self.world.write().await.reload_project();
         }
-        // Plugin builds are planned on save, never as you type.
+        // The server plans plugin builds on save, never while the user types.
         self.world.write().await.saved();
         self.refresh(path, Trigger::Elsewhere).await;
     }
@@ -535,22 +535,22 @@ impl LanguageServer for Backend {
                     .is_some_and(|name| name == language::CONFIG_FILE)
                 {
                     // The configuration names the source root and the entry
-                    // point, so a change to it changes which files are the
-                    // project at all, not just what one of them says.
+                    // point. Thus a change to it changes the set of files in the
+                    // project, not only the content of one file.
                     world.reload_project();
                     news = true;
                     continue;
                 }
                 match change.typ {
                     FileChangeType::DELETED => {
-                        // A deleted file has no text left to fall back to, and
-                        // a buffer kept for it would hide the deletion.
+                        // A deleted file has no text for the server to use.
+                        // A buffer for it would hide the deletion.
                         world.close_document(&path);
                         news = true;
                     }
-                    // A file the editor has open was already reported through
-                    // `didChange`, and its buffer is the truth in any case, so
-                    // this is a second telling of something already heard.
+                    // The editor already reported a change to an open file
+                    // through `didChange`. Its buffer is correct in all cases.
+                    // Thus this event repeats data that the server has.
                     FileChangeType::CHANGED if world.documents.contains_key(&path) => {}
                     _ => news = true,
                 }
@@ -824,7 +824,7 @@ impl LanguageServer for Backend {
     }
 }
 
-/// A request the server cannot carry out, with the reason the editor shows.
+/// A request that the server cannot do, with the reason that the editor shows.
 fn request_failed(message: String) -> tower_lsp::jsonrpc::Error {
     tower_lsp::jsonrpc::Error {
         code: tower_lsp::jsonrpc::ErrorCode::ServerError(-32803),
@@ -833,11 +833,11 @@ fn request_failed(message: String) -> tower_lsp::jsonrpc::Error {
     }
 }
 
-/// The version the server reports to the editor: the binary's, which
-/// [`serve`] is given, rather than this crate's.
+/// The version that the server reports to the editor. It is the version of the
+/// binary, which [`serve`] gets, not the version of this crate.
 static VERSION: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
-/// Runs the language server over stdio, reporting `version` as its own.
+/// Runs the language server over stdio. It reports `version` as its version.
 pub fn serve(version: &'static str) {
     let _ = VERSION.set(version);
     let runtime = match tokio::runtime::Builder::new_multi_thread()

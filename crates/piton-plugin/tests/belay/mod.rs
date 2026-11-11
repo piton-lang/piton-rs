@@ -1,5 +1,5 @@
-//! Plans a compilation with the bundled Belay plugin, the way `piton build`
-//! does, and gives the tests a small view of the plan.
+//! Plans a compilation with the bundled Belay plugin, as `piton build` does.
+//! It gives the tests a small view of the plan.
 
 #![allow(dead_code)]
 
@@ -11,7 +11,7 @@ use piton_core::Diagnostic;
 use piton_plugin::output::BuildPlan;
 use piton_plugin::{Services, Stream};
 
-/// What the plugin host needs from a CLI, with nothing printed.
+/// The parts of a CLI that the plugin host needs. It prints nothing.
 struct Quiet {
     project: Project,
 }
@@ -34,16 +34,16 @@ impl Services for Quiet {
     }
 }
 
-/// One file the plugin plans.
+/// One file that the plugin plans.
 #[derive(Debug, Clone)]
 pub struct OutputFile {
     pub path: PathBuf,
-    /// The contents as text (lossy for binary copies).
+    /// The contents as text. Binary copies lose some data.
     pub contents: String,
     pub data: Vec<u8>,
-    /// The Belay target id, the plan's `group`.
+    /// The Belay target id. It is the `group` of the plan.
     pub target: String,
-    /// The output kind, like `skill` or `skill file`, from the label.
+    /// The output kind from the label, for example `skill` or `skill file`.
     pub kind: String,
     pub origin: String,
     pub executable: bool,
@@ -55,16 +55,16 @@ impl OutputFile {
     }
 }
 
-/// What the Belay plugin plans for a compilation.
+/// The plan of the Belay plugin for a compilation.
 pub struct Plan {
     pub files: Vec<OutputFile>,
     pub diagnostics: Vec<Diagnostic>,
     pub targets: Vec<(String, String)>,
-    /// The plan as the host writes it.
+    /// The plan, as the host writes it.
     pub build: BuildPlan,
 }
 
-/// Has the bundled Belay plugin plan `compilation`.
+/// Tells the bundled Belay plugin to plan `compilation`.
 pub fn plan(compilation: &Compilation) -> Plan {
     let project = compilation.project.clone();
     let (manifests, problems) = piton_plugin::discover(&project);

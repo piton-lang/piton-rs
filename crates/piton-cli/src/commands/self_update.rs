@@ -1,12 +1,12 @@
 //! `piton --update` — replace this binary with the latest release.
 //!
-//! Uses the release source `install.sh` uses: the GitHub releases of
-//! piton-lang/piton-rs, or `PITON_DOWNLOAD_BASE`. The latest version comes
-//! from the redirect of `/releases/latest`, which needs no API and has no
-//! rate limit. Downloads go through curl or wget, and archives are unpacked
-//! with tar or unzip, as the install script does, so the binary carries no
-//! HTTP or TLS stack of its own. The download is checked against its
-//! `.sha256` file before anything is replaced.
+//! Uses the same release source as `install.sh`. This is the GitHub releases
+//! of piton-lang/piton-rs, or `PITON_DOWNLOAD_BASE`. The latest version comes
+//! from the redirect of `/releases/latest`. This redirect needs no API and has
+//! no rate limit. Downloads use curl or wget. Tar or unzip unpacks the archives,
+//! as in the install script. Thus the binary has no HTTP or TLS stack. The
+//! command checks the download with its `.sha256` file before it replaces a
+//! file.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -97,7 +97,7 @@ fn update() -> Result<(), String> {
     Ok(())
 }
 
-/// The build for this machine, named as the release archives name it.
+/// The build for this machine, with the name that the release archives use.
 fn platform() -> Result<(&'static str, &'static str, &'static str, &'static str), String> {
     let platform = match std::env::consts::OS {
         "linux" => "linux",
@@ -207,10 +207,11 @@ fn unpack(archive: &Path, into: &Path, extension: &str) -> Result<(), String> {
     }
 }
 
-/// Put `fresh` where `current` is. The new binary is copied beside the old
-/// one and renamed over it, so a running piton is never half written. Windows
-/// won't replace a running executable, but it will rename one, so there the
-/// old binary is moved aside first.
+/// Put `fresh` at the location of `current`. The function copies the new
+/// binary next to the old one. Then it renames the copy to the old name. Thus
+/// a piton that runs is never half written. Windows does not replace an
+/// executable that runs, but it renames one. Thus on Windows, the function
+/// first moves the old binary to a different name.
 fn replace(fresh: &Path, current: &Path) -> Result<(), String> {
     let staged = sibling(current, ".new");
     std::fs::copy(fresh, &staged)
@@ -232,8 +233,8 @@ fn replace(fresh: &Path, current: &Path) -> Result<(), String> {
         return Err(format!("couldn't replace {}: {error}", current.display()));
     }
     if cfg!(target_os = "macos") {
-        // The macOS builds aren't signed yet; drop the quarantine flag so
-        // Gatekeeper doesn't refuse to run the new binary.
+        // The macOS builds do not have a signature yet. Thus remove the
+        // quarantine flag. Then Gatekeeper runs the new binary.
         let _ = Command::new("xattr")
             .args(["-d", "com.apple.quarantine"])
             .arg(current)
@@ -243,8 +244,8 @@ fn replace(fresh: &Path, current: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether version `a` is later than `b`, comparing dotted numbers. A part
-/// that isn't a number compares as 0.
+/// Whether version `a` is later than `b`. It compares dotted numbers. A part
+/// that is not a number compares as 0.
 fn newer(a: &str, b: &str) -> bool {
     let parts = |v: &str| -> Vec<u64> { v.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
     parts(a) > parts(b)
@@ -269,7 +270,7 @@ fn null_device() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
-/// A temporary directory removed when dropped.
+/// A temporary directory. The drop removes it.
 struct Work {
     path: PathBuf,
 }

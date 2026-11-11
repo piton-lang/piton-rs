@@ -1,19 +1,22 @@
-//! Semantic slices: one anchor, property, or variable, and everything it takes
-//! to understand it.
+//! Semantic slices. A slice is one anchor, property, or variable, with all
+//! that a reader needs to understand it.
 //!
-//! A slice answers "what part of the specification does someone need in order
-//! to implement this one thing?" It is not the files near the thing, or even
-//! the files it imports: it is the declarations the thing semantically depends
-//! on -- what it extends, what its values read, what they refer to or embed,
-//! and what their types name -- followed transitively and each included once.
+//! A slice answers this question: "Which part of the specification does a
+//! person need to implement this one item?" A slice is not the files near the
+//! item. It is also not the files that the item imports. It is the
+//! declarations that the item semantically depends on. These are the anchors
+//! that it extends and the declarations that its values read. They are also
+//! the targets of references and embeds, and the names in its types. The
+//! slice follows these transitively and includes each one once.
 //!
-//! It is built in three stages, so each can be reused on its own:
+//! The code makes a slice in three stages. You can use each stage alone:
 //!
-//! 1. A [`Target`] names the starting point, like `ui.pi#SaveButton.color`,
-//!    and [`resolve_in`] or [`find`] turns it into an [`Entity`].
-//! 2. [`slice`] walks the dependency graph from that entity into a [`Slice`],
-//!    which records what was selected and why, and says nothing about output.
-//! 3. A renderer, like [`markdown::render`], writes the slice out.
+//! 1. A [`Target`] names the start point, like `ui.pi#SaveButton.color`.
+//!    [`resolve_in`] or [`find`] changes it into an [`Entity`].
+//! 2. [`slice`] walks the dependency graph from that entity into a [`Slice`].
+//!    The [`Slice`] records the selected items and the reasons. It does not
+//!    know about output.
+//! 3. A renderer, like [`markdown::render`], writes the slice.
 
 pub mod markdown;
 
@@ -28,23 +31,25 @@ use crate::module::ModuleId;
 use crate::store::{Symbol, VariableId};
 use crate::Compilation;
 
-/// Something a slice can hold.
+/// An item that a slice can hold.
 ///
-/// These are identities, not names: two anchors called `Button` in different
-/// files are different entities, and the traversal deduplicates by them.
+/// These are identities, not names. Two anchors with the name `Button` in
+/// different files are different entities. The traversal removes duplicates
+/// by identity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Entity {
-    /// A whole anchor: every property it has, and every anchor it extends.
+    /// A whole anchor. This includes all its properties and all the anchors
+    /// that it extends.
     Anchor(AnchorId),
-    /// One property of an anchor, as that anchor sees it.
+    /// One property of an anchor, as that anchor has it.
     Property(AnchorId, String),
     /// A top-level variable.
     Variable(VariableId),
 }
 
 impl Entity {
-    /// The entity's name the way Piton writes it: `Button`, `Button.color`,
-    /// or the variable's name.
+    /// The name of the entity as Piton writes it. Examples are `Button`,
+    /// `Button.color`, or the name of the variable.
     pub fn display(&self, compilation: &Compilation) -> String {
         let store = compilation.store();
         match self {
@@ -54,7 +59,7 @@ impl Entity {
         }
     }
 
-    /// The module the entity is declared in.
+    /// The module that declares the entity.
     pub fn module(&self, compilation: &Compilation) -> ModuleId {
         let store = compilation.store();
         match self {
@@ -64,14 +69,14 @@ impl Entity {
     }
 }
 
-/// Why one entity is in a slice because of another.
+/// The reason that one entity causes another entity to be in a slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Relation {
-    /// An anchor extends another, or a property is declared by a base too.
+    /// An anchor extends another anchor, or a base also declares a property.
     Inherits,
     /// A type constraint names an anchor.
     Constrains,
-    /// A value was computed from another value, like `${Document.name}`.
+    /// A value comes from another value, like `${Document.name}`.
     Reads,
     /// A value holds a reference, `@{...}`.
     References,
@@ -91,7 +96,7 @@ impl Relation {
     }
 }
 
-/// One dependency the traversal followed.
+/// One dependency that the traversal followed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Edge {
     pub from: Entity,
@@ -104,40 +109,41 @@ pub struct Edge {
 pub enum Entry {
     Anchor {
         anchor: AnchorId,
-        /// True when the slice needs the whole anchor, not only some of its
-        /// properties.
+        /// True when the slice needs the whole anchor, and not only some of
+        /// its properties.
         whole: bool,
-        /// The properties the slice needs, in the anchor's own order.
+        /// The properties that the slice needs, in the order of the anchor.
         properties: Vec<String>,
     },
     Variable(VariableId),
 }
 
-/// A target and the dependency closure it needs, independent of how it is
-/// rendered.
+/// A target and the dependency closure that it needs. It does not depend on
+/// the output format.
 #[derive(Debug, Clone)]
 pub struct Slice {
     pub target: Entity,
-    /// Every declaration in the slice, each once: the target's first, then
-    /// the rest in the order the traversal reached them.
+    /// All declarations in the slice, each one time. The target declaration
+    /// is first. The others follow in the order that the traversal found them.
     pub entries: Vec<Entry>,
-    /// Every dependency followed, in the order it was found. An anchor having
-    /// its own properties is structure rather than a dependency, and is not
-    /// listed.
+    /// All dependencies that the traversal followed, in the order it found
+    /// them. The link from an anchor to its own properties is structure. It
+    /// is not a dependency, thus this list does not include it.
     pub edges: Vec<Edge>,
-    /// How the build reaches the target from the entry: each property that
-    /// leads one step further down, outermost first. Empty when the target
-    /// is one of the entry's exports, a variable, or not reached at all.
+    /// The path from the entry to the target in the build. Each property
+    /// goes one step lower. The outermost property is first. The list is
+    /// empty when the target is an export of the entry or a variable. It is
+    /// also empty when the build does not reach the target.
     pub chain: Vec<Entity>,
 }
 
 impl Slice {
-    /// The dependencies `from` has in this slice.
+    /// The dependencies of `from` in this slice.
     pub fn edges_from<'a>(&'a self, from: &'a Entity) -> impl Iterator<Item = &'a Edge> + 'a {
         self.edges.iter().filter(move |edge| edge.from == *from)
     }
 
-    /// Whether the slice holds `entity`, directly or as part of a whole anchor.
+    /// Whether the slice holds `entity`, directly or in a whole anchor.
     pub fn contains(&self, entity: &Entity) -> bool {
         self.entries.iter().any(|entry| match (entry, entity) {
             (Entry::Anchor { anchor, whole, .. }, Entity::Anchor(other)) => {
@@ -159,16 +165,17 @@ impl Slice {
 // Targets
 // ---------------------------------------------------------------------------
 
-/// What a slice starts from, as someone writes it: `ui.pi#SaveButton`,
-/// `ui.pi#SaveButton.color`, or a bare `SaveButton` to look up across the
-/// project.
+/// The start point of a slice, as a person writes it. Examples are
+/// `ui.pi#SaveButton` and `ui.pi#SaveButton.color`. A bare `SaveButton`
+/// causes a search of the full project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
-    /// The file the name is looked up in, when one is given.
+    /// The file in which to find the name, if the target gives one.
     pub file: Option<PathBuf>,
     /// The anchor or variable.
     pub name: String,
-    /// The property path after the name; empty for the whole declaration.
+    /// The property path after the name. It is empty for the whole
+    /// declaration.
     pub path: Vec<String>,
 }
 
@@ -206,8 +213,8 @@ impl Target {
     }
 }
 
-/// Resolves a target the way `module` sees its name: declared there or
-/// imported into it.
+/// Resolves a target as `module` sees its name. `module` declares the
+/// name or imports it.
 pub fn resolve_in(
     compilation: &Compilation,
     module: ModuleId,
@@ -240,12 +247,13 @@ pub fn resolve_in(
     }
 }
 
-/// Resolves a target with no file by looking its name up across the whole
-/// compilation. A name declared in more than one file is ambiguous and has to
-/// be given with its file.
+/// Resolves a target without a file. It finds the name in the full
+/// compilation. A name in more than one file is ambiguous. The target must
+/// then give the file.
 ///
-/// Bundled packages are only searched when nothing in the project matches, so
-/// a project's own `Button` is never ambiguous with a package's.
+/// The search includes bundled packages only when no project name matches.
+/// Thus a `Button` in the project is never ambiguous with a `Button` in a
+/// package.
 pub fn find(compilation: &Compilation, target: &Target) -> Result<Entity, Diagnostic> {
     let store = compilation.store();
     let graph = compilation.graph();
@@ -321,7 +329,7 @@ pub fn find(compilation: &Compilation, target: &Target) -> Result<Entity, Diagno
     }
 }
 
-/// The entity a resolved name and property path point at.
+/// The entity that a resolved name and property path identify.
 fn entity_for(
     compilation: &Compilation,
     symbol: Symbol,
@@ -403,20 +411,21 @@ fn display_path(path: &Path, root: &Path) -> String {
 // Traversal
 // ---------------------------------------------------------------------------
 
-/// Collects `target` and everything it depends on, transitively, and the
-/// chain the entry reaches it through.
+/// Collects `target` and all its transitive dependencies. It also collects
+/// the chain from the entry to the target.
 ///
-/// The walk is breadth-first, so what the target depends on directly comes
-/// before what that depends on in turn, and each entity's dependencies are
-/// visited in a fixed order: what it inherits, the types it is constrained
-/// to, what it reads, then what its value refers to or embeds, each in the
-/// order it is written. The same source always produces the same slice. Entities
-/// are tracked by identity, so a cycle ends the first time it comes back
-/// around, and the edge that closed it is still recorded.
+/// The walk is breadth-first. Thus the direct dependencies of the target come
+/// before their own dependencies. The walk visits the dependencies of each
+/// entity in a fixed order. First come the inherited anchors. Then come the
+/// types of its constraints. Then come the items that it reads. Last come the
+/// targets of references and embeds in its value. Each group keeps the
+/// written order. The same source always gives the same slice. The walk
+/// tracks entities by identity. Thus a cycle stops when it comes back to an
+/// entity. The slice still records the edge that closed the cycle.
 ///
 /// The chain comes after the dependencies. Each link is only that one
-/// property: what else it refers to is context the target does not need, and
-/// following it from the entry would bring in everything.
+/// property. Its other references are context that the target does not need.
+/// If the walk followed them from the entry, it would include everything.
 pub fn slice(compilation: &Compilation, target: Entity) -> Slice {
     let walker = Walker { compilation };
     let mut seen: HashSet<Entity> = HashSet::new();
@@ -464,20 +473,20 @@ pub fn slice(compilation: &Compilation, target: Entity) -> Slice {
     }
 }
 
-/// The shortest way the build gets from the entry to `anchor`, as the
-/// properties it passes through: `Specification.Tooling`, `Tooling.cli`,
-/// `Cli.commands` for a command the CLI lists.
+/// The shortest path in the build from the entry to `anchor`. The path is a
+/// list of properties. For a command in the CLI list, the path is
+/// `Specification.Tooling`, `Tooling.cli`, `Cli.commands`.
 ///
-/// The walk starts at the entry's exports, in order, and follows what each
-/// property's value refers to or embeds, in the order it is written, so the
-/// same source always gives the same chain.
+/// The walk starts at the exports of the entry, in order. It follows the
+/// references and embeds in the value of each property, in the written
+/// order. Thus the same source always gives the same chain.
 pub fn chain(compilation: &Compilation, anchor: AnchorId) -> Vec<Entity> {
     let store = compilation.store();
     let roots = compilation.entry_exports();
     if roots.contains(&anchor) {
         return Vec::new();
     }
-    // The property each anchor was first reached through.
+    // The property through which the walk first found each anchor.
     let mut via: HashMap<AnchorId, (AnchorId, String)> = HashMap::new();
     let mut queue: VecDeque<AnchorId> = roots.iter().copied().collect();
     let mut seen: HashSet<AnchorId> = roots.iter().copied().collect();
@@ -512,8 +521,9 @@ struct Walker<'a> {
 }
 
 impl Walker<'_> {
-    /// What an entity needs, each with the relation that makes it a
-    /// dependency. `None` marks structure: the properties of a whole anchor.
+    /// The needs of an entity. Each one has the relation that makes it a
+    /// dependency. `None` marks structure, which is the properties of a
+    /// whole anchor.
     fn dependencies(&self, entity: &Entity) -> Vec<(Entity, Option<Relation>)> {
         let store = self.compilation.store();
         let mut out: Vec<(Entity, Option<Relation>)> = Vec::new();
@@ -532,8 +542,8 @@ impl Walker<'_> {
                 if !def.slots.contains_key(name) {
                     return out;
                 }
-                // Every base that declares the property too, winner first:
-                // that is where an inherited value or constraint comes from.
+                // All bases that also declare the property, the winner first.
+                // An inherited value or constraint comes from these bases.
                 for base in store.base_chain(*anchor).into_iter().rev() {
                     if base != *anchor && self.declaration(base, name).is_some() {
                         out.push((
@@ -562,7 +572,7 @@ impl Walker<'_> {
         out
     }
 
-    /// The property as `anchor`'s own body declares it, if it does.
+    /// The property as the body of `anchor` declares it, if it does.
     fn declaration(&self, anchor: AnchorId, name: &str) -> Option<&ast::Property> {
         let def = self.compilation.store().anchor(anchor);
         let ast::Item::Anchor(decl) = self
@@ -580,7 +590,8 @@ impl Walker<'_> {
             .find(|property| property.name == name)
     }
 
-    /// Anchors named as types, looked up where the constraint is written.
+    /// Anchors that types name. The search starts in the module that
+    /// writes the constraint.
     fn constraint_types(
         &self,
         constraints: &[TypeConstraint],
@@ -598,8 +609,8 @@ impl Walker<'_> {
         }
     }
 
-    /// What evaluating `read` read, in the order the source reads it.
-    /// Evaluation is deterministic, so that order is too.
+    /// The items that the evaluation of `read` read, in the source order.
+    /// Evaluation is deterministic. Thus that order is also deterministic.
     fn reads(&self, read: Read, out: &mut Vec<(Entity, Option<Relation>)>) {
         let Some(reads) = self.compilation.reads.get(&read) else {
             return;
@@ -613,8 +624,8 @@ impl Walker<'_> {
         }
     }
 
-    /// The anchors and properties a value embeds or refers to, in the order
-    /// they appear.
+    /// The anchors and properties that a value embeds or refers to, in the
+    /// order that they occur.
     fn value_targets(&self, value: &Value, out: &mut Vec<(Entity, Option<Relation>)>) {
         match value {
             Value::Anchor(anchor) => out.push((Entity::Anchor(*anchor), Some(Relation::Composes))),
@@ -659,9 +670,9 @@ impl Walker<'_> {
         }
     }
 
-    /// A reference to a property needs that property; a reference to an
-    /// anchor needs all of it. A path that goes deeper than one property still
-    /// needs only the property it starts at.
+    /// A reference to a property needs that property. A reference to an
+    /// anchor needs the full anchor. A path that goes below one property
+    /// needs only its first property.
     fn referenced(&self, target: &Ref) -> Entity {
         match target.path.first() {
             Some(name)
@@ -678,8 +689,8 @@ impl Walker<'_> {
         }
     }
 
-    /// Groups the visited entities into declarations, in the order each
-    /// declaration was first reached.
+    /// Puts the visited entities into declarations. The order is the order
+    /// in which the walk first found each declaration.
     fn entries(&self, order: &[Entity]) -> Vec<Entry> {
         let store = self.compilation.store();
         let mut entries: Vec<Entry> = Vec::new();

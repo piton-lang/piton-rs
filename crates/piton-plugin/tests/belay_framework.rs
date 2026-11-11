@@ -1,21 +1,21 @@
 //! Checks that the bundled `@piton/belay` package is the specification.
 //!
-//! The four constructs are not written in Rust. `plugins/belay/pi/*.pi`
-//! is embedded into the compiler at build time and served from a virtual
-//! filesystem, so the specification's description of a skill is the skill a
-//! project actually gets.
+//! The four constructs are not in Rust. The build embeds
+//! `plugins/belay/pi/*.pi` into the compiler. A virtual filesystem then serves
+//! these files. Thus the description of a skill in the specification is the
+//! skill that a project gets.
 //!
-//! These tests hold that arrangement in place. One checks the shape the
-//! compiler serves against the shape the file on disk declares; the other checks
-//! that each construct arrives through its keyword, since a construct with no
-//! alias cannot be used whatever its shape.
+//! These tests keep that arrangement. One test compares the shape from the
+//! compiler with the shape that the file on disk declares. The other test
+//! checks that each construct comes through its keyword. A construct with no
+//! alias is not usable, whatever its shape.
 
 use std::path::{Path, PathBuf};
 
 use piton_compile::{Compilation, Project, Symbol};
 use piton_core::AnchorId;
 
-/// The four agentic constructs, plus the base they share.
+/// The four agentic constructs, and their shared base.
 const CONSTRUCTS: &[&str] = &["Construct", "Instruction", "Skill", "Command", "Agent"];
 
 fn repo_root() -> PathBuf {
@@ -38,8 +38,9 @@ impl Drop for Sandbox {
 
 impl Sandbox {
     fn new() -> Sandbox {
-        // The thread id keeps parallel tests in this binary from sharing a
-        // directory and deleting it out from under each other.
+        // The thread id gives each parallel test in this binary a different
+        // directory. Thus one test cannot delete the directory of another
+        // test.
         let dir = std::env::temp_dir().join(format!(
             "piton-framework-{}-{:?}",
             std::process::id(),
@@ -51,7 +52,7 @@ impl Sandbox {
     }
 }
 
-/// Compiles a file that pulls every construct out of the bundled package.
+/// Compiles a file that imports each construct from the bundled package.
 fn bundled(sandbox: &Sandbox) -> Compilation {
     let entry = sandbox.dir.join("main.pi");
     std::fs::write(
@@ -65,7 +66,7 @@ fn bundled(sandbox: &Sandbox) -> Compilation {
     Compilation::build(project)
 }
 
-/// Compiles the specification's own description of one construct.
+/// Compiles the description of one construct in the specification.
 fn specified(name: &str) -> Compilation {
     let root = repo_root();
     let entry = root.join(format!("plugins/belay/pi/{name}.pi"));
@@ -75,10 +76,10 @@ fn specified(name: &str) -> Compilation {
     Compilation::build(project)
 }
 
-/// A comparable rendering of an anchor's declared shape.
+/// A render of the declared shape of an anchor, for comparison.
 ///
-/// Values are left out on purpose: an abstract construct declares a shape, and
-/// it is the shape that has to agree.
+/// This render does not include values, by intention. An abstract construct
+/// declares a shape. Only the shape must agree.
 fn shape(compilation: &Compilation, anchor: AnchorId) -> String {
     let def = compilation.store().anchor(anchor);
     let mut out = String::new();
@@ -163,10 +164,10 @@ fn the_bundled_package_matches_the_specification() {
 
 #[test]
 fn the_constructs_are_served_from_the_specification_files() {
-    // The shape matching above would still pass if someone reintroduced a
-    // hand-written copy. This is what makes that impossible: the module a
-    // construct arrives in has to be the embedded specification file, and its
-    // text has to be what is on disk.
+    // The shape comparison above can pass with a hand-written copy. This
+    // check prevents that copy. A construct must come from the embedded
+    // specification file. The text of that file must be the same as the
+    // file on disk.
     let sandbox = Sandbox::new();
     let bundled = bundled(&sandbox);
     let root = repo_root();
@@ -196,9 +197,9 @@ fn the_constructs_are_served_from_the_specification_files() {
 
 #[test]
 fn the_package_exports_the_framework_and_not_its_documentation() {
-    // The construct files also hold the prose that documents them. Those
-    // anchors are reachable inside the package but must not leak out of it, or
-    // `from @piton/belay import SkillBehavior` would start working.
+    // The construct files also hold their documentation prose. The package
+    // can reach those anchors, but they must stay in the package. If not,
+    // `from @piton/belay import SkillBehavior` can work.
     let sandbox = Sandbox::new();
     let bundled = bundled(&sandbox);
     let module = bundled
@@ -233,8 +234,8 @@ fn every_construct_is_reachable_through_its_keyword() {
         .id_for(Path::new("@piton/belay"))
         .expect("the package is loaded");
 
-    // A construct is used by writing its keyword, so a missing alias makes the
-    // construct unusable no matter what its shape is.
+    // A user writes the keyword of a construct to use it. Thus a construct
+    // with no alias is not usable, whatever its shape.
     for (name, keyword) in [
         ("Instruction", "instruction"),
         ("Skill", "skill"),
@@ -265,8 +266,9 @@ fn indent(text: &str) -> String {
 
 #[test]
 fn the_adapters_are_served_from_the_specification_files() {
-    // Like the constructs, the adapter anchors a project lists are the
-    // specification's own files, not a hand-written copy.
+    // The adapter anchors that a project lists are the files of the
+    // specification, as the constructs are. They are not a hand-written
+    // copy.
     let sandbox = Sandbox::new();
     let entry = sandbox.dir.join("main.pi");
     std::fs::write(
@@ -302,9 +304,9 @@ fn the_adapters_are_served_from_the_specification_files() {
     }
 }
 
-/// The facts the plugin compares between an adapter anchor and its built-in
-/// target, as in `targetFromAnchor` and `builtinTarget` in
-/// `plugins/belay/src/adapters.ts`.
+/// The facts that the plugin compares between an adapter anchor and its
+/// built-in target. `targetFromAnchor` and `builtinTarget` in
+/// `plugins/belay/src/adapters.ts` use the same facts.
 #[derive(Debug, PartialEq)]
 struct Facts {
     root: String,
@@ -320,9 +322,9 @@ struct Facts {
     documentation_checked: String,
 }
 
-/// The built-in adapters of the plugin, read from the object literals in
-/// `adapters.ts`, keyed by export name: each field the literal states as a
-/// string.
+/// The built-in adapters of the plugin, by export name. This function reads
+/// them from the object literals in `adapters.ts`. It keeps each field that
+/// the literal gives as a string.
 fn builtin_adapters() -> Vec<std::collections::BTreeMap<String, String>> {
     let source = std::fs::read_to_string(repo_root().join("plugins/belay/src/adapters.ts")).expect("adapters.ts");
     let mut adapters = Vec::new();
@@ -388,8 +390,8 @@ fn lookup<'a>(properties: &'a piton_core::Properties, path: &[&str]) -> Option<&
     Some(value)
 }
 
-/// The facts as the plugin reads them from an adapter anchor, starting from
-/// the built-in ones.
+/// The facts that the plugin reads from an adapter anchor. The built-in facts
+/// are the start values.
 fn anchor_facts(builtin: Facts, properties: &piton_core::Properties) -> Facts {
     let text = |path: &[&str]| {
         lookup(properties, path).and_then(|value| match value {
@@ -450,11 +452,10 @@ fn anchor_facts(builtin: Facts, properties: &piton_core::Properties) -> Facts {
 
 #[test]
 fn the_adapter_anchors_agree_with_the_built_in_targets() {
-    // The plugin reads each target's paths and settings from the anchor a
-    // project configures, and falls back to the built-in tables in
-    // adapters.ts without one. The two must say the same thing, or a project
-    // would build differently depending on whether its configuration could be
-    // read.
+    // The plugin reads the paths and settings of each target from the anchor
+    // that a project configures. When there is no anchor, the plugin uses the
+    // built-in tables in adapters.ts. The two must agree. If not, the build of
+    // a project changes when the plugin cannot read its configuration.
     let adapters = builtin_adapters();
     assert_eq!(adapters.len(), 4, "{adapters:#?}");
     let names: Vec<&str> = adapters.iter().map(|a| a["exportName"].as_str()).collect();

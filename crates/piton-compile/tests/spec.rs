@@ -1,4 +1,4 @@
-//! Compiles the specification, which is itself written in Piton.
+//! Compiles the specification. The specification is also in Piton.
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +38,8 @@ fn inherited_properties_keep_the_base_order() {
     let compilation = compile_spec();
     let strings = compilation.find_anchor("Strings").expect("Strings");
     let names: Vec<&str> = compilation.store().anchor(strings).slots.keys().map(String::as_str).collect();
-    // Inherited properties keep the base's order; the child's own come after.
+    // Inherited properties keep the order of the base. The properties of the
+    // child come after them.
     assert_eq!(
         &names[..4],
         &[
@@ -87,11 +88,11 @@ fn adapters_inherit_the_shared_contract() {
 #[test]
 fn the_framework_source_is_not_reported_dead() {
     // `prelude` compiles `spec/scope/belay/anchors/*.pi` into the binary with
-    // `include_str!`, so this project holds each of those files twice: once on
-    // disk and once as the `@piton/belay` module it became. Everything imports
-    // the package copy, which leaves the file on disk reached by nothing --
-    // and it is the opposite of dead. It is the framework. A report that names
-    // it unreachable is inviting someone to delete the compiler's vocabulary.
+    // `include_str!`. Thus this project holds each of those files two times.
+    // One copy is on disk. One copy is the `@piton/belay` module. All modules
+    // import the package copy. Thus no module reaches the file on disk.
+    // But the file is not dead. It is the framework. A report that calls it
+    // unreachable tells a person to delete the vocabulary of the compiler.
     let compilation = compile_spec();
     let reachability = piton_compile::reach::from_entry(&compilation);
 
@@ -112,9 +113,9 @@ fn the_framework_source_is_not_reported_dead() {
 
 #[test]
 fn a_module_that_only_re_exports_is_not_dead() {
-    // `spec/agent/index.pi` and `spec/scope/belay/index.pi` declare no anchor
-    // of their own; they exist to hand on what another file declares. A walk
-    // that counts only declarations finds nothing in them.
+    // `spec/agent/index.pi` and `spec/scope/belay/index.pi` declare no anchor.
+    // They only give again what another file declares. A walk that counts
+    // only declarations finds nothing in them.
     let compilation = compile_spec();
     let reachability = piton_compile::reach::from_entry(&compilation);
 

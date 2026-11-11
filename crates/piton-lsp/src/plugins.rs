@@ -1,9 +1,10 @@
 //! Plugin builds, as the editor sees them.
 //!
-//! A plugin's build is planned when a file is saved, never as you type, so
-//! typing stays free of plugin code. The plans are kept until the next save:
-//! their diagnostics show beside the compiler's, and the editor's preview and
-//! source map show what they would write.
+//! The editor plans the build of a plugin when the user saves a file. It never
+//! plans a build while the user types. Thus a keystroke does not run plugin code.
+//! The editor keeps the plans until the next save. Their diagnostics show
+//! next to the compiler diagnostics. The editor preview and the source map
+//! show the files that the plans would write.
 
 use std::rc::Rc;
 
@@ -12,7 +13,7 @@ use piton_core::{Diagnostic, Span};
 use piton_plugin::plan::PluginPlan;
 use piton_plugin::{Services, Stream};
 
-/// What the plugin host asks of an editor: nothing is printed.
+/// The requests of the plugin host to an editor. The editor prints nothing.
 struct Quiet {
     project: Project,
 }
@@ -35,9 +36,9 @@ impl Services for Quiet {
     }
 }
 
-/// Plans every plugin build the project turned on. A plugin that fails, or
-/// plans something malformed, is reported on the configuration, and the
-/// others still plan.
+/// Plans each plugin build that the project enabled. When a plugin fails, or
+/// makes a plan that is not correct, the configuration shows an error. The
+/// other plugins continue to plan.
 pub fn plan(project: &Project) -> Vec<PluginPlan> {
     if project.config_path.is_none() {
         return Vec::new();
@@ -69,10 +70,12 @@ pub fn plan(project: &Project) -> Vec<PluginPlan> {
     plans
 }
 
-/// The anchors the project's plugins reach themselves, by file and name, like
-/// the tests the test plugin runs. They are roots of the unused check beside
-/// the entry. Asked when a file is saved, like the build plans; a plugin that
-/// can't say is left out, and the others still count.
+/// The anchors that the plugins of the project use, by file and name. An
+/// example is the tests that the test plugin runs. They are roots of the
+/// unused check, together with the entry. The editor asks for them when the
+/// user saves a file, as for the build plans. When a plugin cannot supply
+/// them, the result does not include that plugin. The other plugins still
+/// count.
 pub fn reached(project: &Project) -> Vec<(std::path::PathBuf, String)> {
     if project.config_path.is_none() {
         return Vec::new();

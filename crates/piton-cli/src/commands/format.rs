@@ -98,11 +98,12 @@ pub fn run(path: Option<&str>, check_only: bool) -> u8 {
     EXIT_SUCCESS
 }
 
-/// `piton format -`: formats stdin to stdout, which is how an editor's
-/// external formatter (Vim's `formatprg`, say) calls it.
+/// `piton format -` formats stdin to stdout. An external formatter of an
+/// editor calls it in this way. An example is `formatprg` in Vim.
 ///
-/// A source that does not parse writes nothing to stdout and exits non-zero,
-/// so an editor that replaces the buffer with the output leaves it alone.
+/// When a source does not parse, the command writes nothing to stdout. It
+/// exits with a non-zero code. Thus an editor that replaces the buffer with
+/// the output does not change the buffer.
 fn format_stdin(check_only: bool) -> u8 {
     use std::io::{Read, Write};
 

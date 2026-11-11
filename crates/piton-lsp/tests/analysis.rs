@@ -1,5 +1,5 @@
 //! Import organization, composition, conflicts, unused symbols, and the
-//! source-to-output map. Each fixture is a project of its own so a finding
+//! source-to-output map. Each fixture is a separate project. Thus a finding
 //! here is a finding in the analysis, not a quirk of the specification corpus.
 
 use std::path::PathBuf;
@@ -233,8 +233,8 @@ fn composition_hover_shows_how_inputs_combine() {
             _ => String::new(),
         })
         .collect();
-    // The operator is already on the line, and the hover explains it; an
-    // inlay repeating it would say nothing the source does not.
+    // The line already has the operator, and the hover explains it. An inlay
+    // that repeats it would only give data that the source already gives.
     assert!(
         !labels.iter().any(|label| label.contains("merge")),
         "a merge is not repeated inline: {labels:?}"
@@ -255,7 +255,7 @@ fn only_abstracts_that_cannot_both_hold_conflict() {
 
     let world = fixture.world();
     let reported = codes(&world, "spec/index.pi", &fixture);
-    // The compiler reports it; the editor does not add a second squiggle.
+    // The compiler reports it. The editor does not add a second squiggle.
     assert!(
         reported.iter().any(|code| code == "conflicting-abstracts"),
         "{reported:?}"
@@ -397,8 +397,8 @@ fn an_unreferenced_anchor_is_unused() {
 
 #[test]
 fn an_anchor_a_plugin_reaches_is_not_unused() {
-    // Nothing imports the test, but the test plugin reaches it: it is run
-    // because it is exported. What it uses is reached through it.
+    // No file imports the test, but the test plugin reaches it. The plugin
+    // runs it because the file exports it. Through it, the plugin reaches the items that it uses.
     let fixture = Fixture::new("plugin-reach");
     fixture.write(
         "piton.config.pi",
@@ -436,7 +436,7 @@ fn source_maps_to_the_compiled_section_and_back() {
     let text = std::fs::read_to_string(&source).expect("readable");
     let offset = text.find("description").expect("property") + 2;
     let mappings = world.analysis.mappings_at(&source, offset);
-    // By default the build writes JSON to ./dist, mirroring the source root.
+    // By default, the build writes JSON to ./dist, with the same layout as the source root.
     let mapping = mappings
         .iter()
         .find(|mapping| mapping.adapter == "json")
@@ -463,7 +463,7 @@ fn source_maps_to_the_compiled_section_and_back() {
         .filter_map(|lens| lens.command.as_ref())
         .find(|command| command.title.contains("json"))
         .unwrap_or_else(|| panic!("a code lens should name the compiled output: {lenses:?}"));
-    // The lens runs a command the server itself executes.
+    // The lens runs a command that the server itself executes.
     assert_eq!(lens.command, features::SOURCE_TO_OUTPUT);
     let outcome = features::execute_command(
         &world,
@@ -488,7 +488,7 @@ fn source_maps_to_the_compiled_section_and_back() {
         "the custom query should return the mapping: {query}"
     );
 
-    // The configuration is read, not compiled: it maps to nothing.
+    // The server reads the configuration but does not compile it. It maps to nothing.
     let config = fixture.path("piton.config.pi");
     assert!(world
         .analysis
@@ -519,8 +519,8 @@ fn the_configured_output_directory_and_renderer_decide_the_mapping() {
         .filter(|mapping| mapping.source_file == source)
         .map(|mapping| (mapping.adapter.as_str(), mapping.output_path.as_path()))
         .collect();
-    // Page.pi compiles to out/nested/Page.md, and the index that re-exports
-    // it carries it into out/index.md too.
+    // Page.pi compiles to out/nested/Page.md. The index that re-exports it
+    // also puts it into out/index.md.
     assert!(
         outputs.contains(&("markdown", fixture.path("out/nested/Page.md").as_path())),
         "{outputs:?}"
@@ -606,8 +606,8 @@ fn action_titles(world: &World, uri: &Url, position: Position) -> Vec<String> {
     titles_of(&actions)
 }
 
-/// The hover on the operator `operator` inside the first `needle`. A
-/// composition is explained on its operator alone.
+/// The hover on the operator `operator` inside the first `needle`. The hover
+/// explains a composition only on its operator.
 fn operator_hover(world: &World, fixture: &Fixture, relative: &str, needle: &str, operator: &str) -> String {
     let text = std::fs::read_to_string(fixture.path(relative)).expect("readable");
     let offset = text
@@ -672,7 +672,7 @@ fn super_in_a_block_reads_every_base() {
     );
     let world = fixture.world();
     let hover = operator_hover(&world, &fixture, "spec/index.pi", "+ {super.items}", "+");
-    // `Right` has no `items`, so `super.items` comes from `Left`.
+    // `Right` has no `items`. Thus `super.items` comes from `Left`.
     assert!(hover.contains("[\"a\"]"), "{hover}");
     assert!(hover.contains("- a") && hover.contains("- b"), "{hover}");
 }
@@ -710,8 +710,8 @@ fn a_merge_line_is_redundant_only_when_it_changes_nothing() {
         .iter()
         .filter(|item| item.code == "redundant-definition")
         .collect();
-    // `+` keeps the last of each duplicate, so re-adding A, B, C moves them
-    // after D: that line changes the order and is not redundant.
+    // `+` keeps the last of each duplicate. Thus when the line adds A, B, C again,
+    // they move after D. That line changes the order and is not redundant.
     assert_eq!(redundant.len(), 1, "{reported:#?}");
     let text = std::fs::read_to_string(fixture.path("spec/index.pi")).expect("readable");
     assert_eq!(
@@ -733,7 +733,7 @@ fn the_configuration_is_a_project_config_not_a_regular_file() {
     );
     fixture.write("spec/index.pi", "export anchor Root:\n    a: 1\n");
 
-    // Open the configuration, the way an editor would.
+    // Open the configuration, as an editor does.
     let config = fixture.path("piton.config.pi");
     let text = std::fs::read_to_string(&config).expect("readable");
     let mut world = World::new(&fixture.dir);
@@ -779,7 +779,7 @@ fn the_configuration_is_a_project_config_not_a_regular_file() {
     for key in ["output", "renderer", "plugins"] {
         assert!(labels.contains(&key.to_string()), "{key} missing: {labels:?}");
     }
-    // What the configuration already sets is not offered again.
+    // The list does not offer again the settings that the configuration has.
     for key in ["root", "entry"] {
         assert!(!labels.contains(&key.to_string()), "{key} offered twice: {labels:?}");
     }
@@ -812,7 +812,7 @@ fn an_ambiguous_name_is_reported_and_can_be_qualified() {
     assert!(ambiguous.message.contains("./a") && ambiguous.message.contains("./b"));
     assert!(reported.iter().any(|item| item.code == "shadowed-import"));
 
-    // Related information points at each binding, on its own line.
+    // Related information points to each binding, on its own line.
     let text = std::fs::read_to_string(fixture.path("spec/index.pi")).expect("readable");
     let converted = features::to_lsp_diagnostic(ambiguous, &text, &|_| None);
     let lines: Vec<u32> = converted
@@ -944,8 +944,8 @@ fn a_nested_key_is_not_an_anchor_property() {
         .iter()
         .map(|location| location.range.start.line)
         .collect();
-    // The nested declaration and the read through `this.config`, but never the
-    // anchor's own `description` on line 1.
+    // The nested declaration and the read through `this.config`. Never the
+    // own `description` of the anchor on line 1.
     assert_eq!(lines, vec![3, 4], "{references:?}");
 }
 

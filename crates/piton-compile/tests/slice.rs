@@ -1,5 +1,5 @@
-//! Semantic slices: what one anchor, property, or variable depends on, and
-//! how that is rendered.
+//! Semantic slices. A slice shows the dependencies of one anchor, property or
+//! variable. These tests also check the output of a slice.
 
 use std::path::PathBuf;
 
@@ -52,7 +52,7 @@ impl Sandbox {
         compilation
     }
 
-    /// Resolves `file#Name[.property]` the way `piton slice` does.
+    /// Resolves `file#Name[.property]` as `piton slice` does.
     fn resolve(&self, compilation: &Compilation, target: &str) -> Result<Entity, Diagnostic> {
         let target = Target::parse(target).expect("target");
         let file = self.dir.join(target.file.as_ref().expect("file"));
@@ -76,7 +76,7 @@ impl Sandbox {
     }
 }
 
-/// Every declaration in the slice by name, with the properties it carries.
+/// All declarations in the slice by name, with their properties.
 fn entries(compilation: &Compilation, slice: &Slice) -> Vec<String> {
     let store = compilation.store();
     slice
@@ -91,7 +91,7 @@ fn entries(compilation: &Compilation, slice: &Slice) -> Vec<String> {
         .collect()
 }
 
-/// Every edge as `from -relation-> to`.
+/// All edges as `from -relation-> to`.
 fn edges(compilation: &Compilation, slice: &Slice) -> Vec<String> {
     slice
         .edges
@@ -107,8 +107,8 @@ fn edges(compilation: &Compilation, slice: &Slice) -> Vec<String> {
         .collect()
 }
 
-/// A small UI whose save button reads, references, and inherits across three
-/// files, with an import nothing uses.
+/// A small UI in three files. Its save button reads, refers to and inherits
+/// from other files. One import has no use.
 fn save_button(name: &str) -> Sandbox {
     let sandbox = Sandbox::new(name);
     sandbox
@@ -229,14 +229,14 @@ fn dependencies_are_followed_across_imports_and_unused_imports_are_not() {
             "SaveState[states]",
         ]
     );
-    // `ui.pi` imports Unused, but nothing depends on it.
+    // `ui.pi` imports Unused, but no declaration depends on it.
     assert!(!names.iter().any(|name| name.starts_with("Unused")));
-    // Document.close is in an imported file but nothing reads it.
+    // Document.close is in an imported file, but no declaration reads it.
     assert!(!sandbox
         .render("ui.pi#SaveButton")
         .contains("Document.close"));
 
-    // `@{Document.save}` points at the property without reading its value.
+    // `@{Document.save}` refers to the property. It does not read its value.
     let edges = edges(&compilation, &slice);
     assert!(edges.contains(&"SaveButton.click -references-> Document.save".to_string()));
     assert!(!edges.contains(&"SaveButton.click -reads-> Document.save".to_string()));
@@ -264,7 +264,7 @@ fn dependencies_are_followed_transitively_nearest_first() {
         edges(&compilation, &slice),
         [
             "A.x -reads-> B.x",
-            // `${B.x}` copies B.x's text, reference and all.
+            // `${B.x}` copies the text of B.x, with its reference.
             "A.x -references-> C",
             "B.x -references-> C",
             "C.body -composes-> D",
@@ -296,7 +296,7 @@ fn a_property_target_leaves_out_unrelated_properties() {
     assert!(!color.contains("Document"), "{color}");
     assert!(color.contains("Only the properties this slice needs are shown."));
 
-    // Its sibling does depend on Document.save, and so on SaveState.
+    // Its sibling depends on Document.save. Thus it also depends on SaveState.
     let (compilation, slice) = sandbox.slice("ui.pi#SaveButton.click");
     assert_eq!(
         entries(&compilation, &slice),
@@ -336,7 +336,7 @@ fn a_shared_dependency_is_emitted_once() {
     );
     let rendered = sandbox.render("main.pi#Page");
     assert_eq!(rendered.matches("## Palette\n").count(), 1, "{rendered}");
-    // An embedded anchor is named, not copied, since it has its own section.
+    // An embedded anchor shows as its name and not as a copy. It has its own section.
     assert!(
         rendered.contains("### Page.header\n\nHeader\n"),
         "{rendered}"
@@ -359,7 +359,7 @@ fn circular_dependencies_terminate_and_stay_visible() {
         );
     let (compilation, slice) = sandbox.slice("a.pi#Ping");
     assert_eq!(entries(&compilation, &slice), ["Ping[next]", "Pong[next]"]);
-    // The edge that closes the cycle is kept.
+    // The slice keeps the edge that closes the cycle.
     assert_eq!(
         edges(&compilation, &slice),
         [
@@ -368,8 +368,8 @@ fn circular_dependencies_terminate_and_stay_visible() {
         ]
     );
 
-    // A cycle through inheritance's opposite direction -- a base whose value
-    // refers back to its child -- terminates the same way.
+    // A cycle can go opposite to inheritance. Here a base has a value that
+    // refers to its child. This cycle also stops.
     let sandbox = Sandbox::new("cycle-base");
     sandbox.file(
         "main.pi",
@@ -403,8 +403,8 @@ fn reads_keep_the_order_they_are_written_in() {
          export anchor A:\n    text: ${alpha} ${zeta}\n    other: ${zeta} ${alpha}\n",
     );
     let (compilation, slice) = sandbox.slice("main.pi#A");
-    // Each property lists what it reads in the order its expression names
-    // them, not in the order they are declared or were first evaluated.
+    // Each property lists its reads in the order of its expression. This is
+    // not the order of declaration or the order of first evaluation.
     assert_eq!(
         edges(&compilation, &slice),
         [
@@ -429,7 +429,7 @@ fn a_missing_anchor_is_a_diagnostic_with_a_suggestion() {
     assert!(error.message.contains("`SaveButon`"), "{}", error.message);
     assert_eq!(error.help.as_deref(), Some("did you mean `SaveButton`?"));
 
-    // A name declared in another file but not imported here is not in scope.
+    // A name from another file is not in scope when this file does not import it.
     let error = sandbox
         .resolve(&compilation, "ui.pi#SaveState")
         .expect_err("not imported");
@@ -486,7 +486,7 @@ fn a_bare_name_declared_twice_is_ambiguous() {
     assert_eq!(error.labels.len(), 1);
     assert!(error.labels[0].file.ends_with("b.pi"));
 
-    // Declared once, a bare name is found wherever it is.
+    // When a bare name has only one declaration, the resolver finds it in all files.
     let entity = slice::find(&compilation, &Target::parse("Page.a").unwrap()).expect("found");
     assert_eq!(entity.display(&compilation), "Page.a");
 }
@@ -522,8 +522,8 @@ fn inherited_properties_and_constraints_are_included() {
          export anchor Dark extends Theme:\n    accent: {Red}\n    background: black\n",
     );
 
-    // The constraint lives on Theme, names Color, and the value embeds Red,
-    // which extends Color.
+    // The constraint is on Theme and names Color. The value embeds Red. Red
+    // extends Color.
     let (compilation, slice) = sandbox.slice("main.pi#Dark.accent");
     assert_eq!(
         entries(&compilation, &slice),
@@ -544,7 +544,7 @@ fn inherited_properties_and_constraints_are_included() {
         .iter()
         .any(|edge| edge.relation == Relation::Constrains));
 
-    // An inherited value is said to be inherited, and not written twice.
+    // The slice marks an inherited value as inherited. It does not write it two times.
     let rendered = sandbox.render("main.pi#Dark.mode");
     assert!(
         rendered.contains(
@@ -558,7 +558,7 @@ fn inherited_properties_and_constraints_are_included() {
     );
     assert!(!rendered.contains("background"), "{rendered}");
 
-    // An abstract slot says it has no value.
+    // An abstract slot shows that it has no value.
     let rendered = sandbox.render("main.pi#Dark.accent");
     assert!(
         rendered.contains("### Theme.accent\n\nType: `Color`. No value; an anchor that extends this one supplies it.\n"),
@@ -604,8 +604,8 @@ fn expressions_bring_in_the_variables_and_properties_they_read() {
         );
 
     let (compilation, slice) = sandbox.slice("main.pi#Product.title");
-    // The value only says "Sprocket by Acme Inc"; the reads are what show it
-    // came from Widget.name, suffix, and through suffix, company.
+    // The value only shows "Sprocket by Acme Inc". The reads show its sources.
+    // They are Widget.name and suffix. Through suffix, company is a source too.
     assert_eq!(
         entries(&compilation, &slice),
         ["Product[title]", "Widget[name]", "suffix", "company"]
@@ -649,7 +649,7 @@ fn super_and_self_reads_are_followed() {
     assert!(edges.contains(&"Child.description -inherits-> Base.description".to_string()));
     assert!(edges.contains(&"Child.description -reads-> Base.description".to_string()));
     assert!(edges.contains(&"Child.description -reads-> Child.label".to_string()));
-    // The label Child overrides is reached through Child.label.
+    // The slice reaches the label that Child overrides through Child.label.
     assert!(edges.contains(&"Child.label -inherits-> Base.label".to_string()));
 }
 
@@ -676,8 +676,8 @@ fn a_variable_can_be_a_target() {
     assert_eq!(error.code, "unsliceable-target");
 }
 
-/// A book whose entry references a guide that embeds its chapters, next to
-/// properties the chain does not pass through.
+/// A book. Its entry refers to a guide, and the guide embeds its chapters.
+/// The book also has properties that are not on the chain.
 fn book(name: &str) -> Sandbox {
     let sandbox = Sandbox::new(name);
     sandbox
@@ -720,8 +720,8 @@ fn the_chain_from_the_entry_is_included() {
         .collect();
     assert_eq!(chain, ["Book.guide", "Guide.chapters"]);
 
-    // Each link is only the property on the chain, and what it refers to
-    // besides the target is not followed.
+    // Each link is only the property on the chain. The slice does not follow
+    // its other references.
     assert_eq!(
         entries(&compilation, &slice),
         ["Chapter[body]", "Book[guide]", "Guide[chapters]"]

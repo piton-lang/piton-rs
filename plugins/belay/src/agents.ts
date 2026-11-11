@@ -11,9 +11,7 @@
 
 import type { Context, Json } from "@piton/plugin";
 import { ADAPTERS, adapterFor, type Adapter } from "./adapters";
-
-/** The file that the GenerateFluencyPrompt skill writes, at the project root. */
-const FLUENCY_FILE = "FLUENCY_PROMPT.md";
+import { FLUENCY_SKILL, builtSkill, reference } from "./fluency";
 
 /** An agentic tool that Belay can start. */
 export interface Tool {
@@ -236,30 +234,60 @@ export function layout(ctx: Context, chosen: Tool): { referenceRoot: string; ins
   return { referenceRoot, instructionFile };
 }
 
-/** The fluency reference: the FLUENCY_PROMPT.md file of the project, or the
- * copy that the plugin ships with. */
-function reference(ctx: Context): string {
-  if (ctx.stat(FLUENCY_FILE)?.kind === "file") {
-    const text = ctx.readFile(FLUENCY_FILE);
-    if (text.trim().length > 0) return text;
-  }
-  return ctx.resource("fluency.md");
+/** The primer of the project for a tool. */
+function projectPrimer(ctx: Context, chosen: Tool): string {
+  const { referenceRoot, instructionFile } = layout(ctx, chosen);
+  return primer(ctx.project().sourceRoot, referenceRoot, instructionFile);
 }
 
-/** The full fluency prompt for a tool. */
+/** The full fluency prompt for a tool: the primer, then the reference. */
 export function fluency(ctx: Context, chosen: Tool): string {
-  const { referenceRoot, instructionFile } = layout(ctx, chosen);
-  return `${primer(ctx.project().sourceRoot, referenceRoot, instructionFile)}\n\n${reference(ctx).trimEnd()}`;
+  return `${projectPrimer(ctx, chosen)}\n\n${reference(ctx).trimEnd()}`;
+}
+
+/** The short prompt for a tool that cannot take the full prompt as an
+ * argument: the primer, then a pointer to the reference.
+ *
+ * The pointer names the `piton-fluency` skill that the build wrote. When no
+ * build wrote the skill, the pointer names a temporary file that holds the
+ * reference. */
+export function pointer(ctx: Context, chosen: Tool): string {
+  const skill = builtSkill(ctx, adapterFor(chosen.target));
+  const path = skill ?? ctx.temporaryFile(reference(ctx), ".md");
+  const what = skill === null ? "the file" : `the \`${FLUENCY_SKILL}\` skill, at`;
+  return (
+    `${projectPrimer(ctx, chosen)}\n\n` +
+    `Before any work, read the Piton fluency reference in full: ${what} \`${path}\`. ` +
+    "It tells how Piton, Belay and the piton CLI work."
+  );
+}
+
+/** The text that a tool gets as its prompt, and the file that holds it when
+ * the tool reads its prompt from a file.
+ *
+ * Claude and OpenCode read the full prompt from a temporary file. Codex and
+ * Muse take the prompt as an argument, and the operating system limits the
+ * size of one argument. Thus they get the short prompt. */
+export function prompt(ctx: Context, chosen: Tool): { text: string; file: string | null } {
+  switch (chosen.name) {
+    case "claude":
+    case "opencode": {
+      const text = fluency(ctx, chosen);
+      return { text, file: ctx.temporaryFile(text, ".md") };
+    }
+    default:
+      return { text: pointer(ctx, chosen), file: null };
+  }
 }
 
 /** The arguments and environment that start a tool with the prompt in its
  * instructions, and the given arguments after it.
  *
  * Each tool adds the prompt to its own instructions and does not replace
- * them. Claude appends it to the system prompt. Codex and Muse take it as
- * developer instructions. OpenCode reads it from an instructions file, and
- * runs a private server, because its server reads the configuration from the
- * environment. */
+ * them. Claude appends the prompt file to the system prompt. Codex and Muse
+ * take the short prompt as developer instructions. OpenCode reads the prompt
+ * file as an instructions file. It runs a private server, because its server
+ * reads the configuration from the environment. */
 export function launch(
   ctx: Context,
   chosen: Tool,
@@ -272,7 +300,7 @@ export function launch(
   let options: string[];
   switch (chosen.name) {
     case "claude":
-      options = ["--append-system-prompt", prompt];
+      options = ["--append-system-prompt-file", promptFile ?? ""];
       break;
     case "codex":
       options = ["-c", `developer_instructions=${ctx.encode("tomlString", prompt)}`];
@@ -314,10 +342,10 @@ export async function agentCommand(ctx: Context, args: Record<string, Json>): Pr
   // models, lists them, and nothing starts.
   const flag = await modelFlag(ctx, chosen, args.model);
   if ("exit" in flag) return flag.exit;
-  const prompt = fluency(ctx, chosen);
-  // To print the prompt only reads: nothing starts.
+  // To print the prompt only reads: nothing starts. The full prompt is
+  // printed, also for a tool that gets the short prompt.
   if (args["print-fluency"] === true) {
-    ctx.stdout(`${prompt}\n`);
+    ctx.stdout(`${fluency(ctx, chosen)}\n`);
     return 0;
   }
   if (!ctx.onPath(chosen.program)) {
@@ -335,9 +363,9 @@ export async function agentCommand(ctx: Context, args: Record<string, Json>): Pr
     }
     model = picked;
   }
-  const promptFile = chosen.name === "opencode" ? ctx.temporaryFile(prompt, ".md") : null;
+  const given = prompt(ctx, chosen);
   const passed = Array.isArray(args.args) ? args.args.filter((arg): arg is string => typeof arg === "string") : [];
-  const command = launch(ctx, chosen, prompt, promptFile, passed, model);
+  const command = launch(ctx, chosen, given.text, given.file, passed, model);
   const code = ctx.exec(chosen.program, command.args, { env: command.env });
   return code === null ? 1 : Math.max(0, Math.min(255, code));
 }
@@ -351,6 +379,14 @@ export function agentsExport(ctx: Context) {
       const chosen = tool(name);
       if (chosen === null) throw new Error(`\`${name}\` is not an agent Piton knows`);
       return fluency(ctx, chosen);
+    },
+    /** The prompt of a tool: the text, and the file that holds it when the
+     * tool reads its prompt from a file. Codex and Muse get the short prompt
+     * that points to the reference. */
+    prompt: (name: string): { text: string; file: string | null } => {
+      const chosen = tool(name);
+      if (chosen === null) throw new Error(`\`${name}\` is not an agent Piton knows`);
+      return prompt(ctx, chosen);
     },
     /** The models that a tool offers, as its own list gives them. */
     models: (name: string): Promise<string[]> => {
@@ -377,10 +413,9 @@ export function agentsExport(ctx: Context) {
     launch: (name: string, firstMessage: string | null = null, model: string | null = null): { program: string; args: string[]; env: Record<string, string> } => {
       const chosen = tool(name);
       if (chosen === null) throw new Error(`\`${name}\` is not an agent Piton knows`);
-      const prompt = fluency(ctx, chosen);
-      const promptFile = chosen.name === "opencode" ? ctx.temporaryFile(prompt, ".md") : null;
+      const given = prompt(ctx, chosen);
       const message = firstMessage === null ? [] : chosen.name === "opencode" ? ["--prompt", firstMessage] : [firstMessage];
-      const command = launch(ctx, chosen, prompt, promptFile, message, model);
+      const command = launch(ctx, chosen, given.text, given.file, message, model);
       return { program: chosen.program, args: command.args, env: command.env };
     },
   };

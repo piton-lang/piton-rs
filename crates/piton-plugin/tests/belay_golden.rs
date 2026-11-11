@@ -1,14 +1,15 @@
-//! Compares generated artifacts against the checked-in `.claude` tree.
+//! Compares generated artifacts with the `.claude` tree in the repository.
 //!
-//! That tree began as the output of an earlier implementation, which made it an
-//! independent description of what Belay should produce, and the constants below
-//! record where this compiler deliberately disagreed with it.
+//! At first, that tree was the output of an earlier implementation. Thus it
+//! was an independent description of the correct Belay output. The constants
+//! below record where this compiler did not agree with it, by intention.
 //!
-//! It is no longer independent: `piton build` regenerates it, so what is on disk
-//! is this compiler's own most recent output. The test is therefore a snapshot
-//! check -- it catches an unintended change in generated output between builds --
-//! and not a conformance check against another implementation. Treat a failure
-//! as "the output changed, is that intended?" rather than "the output is wrong".
+//! The tree is not independent now. `piton build` generates it again. Thus the
+//! tree on disk is the most recent output of this compiler. The test is a
+//! snapshot check. It finds an unintended change in generated output between
+//! builds. It is not a conformance check against a different implementation.
+//! A failure means "the output changed. Did you intend this change?". It does
+//! not mean "the output is wrong".
 
 mod belay;
 
@@ -17,12 +18,12 @@ use std::path::{Path, PathBuf};
 
 use piton_compile::{config, Compilation};
 
-/// Files the golden tree contains that this compiler deliberately does not
-/// emit. Empty while the tree is this compiler's own output.
+/// Files in the golden tree that this compiler does not emit, by intention.
+/// It is empty while the tree is the output of this compiler.
 const KNOWN_ORPHANS: &[&str] = &[];
 
-/// Lines where the golden tree is known to be older than the specification it
-/// came from. Empty while the tree is this compiler's own output.
+/// Lines where the golden tree is older than its source specification. It is
+/// empty while the tree is the output of this compiler.
 const STALE_GOLDEN_LINES: &[(&str, &str)] = &[];
 
 fn repo_root() -> PathBuf {
@@ -33,18 +34,18 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// A generated file, with the sources that produced it.
+/// A generated file, with its sources.
 struct Generated {
     contents: String,
     sources: Vec<PathBuf>,
 }
 
-/// True when the snapshot predates the source it was generated from.
+/// True when the snapshot is older than its source.
 ///
-/// The `.claude` tree is a build artifact, so a file older than its own source
-/// is simply out of date. A change to the compiler invalidates the snapshot too,
-/// which mtimes cannot see: after one, rebuild before reading a failure as a
-/// regression.
+/// The `.claude` tree is a build artifact. Thus a file that is older than its
+/// source is only out of date. A change to the compiler also makes the snapshot
+/// incorrect, and mtimes cannot show this change. After such a change, build
+/// again before you think that a failure is a regression.
 fn is_stale(golden_path: &Path, generated: &Generated) -> bool {
     let Ok(golden_time) = std::fs::metadata(golden_path).and_then(|m| m.modified()) else {
         return false;
@@ -58,9 +59,9 @@ fn is_stale(golden_path: &Path, generated: &Generated) -> bool {
 
 /// True when the specbase does not compile.
 ///
-/// A snapshot of generated output says nothing while the source it came from is
-/// broken, so the comparison is skipped and `piton check` is left to report the
-/// real problem.
+/// A snapshot of generated output has no value while its source is broken.
+/// Thus the test does not do the comparison. `piton check` reports the real
+/// problem.
 fn specbase_is_broken() -> Option<String> {
     let root = repo_root();
     let (project, _) = config::load(&root, None);
@@ -84,6 +85,9 @@ fn generated() -> (BTreeMap<String, String>, PathBuf) {
         .files
         .iter()
         .filter(|file| file.target == GOLDEN_TARGET)
+        // The golden tree is only `.claude`. Instruction files, like
+        // `crates/CLAUDE.md`, are outside it, so the test does not compare them.
+        .filter(|file| file.path.starts_with(".claude"))
         .map(|file| {
             (
                 file.path.to_string_lossy().to_string(),
@@ -94,10 +98,10 @@ fn generated() -> (BTreeMap<String, String>, PathBuf) {
     (files, root)
 }
 
-/// The golden tree is the `.claude` one, so only files planned for that target
-/// are comparable. A project may configure several adapters -- this one does --
-/// and the rest write their own trees, which are not what this snapshot
-/// records.
+/// The golden tree is the `.claude` tree. Thus the test can compare only the
+/// files for that target. A project can configure many adapters, and this
+/// project does. The other adapters write different trees. This snapshot does
+/// not record those trees.
 const GOLDEN_TARGET: &str = "claude-code";
 
 fn golden(root: &Path) -> BTreeMap<String, String> {
@@ -110,8 +114,8 @@ fn golden(root: &Path) -> BTreeMap<String, String> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                // Git worktrees parked under `.claude/worktrees` are whole
-                // checkouts of the project, not generated output.
+                // Git worktrees in `.claude/worktrees` are full checkouts of
+                // the project. They are not generated output.
                 if path == root.join(".claude").join("worktrees") {
                     continue;
                 }
@@ -164,12 +168,12 @@ fn the_generated_file_set_matches() {
     );
 }
 
-/// Every generated file matches the golden tree line for line, once leading
-/// whitespace is ignored.
+/// Each generated file agrees with the golden tree line for line. The test
+/// ignores the whitespace at the start of each line.
 ///
-/// Indentation is compared separately because this compiler indents the
-/// continuation lines of a multi-line value so they stay inside their list item
-/// or map entry, which the golden tree does not.
+/// A different test compares the indentation. This compiler indents the
+/// continuation lines of a multi-line value. Thus these lines stay in their
+/// list item or map entry. The golden tree does not indent them.
 #[test]
 fn generated_content_matches_line_for_line() {
     if let Some(errors) = specbase_is_broken() {
@@ -226,8 +230,8 @@ fn generated_content_matches_line_for_line() {
     );
 }
 
-/// The modules declaring the anchors a file came from. The plugin plan names
-/// them in the file's origin, comma separated.
+/// The modules that declare the source anchors of a file. The plugin plan
+/// names them in the origin of the file, with commas between them.
 fn sources(compilation: &Compilation, origin: &str) -> Vec<PathBuf> {
     let mut sources: Vec<PathBuf> = origin
         .split(", ")
@@ -239,7 +243,7 @@ fn sources(compilation: &Compilation, origin: &str) -> Vec<PathBuf> {
     sources
 }
 
-/// Generated files keyed by path, carrying their source provenance.
+/// Generated files by path, with the provenance of their source.
 fn generated_with_sources() -> (BTreeMap<String, Generated>, PathBuf) {
     let root = repo_root();
     let (project, _) = config::load(&root, None);
@@ -263,7 +267,7 @@ fn generated_with_sources() -> (BTreeMap<String, Generated>, PathBuf) {
     (files, root)
 }
 
-/// Reports how much of the tree reproduces byte for byte, indentation included.
+/// Reports the part of the tree that is the same byte for byte, with indentation.
 #[test]
 fn report_byte_identical_share() {
     let (files, root) = generated_with_sources();
@@ -283,8 +287,8 @@ fn report_byte_identical_share() {
     );
 }
 
-/// Identical source, configuration, and directory state produce identical
-/// bytes, which is what makes a generated tree reviewable in a diff.
+/// The same source, configuration and directory state give the same bytes.
+/// Thus a person can review a generated tree in a diff.
 #[test]
 fn planning_is_deterministic() {
     let (first, _) = generated_with_sources();

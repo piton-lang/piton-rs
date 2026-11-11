@@ -1,11 +1,10 @@
 //! Links between generated Markdown documents.
 //!
-//! A reference is written as a link to the heading its target lands on, in
-//! whichever file the target was written to, relative to the file being
-//! written. Which anchor goes in which file is the caller's decision; this
-//! module turns that layout into headings, fragments and links. Belay uses it
-//! for its reference tree, and the plugin host offers it to every plugin as a
-//! link space.
+//! A reference becomes a link to the heading of its target. The link goes to
+//! the file that contains the target. The link is relative to the output file.
+//! The caller decides which anchor goes in which file. This module changes that
+//! layout into headings, fragments and links. Belay uses it for its reference
+//! tree. The plugin host gives it to all plugins as a link space.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -15,7 +14,7 @@ use piton_core::{title_case, AnchorId, AnchorView, Ref};
 
 use crate::markdown;
 
-/// A heading in a generated file, with the fragment a link uses for it.
+/// A heading in a generated file, with the fragment that a link uses for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
     pub level: usize,
@@ -23,25 +22,25 @@ pub struct Heading {
     pub slug: String,
 }
 
-/// The headings one anchor contributes to its module's file.
+/// The headings that one anchor adds to the file of its module.
 #[derive(Debug, Clone)]
 struct Chunk {
     anchor: AnchorId,
     headings: Vec<Heading>,
 }
 
-/// The headings of one reference file, grouped by the anchor they belong to.
+/// The headings of one reference file, in groups by anchor.
 #[derive(Debug, Clone, Default)]
 pub struct FileIndex {
     chunks: Vec<Chunk>,
 }
 
 impl FileIndex {
-    /// Indexes a file made of one rendered document per anchor, in order.
+    /// Indexes a file that has one rendered document for each anchor, in order.
     ///
-    /// Fragments are assigned the way GitHub assigns them: a repeated slug
-    /// gains `-1`, `-2` and so on across the whole file, so a link to the
-    /// second anchor's `Description` lands on that anchor's heading.
+    /// This function assigns fragments as GitHub does. A repeated slug gets
+    /// `-1`, `-2` and so on, across the whole file. Thus a link to the
+    /// `Description` of the second anchor goes to the heading of that anchor.
     pub fn build(parts: &[(AnchorId, &str)]) -> FileIndex {
         let mut counts: HashMap<String, usize> = HashMap::new();
         let chunks = parts
@@ -67,17 +66,17 @@ impl FileIndex {
         FileIndex { chunks }
     }
 
-    /// Every fragment the file defines.
+    /// All the fragments that the file defines.
     pub fn slugs(&self) -> impl Iterator<Item = &str> {
         self.chunks
             .iter()
             .flat_map(|chunk| chunk.headings.iter().map(|h| h.slug.as_str()))
     }
 
-    /// The fragment a reference links to: the anchor's own heading, or the
-    /// heading of the property it names. A property rendered without a heading
-    /// of its own -- inside a list or a fenced structure -- links to the
-    /// nearest heading above it.
+    /// The fragment that a reference links to. It is the heading of the anchor,
+    /// or the heading of the property that the reference names. Some
+    /// properties render without a heading, in a list or a fenced structure. A
+    /// link to such a property goes to the nearest heading above it.
     pub fn fragment(&self, target: &Ref, anchors: &dyn AnchorView) -> Option<String> {
         let chunk = self.chunks.iter().find(|chunk| chunk.anchor == target.anchor)?;
         let headings = &chunk.headings;
@@ -99,7 +98,7 @@ impl FileIndex {
     }
 }
 
-/// The ATX headings of a Markdown text, skipping fenced code.
+/// The ATX headings of a Markdown text. It ignores fenced code.
 pub fn scan_headings(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     let mut fence: Option<&str> = None;
@@ -134,20 +133,21 @@ pub fn scan_headings(text: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// Resolves references to links relative to the file being written.
+/// Resolves references to links relative to the output file.
 pub struct Links<'a> {
     pub from_directory: PathBuf,
     pub anchors: &'a dyn AnchorView,
-    /// Each documented anchor's file.
+    /// The file of each documented anchor.
     pub locations: &'a HashMap<AnchorId, PathBuf>,
-    /// Each reference file's headings; absent while the files are first
-    /// rendered to find their headings.
+    /// The headings of each reference file. It is absent during the first
+    /// render of the files. That render finds their headings.
     pub index: Option<&'a HashMap<PathBuf, FileIndex>>,
-    /// References with no planned location, reported after rendering.
+    /// References with no planned location. The report occurs after the
+    /// render.
     pub misses: &'a RefCell<Vec<Ref>>,
-    /// Every link written, with the directory it is relative to, so that
-    /// validation checks the links Belay wrote and not the ones an author
-    /// did.
+    /// All the links that Belay wrote, each with its base directory. Thus
+    /// validation checks the links that Belay wrote. It does not check the
+    /// links of an author.
     pub generated: &'a RefCell<HashSet<(PathBuf, String)>>,
 }
 
@@ -168,8 +168,8 @@ impl markdown::LinkResolver for Links<'_> {
         };
         let file = relative_path_link(&self.from_directory, location);
         let fragment = match self.index {
-            // A construct's own output, like a SKILL.md, is not a reference
-            // document with headings to land on, so the link is to the file.
+            // The output of a construct, such as a SKILL.md, is not a reference
+            // document with headings for links. Thus the link goes to the file.
             Some(index) => match index.get(location) {
                 Some(headings) => headings.fragment(target, self.anchors),
                 None => return Some(self.record(file)),
@@ -181,11 +181,11 @@ impl markdown::LinkResolver for Links<'_> {
     }
 }
 
-/// A relative path from a directory to a file, starting with `./` or `../`
-/// so it reads as a path: `./Button.md`, `../types/Lists.md`.
+/// A relative path from a directory to a file. It starts with `./` or `../`.
+/// Thus it looks like a path: `./Button.md`, `../types/Lists.md`.
 ///
-/// Both paths are project-relative and compared as written, never through the
-/// filesystem.
+/// Both paths are project-relative. The function compares them as text. It
+/// never uses the filesystem.
 pub fn relative_path_link(from_directory: &Path, target: &Path) -> String {
     let link = crate::relative_link(from_directory, target);
     if link.starts_with("../") {

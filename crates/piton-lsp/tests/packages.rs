@@ -1,9 +1,9 @@
-//! What the editor knows about installed packages.
+//! The data that the editor knows about installed packages.
 //!
-//! A tethered package is imported by name, not by path, and it lives outside
-//! the source root. Both of those are things the editor has to understand on
-//! its own: completion has to offer the name, and navigation has to follow it
-//! to a directory `tethers/` rather than to a sibling file.
+//! An import of a tethered package uses its name, not a path. The package is
+//! outside the source root. The editor must understand these two facts
+//! itself. Completion must offer the name. Navigation must follow the name to
+//! a directory in `tethers/`, not to a sibling file.
 
 use std::path::PathBuf;
 
@@ -23,7 +23,7 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    /// A project with one package installed under `tethers/`.
+    /// A project with one package installed in `tethers/`.
     fn new(name: &str) -> Fixture {
         let dir = std::env::temp_dir().join(format!("piton-lsp-pkg-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -66,7 +66,7 @@ impl Fixture {
         path_to_url(&self.dir.join(relative)).expect("url")
     }
 
-    /// The position just after the first occurrence of `needle`.
+    /// The position directly after the first occurrence of `needle`.
     fn after(&self, relative: &str, needle: &str) -> Position {
         let text = std::fs::read_to_string(self.dir.join(relative)).expect("readable");
         let offset = text
@@ -122,16 +122,16 @@ fn completing_a_module_path_offers_installed_packages() {
     ));
 
     assert!(labels.contains(&"dep-lib".to_string()), "{labels:?}");
-    // Packages are flat: every directory directly under `tethers/` is one.
+    // Packages are flat. Each directory directly in `tethers/` is a package.
     assert!(labels.contains(&"MyScope".to_string()), "{labels:?}");
-    // The bundled packages are still offered alongside them.
+    // The list also still offers the bundled packages.
     assert!(labels.contains(&"@piton/belay".to_string()), "{labels:?}");
     assert!(
         labels.contains(&"@piton/packaging".to_string()),
         "{labels:?}"
     );
-    // And a file inside a package is offered by its package path, not by a
-    // relative path that climbs out of the source root.
+    // Also, the list offers a file inside a package by its package path. It
+    // does not offer a relative path that goes out of the source root.
     assert!(
         labels.contains(&"dep-lib/Anchors".to_string()),
         "{labels:?}"

@@ -1,10 +1,11 @@
-//! The anchors plugins reach themselves.
+//! The anchors that plugins reach themselves.
 //!
-//! Some anchors are used without anything in the specbase reaching them: a
-//! test is run by the test plugin because it is exported, though no import or
-//! reference leads to it. A plugin whose declaration says `reach: true` names
-//! such anchors from its reach hook, and `piton reach` and the editor count
-//! them as roots beside the entry, so they are neither unreachable nor unused.
+//! The specbase does not reach some anchors, but Piton uses them. An example
+//! is a test. The test plugin runs the test because the test has an export. No
+//! import or reference goes to the test. A plugin can say `reach: true` in its
+//! declaration. Its reach hook then names these anchors. `piton reach` and the
+//! editor count them as roots, together with the entry. Thus they are not
+//! unreachable and not unused.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -15,7 +16,8 @@ use serde_json::Value as Json;
 use crate::host::Services;
 use crate::manifest::Manifest;
 
-/// One anchor a plugin reaches: the file that declares it and its name.
+/// One anchor that a plugin reaches. It holds the file that declares the
+/// anchor, and the name of the anchor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Root {
     /// Absolute.
@@ -25,8 +27,8 @@ pub struct Root {
     pub plugin: String,
 }
 
-/// Reads what a reach hook returned, `{anchors: [{file, name}]}`. A relative
-/// file is read from the project root.
+/// Reads the result of a reach hook, `{anchors: [{file, name}]}`. This
+/// function reads a relative file from the project root.
 pub fn read(manifest: &Manifest, reached: &Json, root: &Path) -> Result<Vec<Root>, String> {
     let mut out = Vec::new();
     for anchor in reached.get("anchors").and_then(Json::as_array).into_iter().flatten() {
@@ -46,9 +48,9 @@ pub fn read(manifest: &Manifest, reached: &Json, root: &Path) -> Result<Vec<Root
     Ok(out)
 }
 
-/// Runs the reach hook of every plugin that declares one, and gathers the
-/// anchors they reach, sorted. A plugin that fails is named in the messages
-/// returned, and the others still count.
+/// Runs the reach hook of each plugin that declares one. It collects the
+/// anchors that the hooks reach, and sorts them. The returned messages name
+/// each plugin that fails. The other plugins still count.
 pub fn roots(
     project: &Project,
     manifests: &[Manifest],

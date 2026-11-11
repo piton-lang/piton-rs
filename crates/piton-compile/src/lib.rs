@@ -24,13 +24,14 @@ pub use packages::{Dependency, Lock, PackageDecl, Pin};
 pub use resolve::Resolution;
 pub use store::{AnchorDef, Store, Symbol, VariableDef, VariableId};
 
-/// A fully compiled project: modules parsed, names resolved, values evaluated.
+/// A compiled project. The modules have a parse, the names have a resolution
+/// and the values have an evaluation.
 pub struct Compilation {
     pub project: Project,
     pub resolution: Resolution,
     pub values: HashMap<AnchorId, Properties>,
     pub variables: HashMap<VariableId, Value>,
-    /// What each property and variable read while it was evaluated.
+    /// The data that each property and variable read during its evaluation.
     pub reads: eval::Reads,
     pub diagnostics: DiagnosticSink,
 }
@@ -42,16 +43,16 @@ impl Compilation {
         Compilation::from_resolution(project, resolution)
     }
 
-    /// Compiles every source under the project root, not only what the entry
-    /// reaches, with the given buffers in place of the files they shadow.
+    /// Compiles all sources under the project root, not only the sources that
+    /// the entry reaches. The given buffers replace the files that they shadow.
     ///
-    /// This is what an editor wants and what a build does not. A file nothing
-    /// imports is not part of the program, so `build` is right to leave it out;
-    /// but it is open on screen, and having no diagnostics, no symbols and
-    /// nothing to jump to until someone remembers to import it is the editor
-    /// being wrong about the project rather than the project being empty.
+    /// An editor needs this, but a build does not. A file that no module
+    /// imports is not part of the program. Thus `build` correctly omits it.
+    /// But the file is open on the screen. Without this function, it has no
+    /// diagnostics, no symbols and no jump targets until a person imports it.
+    /// That is an error of the editor, and not an empty project.
     ///
-    /// `also` carries buffers from outside the root, which are being edited
+    /// `also` holds buffers from outside the root. The user edits them,
     /// whether or not the project claims them.
     pub fn build_workspace(
         project: Project,
@@ -68,10 +69,11 @@ impl Compilation {
         Compilation::from_resolution(project, resolution)
     }
 
-    /// Compiles the project from its entry, and also the files in `also`, as
-    /// if something imported them, but no other source under the root. A
-    /// file nothing imports that holds an anchor a plugin reaches is compiled
-    /// this way, so the rest still count as never imported.
+    /// Compiles the project from its entry, and also the files in `also`. The
+    /// files in `also` compile as if a module imported them. No other source
+    /// under the root compiles. This function compiles a file that no module
+    /// imports when it holds an anchor that a plugin reaches. Thus the other
+    /// files still count as files that no module imports.
     pub fn build_including(project: Project, also: &[PathBuf]) -> Compilation {
         let mut roots: Vec<PathBuf> = also.to_vec();
         roots.sort();
@@ -81,14 +83,14 @@ impl Compilation {
         Compilation::from_resolution(project, resolution)
     }
 
-    /// Compiles an already-resolved graph. The language server uses this so it
-    /// can substitute unsaved buffers.
+    /// Compiles a graph that has a resolution. The language server uses this
+    /// to put unsaved buffers in place of files.
     pub fn from_resolution(project: Project, mut resolution: Resolution) -> Compilation {
         let outcome = eval::evaluate(&resolution);
 
         let mut diagnostics = DiagnosticSink::new();
-        // Syntax problems belong to the compilation as much as anything the
-        // resolver or evaluator finds.
+        // Syntax problems are part of the compilation. The problems from the
+        // resolver and the evaluator are also part of it.
         for module in resolution.graph.iter() {
             diagnostics.extend(module.parse.diagnostics.iter().cloned());
         }
@@ -126,7 +128,7 @@ impl Compilation {
         &self.resolution.graph
     }
 
-    /// The source text of a loaded module, for rendering diagnostics.
+    /// The source text of a loaded module. Diagnostics use it for their output.
     pub fn source_of(&self, path: &Path) -> Option<&str> {
         self.resolution
             .graph
@@ -134,8 +136,8 @@ impl Compilation {
             .map(|id| self.resolution.graph.get(id).source.as_str())
     }
 
-    /// Every anchor exported from the entry module, in declaration order.
-    /// None when the entry could not be loaded.
+    /// All anchors that the entry module exports, in declaration order.
+    /// None when the entry did not load.
     pub fn entry_exports(&self) -> Vec<AnchorId> {
         if !self.resolution.has_entry {
             return Vec::new();
@@ -156,13 +158,13 @@ impl Compilation {
             .collect()
     }
 
-    /// Everything a module compiles to, in the order it should be emitted.
+    /// All the output of a module, in the order of emission.
     ///
-    /// A compiled file is an object with one key per export. Anything that
-    /// isn't exported is left out, and so are abstract anchors, which declare a
-    /// shape and have no value of their own. Being exported is enough on its
-    /// own: an `index.pi` that only forwards its directory's anchors compiles
-    /// to those anchors.
+    /// A compiled file is an object with one key for each export. The output
+    /// does not include items that the module does not export. It also does
+    /// not include abstract anchors. An abstract anchor declares a shape and
+    /// has no value. An export alone is sufficient. Thus an `index.pi` that only
+    /// gives the anchors of its directory compiles to those anchors.
     pub fn compiled_surface(&self, module: ModuleId) -> Properties {
         let mut out = Properties::new();
         for name in self.resolution.exported_names(module) {
@@ -176,7 +178,7 @@ impl Compilation {
         out
     }
 
-    /// Records one name's compiled value, skipping what has none.
+    /// Records the compiled value of one name. It ignores a name with no value.
     fn emit_symbol(&self, out: &mut Properties, name: &str, symbol: Symbol) {
         let value = match symbol {
             Symbol::Anchor(anchor) => {
@@ -195,7 +197,7 @@ impl Compilation {
         out.insert(name.to_string(), value);
     }
 
-    /// Finds an anchor by name anywhere in the compilation.
+    /// Finds an anchor by name in all of the compilation.
     pub fn find_anchor(&self, name: &str) -> Option<AnchorId> {
         self.resolution
             .store
@@ -205,8 +207,9 @@ impl Compilation {
             .map(|def| def.id)
     }
 
-    /// Where an anchor names `property` itself, or None when the property is
-    /// inherited or not there. A plugin points its diagnostics at this.
+    /// The location where an anchor names `property` directly. None when the
+    /// property comes from a base or is not there. A plugin puts its
+    /// diagnostics at this location.
     pub fn property_span(&self, anchor: AnchorId, property: &str) -> Option<piton_core::Span> {
         let def = self.resolution.store.anchor(anchor);
         match self.resolution.graph.get(def.module).ast().items.get(def.item) {
@@ -219,7 +222,7 @@ impl Compilation {
         }
     }
 
-    /// The path of the module an anchor was declared in.
+    /// The path of the module that declares an anchor.
     pub fn anchor_module_path(&self, anchor: AnchorId) -> PathBuf {
         let def = self.resolution.store.anchor(anchor);
         self.resolution.graph.get(def.module).path.clone()

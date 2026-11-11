@@ -1,17 +1,17 @@
 //! Name normalization.
 //!
-//! Belay renders "anchor names and prose-bearing property names as
-//! word-separated titles" and derives skill, command, and agent identities from
-//! anchor names. Both operations share one word-splitting rule so a name always
-//! decomposes the same way regardless of which direction it is rendered in.
+//! Belay renders "anchor names and property names with prose as
+//! word-separated titles". Belay also derives skill, command and agent
+//! identities from anchor names. The two operations use one rule to split
+//! words. Thus a name always splits into the same words, in each direction.
 //!
-//! The split happens only at a lowercase-or-digit followed by an uppercase, plus
-//! at explicit `-` and `_` separators. Runs of uppercase letters are deliberately
-//! *not* split: `whatIsAType` renders as `What Is AType`, matching the reference
-//! output. Acronym-aware splitting would produce `What Is A Type`, which is a
-//! different document.
+//! A split occurs only where an uppercase letter follows a lowercase letter or
+//! a digit. A split also occurs at explicit `-` and `_` separators. Runs of
+//! uppercase letters do *not* split, and this is intentional. `whatIsAType`
+//! renders as `What Is AType`, as in the reference output. A split for acronyms
+//! would give `What Is A Type`, which is a different document.
 
-/// Splits a source name into its constituent words.
+/// Splits a source name into its words.
 pub fn split_words(name: &str) -> Vec<String> {
     let mut words: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -70,8 +70,8 @@ pub fn title_case(name: &str) -> String {
 
 /// Renders a source name in kebab case: `BuildTooling` becomes `build-tooling`.
 ///
-/// This is the normalization used for skill directories, command names (before
-/// the `x-` prefix) and agent identities.
+/// Skill directories, command names (before the `x-` prefix) and agent
+/// identities use this normalization.
 pub fn kebab_case(name: &str) -> String {
     let words = split_words(name);
     if words.is_empty() {
@@ -85,8 +85,8 @@ pub fn kebab_case(name: &str) -> String {
         .join("-")
 }
 
-/// Words the language reserves. They can't be used as user-defined keywords,
-/// though they are still fine as keys.
+/// Words that the language reserves. You cannot use them as user-defined
+/// keywords. But you can use them as keys.
 pub const RESERVED_WORDS: &[&str] = &[
     "anchor", "abstract", "export", "from", "import", "use", "as", "extends", "pass", "this",
     "self", "super", "true", "false", "null", "any", "simple", "complex", "string", "number",
@@ -97,8 +97,8 @@ pub fn is_reserved(word: &str) -> bool {
     RESERVED_WORDS.contains(&word)
 }
 
-/// True when `name` is a legal user-defined keyword: all lowercase, optionally
-/// kebab-cased.
+/// True when `name` is a legal user-defined keyword. All letters are lowercase.
+/// Kebab case is optional.
 pub fn is_valid_keyword(name: &str) -> bool {
     if name.is_empty() {
         return false;
@@ -119,8 +119,9 @@ pub fn is_valid_keyword(name: &str) -> bool {
     !previous_hyphen
 }
 
-/// True when `name` satisfies the identity rules shared by the skill directories
-/// of every adapter: 1-64 lowercase alphanumerics with single hyphen separators.
+/// True when `name` obeys the identity rules for the skill directories of all
+/// adapters. The rules are 1-64 lowercase alphanumerics with single hyphen
+/// separators.
 pub fn is_valid_artifact_name(name: &str) -> bool {
     if name.is_empty() || name.chars().count() > 64 {
         return false;

@@ -1,4 +1,4 @@
-//! Lexing, parsing, and formatting for the Piton language.
+//! The lexer, the parser and the formatter for the Piton language.
 
 pub mod ast;
 pub mod cursor;

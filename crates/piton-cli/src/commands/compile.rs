@@ -36,8 +36,8 @@ pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
         return EXIT_ERRORS;
     }
     if is_glob && !write {
-        // Several results cannot share one stdout stream in a way anyone could
-        // use, so the glob form requires a destination.
+        // Many results in one stdout stream are not usable. Thus the glob form
+        // needs a destination.
         report::fail("a glob needs --write, because several results cannot share stdout");
         return EXIT_ERRORS;
     }
@@ -51,8 +51,9 @@ pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
             failed = true;
             continue;
         }
-        // Compiled from its absolute path, so every module the graph records
-        // -- and every path `--dependencies` reports -- is absolute too.
+        // The file compiles from its absolute path. Thus all modules in the
+        // graph have absolute paths. All paths from `--dependencies` are also
+        // absolute.
         let absolute = project::canonical_target(input);
         let project = configured.with_entry(&absolute);
         let compilation = Compilation::build(project);
@@ -91,27 +92,28 @@ pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
     }
 }
 
-/// Renders what a file compiles to: an object with one key per export.
+/// Renders the compiled output of a file. This is an object with one key for
+/// each export.
 fn render(compilation: &Compilation, file: &Path, renderer: Adapter) -> String {
     let Some(module) = compilation.graph().id_for(file) else {
         return String::new();
     };
-    // The result is written next to the input, or read as if it were.
+    // The result goes next to the input, or the reader uses it as if it is
+    // there.
     let directory = file.parent().unwrap_or(Path::new("."));
     render::render_module(compilation, module, renderer, directory, None)
 }
 
-/// Wraps a rendered result with the source files it was compiled from.
+/// Puts a rendered result together with its source files.
 ///
-/// A build tool that imports a `.pi` file has to know which other files to
-/// watch, and the only thing that knows is the compilation: imports resolve
-/// through the module graph, and a package may put a file somewhere the
-/// importing text never names. So the compiler says, rather than the build
-/// tool guessing.
+/// A build tool that imports a `.pi` file must know the other files to watch.
+/// Only the compilation knows them. Imports resolve through the module graph.
+/// A package can put a file in a location that the import text does not name.
+/// Thus the compiler gives the list. The build tool does not guess.
 ///
-/// Bundled package files are left out. They live inside the binary rather than
-/// on disk, so nothing can watch them and their contents only change when the
-/// compiler itself does.
+/// The list does not include bundled package files. They are in the binary,
+/// not on disk. Thus no tool can watch them. Their contents change only when
+/// the compiler changes.
 fn envelope(compilation: &Compilation, rendered: &str) -> String {
     let mut paths: Vec<String> = compilation
         .graph()
@@ -129,9 +131,9 @@ fn envelope(compilation: &Compilation, rendered: &str) -> String {
         .collect::<Vec<_>>()
         .join(",\n");
 
-    // The rendered output is already text in the adapter's own format, so it
-    // is carried as a string rather than spliced in as JSON: a Markdown render
-    // is not JSON, and a caller that wants the value parses it themselves.
+    // The rendered output is already text in the format of the adapter. Thus
+    // it stays a string, and it does not go into the JSON as JSON. A Markdown
+    // render is not JSON. A caller that needs the value parses it.
     format!(
         "{{\n  \"value\": {},\n  \"dependencies\": [\n{list}\n  ]\n}}\n",
         json_string(rendered.trim_end())

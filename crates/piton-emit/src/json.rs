@@ -1,13 +1,13 @@
 //! JSON serialization.
 //!
-//! Anchors serialize as their resolved content. References do not: a reference
-//! must not silently become an embedded copy or a bare name, so it becomes a
-//! string: the path to the other file, a colon, and the dot path to the value,
-//! like `../file.json:Anchor.property`.
+//! Anchors serialize as their resolved content. References do not. A reference
+//! must not silently become an embedded copy or a bare name. Thus it becomes a
+//! string. The string has the path to the other file, a colon and the dot path
+//! to the value. An example is `../file.json:Anchor.property`.
 
 use piton_core::{format_number, AnchorId, AnchorView, Properties, Ref, Value};
 
-/// How much to indent each nesting level.
+/// The indent for each nesting level.
 const INDENT: usize = 2;
 
 /// Renders a value as JSON.
@@ -44,8 +44,8 @@ fn write_value(
         Value::Dict(map) => write_object(map, anchors, depth, out, stack),
         Value::Anchor(id) => {
             if stack.contains(id) {
-                // A value that embeds itself cannot be written out; emit the
-                // reference form instead of recursing forever.
+                // We cannot write a value that embeds itself. Thus emit the
+                // reference form. Otherwise the recursion does not stop.
                 out.push_str(&reference(&Ref::anchor(*id), anchors));
                 return;
             }

@@ -1,21 +1,22 @@
-//! Checks the shipped editor definitions against the language.
+//! Checks the editor definitions that we ship against the language.
 //!
-//! There are nine syntax definitions in `editors/`, each in a different format,
-//! and every one of them repeats the language's keyword list. That is nine
-//! chances to add a keyword to the compiler and forget it everywhere else, so
-//! each definition is read here and checked against
+//! The `editors/` directory has nine syntax definitions. Each one has a
+//! different format. Each one repeats the keyword list of the language. Thus
+//! there are nine chances to add a keyword to the compiler and forget it in the
+//! other places. This file reads each definition and checks it against
 //! `piton_syntax::language`.
 
 use std::path::{Path, PathBuf};
 
 use piton_syntax::language;
 
-/// Every query shipped with the language.
+/// Every query that the language ships.
 ///
-/// The grammar's own queries are written in the vocabulary Helix and Neovim
-/// read; Zed's are written in Zed's, which is why the two sets are not the same
-/// files. Both are checked against the grammar here, because a query naming a
-/// node the grammar does not define fails to compile whoever reads it.
+/// The queries of the grammar use the vocabulary that Helix and Neovim read.
+/// The queries of Zed use the vocabulary of Zed. Thus the two sets are not the
+/// same files. This file checks both sets against the grammar. Sometimes a query
+/// names a node that the grammar does not define. Then the query does not
+/// compile in any editor that reads it.
 const QUERY_FILES: &[&str] = &[
     "tree-sitter-piton/queries/highlights.scm",
     "tree-sitter-piton/queries/injections.scm",
@@ -30,13 +31,13 @@ const QUERY_FILES: &[&str] = &[
     "zed/languages/piton/textobjects.scm",
 ];
 
-/// The queries Zed reads, and the capture names each one is allowed to use.
+/// The queries that Zed reads, and the capture names that each query can use.
 ///
-/// Zed matches these by name and silently ignores the rest, which is how a
-/// `zed/languages/piton/indents.scm` written in Neovim's vocabulary -- with
-/// `@indent.begin` where Zed wants `@indent` -- sat in this directory doing
-/// nothing at all. A wrong capture name is not an error anywhere; it is just an
-/// editor that does not do the thing.
+/// Zed matches these names and ignores all other names without a message.
+/// Thus a `zed/languages/piton/indents.scm` in the vocabulary of Neovim stayed
+/// in this directory and did nothing. It used `@indent.begin`, but Zed wants
+/// `@indent`. A wrong capture name is not an error in any place. The result is
+/// only an editor that does not do the task.
 const ZED_CAPTURES: &[(&str, &[&str])] = &[
     ("brackets", &["open", "close"]),
     ("outline", &["name", "item", "context", "context.extra", "annotation"]),
@@ -82,9 +83,9 @@ fn missing<'a>(text: &str, words: impl IntoIterator<Item = &'a &'a str>) -> Vec<
         .collect()
 }
 
-/// The syntax definitions with rules of their own. Emacs is not one: it reads
-/// the tree-sitter grammar's `highlights.scm`, which
-/// `emacs_highlights_match_the_grammars_own` holds it to.
+/// The syntax definitions that have their own rules. Emacs is not one of
+/// them. It reads `highlights.scm` from the tree-sitter grammar.
+/// `emacs_highlights_match_the_grammars_own` holds Emacs to that file.
 const DEFINITIONS: &[&str] = &[
     "vscode/syntaxes/piton.tmLanguage.json",
     "tree-sitter-piton/grammar.js",
@@ -93,11 +94,11 @@ const DEFINITIONS: &[&str] = &[
     "kate/piton.xml",
 ];
 
-/// Every definition has to know every word that carries meaning.
+/// Every definition must know every word that has a meaning.
 ///
-/// This is a cheap early signal. Whether each word is coloured where it means
-/// something, and only there, is the highlighter corpus's question
-/// (`tests/highlight_corpus.rs`).
+/// This is a cheap, early signal. The highlighter corpus
+/// (`tests/highlight_corpus.rs`) has a different question. It asks if each word
+/// gets colour where it has a meaning, and only there.
 #[test]
 fn every_definition_covers_the_keywords() {
     let definitions = DEFINITIONS;
@@ -113,15 +114,15 @@ fn every_definition_covers_the_keywords() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
-/// The four interpolation sigils have to be recognized, or `@{...}` renders as
-/// prose in the editor while the compiler treats it as a reference.
+/// The four interpolation sigils must have a match. If not, the editor shows
+/// `@{...}` as prose, but the compiler uses it as a reference.
 #[test]
 fn every_definition_covers_the_sigils() {
     for definition in DEFINITIONS {
         let text = read(definition);
         for sigil in ["${", "#{", "@{"] {
-            // Some formats escape the `$`, `#` or `@`, so the brace and the
-            // introducer are checked rather than the literal pair.
+            // Some formats escape the `$`, `#` or `@`. Thus the test checks the brace
+            // and the introducer, not the literal pair.
             let introducer = &sigil[..sigil.len() - 1];
             assert!(
                 text.contains(introducer),
@@ -131,7 +132,7 @@ fn every_definition_covers_the_sigils() {
     }
 }
 
-/// `.pi` is the extension, and every definition has to claim it.
+/// `.pi` is the extension. Every definition must claim it.
 #[test]
 fn every_definition_claims_the_file_extension() {
     let extension = language::EXTENSION;
@@ -155,7 +156,7 @@ fn every_definition_claims_the_file_extension() {
     }
 }
 
-/// Comments are line-only, so nothing may configure a block comment.
+/// Comments are line comments only. Thus no definition can configure a block comment.
 #[test]
 fn no_definition_invents_a_block_comment() {
     for definition in [
@@ -176,8 +177,8 @@ fn no_definition_invents_a_block_comment() {
     }
 }
 
-/// The language prefers four spaces and does not make it configurable, so no
-/// definition may set anything else.
+/// The language prefers four spaces, and the user cannot change this value.
+/// Thus no definition can set a different value.
 #[test]
 fn every_definition_uses_four_spaces() {
     for (definition, needle) in [
@@ -198,20 +199,21 @@ fn every_definition_uses_four_spaces() {
     );
 }
 
-/// Pressing enter after a line that opens a block lands inside it.
+/// When the user presses enter after a line that opens a block, the cursor
+/// goes into the block.
 ///
-/// The specification asks for it in `Lsp.pi`, and the server answers
-/// `textDocument/onTypeFormatting` for the clients that ask. Not every client
-/// does, so the editors that can express the rule themselves have to -- and
-/// they have to express it the same way, so the pattern lives in one place.
+/// `Lsp.pi` in the specification asks for this behaviour. The server answers
+/// `textDocument/onTypeFormatting` for the clients that ask. Not all clients
+/// ask. Thus the editors that can express the rule must express it. They must
+/// express it in the same way, so the pattern is in one place.
 const BLOCK_OPENS: &str = r"^[^-+/\s][^:]*:\s*$|^\s*[^-+:/\s][^:/\s]*(::\s*[^:/\s]+)*:\s*$";
 
 #[test]
 fn every_definition_indents_after_a_colon() {
-    // A line opens a block when it ends where a value would begin: a
-    // declaration at the margin, `key:`, `key:: type:`, `- key:`. A colon
-    // inside a value opens nothing -- `prompt: Careful: ` ends a sentence
-    // rather than a property. JSON and TOML double every backslash.
+    // A line opens a block when it ends where a value can start. Examples are
+    // a declaration at the margin, `key:`, `key:: type:` and `- key:`. A colon
+    // in a value opens no block. `prompt: Careful: ` ends a sentence, not a
+    // property. JSON and TOML double every backslash.
     let config_form = BLOCK_OPENS.replace('\\', "\\\\");
 
     for (definition, needle) in [
@@ -238,13 +240,14 @@ fn every_definition_indents_after_a_colon() {
     }
 }
 
-/// The pattern the editors run has to agree with the language server about
+/// The pattern that the editors use must agree with the language server about
 /// which lines open a block.
 ///
-/// Zed compiles it with Rust's regex crate, so it has to compile there -- a
-/// pattern VS Code accepts but Rust rejects would leave Zed indenting on its
-/// own stale rule. And it has to draw the same line the server draws between
-/// a key's colon and a value's, or the two would fight over every newline.
+/// Zed compiles the pattern with the regex crate of Rust. Thus the pattern must
+/// compile there. VS Code can accept a pattern that Rust rejects. If that occurs,
+/// Zed uses its own old rule for indentation. Also, the pattern must find the
+/// same boundary as the server between the colon of a key and the colon of a
+/// value. If not, the two will fight over every newline.
 #[test]
 fn the_block_opens_pattern_agrees_with_the_server() {
     let pattern = regex::Regex::new(BLOCK_OPENS).expect(
@@ -267,8 +270,8 @@ fn the_block_opens_pattern_agrees_with_the_server() {
         "    //note:",
         "    title: a book",
         "greeting: Well:",
-        // A list item is never a key, even with a colon at the end, and a
-        // merge line takes a value rather than opening one.
+        // A list item is never a key, also when it has a colon at the end. A
+        // merge line takes a value. It does not open a value.
         "    - frameworks:",
         "    ++ key:",
     ] {
@@ -276,7 +279,7 @@ fn the_block_opens_pattern_agrees_with_the_server() {
     }
 }
 
-/// Each editor named by the specification has a directory.
+/// Each editor that the specification names has a directory.
 #[test]
 fn every_specified_editor_is_covered() {
     let spec = repo_root().join("spec/scope/tooling/editors");
@@ -306,7 +309,7 @@ fn every_specified_editor_is_covered() {
     );
 }
 
-/// Every editor that runs the server has to invoke it the same way.
+/// Every editor that runs the server must start it in the same way.
 #[test]
 fn the_server_is_always_invoked_the_same_way() {
     for (definition, needle) in [
@@ -330,15 +333,14 @@ fn the_server_is_always_invoked_the_same_way() {
 
 #[test]
 fn the_grammar_uses_only_regex_features_tree_sitter_has() {
-    // Tree-sitter does not run the regexes in `grammar.js` through a
-    // general-purpose engine. It compiles them into its own lexer, and the
-    // subset it accepts has no lookaround and no backreferences. A pattern
-    // using one is not a subtle bug: `tree-sitter generate` refuses the
-    // grammar, and the editor reports that the grammar will not compile.
+    // Tree-sitter does not use a general-purpose engine for the regexes in
+    // `grammar.js`. It compiles them into its own lexer. The lexer accepts a
+    // subset that has no lookaround and no backreferences. A pattern that uses
+    // one of these is not a small bug. `tree-sitter generate` refuses the
+    // grammar, and the editor reports that the grammar does not compile.
     //
-    // That failure surfaces in an editor rather than here, because this
-    // repository has no tree-sitter CLI to generate with, so the check is a
-    // read of the source instead.
+    // That failure shows in an editor, not here. This repository has no
+    // tree-sitter CLI to generate the grammar. Thus the check reads the source.
     let grammar = read("tree-sitter-piton/grammar.js");
     let unsupported = [
         ("(?=", "lookahead"),
@@ -360,17 +362,18 @@ fn the_grammar_uses_only_regex_features_tree_sitter_has() {
 
 #[test]
 fn every_query_matches_a_node_the_grammar_defines() {
-    // A query naming a node that does not exist fails to compile against the
-    // grammar, which an editor reports the same way it reports a broken
-    // grammar. The queries are shipped twice -- once in the grammar directory
-    // and once inside the Zed extension -- so both are checked.
+    // If a query names a node that does not exist, the query does not compile
+    // against the grammar. An editor reports this failure in the same way as a
+    // broken grammar. The repository ships the queries two times. One copy is
+    // in the grammar directory and one copy is in the Zed extension. Thus the
+    // test checks both copies.
     let grammar = read("tree-sitter-piton/grammar.js");
     let body = &grammar[grammar.find("rules: {").expect("rules block")..];
     let mut defined: Vec<String> = Vec::new();
     for line in body.lines() {
         let trimmed = line.trim_start();
         let indent = line.len() - trimmed.len();
-        // Rule names sit at one level of indentation inside `rules: {`.
+        // Rule names are at one level of indentation in `rules: {`.
         if indent != 4 {
             continue;
         }
@@ -384,7 +387,7 @@ fn every_query_matches_a_node_the_grammar_defines() {
             }
         }
     }
-    // `alias(rule, $.name)` gives a node a name no rule has, which is how a
+    // `alias(rule, $.name)` gives a node a name that no rule has. This is how a
     // name token becomes a `declaration_keyword` where it declares one.
     for piece in body.split("alias(").skip(1) {
         let Some(at) = piece.find(", $.") else {
@@ -411,10 +414,10 @@ fn every_query_matches_a_node_the_grammar_defines() {
     }
 }
 
-/// Node names a query matches on, which is every bare word after a `(`.
+/// The node names that a query matches. These are all bare words after a `(`.
 ///
-/// A quoted word is an anonymous token rather than a rule, and a `@capture` is
-/// a name the query invents, so neither is a node the grammar has to define.
+/// A quoted word is an anonymous token, not a rule. A `@capture` is a name that
+/// the query makes. Thus the grammar does not have to define these as nodes.
 fn node_names(query: &str) -> Vec<String> {
     let mut names = Vec::new();
     let bytes: Vec<char> = query.chars().collect();
@@ -434,7 +437,7 @@ fn node_names(query: &str) -> Vec<String> {
         {
             cursor += 1;
         }
-        // `(_)` is the wildcard, which matches any named node.
+        // `(_)` is the wildcard. It matches all named nodes.
         if cursor > start && !(cursor == start + 1 && bytes[start] == '_') {
             names.push(bytes[start..cursor].iter().collect());
         }
@@ -448,10 +451,10 @@ fn node_names(query: &str) -> Vec<String> {
 #[test]
 fn every_query_token_is_one_the_grammar_writes() {
     // The node-name check above reads bare `(node)` patterns. A query can also
-    // match an anonymous token by quoting it -- `"::"`, `"pass"` -- and those
-    // break a query just as completely when the grammar stops writing them.
-    // Changing `::` to `:` in the grammar left two queries matching a token
-    // that no longer existed, and nothing here noticed.
+    // quote an anonymous token to match it, for example `"::"` or `"pass"`. When
+    // the grammar no longer writes such a token, the query breaks in the same way.
+    // A change from `::` to `:` in the grammar made two queries match a token that
+    // did not exist. No check in this file found the problem.
     let grammar = read("tree-sitter-piton/grammar.js");
     let literals = string_literals(&grammar);
 
@@ -472,11 +475,11 @@ fn every_query_token_is_one_the_grammar_writes() {
 #[test]
 fn the_editor_queries_match_the_grammars_own() {
     // Zed keeps its own copy of the queries, because a Zed extension reads
-    // them from `languages/<name>/`. Two copies drift: one of them was still
-    // matching `"pass"` after the other had moved to `(pass_statement)`.
+    // them from `languages/<name>/`. Two copies become different. One copy still
+    // matched `"pass"` after the other copy changed to `(pass_statement)`.
     //
-    // Only the queries whose capture vocabulary Zed shares are copies.
-    // `indents.scm` is not one of them -- see `zed_indentation_is_a_line_rule`.
+    // Only the queries that share the capture vocabulary of Zed are copies.
+    // `indents.scm` is not a copy. Refer to `zed_indentation_is_a_line_rule`.
     for name in ["highlights", "injections"] {
         let canonical = read(&format!("tree-sitter-piton/queries/{name}.scm"));
         let copy = read(&format!("zed/languages/piton/{name}.scm"));
@@ -489,7 +492,7 @@ fn the_editor_queries_match_the_grammars_own() {
     }
 }
 
-/// Every string literal the grammar writes, which is every anonymous token.
+/// Every string literal that the grammar writes. These are all the anonymous tokens.
 fn string_literals(grammar: &str) -> Vec<String> {
     let mut out = Vec::new();
     let chars: Vec<char> = grammar.chars().collect();
@@ -502,8 +505,8 @@ fn string_literals(grammar: &str) -> Vec<String> {
         let start = index + 1;
         let mut cursor = start;
         while cursor < chars.len() && chars[cursor] != '"' {
-            // A literal never spans a line; an unterminated quote is something
-            // else, such as a regex.
+            // A literal never goes across a line. An unterminated quote is a
+            // different item, for example a regex.
             if chars[cursor] == '\n' {
                 break;
             }
@@ -521,11 +524,11 @@ fn string_literals(grammar: &str) -> Vec<String> {
     out
 }
 
-/// Tokens a query matches by quoting them.
+/// The tokens that a query quotes to match them.
 ///
-/// A capture name is introduced by `@` and a predicate argument is a string
-/// too, so only quotes that sit where a pattern goes are collected: directly
-/// after `(` or after whitespace inside one.
+/// `@` starts a capture name, and a predicate argument is also a string. Thus
+/// the function collects only the quotes where a pattern can be. These quotes
+/// are directly after `(`, or after whitespace in a `(` form.
 fn quoted_tokens(query: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in query.lines() {
@@ -549,8 +552,8 @@ fn quoted_tokens(query: &str) -> Vec<String> {
                 break;
             }
             let token: String = chars[start..cursor].iter().collect();
-            // A predicate's argument is a string as well; those sit inside a
-            // `(#...)` form, which is skipped above.
+            // The argument of a predicate is also a string. Such arguments are in a
+            // `(#...)` form, and the code above skips that form.
             if !token.is_empty() {
                 out.push(token);
             }
@@ -563,18 +566,18 @@ fn quoted_tokens(query: &str) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Highlighting names
+// Highlight names
 // ---------------------------------------------------------------------------
 
-/// `editors/fixtures/scopes.toml`: for each highlighting class, its name in
-/// every format.
+/// The contents of `editors/fixtures/scopes.toml`. For each highlight class,
+/// it gives the name in each format.
 fn scopes() -> toml::Table {
     read("fixtures/scopes.toml")
         .parse()
         .expect("editors/fixtures/scopes.toml is TOML")
 }
 
-/// The names one column of `scopes.toml` gives, in row order.
+/// The names in one column of `scopes.toml`, in row order.
 fn scope_column(column: &str) -> Vec<(String, String)> {
     scopes()
         .iter()
@@ -588,9 +591,10 @@ fn scope_column(column: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A tool's output is read back to a class through these names, so within a
-/// format no two classes may share one. (The default styles and faces they
-/// map to may repeat: that is a colour, not an identity.)
+/// The test reads the output of a tool back to a class through these names.
+/// Thus in one format, two classes cannot share one name. The default styles
+/// and faces of the names can repeat, because a style is a colour, not an
+/// identity.
 #[test]
 fn scopes_toml_names_are_unique_per_format() {
     for column in ["tm", "ts", "kate", "vim"] {
@@ -604,8 +608,8 @@ fn scopes_toml_names_are_unique_per_format() {
     }
 }
 
-/// A canonical name a definition never uses is a class that format cannot
-/// show, which is either a missing rule or a renamed one.
+/// If a definition never uses a canonical name, that format cannot show the
+/// class. Thus a rule is not there, or the rule has a different name.
 #[test]
 fn every_canonical_name_appears_in_its_definition() {
     for (column, definitions) in [
@@ -624,7 +628,7 @@ fn every_canonical_name_appears_in_its_definition() {
             }
         }
     }
-    // The tree-sitter query is the one place every capture is written.
+    // The tree-sitter query is the only place that contains every capture.
     let query = read("tree-sitter-piton/queries/highlights.scm");
     let used = captures(&query);
     for (class, name) in scope_column("ts") {
@@ -643,9 +647,9 @@ fn every_canonical_name_appears_in_its_definition() {
 
 /// No pattern in the highlights query has a predicate.
 ///
-/// Capitalisation is a token of its own in the grammar, so nothing needs
-/// `#match?`; and a predicate-free query is one Emacs, Neovim, Helix and Zed
-/// all read the same way.
+/// Capitalisation is a separate token in the grammar. Thus no pattern needs
+/// `#match?`. Also, Emacs, Neovim, Helix and Zed all read a query without
+/// predicates in the same way.
 #[test]
 fn highlights_have_no_predicates() {
     let query = read("tree-sitter-piton/queries/highlights.scm");
@@ -664,8 +668,8 @@ fn highlights_have_no_predicates() {
 // Emacs
 // ---------------------------------------------------------------------------
 
-/// `piton-ts-mode` reads the grammar's highlights query from a copy shipped
-/// next to `piton-mode.el`, so the copy has to be the query.
+/// `piton-ts-mode` reads the highlights query of the grammar from a copy next
+/// to `piton-mode.el`. Thus the copy must be the same as the query.
 #[test]
 fn emacs_highlights_match_the_grammars_own() {
     assert_eq!(
@@ -677,10 +681,10 @@ fn emacs_highlights_match_the_grammars_own() {
     );
 }
 
-/// Every capture the query uses has a face in `piton-ts-capture-faces`, and
-/// it is the face `scopes.toml` names. A capture with no entry is dropped by
-/// the mode, which shows as text that is coloured in every other editor and
-/// plain in Emacs.
+/// Every capture that the query uses has a face in `piton-ts-capture-faces`.
+/// It is the face that `scopes.toml` names. The mode drops a capture that has
+/// no entry. Then the text has colour in all other editors, but no colour in
+/// Emacs.
 #[test]
 fn emacs_maps_every_capture() {
     let mode = read("emacs/piton-mode.el");
@@ -735,13 +739,13 @@ fn emacs_maps_every_capture() {
 // Zed
 // ---------------------------------------------------------------------------
 
-/// The Zed extension has to ship the code that starts the server.
+/// The Zed extension must ship the code that starts the server.
 ///
-/// `extension.toml` can declare that Piton has a language server, but it has
-/// nowhere to say which program to run: the only thing that can tell Zed that
-/// is a compiled `language_server_command`. An extension that declares a
-/// server and ships no WebAssembly declares one Zed cannot start, and says so
-/// only once a `.pi` file is opened.
+/// `extension.toml` can declare that Piton has a language server. But it cannot
+/// tell which program to run. Only a compiled `language_server_command` can tell
+/// Zed that. An extension can declare a server and ship no WebAssembly. Then Zed
+/// cannot start the server. Zed shows this problem only when the user opens a
+/// `.pi` file.
 #[test]
 fn the_zed_extension_ships_the_code_that_starts_the_server() {
     let manifest = read("zed/extension.toml");
@@ -780,10 +784,10 @@ fn the_zed_extension_ships_the_code_that_starts_the_server() {
     }
 }
 
-/// The repository's workspace must leave the extension alone.
+/// The workspace of the repository must not include the extension.
 ///
-/// It is a `cdylib` for `wasm32-wasip2`. Built for the host it fails to link,
-/// so `cargo test` at the root would stop on it.
+/// The extension is a `cdylib` for `wasm32-wasip2`. A build for the host does
+/// not link. Thus `cargo test` at the root would stop on it.
 #[test]
 fn the_workspace_excludes_the_zed_extension() {
     let path = repo_root().join("Cargo.toml");
@@ -794,11 +798,11 @@ fn the_workspace_excludes_the_zed_extension() {
     );
 }
 
-/// Zed reads captures by name, so a query has to use the names Zed reads.
+/// Zed reads captures by name. Thus a query must use the names that Zed reads.
 ///
-/// This is the check that would have caught the `indents.scm` this directory
-/// used to ship: it was a copy of the grammar's, written in Neovim's
-/// vocabulary, and every capture in it was one Zed ignores.
+/// This check would have found the old `indents.scm` in this directory. That
+/// file was a copy of the grammar file in the vocabulary of Neovim. Zed ignored
+/// every capture in it.
 #[test]
 fn zed_queries_use_captures_zed_reads() {
     for (name, allowed) in ZED_CAPTURES {
@@ -821,18 +825,18 @@ fn zed_queries_use_captures_zed_reads() {
     }
 }
 
-/// Indentation in Zed is a line pattern, and has to stay one.
+/// Indentation in Zed is a line pattern, and it must stay a line pattern.
 ///
-/// Zed's `@indent` measures a node that spans the lines it indents. The grammar
-/// has no such node -- indentation is deliberately not in it, so an anchor's
-/// header is a line and its body is not part of it -- which leaves the rule
-/// with nowhere to live but `config.toml`.
+/// The `@indent` of Zed measures a node that spans the lines that it indents.
+/// The grammar has no such node. Indentation is intentionally not in the
+/// grammar. Thus the header of an anchor is a line, and the body is not part of
+/// the header. Thus the rule can be only in `config.toml`.
 #[test]
 fn zed_indentation_is_a_line_rule() {
     let config = read("zed/languages/piton/config.toml");
-    // The rule itself is asserted against the shared pattern by
-    // `every_definition_indents_after_a_colon`; what matters here is that it
-    // is a line pattern in `config.toml` at all.
+    // `every_definition_indents_after_a_colon` asserts the rule against the
+    // shared pattern. Here, the important point is that the rule is a line
+    // pattern in `config.toml`.
     assert!(
         config.contains(r#"increase_indent_pattern = ""#),
         "`zed/languages/piton/config.toml` should carry the block-opening \
@@ -845,17 +849,18 @@ fn zed_indentation_is_a_line_rule() {
     );
 }
 
-/// Every scope a bracket opts out of has to be a scope `overrides.scm` defines.
+/// Every scope that a bracket excludes must be a scope that `overrides.scm`
+/// defines.
 ///
-/// `not_in = ["verbatim"]` naming a scope no query captures is not an error
-/// anywhere; it just never applies.
+/// If `not_in = ["verbatim"]` names a scope that no query captures, it is not
+/// an error in any place. It never applies.
 #[test]
 fn zed_brackets_only_name_scopes_the_overrides_define() {
     let overrides = read("zed/languages/piton/overrides.scm");
     let defined = captures(&overrides)
         .into_iter()
         // `@comment.inclusive` defines the `comment` scope with an inclusive
-        // range, which is a property of the range rather than part of the name.
+        // range. Inclusive is a property of the range, not part of the name.
         .map(|capture| capture.trim_end_matches(".inclusive").to_string())
         .collect::<Vec<_>>();
 
@@ -879,7 +884,7 @@ fn zed_brackets_only_name_scopes_the_overrides_define() {
     }
 }
 
-/// Capture names a query introduces, which is every `@name` in it.
+/// The capture names that a query makes. These are all the `@name` items in it.
 fn captures(query: &str) -> Vec<String> {
     let mut names = Vec::new();
     for line in query.lines() {

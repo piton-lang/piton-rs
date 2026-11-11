@@ -1,12 +1,12 @@
-//! Editing the `dependencies` list of `piton.config.pi` in place.
+//! Edits the `dependencies` list of `piton.config.pi` in place.
 //!
-//! `piton tether <source>` records what it installed and `piton remove` drops
-//! it again, so the configuration and `tethers/` agree about what the project
-//! depends on. The file is someone's source: comments, blank lines, ordering
-//! and every other property are left exactly as they were. The parser finds
-//! the `piton-config` anchor and its `dependencies` property, and the edit is a
-//! splice of whole lines at those spans -- the configuration is never
-//! regenerated.
+//! `piton tether <source>` records the source that it installed. `piton remove`
+//! removes the source again. Thus the configuration and `tethers/` agree about
+//! the dependencies of the project. The file is the source of a person. Thus
+//! the edit keeps comments, blank lines, order and all other properties as
+//! they were. The parser finds the `piton-config` anchor and its `dependencies`
+//! property. The edit replaces whole lines at those spans. It never makes the
+//! configuration again.
 
 use std::path::Path;
 
@@ -14,9 +14,9 @@ use piton_compile::config::CONFIG_KEYWORD;
 use piton_syntax::ast::{AnchorDecl, Item, Property};
 use piton_syntax::parser;
 
-/// Adds `- <source>` to the configuration's `dependencies`, creating the list
-/// when there is none. Returns the new text, or `None` when the source is
-/// already listed.
+/// Adds `- <source>` to the `dependencies` of the configuration. When there is
+/// no list, it makes the list. Returns the new text. Returns `None` when the
+/// list already contains the source.
 pub fn add_dependency(text: &str, path: &Path, source: &str) -> Result<Option<String>, String> {
     let parse = parser::parse(text, path);
     let anchor = config_anchor(&parse.file.items)?;
@@ -33,8 +33,8 @@ pub fn add_dependency(text: &str, path: &Path, source: &str) -> Result<Option<St
         if listed(&lines, start, end).iter().any(|(_, _, url)| url == source) {
             return Ok(None);
         }
-        // Below the last line that belongs to the list, at the indentation
-        // the existing items use.
+        // Below the last line of the list, at the same indentation as the
+        // current items.
         let item_indent = listed(&lines, start, end)
             .first()
             .map(|(line, _, _)| lines.indent(*line))
@@ -44,8 +44,8 @@ pub fn add_dependency(text: &str, path: &Path, source: &str) -> Result<Option<St
         return Ok(Some(insert_after_line(text, &lines, last, &entry)));
     }
 
-    // No list yet: one is added at the end of the anchor's body, indented
-    // like the properties already there.
+    // There is no list. Thus the edit adds a list at the end of the anchor
+    // body, with the same indentation as the current properties.
     let head = lines.index_of(anchor.span.start);
     let body_indent = anchor
         .body
@@ -62,9 +62,9 @@ pub fn add_dependency(text: &str, path: &Path, source: &str) -> Result<Option<St
     Ok(Some(insert_after_line(text, &lines, last, &entry)))
 }
 
-/// Removes `source`, and the pin written beneath it, from `dependencies`.
-/// Drops the property altogether when that leaves the list empty. Returns the
-/// new text, or `None` when the source was not listed.
+/// Removes `source`, and the pin below it, from `dependencies`. When the list
+/// becomes empty, it removes the full property. Returns the new text. Returns
+/// `None` when the list does not contain the source.
 pub fn remove_dependency(text: &str, path: &Path, source: &str) -> Result<Option<String>, String> {
     let parse = parser::parse(text, path);
     let anchor = config_anchor(&parse.file.items)?;
@@ -80,8 +80,8 @@ pub fn remove_dependency(text: &str, path: &Path, source: &str) -> Result<Option
     };
 
     let (from, to) = if items.len() == 1 {
-        // The list would be empty, so the property goes with it, along with
-        // the blank line that separated it from what came before.
+        // The list would be empty. Thus the edit removes the property. It also
+        // removes the blank line between the property and the text before it.
         let mut from = start;
         if from > 0 && lines.is_blank(from - 1) {
             from -= 1;
@@ -97,7 +97,7 @@ pub fn remove_dependency(text: &str, path: &Path, source: &str) -> Result<Option
     Ok(Some(out))
 }
 
-/// The configuration anchor: the first one declared with `piton-config`.
+/// The configuration anchor. It is the first anchor with `piton-config`.
 fn config_anchor(items: &[Item]) -> Result<&AnchorDecl, String> {
     items
         .iter()
@@ -115,9 +115,9 @@ fn dependencies(anchor: &AnchorDecl) -> Option<&Property> {
         .find(|property| property.name == "dependencies")
 }
 
-/// The list items of a property spanning lines `start..end`: each item's first
-/// line, the line after its last one (a pin indented beneath it belongs to
-/// it), and the URL it names.
+/// The list items of a property on lines `start..end`. For each item, it gives
+/// the first line, the line after the last line, and the URL of the item. A pin
+/// with more indentation below an item is part of that item.
 fn listed(lines: &Lines<'_>, start: usize, end: usize) -> Vec<(usize, usize, String)> {
     let mut out = Vec::new();
     let mut line = start + 1;
@@ -136,8 +136,8 @@ fn listed(lines: &Lines<'_>, start: usize, end: usize) -> Vec<(usize, usize, Str
 }
 
 fn strip_comment(text: &str) -> &str {
-    // A URL has `//` after its scheme, so only a comment marker preceded by
-    // whitespace starts a comment.
+    // A URL has `//` after its scheme. Thus a comment marker starts a comment
+    // only when whitespace comes before it.
     let bytes = text.as_bytes();
     for index in 0..bytes.len().saturating_sub(1) {
         if bytes[index] == b'/'
@@ -173,7 +173,7 @@ fn insert_after_line(text: &str, lines: &Lines<'_>, line: usize, entry: &str) ->
 /// A text split into lines, with byte offsets.
 struct Lines<'a> {
     text: &'a str,
-    /// Byte offset each line starts at; one extra entry for the end.
+    /// The start byte offset of each line. One more entry marks the end.
     starts: Vec<usize>,
 }
 
@@ -215,7 +215,7 @@ impl<'a> Lines<'a> {
         raw.len() - raw.trim_start_matches([' ', '\t']).len()
     }
 
-    /// The line holding a byte offset.
+    /// The line that contains a byte offset.
     fn index_of(&self, offset: usize) -> usize {
         match self.starts[..self.count()].binary_search(&offset) {
             Ok(line) => line,
@@ -223,8 +223,9 @@ impl<'a> Lines<'a> {
         }
     }
 
-    /// The line after the block that starts at `line`: every following line
-    /// indented deeper belongs to it, and so do blank lines between them.
+    /// The line after the block that starts at `line`. All subsequent lines
+    /// with more indentation are part of the block. Blank lines between them
+    /// are also part of the block.
     fn extent(&self, line: usize) -> usize {
         let indent = self.indent(line);
         let mut end = line + 1;

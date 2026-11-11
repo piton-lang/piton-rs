@@ -1,9 +1,10 @@
 //! Plugins that build, render, and build on each other, end to end.
 //!
-//! Belay becomes a plugin through these extensions, so each is exercised here
-//! on its own, with small installed plugins: a build's plan written by the
-//! host, the host's Markdown link spaces and encoders, placeholders, a
-//! plugin requiring another, and commands grouped under a word.
+//! These extensions make Belay a plugin. Thus this file tests each extension
+//! separately, with small installed plugins. The extensions are a build plan
+//! that the host writes, and the Markdown link spaces and encoders of the
+//! host. They are also placeholders, a plugin that needs a different plugin,
+//! and command groups under a word.
 
 #![cfg(unix)]
 
@@ -182,14 +183,14 @@ fn a_plugin_build_is_planned_by_the_plugin_and_written_by_the_host() {
     let (stdout, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stdout}\n{stderr}");
 
-    // The host's link space: headings and a reference linked to the heading
-    // it lands on, in the same file.
+    // The link space of the host. It has headings, and a reference with a
+    // link to its target heading in the same file.
     let reference = fixture.read("out/ref/index.md");
     assert!(reference.starts_with("# Button\n"), "{reference}");
     assert!(reference.contains("[Panel](./index.md#panel)"), "{reference}");
     assert!(reference.contains("# Panel\n"), "{reference}");
 
-    // The host's encoders, a relative path, and the plugin's placeholders.
+    // The encoders of the host, a relative path, and the plugin placeholders.
     let meta = fixture.read("out/meta.md");
     assert!(meta.starts_with("---\n") && meta.contains("name: \"x: y\""), "{meta}");
     let where_ = fixture.read("out/where.txt");
@@ -201,15 +202,15 @@ fn a_plugin_build_is_planned_by_the_plugin_and_written_by_the_host() {
     let mode = std::fs::metadata(fixture.dir.join("out/run.sh")).unwrap().permissions().mode();
     assert_ne!(mode & 0o111, 0, "{mode:o}");
 
-    // The plan's diagnostic points at the source, and the manifest records
-    // what was written, with the plan's targets.
+    // The diagnostic of the plan refers to the source. The manifest records
+    // the written files, with the targets of the plan.
     assert!(stderr.contains("Button has no title [docs-note]"), "{stderr}");
     assert!(stderr.contains("color: blue"), "{stderr}");
     let manifest = fixture.read(".piton/manifest.json");
     assert!(manifest.contains("\"out/ref/index.md\"") && manifest.contains("\"out/run.sh\""), "{manifest}");
     assert!(manifest.contains("\"docs\": \"v1\""), "{manifest}");
 
-    // `piton check` plans too, and writes nothing.
+    // `piton check` also makes the plan, and writes no files.
     let (_, stderr, code) = fixture.run(&["check"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stderr.contains("[docs-note]"), "{stderr}");
@@ -220,7 +221,7 @@ fn a_later_build_removes_what_it_no_longer_writes() {
     let fixture = Fixture::new("stale");
     fixture.run(&["build"]);
     assert!(fixture.exists("out/where.txt"));
-    // The same project, planning less: the build is told so by its root.
+    // The same project, with a smaller plan. Its root tells the build.
     let moved = fixture.dir.with_file_name(format!("piton-plugin-build-only-ref-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&moved);
     std::fs::rename(&fixture.dir, &moved).expect("move");
@@ -256,7 +257,7 @@ fn a_required_plugin_runs_with_its_own_capabilities() {
     let fixture = Fixture::new("requires");
     let (stdout, stderr, code) = fixture.run(&["docs", "greet"]);
     assert_eq!(code, 0, "{stdout}\n{stderr}");
-    // The helper may run echo, so its export does; docs may not.
+    // The helper can run echo. Thus its export runs echo. Docs cannot run it.
     assert!(stdout.starts_with("hi\n"), "{stdout}");
     assert!(stdout.contains("refused: plugin `docs` may not run `echo`"), "{stdout}");
     assert!(stdout.contains("refused: plugin `docs` requires `nobody` without listing it under requires"), "{stdout}");

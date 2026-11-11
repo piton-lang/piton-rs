@@ -33,13 +33,27 @@ export cli-command AgentCli:
         tool's own reference tree was written. When the project doesn't build
         for the tool, they are the first configured adapter's.
 
+    shortPrompt:
+        The operating system limits the size of one argument; Linux accepts
+        less than 128 KiB. The fluency reference is near that size, so a tool
+        that takes its instructions only as an argument gets a short prompt
+        instead: the primer, then a line that tells it to read the fluency
+        reference in full before any work. The line names the piton-fluency
+        skill the build wrote, looked for first in the tool's own skill
+        directory and then in the other adapters', so a tool can also load it
+        as a skill. When no build wrote the skill, the line names a temporary
+        file that holds the reference. Codex and Muse get the short prompt.
+        Claude and OpenCode read the full prompt from a temporary file.
+        --print-fluency prints the full prompt for every tool.
+
     launch:
         description:
             Each tool gets the prompt added to its own instructions, never
-            replacing them, and the agent runs in the project root.
+            replacing them, and the agent runs in the project root. A
+            temporary file is removed when the command ends.
         terminal: The tool runs with the terminal, so its input, output and prompts are the user's, and the command waits for it.
-        claude: claude --append-system-prompt <prompt>
-        codex: codex -c developer_instructions=<prompt as a TOML string>
+        claude: claude --append-system-prompt-file <file holding the prompt>
+        codex: codex -c developer_instructions=<short prompt as a TOML string>. Codex has no option that adds developer instructions from a file; model_instructions_file replaces its base instructions, which Piton never does.
         opencode:
             OpenCode takes extra instructions only as files. The prompt is
             written to a temporary file, removed when OpenCode exits, and
@@ -47,7 +61,8 @@ export cli-command AgentCli:
             set to a configuration whose instructions list that file. Its
             server reads that variable, so it runs a private server rather
             than the shared background one.
-        muse: muse -c run.developer_prompt=<prompt as a JSON string>
+        muse: muse -c run.developer_prompt=<short prompt as a JSON string>. Muse has no documented option that adds a developer prompt from a file.
+        tooLarge: An argument or environment value too large for the operating system is refused before the tool starts, with an error that names its size and the limit.
         subcommands:
             Muse's exec and OpenCode's run take the prompt options after the
             subcommand name, so they go there. A subcommand that rejects them,

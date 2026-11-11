@@ -1,29 +1,30 @@
-//! The one place the CLI renders a compiled module.
+//! The only place where the CLI renders a compiled module.
 //!
-//! `piton compile` and `piton build` both turn a module's compiled surface into
-//! renderer output. Keeping the call to `piton_emit::render` here means a
-//! change to how rendering is set up -- what context a renderer is given --
-//! is made once.
+//! `piton compile` and `piton build` both change the compiled surface of a
+//! module into renderer output. The call to `piton_emit::render` is only here.
+//! Thus a change to the render setup occurs in one place. An example is the
+//! context that a renderer gets.
 
 use std::path::Path;
 
 use piton_compile::{prelude, Compilation, ModuleId};
 use piton_emit::{Adapter, MarkdownContext};
 
-/// Parses a renderer name as the command line or configuration writes it.
+/// Parses a renderer name in the form of the command line or the configuration.
 pub fn parse_renderer(name: &str) -> Result<Adapter, String> {
     name.parse::<Adapter>().map_err(|_| {
         format!("unknown renderer `{name}`; valid options are json, yaml, markdown")
     })
 }
 
-/// Renders what a module compiles to.
+/// Renders the compiled output of a module.
 ///
-/// `output_directory` is the directory the rendered file will be read from:
-/// where `--write` or a build puts it, or the source file's own directory when
-/// it goes to stdout. Links a renderer writes are relative to it.
-/// `output_root` is where the output tree starts when it isn't next to the
-/// sources, as with a build, so a reference points at the other file's output.
+/// `output_directory` is the directory of the rendered file. `--write` or a
+/// build puts the file there. For stdout, it is the directory of the source
+/// file. The links that a renderer writes are relative to this directory.
+/// `output_root` is the start of the output tree when the tree is not next to
+/// the sources, as with a build. Thus a reference goes to the output of the
+/// other file.
 pub fn render_module(
     compilation: &Compilation,
     module: ModuleId,
@@ -45,12 +46,12 @@ pub fn render_module(
     resolve_locations(compilation, &rendered, output_directory)
 }
 
-/// Fills in Belay's special imports for plain renderer output.
+/// Gives values to the special imports of Belay for plain renderer output.
 ///
-/// They are paths relative to the file they end up in. The project, code, and
-/// shape roots are known without an adapter; the agent's directory and its
-/// compiled shape only exist for an adapter, so outside one they are written
-/// as their names rather than as the compiler's internal markers.
+/// They are paths relative to the file that contains them. The project, code,
+/// and shape roots need no adapter. The agent directory and its
+/// compiled shape exist only for an adapter. Thus, without an adapter, the
+/// output shows their names, not the internal markers of the compiler.
 fn resolve_locations(compilation: &Compilation, text: &str, output_directory: &Path) -> String {
     if !text.contains('\u{e000}') {
         return text.to_string();
@@ -62,8 +63,8 @@ fn resolve_locations(compilation: &Compilation, text: &str, output_directory: &P
             .to_string()
     };
     let project_root = relative(&project.root);
-    // The code and shape roots are Belay's settings, which only Belay's own
-    // output resolves; the renderer writes them as the project root.
+    // The code and shape roots are settings of Belay. Only the output of Belay
+    // resolves them. The renderer writes them as the project root.
     let code_root = project_root.clone();
     let shape_root = project_root.clone();
     let mut out = text.to_string();

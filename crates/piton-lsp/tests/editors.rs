@@ -1,9 +1,9 @@
-//! Checks the editor files that describe what the server sends.
+//! Checks the editor files that describe the data that the server sends.
 //!
-//! An editor that styles semantic tokens has to name the server's token types,
-//! and nothing connects the two but a string. Adding a type to the legend and
-//! forgetting to style it is invisible: the token arrives, the editor has no
-//! rule for it, and the text keeps whatever colour the grammar gave it.
+//! An editor that styles semantic tokens must name the token types of the
+//! server. Only a string connects the two. When a type goes into the legend
+//! without a style, nobody sees the error. The token arrives, the editor has
+//! no rule for it, and the text keeps the colour from the grammar.
 
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ fn semantic_token_rules() -> Vec<serde_json::Value> {
         .unwrap_or_else(|error| panic!("{} is not a list of rules: {error}", path.display()))
 }
 
-/// Zed has to have a rule for every token type the server can send.
+/// Zed must have a rule for each token type that the server can send.
 #[test]
 fn zed_styles_every_token_type_the_server_sends() {
     let rules = semantic_token_rules();
@@ -48,7 +48,7 @@ fn zed_styles_every_token_type_the_server_sends() {
     );
 }
 
-/// And no rule may name a type or a modifier the server never sends.
+/// Also, no rule can name a type or a modifier that the server never sends.
 #[test]
 fn zed_styles_nothing_the_server_does_not_send() {
     let types: Vec<&str> = TOKEN_TYPES.iter().map(|kind| kind.as_str()).collect();
@@ -78,7 +78,7 @@ fn zed_styles_nothing_the_server_does_not_send() {
     }
 }
 
-/// Every rule has to say what it does, or it is dead weight in the file.
+/// Each rule must tell what it does. If not, it is useless in the file.
 #[test]
 fn every_rule_carries_a_style() {
     for rule in semantic_token_rules() {
@@ -98,11 +98,11 @@ fn every_rule_carries_a_style() {
     }
 }
 
-/// The VS Code extension must not register a command the server lists as its
-/// own. The language client registers every command in the server's
-/// `executeCommandProvider`, VS Code refuses a second registration of the same
-/// name, and the client then fails to start -- so the whole extension stops
-/// working over one duplicated string.
+/// The VS Code extension must not register a command that the server lists as
+/// its own. The language client registers each command in the
+/// `executeCommandProvider` of the server. VS Code refuses a second
+/// registration of the same name. Then the client does not start. Thus one
+/// duplicate string stops the full extension.
 #[test]
 fn the_vscode_extension_does_not_register_the_servers_commands() {
     let path = repo_root().join("editors/vscode/client.js");
@@ -125,10 +125,10 @@ fn the_vscode_extension_does_not_register_the_servers_commands() {
     }
 }
 
-/// The TextMate name `editors/fixtures/scopes.toml` gives a highlighting class.
+/// The TextMate name that `editors/fixtures/scopes.toml` gives a highlighting class.
 ///
-/// The table is small and flat (`[Class]` then `tm = "..."`), and this crate
-/// has no TOML parser, so it is read by line.
+/// The table is small and flat (`[Class]` then `tm = "..."`). This crate has
+/// no TOML parser. Thus the test reads it line by line.
 fn textmate_scope(class: &str) -> String {
     let path = repo_root().join("editors/fixtures/scopes.toml");
     let text = std::fs::read_to_string(&path)
@@ -147,14 +147,15 @@ fn textmate_scope(class: &str) -> String {
     panic!("scopes.toml has no TextMate name for `{class}`");
 }
 
-/// VS Code paints a semantic token with the TextMate scope the extension maps
-/// it to, over whatever the grammar painted. When the two are the same scope,
-/// a token arriving changes nothing on screen unless resolution has something
-/// to add (a lowercase name that is an anchor, a key that is a variable, a
-/// bundled anchor). When they differ, every name flickers to a new colour the
-/// moment the server answers. So each type the server sends maps to exactly
-/// the scope the grammar uses for the same class, and the custom modifiers are
-/// declared so VS Code accepts them.
+/// VS Code paints a semantic token with the TextMate scope that the extension
+/// maps it to. This paint goes over the paint of the grammar. When the two
+/// scopes are the same, a token changes nothing on the screen. The exception
+/// is when resolution adds data (a lowercase name that is an anchor, a key
+/// that is a variable, a bundled anchor). When the scopes are different, each
+/// name changes to a new colour when the server answers. Thus each type that
+/// the server sends maps to the scope that the grammar uses for the same
+/// class. The extension declares the custom modifiers so that VS Code
+/// accepts them.
 #[test]
 fn vscode_semantic_scopes_match_the_grammar() {
     let path = repo_root().join("editors/vscode/package.json");
@@ -210,7 +211,7 @@ fn vscode_semantic_scopes_match_the_grammar() {
         .as_array()
         .map(|list| list.iter().filter_map(|entry| entry["id"].as_str()).collect())
         .unwrap_or_default();
-    // The first three are LSP's standard modifiers, which VS Code knows.
+    // The first three are the standard LSP modifiers, which VS Code knows.
     let standard = ["declaration", "abstract", "defaultLibrary"];
     for modifier in TOKEN_MODIFIERS {
         let name = modifier.as_str();

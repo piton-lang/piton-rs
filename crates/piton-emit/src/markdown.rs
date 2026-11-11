@@ -1,14 +1,13 @@
 //! Markdown serialization.
 //!
-//! This implements Belay's common content rules: anchor names and prose-bearing
-//! property names become word-separated titles, heading levels represent the
-//! hierarchy, and structured data falls back to an indentation-based form.
+//! This module applies the common content rules of Belay. Anchor names and
+//! property names with prose become word-separated titles. Heading levels
+//! show the hierarchy. Structured data uses an indentation-based form.
 //!
-//! There are two rendering modes and the choice between them is what makes the
-//! output readable. At *document* level a property becomes a heading and its
-//! value becomes the section body. Inside a list item or a fenced block there
-//! are no headings available, so the same value renders as indented
-//! `key: value` lines.
+//! There are two render modes. The correct mode makes the output easy to read.
+//! At *document* level, a property becomes a heading. Its value becomes the
+//! section body. A list item or a fenced block cannot contain headings. Thus
+//! there the same value renders as indented `key: value` lines.
 
 use std::path::Path;
 
@@ -16,17 +15,17 @@ use piton_core::{
     format_number, title_case, AnchorId, AnchorView, Mixed, MixedItem, Properties, Ref, Text, Value,
 };
 
-/// Markdown allows six heading levels; past that Belay uses a bold label.
+/// Markdown allows six heading levels. After that, Belay uses a bold label.
 const MAX_HEADING_LEVEL: usize = 6;
 
-/// Resolves a reference to a link target relative to the file being written.
+/// Resolves a reference to a link target relative to the output file.
 pub trait LinkResolver {
-    /// The link target for a reference, or `None` when the target has no
+    /// The link target for a reference. It is `None` when the target has no
     /// compiled representation in this output.
     fn link(&self, target: &Ref) -> Option<String>;
 }
 
-/// A resolver that produces no links; references fall back to their name.
+/// A resolver that makes no links. Thus references show their name.
 pub struct NoLinks;
 
 impl LinkResolver for NoLinks {
@@ -35,14 +34,14 @@ impl LinkResolver for NoLinks {
     }
 }
 
-/// Links to wherever the anchor was rendered when each source file compiles to
-/// a Markdown file next to it, which is what `piton compile` does: a reference
-/// to Button from a file next to it links to `./Button.md#button`, and one to a
-/// property links to that property's heading.
+/// Links to the location of the rendered anchor. It applies when each source
+/// file compiles to a Markdown file next to it. `piton compile` does this. A
+/// reference to Button from a sibling file links to `./Button.md#button`. A
+/// reference to a property links to the heading of that property.
 pub struct MirroredLinks<'a> {
-    /// Directory of the file being written.
+    /// The directory of the output file.
     pub from_directory: &'a Path,
-    /// Root the source tree is measured from.
+    /// The root of the source tree. Paths in the source tree start from it.
     pub source_root: &'a Path,
     pub anchors: &'a dyn AnchorView,
 }
@@ -54,7 +53,7 @@ impl LinkResolver for MirroredLinks<'_> {
     }
 }
 
-/// Everything the renderer needs beyond the value itself.
+/// All the data that the renderer needs in addition to the value.
 pub struct Context<'a> {
     pub anchors: &'a dyn AnchorView,
     pub links: &'a dyn LinkResolver,
@@ -65,10 +64,10 @@ impl Context<'_> {
         text.render_with(|target| self.reference_markup(target))
     }
 
-    /// A reference renders as a Markdown link to the referenced anchor's
-    /// compiled representation, with the anchor's name as the link text, or
-    /// `Anchor.property` for a property. Access stays lazy: the link is not an
-    /// include.
+    /// A reference renders as a Markdown link to the compiled representation
+    /// of the referenced anchor. The link text is the name of the anchor. For a
+    /// property, the link text is `Anchor.property`. Access stays lazy. The
+    /// link is not an include.
     fn reference_markup(&self, target: &Ref) -> String {
         let name = target.display(self.anchors);
         match self.links.link(target) {
@@ -78,7 +77,8 @@ impl Context<'_> {
     }
 }
 
-/// Renders a whole anchor as a document, starting at heading level 1.
+/// Renders a whole anchor as a document. The document starts at heading
+/// level 1.
 pub fn document(anchor: AnchorId, context: &Context<'_>) -> String {
     let mut out = String::new();
     out.push_str(&heading(1, &title_case(context.anchors.name(anchor))));
@@ -87,8 +87,8 @@ pub fn document(anchor: AnchorId, context: &Context<'_>) -> String {
     finish(out)
 }
 
-/// Renders a document with the anchor's title and the given properties, for a
-/// caller that leaves some of them out.
+/// Renders a document with the title of the anchor and the given properties.
+/// Use it when the caller does not render all the properties.
 pub fn document_with(anchor: AnchorId, properties: &Properties, context: &Context<'_>) -> String {
     let mut out = String::new();
     out.push_str(&heading(1, &title_case(context.anchors.name(anchor))));
@@ -97,20 +97,20 @@ pub fn document_with(anchor: AnchorId, properties: &Properties, context: &Contex
     finish(out)
 }
 
-/// Renders a set of properties as sections, without a document title.
+/// Renders a set of properties as sections. It does not add a document title.
 pub fn sections(properties: &Properties, level: usize, context: &Context<'_>) -> String {
     let mut out = String::new();
     render_properties(properties, level, context, &mut out);
     finish(out)
 }
 
-/// Renders interpolated text, turning references into links relative to the
-/// file being written.
+/// Renders interpolated text. It changes references into links relative to
+/// the output file.
 pub fn inline_text(text: &Text, context: &Context<'_>) -> String {
     context.render_text(text)
 }
 
-/// Renders a value as a standalone body with no heading of its own.
+/// Renders a value as a standalone body. The body has no heading.
 pub fn body(value: &Value, level: usize, context: &Context<'_>) -> String {
     let mut out = String::new();
     render_value(value, level, context, &mut out);
@@ -129,7 +129,7 @@ fn heading(level: usize, title: &str) -> String {
     if level <= MAX_HEADING_LEVEL {
         format!("{} {title}\n", "#".repeat(level))
     } else {
-        // Past six levels Markdown has no heading left, so the hierarchy
+        // After six levels, Markdown has no more headings. Thus the hierarchy
         // continues with a bold label.
         format!("**{title}**\n")
     }
@@ -148,7 +148,7 @@ fn render_properties(
     }
 }
 
-/// Renders a value at document level, where headings are available.
+/// Renders a value at document level. Headings are available at this level.
 fn render_value(value: &Value, level: usize, context: &Context<'_>, out: &mut String) {
     match value {
         Value::Str(text) => paragraph(&context.render_text(text), out),
@@ -162,8 +162,8 @@ fn render_value(value: &Value, level: usize, context: &Context<'_>, out: &mut St
             }
             paragraph(&render_list(items, 0, context), out);
         }
-        // A pure dictionary is data rather than document structure, so it reads
-        // better fenced than as a run of near-empty headings.
+        // A pure dictionary is data, not document structure. Thus it is easier
+        // to read in a fence than as a run of almost empty headings.
         Value::Dict(map) if value.is_pure_dictionary() => {
             if map.is_empty() {
                 return;
@@ -178,12 +178,12 @@ fn render_value(value: &Value, level: usize, context: &Context<'_>, out: &mut St
     }
 }
 
-/// An implicit mixed block keeps the order it was written in: prose stays prose,
-/// nested lists stay lists, and dictionary keys become the next heading level.
+/// An implicit mixed block keeps its source order. Prose stays prose. Nested
+/// lists stay lists. Dictionary keys become the next heading level.
 fn render_mixed(mixed: &Mixed, level: usize, context: &Context<'_>, out: &mut String) {
-    // A pure dictionary embedded in mixed content has no heading to carry its
-    // key, so the key goes inside a fenced structure with it. Consecutive ones
-    // share a single fence.
+    // A pure dictionary in mixed content has no heading for its key. Thus the
+    // key goes in a fenced structure with the dictionary. Consecutive pure
+    // dictionaries share one fence.
     let mut fenced: Properties = Properties::new();
 
     macro_rules! flush_fenced {
@@ -216,7 +216,7 @@ fn render_mixed(mixed: &Mixed, level: usize, context: &Context<'_>, out: &mut St
                 out.push('\n');
                 render_value(value, level + 1, context, out);
             }
-            // A value dropped into the text, such as the copy of an anchor,
+            // A different value in the text, such as the copy of an anchor,
             // renders in place.
             MixedItem::Value(value) => {
                 flush_fenced!();
@@ -235,7 +235,8 @@ fn paragraph(text: &str, out: &mut String) {
     out.push_str("\n\n");
 }
 
-/// Renders a list as Markdown, with nested structure indented beneath it.
+/// Renders a list as Markdown. Nested structure goes below its item, with an
+/// indent.
 pub fn render_list(items: &[Value], indent: usize, context: &Context<'_>) -> String {
     let pad = " ".repeat(indent);
     let mut lines: Vec<String> = Vec::new();
@@ -243,7 +244,7 @@ pub fn render_list(items: &[Value], indent: usize, context: &Context<'_>) -> Str
         match item {
             Value::Dict(map) if !map.is_empty() => {
                 let rendered = render_map(map, indent + 2, context);
-                // The first key shares the bullet's line.
+                // The first key is on the same line as the bullet.
                 lines.push(format!("{pad}- {}", rendered.trim_start()));
             }
             Value::Anchor(id) => {
@@ -271,7 +272,7 @@ pub fn render_list(items: &[Value], indent: usize, context: &Context<'_>) -> Str
     lines.join("\n")
 }
 
-/// Renders a dictionary as indentation-based `key: value` lines.
+/// Renders a dictionary as `key: value` lines with indentation.
 pub fn render_map(map: &Properties, indent: usize, context: &Context<'_>) -> String {
     let pad = " ".repeat(indent);
     let mut lines: Vec<String> = Vec::new();
@@ -326,8 +327,8 @@ fn scalar(value: &Value, context: &Context<'_>) -> String {
     }
 }
 
-/// Indents every line after the first so a multi-line value stays inside its
-/// list item or map entry.
+/// Indents all lines after the first line. Thus a multi-line value stays in
+/// its list item or map entry.
 fn indent_continuations(text: &str, indent: usize) -> String {
     let pad = " ".repeat(indent);
     let mut lines = text.lines();

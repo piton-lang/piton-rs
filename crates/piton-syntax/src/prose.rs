@@ -1,18 +1,18 @@
-//! Prose scanning: escapes and interpolation.
+//! The prose scanner. It finds escapes and interpolations.
 //!
-//! Prose is a first-class value in Piton, so a line of text is scanned rather
-//! than tokenized. Two things interrupt ordinary text: backslash escapes and the
-//! four interpolation sigils.
+//! Prose is a first-class value in Piton. Thus the scanner scans a line of text.
+//! It does not tokenize the line. Two items stop usual text: backslash escapes
+//! and the four interpolation sigils.
 //!
 //! # Escapes
 //!
-//! A maximal run of *n* backslashes emits *n - 1* literal backslashes. A run of
-//! exactly one emits nothing and instead toggles literal mode, consuming one
-//! space on the inner side of the delimiter. Inside literal mode, interpolation
-//! sigils are ordinary characters. So `\ {1 + 2 + 3} \` renders as
-//! `{1 + 2 + 3}`, and `\\ \ {1 + 2 + 3} \ \\` renders as `\ {1 + 2 + 3} \`.
+//! A maximal run of *n* backslashes gives *n - 1* literal backslashes. A run of
+//! exactly one backslash gives no text. It toggles literal mode. It also removes
+//! one space on the inner side of the delimiter. In literal mode, interpolation
+//! sigils are usual characters. Thus `\ {1 + 2 + 3} \` becomes
+//! `{1 + 2 + 3}`, and `\\ \ {1 + 2 + 3} \ \\` becomes `\ {1 + 2 + 3} \`.
 //!
-//! Literal mode does not survive a line break.
+//! Literal mode stops at a line break.
 
 use std::path::Path;
 
@@ -23,7 +23,7 @@ use crate::expr;
 
 /// Scans one line of prose.
 ///
-/// `base` is the byte offset of `text` within the file.
+/// `base` is the byte offset of `text` in the file.
 pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagnostic>) {
     let mut segments: Vec<ProseSegment> = Vec::new();
     let mut diagnostics = Vec::new();
@@ -60,8 +60,8 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                     buffer.push('\\');
                 }
             } else if literal {
-                // Closing delimiter: the wrapper is a backslash with a space
-                // on its inner side, and the space goes with it.
+                // This is the end delimiter. The wrapper is a backslash with a
+                // space on its inner side. The code removes the space with the wrapper.
                 if buffer.ends_with(' ') {
                     buffer.pop();
                     flush(&mut buffer, &mut segments, true);
@@ -71,14 +71,14 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                     buffer.push('\\');
                 }
             } else if i < bytes.len() && bytes[i].1 == ' ' {
-                // Opening delimiter: `\ ` -- the space is part of the wrapper.
+                // This is the start delimiter `\ `. The space is part of the wrapper.
                 flush(&mut buffer, &mut segments, false);
                 literal = true;
                 escapes.push(delimiter);
                 i += 1;
             } else {
-                // Wrapping is the only way to escape, so a backslash that
-                // doesn't open a wrapper is just a character.
+                // A wrapper is the only escape. Thus a backslash that does not
+                // start a wrapper is a usual character.
                 buffer.push('\\');
             }
             continue;
@@ -86,7 +86,7 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
 
         if !literal {
             if let Some((sigil, prefix_len)) = sigil_at(&bytes, i) {
-                let open = i + prefix_len; // index of '{'
+                let open = i + prefix_len; // The index of '{'.
                 match matching_brace(&bytes, open) {
                     Some(close) => {
                         let inner_start = bytes[open].0 + 1;
@@ -97,11 +97,10 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
                             expr::parse(inner, base + inner_start, file);
 
                         if expr_diagnostics.iter().any(Diagnostic::is_error) {
-                            // Braces that don't hold a valid expression are an
-                            // error. Prose that talks about the syntax escapes
-                            // it with `\ ... \`. The text is kept so the rest
-                            // of the line still reads, but the file won't
-                            // compile.
+                            // Braces without a valid expression are an error.
+                            // Prose about the syntax escapes it with `\ ... \`.
+                            // The code keeps the text. Thus the rest of the line
+                            // stays readable. But the file will not compile.
                             diagnostics.extend(expr_diagnostics);
                             buffer.push_str(&text[bytes[i].0..bytes[close].0 + 1]);
                             i = close + 1;
@@ -146,8 +145,8 @@ pub fn scan_line(text: &str, base: usize, file: &Path) -> (ProseLine, Vec<Diagno
     )
 }
 
-/// Recognizes an interpolation sigil at `index`, returning the sigil and the
-/// number of characters before its opening brace.
+/// Finds an interpolation sigil at `index`. It returns the sigil and the
+/// number of characters before the start brace of the sigil.
 fn sigil_at(bytes: &[(usize, char)], index: usize) -> Option<(Sigil, usize)> {
     let ch = bytes.get(index)?.1;
     let next = bytes.get(index + 1).map(|(_, c)| *c);
@@ -160,8 +159,8 @@ fn sigil_at(bytes: &[(usize, char)], index: usize) -> Option<(Sigil, usize)> {
     }
 }
 
-/// Finds the brace matching the one at `open`, ignoring braces inside quoted
-/// strings.
+/// Finds the brace that matches the brace at `open`. It ignores braces in
+/// quoted strings.
 fn matching_brace(bytes: &[(usize, char)], open: usize) -> Option<usize> {
     if bytes.get(open)?.1 != '{' {
         return None;
@@ -200,9 +199,9 @@ fn matching_brace(bytes: &[(usize, char)], open: usize) -> Option<usize> {
 
 /// Splits a source line into code and a comment.
 ///
-/// A comment has to be on its own line: a line is a comment when its first
-/// non-whitespace characters are `//`. Anywhere else `//` is just text, so
-/// `url: https://example.com // note` keeps all of it as the value.
+/// A comment must be on a line of its own. A line is a comment when its first
+/// non-whitespace characters are `//`. In all other locations, `//` is usual
+/// text. Thus `url: https://example.com // note` keeps all of the text as the value.
 pub fn split_comment(line: &str) -> (&str, Option<&str>) {
     let offset = line.len() - line.trim_start().len();
     if line[offset..].starts_with("//") {
@@ -256,7 +255,7 @@ mod tests {
     #[test]
     fn a_colon_is_escaped_by_wrapping_it() {
         assert_eq!(rendered(r"Similarly\ : \"), "Similarly:");
-        // Wrapping is the only way to escape; a bare backslash is a character.
+        // A wrapper is the only escape. A bare backslash is a character.
         assert_eq!(rendered(r"Similarly\:"), r"Similarly\:");
     }
 

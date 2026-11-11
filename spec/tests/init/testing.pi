@@ -1,0 +1,6 @@
+use ./lib
+
+export test TestingTemplate:
+    expects:
+        There should be a testing template for `piton init` that just sets up a
+        basic specbase intended for a `piton test` based workflow.

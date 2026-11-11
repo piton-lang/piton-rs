@@ -73,7 +73,7 @@ what would happen. `cargo xtask` on its own lists the tasks.
 | `piton check [paths]` | Validates syntax, imports, references, types, inheritance, composition, exports, and circular dependencies; exits 1 on any error |
 | `piton compile <path>` | Prints one file's output, or writes a glob's with `--write`; `--renderer json\|yaml\|markdown`, `--dependencies` |
 | `piton format [path]` | Applies canonical formatting; `--check` reports without writing, and `piton format -` formats stdin to stdout |
-| `piton init [directory]` | Starts a project from a built-in template (`--template`, or asks); `--list` describes them. Templates live in `create-templates/`, one directory each, and are compiled into the binary. Never overwrites a file |
+| `piton init [directory]` | Starts a project from a built-in template (`--template`, or asks); `--list` describes them. `init` is the bundled init plugin (`plugins/init`); its templates live in `plugins/init/templates/`, one directory each, and are embedded in the binary. Never overwrites a file |
 | `piton loc [paths]` | Counts total, code, comment, and blank lines per file |
 | `piton lsp` | Runs the language server over stdio |
 | `piton reach [targets]` | Reports reachable anchors with depth and path, and what is unreachable; `--no-paths` and `--no-unreachable` trim the report |

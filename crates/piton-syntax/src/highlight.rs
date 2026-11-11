@@ -1,13 +1,14 @@
-//! What every byte of a file is, for a syntax highlighter.
+//! The class of each byte of a file, for a syntax highlighter.
 //!
-//! There are half a dozen syntax definitions under `editors/`, each in its own
-//! format, and each one is an approximation of the parser. This is the parser's
-//! own answer, read off the CST, and it is what those definitions are tested
-//! against: `editors/fixtures/*.expected` is generated from it.
+//! Approximately six syntax definitions are in `editors/`. Each one has its own
+//! format. Each one is an approximation of the parser. This module gives the
+//! answer of the parser, and it reads that answer from the CST. The tests
+//! compare those definitions with this answer. This module makes the
+//! `editors/fixtures/*.expected` files.
 //!
-//! The only rule here that the parser does not decide is the capitalisation
-//! convention for a bare name, which is all a highlighter without the resolved
-//! program can go on.
+//! The parser decides all the rules here except one. That rule is the
+//! capitalisation convention for a bare name. A highlighter without the
+//! resolved program has only this convention.
 
 use piton_core::Span;
 
@@ -15,19 +16,22 @@ use crate::kind::{SyntaxKind, SyntaxNode, SyntaxToken};
 use crate::language;
 use crate::parser::Parse;
 
-/// A highlighting class. Anything not listed is plain text: prose, and the
-/// punctuation of keys, constraints and import lists.
+/// A highlight class. All text that this list does not include is plain text.
+/// Plain text includes prose and the punctuation of keys, constraints and
+/// import lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Class {
     Comment,
-    /// Language keywords, and a user keyword where it introduces a
-    /// declaration or is declared after `as`.
+    /// Language keywords. Also a user keyword where it starts a declaration
+    /// or where it follows `as` in its declaration.
     Keyword,
-    /// The name a declaration declares.
+    /// The name that a declaration declares.
     TypeDecl,
-    /// A capitalised name used elsewhere: a base, an import, a constraint type.
+    /// A capitalised name in other locations. Examples are a base, an import
+    /// and a constraint type.
     TypeRef,
-    /// A name that is not capitalised: a variable, an import of one.
+    /// A name that is not capitalised. Examples are a variable and an import
+    /// of a variable.
     Variable,
     /// A property name, or a member after `.`.
     Key,
@@ -37,15 +41,15 @@ pub enum Class {
     Number,
     /// `true`, `false`, `null`.
     Constant,
-    /// A quoted string inside an expression.
+    /// A quoted string in an expression.
     String,
     /// `this`, `self`, `super`.
     ExprKeyword,
     Operator,
     ListMarker,
-    /// The opening sigil and closing brace of an interpolation.
+    /// The start sigil and the end brace of an interpolation.
     Sigil,
-    /// The backslashes that open and close an escape.
+    /// The backslashes that start and end an escape.
     Escape,
     /// The contents of an escape block.
     Verbatim,
@@ -99,7 +103,7 @@ impl Class {
     }
 }
 
-/// Every classified token, in source order. Plain text is left out.
+/// All the classified tokens, in source order. The result does not include plain text.
 pub fn classify(parse: &Parse) -> Vec<(Span, Class)> {
     let mut out = Vec::new();
     for token in parse
@@ -188,8 +192,8 @@ fn ident_class(token: &SyntaxToken, parent: &SyntaxNode, inside_expression: bool
     }
     Some(match parent.kind() {
         ANCHOR_HEADER => {
-            // `anchor Name` has one identifier; `skill Name` has the keyword
-            // first, and the keyword is a keyword wherever it is declared.
+            // `anchor Name` has one identifier. In `skill Name`, the keyword
+            // comes first. The keyword is a keyword in each declaration of it.
             let has_anchor = parent
                 .children_with_tokens()
                 .any(|element| element.kind() == KW_ANCHOR);
@@ -218,10 +222,10 @@ fn ident_class(token: &SyntaxToken, parent: &SyntaxNode, inside_expression: bool
     })
 }
 
-/// The golden file for a source: one line per run of one class, written
-/// `<line>:<start>-<end> <Class> <text>`, with 1-based lines and 0-based,
-/// half-open byte columns. Adjacent tokens of one class are one run; plain
-/// text is left out.
+/// The golden file for a source. It has one line for each run of one class.
+/// The format of each line is `<line>:<start>-<end> <Class> <text>`. Line
+/// numbers start at 1. Byte columns start at 0 and are half-open. Adjacent
+/// tokens of one class are one run. The file does not include plain text.
 pub fn render_expected(source: &str, classes: &[(Span, Class)]) -> String {
     let mut runs: Vec<(Span, Class)> = Vec::new();
     for &(span, class) in classes {
@@ -239,8 +243,8 @@ pub fn render_expected(source: &str, classes: &[(Span, Class)]) -> String {
 
     let mut out = String::new();
     for (span, class) in runs {
-        // A run never crosses a line: a token that does (none should) is cut
-        // at each line break.
+        // A run never goes across a line. If a token goes across a line, this
+        // code cuts it at each line break. No token must do this.
         let mut start = span.start;
         while start < span.end {
             let line_start = source[..start].rfind('\n').map(|at| at + 1).unwrap_or(0);

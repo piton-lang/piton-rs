@@ -7,5 +7,10 @@ export test InitCommand:
 
 export test InitAsAPlugin:
     expects:
-        The @{InitCommand} should be implemented as a plugin, and the templates
+        The init command should be implemented as a plugin, and the templates
         should be easily editable and extensible by the Piton authors.
+
+export test Templates:
+    expects:
+        The init command templates should be store in templates/ directory of
+        the plugin.

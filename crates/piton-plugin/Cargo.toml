@@ -20,3 +20,4 @@ oxc_diagnostics = "0.158"
 crossterm = "0.29"
 globset.workspace = true
 piton-emit.workspace = true
+piton-syntax.workspace = true

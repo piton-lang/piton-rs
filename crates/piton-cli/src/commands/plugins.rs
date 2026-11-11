@@ -1,4 +1,4 @@
-//! `piton plugins` — the plugins a project has and what each may do.
+//! `piton plugins` — the plugins of a project and their permissions.
 
 use anstream::println;
 
@@ -74,6 +74,9 @@ pub fn run() -> u8 {
         }
         if capabilities.interactive {
             may.push("ask the user to choose".to_string());
+        }
+        if capabilities.scaffold {
+            may.push("start new projects".to_string());
         }
         if !capabilities.outputs.is_empty() {
             may.push(format!("build {}", capabilities.outputs.join(", ")));

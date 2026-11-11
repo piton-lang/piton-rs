@@ -1,3 +1,5 @@
+from ../init import Initialization
+from ../migrate import Migration
 from ../testing import Testing
 from ../tooling/cli/Plugins import PluginsCli
 from ./Api import PluginApi
@@ -19,11 +21,14 @@ export anchor Plugins:
         and runs itself in QuickJS, so using one needs nothing installed
         beyond piton.
 
-        Two plugins are bundled with the compiler. Belay, the framework that
+        Four plugins are bundled with the compiler. Belay, the framework that
         compiles agent guidance, is a plugin: its constructs and adapters are
-        its Piton files, and its build writes what agentic tools read. And
+        its Piton files, and its build writes what agentic tools read.
         @{Testing}: `piton test` and the test keyword, which builds on Belay
-        for the agentic tools it launches.
+        for the agentic tools it launches. @{Migration}: `piton migrate`, and
+        the inspection that notices projects written for an older Piton. And
+        @{Initialization}: `piton init`, which starts a project from the
+        templates in its templates directory.
 
     principles:
         Compiling stays pure. Everything that can be known about a plugin

@@ -1,74 +1,77 @@
 //! Built-in packages.
 //!
-//! `@piton/config` and `@piton/belay` are bundled with the compiler and resolve
-//! from a virtual filesystem rather than from disk, so a project gets the same
-//! vocabulary wherever it is checked out.
+//! The compiler contains `@piton/config` and `@piton/belay`. They resolve from
+//! a virtual file system and not from disk. Thus a project gets the same
+//! vocabulary in all checkouts.
 //!
-//! Belay and the test plugin are plugins bundled with the compiler. Their
-//! Piton files are embedded from `plugins/belay/pi` and `plugins/test/pi`, so
-//! what a project imports is the plugin's own source, with no second copy to
-//! keep in step. Their code is embedded by the plugin host.
+//! Belay and the test plugin are plugins in the compiler. The compiler embeds
+//! their Piton files from `plugins/belay/pi` and `plugins/test/pi`. Thus a
+//! project imports the source of the plugin itself. No second copy must stay
+//! the same as it. The plugin host embeds their code.
 
-/// Module path for the project configuration package.
+/// The module path of the project configuration package.
 pub const CONFIG_PACKAGE: &str = "@piton/config";
-/// Module path for the Belay framework package.
+/// The module path of the Belay framework package.
 pub const BELAY_PACKAGE: &str = "@piton/belay";
-/// Module path for the package-management package.
+/// The module path of the package-management package.
 pub const PACKAGING_PACKAGE: &str = "@piton/packaging";
-/// Module path for the plugin package: the `piton-plugin` keyword a plugin
-/// is declared with.
+/// The module path of the plugin package. It holds the `piton-plugin` keyword
+/// that declares a plugin.
 pub const PLUGIN_PACKAGE: &str = "@piton/plugin";
-/// Module path for the bundled test plugin's Piton files: the `test` and
-/// `test-config` keywords.
+/// The module path of the Piton files of the bundled test plugin. They hold the
+/// `test` and `test-config` keywords.
 pub const TEST_PACKAGE: &str = "@piton/test";
-/// Module path of the bundled test plugin's declaration. It is a module like
-/// any other, so the plugin host compiles it the way the configuration
-/// compiles an installed plugin's declaration.
+/// The module path of the declaration of the bundled test plugin. It is a usual
+/// module. Thus the plugin host compiles it as the configuration compiles the
+/// declaration of an installed plugin.
 pub const TEST_PLUGIN_DECLARATION: &str = "@piton/test/plugin";
-/// Module path of the bundled migrate plugin's declaration. The plugin has no
-/// Piton files of its own; its package path only names it.
+/// The module path of the declaration of the bundled migrate plugin. The plugin
+/// has no Piton files. Its package path is only a name.
 pub const MIGRATE_PLUGIN_DECLARATION: &str = "@piton/migrate/plugin";
-/// The package path the migrate plugin is named by.
+/// The package path that names the migrate plugin.
 pub const MIGRATE_PACKAGE: &str = "@piton/migrate";
-/// Module path of the bundled Belay plugin's declaration.
+/// The module path of the declaration of the bundled init plugin. The init
+/// plugin has no Piton files, as migrate. Its package path is only a name.
+pub const INIT_PLUGIN_DECLARATION: &str = "@piton/init/plugin";
+/// The package path that names the init plugin.
+pub const INIT_PACKAGE: &str = "@piton/init";
+/// The module path of the declaration of the bundled Belay plugin.
 pub const BELAY_PLUGIN_DECLARATION: &str = "@piton/belay/plugin";
 
 /// The special export that resolves to the compiled shape root of the current
 /// output target.
 pub const BELAY_SHAPE: &str = "BELAY_COMPILED_SHAPE";
 
-/// The marker `BELAY_COMPILED_SHAPE` evaluates to.
+/// The marker that `BELAY_COMPILED_SHAPE` evaluates to.
 ///
-/// Its value cannot be decided during evaluation: the path depends on the
-/// adapter *and* on which generated file contains the use. Evaluation therefore
-/// produces this marker and each adapter replaces it with a path relative to
-/// the file being written.
+/// The evaluator cannot know its value. The path depends on the adapter *and*
+/// on the generated file that contains the use. Thus the evaluation makes this
+/// marker. Each adapter replaces it with a path relative to the output file.
 ///
-/// The private-use bracket characters are what keep it from colliding with
-/// prose: a document is free to discuss `BELAY_COMPILED_SHAPE` by name without
-/// being rewritten.
+/// The private-use bracket characters prevent a conflict with prose. A
+/// document can name `BELAY_COMPILED_SHAPE`, and no adapter rewrites it.
 pub const BELAY_SHAPE_TOKEN: &str = "\u{e000}BELAY_COMPILED_SHAPE\u{e001}";
 
-/// The four location exports Belay resolves while writing.
+/// The four location exports that Belay resolves when it writes the output.
 ///
-/// Each names a directory the generated artifact has to be able to point at,
-/// and none of them can be known during evaluation: the agent root depends on
-/// which adapter is being compiled, and all four are written relative to the
-/// file that carries the use. Evaluation therefore leaves a marker, exactly as
-/// it does for `BELAY_COMPILED_SHAPE`, and Belay substitutes a path per file.
+/// Each names a directory that the generated artifact must refer to. The
+/// evaluator cannot know them. The agent root depends on the adapter of the
+/// compilation. All four are relative to the file that contains the use. Thus
+/// the evaluation gives a marker, as for `BELAY_COMPILED_SHAPE`. Belay then
+/// puts a path for each file in place of the marker.
 pub const BELAY_AGENT_ROOT: &str = "BELAY_AGENT_ROOT";
 pub const BELAY_PROJECT_ROOT: &str = "BELAY_PROJECT_ROOT";
 pub const BELAY_SHAPE_ROOT: &str = "BELAY_SHAPE_ROOT";
 pub const BELAY_CODE_ROOT: &str = "BELAY_CODE_ROOT";
 
-/// The marker each of the four location exports evaluates to.
+/// The marker that each of the four location exports evaluates to.
 pub const BELAY_AGENT_ROOT_TOKEN: &str = "\u{e000}BELAY_AGENT_ROOT\u{e001}";
 pub const BELAY_PROJECT_ROOT_TOKEN: &str = "\u{e000}BELAY_PROJECT_ROOT\u{e001}";
 pub const BELAY_SHAPE_ROOT_TOKEN: &str = "\u{e000}BELAY_SHAPE_ROOT\u{e001}";
 pub const BELAY_CODE_ROOT_TOKEN: &str = "\u{e000}BELAY_CODE_ROOT\u{e001}";
 
-/// Each location export, paired with the marker it evaluates to, so a consumer
-/// can iterate the set rather than repeating the five names.
+/// Each location export, with the marker that it evaluates to. Thus a consumer
+/// can iterate over the set. It does not need to repeat the five names.
 pub const BELAY_LOCATION_MARKERS: [(&str, &str); 5] = [
     (BELAY_SHAPE, BELAY_SHAPE_TOKEN),
     (BELAY_AGENT_ROOT, BELAY_AGENT_ROOT_TOKEN),
@@ -77,7 +80,7 @@ pub const BELAY_LOCATION_MARKERS: [(&str, &str); 5] = [
     (BELAY_CODE_ROOT, BELAY_CODE_ROOT_TOKEN),
 ];
 
-/// Placeholders in the package template, swapped for the real markers at load.
+/// Placeholders in the package template. The load replaces them with the real markers.
 const MARKER_PLACEHOLDERS: [(&str, &str); 5] = [
     ("__BELAY_SHAPE_MARKER__", BELAY_SHAPE_TOKEN),
     ("__BELAY_AGENT_ROOT_MARKER__", BELAY_AGENT_ROOT_TOKEN),
@@ -86,7 +89,7 @@ const MARKER_PLACEHOLDERS: [(&str, &str); 5] = [
     ("__BELAY_CODE_ROOT_MARKER__", BELAY_CODE_ROOT_TOKEN),
 ];
 
-/// `@piton/config`: the anchors a `piton.config.pi` file is built from.
+/// `@piton/config`. It holds the anchors of a `piton.config.pi` file.
 pub const CONFIG_SOURCE: &str = r#"// Bundled with the Piton compiler.
 
 export abstract anchor PitonConfig as piton-config:
@@ -99,20 +102,20 @@ export abstract anchor PitonConfig as piton-config:
     plugins:: list:: null: null
 "#;
 
-/// `@piton/packaging`: the anchor a project declares a publishable package with.
+/// `@piton/packaging`. It holds the anchor that declares a package to publish.
 ///
-/// A package declaration says what part of this project is published and what
-/// it needs. It is abstract for the same reason the configuration anchors are:
-/// `piton-package MyThing:` is the form the specification writes, and a
-/// keyword only reads that way when the anchor behind it is a shape rather
-/// than a value.
+/// A package declaration tells which part of this project to publish. It also
+/// tells what that part needs. It is abstract for the same reason as the
+/// configuration anchors. The specification uses the form
+/// `piton-package MyThing:`. A keyword has this form only when its anchor is a
+/// shape and not a value.
 ///
-/// `name` is how a package is called something an anchor cannot be, such as
-/// `my-package`. Left out, the anchor's own name is the package name. Either
-/// way it cannot contain `/` or start with `@`.
+/// `name` gives a package a name that an anchor cannot have, such as
+/// `my-package`. Without `name`, the name of the anchor is the package name.
+/// In both cases, the name cannot contain `/` or start with `@`.
 ///
-/// `dependencies` is a list rather than `string[]` because a URL may be
-/// followed by a pin dictionary.
+/// `dependencies` is a list and not `string[]`. The reason is that a pin
+/// dictionary can follow a URL.
 pub const PACKAGING_SOURCE: &str = r#"// Bundled with the Piton compiler.
 
 export abstract anchor PitonPackage as piton-package:
@@ -121,45 +124,46 @@ export abstract anchor PitonPackage as piton-package:
     dependencies:: list:: null: null
 "#;
 
-// The framework's own definitions, taken from the specification that describes
-// them. A build fails loudly if one of these files moves, which is the point:
-// the compiler and the specification cannot disagree about what a skill is.
+// The definitions of the framework. They come from the specification that
+// describes them. If one of these files moves, the build fails clearly. That is
+// the purpose. The compiler and the specification cannot have different skills.
 const BELAY_CONSTRUCT: &str = include_str!("../../../plugins/belay/pi/Construct.pi");
 const BELAY_INSTRUCTION: &str = include_str!("../../../plugins/belay/pi/Instruction.pi");
 const BELAY_SKILL: &str = include_str!("../../../plugins/belay/pi/Skill.pi");
 const BELAY_COMMAND: &str = include_str!("../../../plugins/belay/pi/Command.pi");
 const BELAY_AGENT: &str = include_str!("../../../plugins/belay/pi/Agent.pi");
-// The adapters, likewise taken from the specification: a project selects one
-// by listing the anchor, and Belay reads the target's paths and settings from
-// it.
+// The adapters. They also come from the specification. A project selects an
+// adapter when it lists the anchor. Belay reads the paths and settings of the
+// target from it.
 const BELAY_ADAPTER: &str = include_str!("../../../plugins/belay/pi/adapters/Adapter.pi");
 const BELAY_CLAUDE_CODE: &str = include_str!("../../../plugins/belay/pi/adapters/ClaudeCode.pi");
 const BELAY_CODEX: &str = include_str!("../../../plugins/belay/pi/adapters/Codex.pi");
 const BELAY_OPENCODE: &str = include_str!("../../../plugins/belay/pi/adapters/OpenCode.pi");
 const BELAY_MUSE: &str = include_str!("../../../plugins/belay/pi/adapters/Muse.pi");
 
-// `@piton/plugin`, from the specification that describes it, the same way
-// Belay's constructs are.
+// `@piton/plugin`. It comes from the specification that describes it, as the
+// constructs of Belay do.
 const PLUGIN_ANCHOR: &str = include_str!("../../../spec/scope/plugins/anchors/Plugin.pi");
 
-// The bundled test plugin's Piton files and its declaration. Its behaviour,
-// in TypeScript, is embedded by the plugin host.
+// The Piton files and the declaration of the bundled test plugin. The plugin
+// host embeds its behaviour, in TypeScript.
 const TEST_INDEX: &str = include_str!("../../../plugins/test/pi/index.pi");
 const TEST_TEST: &str = include_str!("../../../plugins/test/pi/Test.pi");
 const TEST_CONFIG: &str = include_str!("../../../plugins/test/pi/TestConfig.pi");
 const TEST_PLUGIN: &str = include_str!("../../../plugins/test/plugin.pi");
 const BELAY_PLUGIN: &str = include_str!("../../../plugins/belay/plugin.pi");
 const MIGRATE_PLUGIN: &str = include_str!("../../../plugins/migrate/plugin.pi");
+const INIT_PLUGIN: &str = include_str!("../../../plugins/init/plugin.pi");
 
-/// `@piton/belay`: re-exports the constructs and the adapters, and adds the
-/// configuration anchor and the special imports.
+/// `@piton/belay`. It exports the constructs and the adapters again. It adds
+/// the configuration anchor and the special imports.
 const BELAY_INDEX: &str = include_str!("../../../plugins/belay/pi/index.pi");
 
-/// Every module a bundled package provides, keyed by its virtual path.
+/// All modules of the bundled packages, by virtual path.
 ///
-/// The paths carry no extension, matching how a resolved module path is
-/// spelled, so `from ./anchors/Skill export Skill` inside the package resolves
-/// exactly as it would on disk.
+/// The paths have no extension, as a resolved module path has none. Thus
+/// `from ./anchors/Skill export Skill` in the package resolves exactly as on
+/// disk.
 fn modules() -> &'static [(&'static str, &'static str)] {
     static MODULES: std::sync::OnceLock<Vec<(&'static str, &'static str)>> =
         std::sync::OnceLock::new();
@@ -191,12 +195,13 @@ fn modules() -> &'static [(&'static str, &'static str)] {
                 (TEST_PLUGIN_DECLARATION, TEST_PLUGIN),
                 (BELAY_PLUGIN_DECLARATION, BELAY_PLUGIN),
                 (MIGRATE_PLUGIN_DECLARATION, MIGRATE_PLUGIN),
+                (INIT_PLUGIN_DECLARATION, INIT_PLUGIN),
             ]
         })
         .as_slice()
 }
 
-/// Returns the source of a bundled module, if `path` names one.
+/// Returns the source of a bundled module, if `path` names a bundled module.
 pub fn package_source(path: &str) -> Option<&'static str> {
     modules()
         .iter()
@@ -204,18 +209,18 @@ pub fn package_source(path: &str) -> Option<&'static str> {
         .map(|(_, source)| *source)
 }
 
-/// True when `path` names a module inside a bundled package.
+/// True when `path` names a module in a bundled package.
 pub fn is_package(path: &str) -> bool {
     package_source(path).is_some()
 }
 
-/// True when `path` lies inside a bundled package, whether or not it names a
-/// module. Used to keep package internals out of user-facing reports.
+/// True when `path` is in a bundled package, whether or not it names a module.
+/// Callers use it to keep package internals out of reports for users.
 pub fn is_package_path(path: &str) -> bool {
     path.starts_with('@')
 }
 
-/// The packages a project may import by name.
+/// The packages that a project can import by name.
 pub const PACKAGE_ROOTS: [&str; 5] =
     [CONFIG_PACKAGE, BELAY_PACKAGE, PACKAGING_PACKAGE, PLUGIN_PACKAGE, TEST_PACKAGE];
 
@@ -225,7 +230,7 @@ mod tests {
 
     #[test]
     fn the_constructs_come_from_the_specification() {
-        // Not a copy of them: the same bytes the specification is written in.
+        // This is not a copy. It is the same bytes as the specification.
         let skill = package_source("@piton/belay/Skill").expect("module");
         assert!(
             skill.contains("abstract anchor Skill extends Construct as skill"),

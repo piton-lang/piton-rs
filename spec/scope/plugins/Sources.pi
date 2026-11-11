@@ -13,10 +13,14 @@ export anchor PluginSources:
         project that lists its settings, so a project that never mentions
         Belay gets no agent files.
 
-        Three are bundled, each in the compiler's source with its declaration
+        Four are bundled, each in the compiler's source with its declaration
         in plugin.pi, its TypeScript in src, and any Piton files in pi:
-        Belay, in plugins/belay, the test plugin, in plugins/test, and the
-        migrate plugin, in plugins/migrate.
+        Belay, in plugins/belay, the test plugin, in plugins/test, the
+        migrate plugin, in plugins/migrate, and the init plugin, in
+        plugins/init, which also holds its templates in templates. Every file
+        under a bundled plugin's src, and under the init plugin's templates,
+        is embedded, so a file added there is part of the next build without
+        being listed anywhere.
 
     installed:
         A project adds a plugin by listing its piton-plugin anchor under

@@ -1,7 +1,8 @@
 //! Output adapters: JSON, YAML, and Markdown.
 //!
-//! An adapter turns resolved values into one concrete representation. The
-//! Markdown adapter carries Belay's content rules; JSON and YAML are structural.
+//! An adapter changes resolved values into one concrete representation. The
+//! Markdown adapter applies the content rules of Belay. JSON and YAML are
+//! structural.
 
 pub mod fields;
 pub mod json;
@@ -14,7 +15,7 @@ use std::str::FromStr;
 
 use piton_core::{title_case, AnchorId, AnchorView, Properties, Ref};
 
-/// The output formats `piton compile` can select.
+/// The output formats that `piton compile` can select.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Adapter {
     Json,
@@ -63,10 +64,10 @@ impl std::fmt::Display for Adapter {
     }
 }
 
-/// Renders a file's top-level declarations with the selected adapter.
+/// Renders the top-level declarations of a file with the selected adapter.
 ///
-/// `context.from_directory` is where the output is written, so references
-/// can point at the other files relative to it.
+/// `context.from_directory` is the location of the output. References use it
+/// to make paths to the other files relative to it.
 pub fn render(
     adapter: Adapter,
     declarations: &Properties,
@@ -76,9 +77,9 @@ pub fn render(
     render_mapped(adapter, declarations, anchors, context, None)
 }
 
-/// Renders like [`render`], for output written into its own tree: a source
-/// file at `source_root/a/B.pi` is written to `output_root/a/B.<ext>`, so a
-/// reference to it points there.
+/// Renders as [`render`] does, for output in its own tree. The output of a
+/// source file at `source_root/a/B.pi` goes to `output_root/a/B.<ext>`. Thus a
+/// reference to that file goes to `output_root/a/B.<ext>`.
 pub fn render_mapped(
     adapter: Adapter,
     declarations: &Properties,
@@ -110,19 +111,20 @@ pub fn render_mapped(
     }
 }
 
-/// Where a document is being written, so references can be made relative.
+/// The location of the output document. References use it to make relative
+/// paths.
 #[derive(Clone, Copy)]
 pub struct MarkdownContext<'a> {
     pub from_directory: &'a Path,
     pub source_root: &'a Path,
 }
 
-/// The same anchors, seen from a file being written in `directory`.
+/// The same anchors, as an output file in `directory` sees them.
 pub struct Located<'a> {
     pub anchors: &'a dyn AnchorView,
     pub directory: &'a Path,
     pub source_root: &'a Path,
-    /// Where the output tree starts, when it isn't next to the sources.
+    /// The root of the output tree, when the tree is not next to the sources.
     pub output_root: Option<&'a Path>,
 }
 
@@ -153,8 +155,8 @@ impl AnchorView for Located<'_> {
     }
 }
 
-/// Where the file holding a reference's target is, relative to the file being
-/// written, with the output's extension: `./Button.json`.
+/// The location of the file that holds the target of a reference. The path is
+/// relative to the output file and has the output extension: `./Button.json`.
 pub fn reference_file(anchors: &dyn AnchorView, target: &Ref, extension: &str) -> String {
     let source = anchors
         .output_path(anchors.source_path(target.anchor))
@@ -171,8 +173,9 @@ pub fn reference_file(anchors: &dyn AnchorView, target: &Ref, extension: &str) -
     }
 }
 
-/// How JSON and YAML write a reference: the path to the other file, a colon,
-/// and the dot path to the value. So `../file.json:Anchor.property`.
+/// The form that JSON and YAML use for a reference. It has the path to the
+/// other file, a colon and the dot path to the value. An example is
+/// `../file.json:Anchor.property`.
 pub fn reference_location(anchors: &dyn AnchorView, target: &Ref, extension: &str) -> String {
     format!(
         "{}:{}",
@@ -181,8 +184,8 @@ pub fn reference_location(anchors: &dyn AnchorView, target: &Ref, extension: &st
     )
 }
 
-/// The fragment a Markdown heading gets, the way GitHub builds it: lowercase,
-/// spaces become hyphens, and punctuation is dropped.
+/// The fragment of a Markdown heading, as GitHub makes it. All letters become
+/// lowercase. Spaces become hyphens. The function removes punctuation.
 pub fn heading_slug(title: &str) -> String {
     let mut out = String::new();
     for ch in title.trim().chars() {
@@ -195,8 +198,8 @@ pub fn heading_slug(title: &str) -> String {
     out
 }
 
-/// The heading fragment a reference links to: the property's heading, or the
-/// anchor's own.
+/// The heading fragment that a reference links to. It is the heading of the
+/// property, or the heading of the anchor.
 pub fn reference_fragment(anchors: &dyn AnchorView, target: &Ref) -> String {
     let name = target
         .path
@@ -206,8 +209,8 @@ pub fn reference_fragment(anchors: &dyn AnchorView, target: &Ref) -> String {
     heading_slug(&title_case(name))
 }
 
-/// A relative path from a directory to a file, always starting with `./` or
-/// `../` so it reads as a path.
+/// A relative path from a directory to a file. It always starts with `./` or
+/// `../`. Thus it looks like a path.
 pub fn relative_file(from_directory: &Path, target: &Path) -> String {
     let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let from = canonical(from_directory);
@@ -225,9 +228,8 @@ pub fn relative_file(from_directory: &Path, target: &Path) -> String {
 
 /// Builds a relative Markdown link from one directory to a target path.
 ///
-/// Links always carry an explicit `./` or `../` prefix only when they need one;
-/// a sibling file is written as a bare name, which is how the reference tree
-/// reads.
+/// A link has an explicit `./` or `../` prefix only when it needs one. A link to
+/// a sibling file is a bare name. The reference tree uses this form.
 pub fn relative_link(from_directory: &Path, target: &Path) -> String {
     let from: Vec<_> = from_directory
         .components()

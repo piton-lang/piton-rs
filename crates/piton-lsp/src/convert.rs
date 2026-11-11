@@ -1,15 +1,15 @@
 //! Conversions between byte offsets and LSP positions.
 //!
-//! LSP counts columns in UTF-16 code units, and the specification corpus is full
-//! of typographic quotes and em dashes, so this cannot be a byte count.
+//! LSP counts columns in UTF-16 code units. The specification corpus has many
+//! typographic quotes and em dashes. Thus a byte count is not correct.
 
 use piton_core::Span;
 use tower_lsp::lsp_types::{Position, Range, Url};
 
 /// How the client counts columns.
 ///
-/// LSP's default is UTF-16 code units; a client may offer UTF-8 or UTF-32
-/// instead (`general.positionEncodings`), and the server picks one at
+/// The LSP default is UTF-16 code units. A client can offer UTF-8 or UTF-32
+/// as an alternative (`general.positionEncodings`). The server selects one at
 /// `initialize`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Encoding {
@@ -29,8 +29,8 @@ impl Encoding {
     }
 }
 
-/// Where each line of a text starts, so a position is a binary search and a
-/// walk along one line rather than a walk from the top of the file.
+/// The start of each line of a text. Thus a position needs only a binary
+/// search and a walk along one line, not a walk from the top of the file.
 #[derive(Debug, Clone)]
 pub struct LineIndex<'a> {
     text: &'a str,
@@ -57,12 +57,12 @@ impl<'a> LineIndex<'a> {
         self.encoding
     }
 
-    /// The byte offset each line starts at; the first is always 0.
+    /// The byte offset at the start of each line. The first is always 0.
     pub fn line_starts(&self) -> &[usize] {
         &self.starts
     }
 
-    /// The line holding `offset`, counting from 0.
+    /// The line that holds `offset`. The count starts at 0.
     pub fn line_of(&self, offset: usize) -> usize {
         let offset = offset.min(self.text.len());
         self.starts.partition_point(|&start| start <= offset) - 1
@@ -101,10 +101,11 @@ impl<'a> LineIndex<'a> {
         }
     }
 
-    /// Converts a position into a byte offset, clamping out-of-range input: a
-    /// line past the end is the end of the text, and a column past the end of
-    /// its line is the end of that line. A column inside a character (half a
-    /// surrogate pair, a byte inside a UTF-8 sequence) lands on its start.
+    /// Converts a position into a byte offset. It clamps input that is out of
+    /// range. A line after the end becomes the end of the text. A column after
+    /// the end of its line becomes the end of that line. A column inside a
+    /// character (half a surrogate pair, a byte inside a UTF-8 sequence)
+    /// goes to the start of that character.
     pub fn offset(&self, position: Position) -> usize {
         let Some(&start) = self.starts.get(position.line as usize) else {
             return self.text.len();
@@ -141,8 +142,8 @@ pub fn offset_to_position(text: &str, offset: usize) -> Position {
     LineIndex::new(text, Encoding::Utf16).position(offset)
 }
 
-/// Converts an LSP position, in UTF-16, into a byte offset, clamping
-/// out-of-range input.
+/// Converts an LSP position, in UTF-16, into a byte offset. It clamps input
+/// that is out of range.
 pub fn position_to_offset(text: &str, position: Position) -> usize {
     LineIndex::new(text, Encoding::Utf16).offset(position)
 }
@@ -169,8 +170,8 @@ mod tests {
     #[test]
     fn positions_count_utf16_units() {
         let text = "anchor A:\n    note: \u{201c}quoted\u{201d} and \u{1F600}\n";
-        // Four spaces, `note: ` , eight units of quoted text, ` and `, then an
-        // emoji that is a surrogate pair and counts as two units.
+        // Four spaces, `note: `, eight units of quoted text, ` and `, then an
+        // emoji. The emoji is a surrogate pair and counts as two units.
         let end_of_line = text.rfind('\n').expect("trailing newline");
         let position = offset_to_position(text, end_of_line);
         assert_eq!(position.line, 1);

@@ -1,4 +1,5 @@
-//! The language semantics, checked against the examples in the specification.
+//! The language semantics. The tests compare them with the examples in the
+//! specification.
 
 use std::path::PathBuf;
 
@@ -44,8 +45,8 @@ impl Sandbox {
     }
 }
 
-/// Compiles a single file and returns the named anchor as JSON, which is the
-/// representation the specification uses for its worked examples.
+/// Compiles a single file and returns the named anchor as JSON. The
+/// specification uses this form for its examples.
 fn compile_to_json(source: &str, anchor: &str) -> String {
     let sandbox = Sandbox::new(anchor);
     sandbox.file("main.pi", source);
@@ -263,8 +264,8 @@ anchor OtherBase:
 export my-anchor ChildAnchor extends OtherBase:
     extra: 1
 "#;
-    // The keyword's anchor is always last in the inheritance chain, so it
-    // wins any collision with what's in `extends`.
+    // The anchor of the keyword is always last in the inheritance chain. Thus
+    // it wins each collision with the bases in `extends`.
     assert_eq!(
         text_of(&property(source, "ChildAnchor", "description")),
         "This is a description of my anchor"
@@ -368,7 +369,7 @@ fn a_numeric_cast_of_prose_is_an_error() {
 
 #[test]
 fn the_ternary_evaluates_only_the_selected_branch() {
-    // Bare words inside an expression are symbols, so the branches are quoted.
+    // Bare words in an expression are symbols. Thus the branches have quotes.
     let source = r#"export anchor A:
     taken: {true ? "yes" : "no"}
     other: {false ? "yes" : "no"}
@@ -409,7 +410,7 @@ fn constraints_are_tried_left_to_right() {
 "#;
     assert_eq!(property(source, "A", "numberFirst"), Value::Number(42.0));
     assert_eq!(text_of(&property(source, "A", "stringFirst")), "42");
-    // The quotes are part of the value, so it isn't a boolean or a number.
+    // The quotes are part of the value. Thus it is not a boolean or a number.
     assert_eq!(
         text_of(&property(source, "A", "quotedFallsThrough")),
         "\"false\""
@@ -591,7 +592,7 @@ fn two_abstracts_with_types_that_do_not_overlap_are_an_error() {
         .iter()
         .any(|d| d.code == "conflicting-abstracts"));
 
-    // Overlapping types are fine; the right-most one wins.
+    // Types can overlap. The right-most type wins.
     let sandbox = Sandbox::new("overlapping-abstracts");
     sandbox.file(
         "main.pi",
@@ -703,8 +704,8 @@ fn a_blank_line_is_an_explicit_line_break() {
 
 #[test]
 fn code_blocks_are_parsed_like_any_other_text() {
-    // Code blocks are not escaped: a comment inside one is still a comment and
-    // a key is still a key.
+    // Code blocks are not escapes. A comment in a code block is a comment. A
+    // key in a code block is a key.
     let source = "export anchor A:\n    text:\n        before\n\n        ```piton\n        // a comment\n        key: a property\n        ```\n";
     let value = property(source, "A", "text");
     let Value::Mixed(mixed) = value else { panic!("expected an implicit list, got {value:?}") };
@@ -816,7 +817,7 @@ fn an_alias_replaces_the_original_binding() {
         Some(&Value::Number(3.14))
     );
 
-    // `pi` itself is not in scope under its original name.
+    // `pi` is not in scope under its original name.
     let sandbox = Sandbox::new("alias-original");
     sandbox.file("first.pi", "export pi: 3.14\n").file(
         "main.pi",
@@ -880,14 +881,14 @@ fn two_globs_exporting_one_name_is_a_duplicate_export() {
     assert!(diagnostic.message.contains("`Roles`"), "{}", diagnostic.message);
     assert!(diagnostic.message.contains("`./cruxible`"), "{}", diagnostic.message);
     assert!(diagnostic.message.contains("`./strataglyph`"), "{}", diagnostic.message);
-    // Reported on the line that lost, with the line that won as a label.
+    // The diagnostic is on the line that lost. The line that won is a label.
     let source = std::fs::read_to_string(sandbox.dir.join("main.pi")).unwrap();
     assert_eq!(&source[diagnostic.span.start..diagnostic.span.end], "./strataglyph");
     assert_eq!(diagnostic.labels.len(), 1);
     let help = diagnostic.help.as_deref().unwrap_or_default();
     assert!(help.contains("Roles StrataglyphRoles"), "{help}");
 
-    // The first glob is kept so the rest of the program still resolves.
+    // The compiler keeps the first glob. Thus the remainder of the program resolves.
     let roles = compilation
         .entry_exports()
         .into_iter()
@@ -908,7 +909,7 @@ fn explicit_exports_of_one_name_collide_too() {
     assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
     assert!(found[0].message.contains("`./a` and `./b`"), "{}", found[0].message);
 
-    // A declaration in the file collides with a glob that brings the same name.
+    // A declaration in the file has the same name as a name from a glob.
     let sandbox = Sandbox::new("duplicate-local");
     sandbox
         .file("a.pi", "export anchor Roles:\n    v: 1\n")
@@ -930,7 +931,7 @@ fn exporting_one_anchor_by_two_routes_is_not_a_duplicate() {
     let compilation = sandbox.compile("main.pi");
     assert!(duplicate_exports(&compilation).is_empty(), "{:#?}", compilation.diagnostics);
 
-    // An alias resolves the clash.
+    // An alias removes the conflict.
     let sandbox = Sandbox::new("duplicate-aliased");
     sandbox
         .file("a.pi", "export anchor Roles:\n    v: 1\n")
@@ -962,7 +963,7 @@ fn use_brings_in_keywords_but_not_symbols() {
         .collect();
     assert!(errors.is_empty(), "{errors:#?}");
 
-    // The keyword's anchor is not bound as a symbol.
+    // The anchor of the keyword is not a symbol.
     let sandbox = Sandbox::new("use-symbol");
     sandbox
         .file(
@@ -993,7 +994,7 @@ fn an_unknown_keyword_says_what_to_do() {
     assert!(found.help.as_deref().unwrap_or_default().contains("use"));
 }
 
-// -- escaping and references ---------------------------------------------
+// -- escapes and references -----------------------------------------------
 
 #[test]
 fn escapes_keep_expression_syntax_literal() {
@@ -1048,7 +1049,7 @@ fn a_reference_renders_as_a_link_and_a_value_renders_inline() {
 
 #[test]
 fn quotes_are_just_characters() {
-    // Quotes don't mean anything special, even around a whole paragraph.
+    // Quotes have no special meaning, also around a full paragraph.
     let source = r#"export anchor A:
     text:
         In one place we say "The Save Button is Blue" and elsewhere we say
@@ -1087,8 +1088,8 @@ fn an_unconstrained_quoted_value_stays_a_string() {
 
 #[test]
 fn a_multi_line_escape_block_is_literal() {
-    // Everything the compiler would otherwise read -- a property, a comment, an
-    // interpolation -- survives exactly as written.
+    // The compiler reads no text in the block. A property, a comment and an
+    // interpolation stay exactly as the source writes them.
     let source = "export anchor A:\n    body:\n        \\\\\\\n        key: not a property\n        // not a comment\n        {1 + 2}\n        \\\\\\\n";
     assert_eq!(
         text_of(&property(source, "A", "body")),
@@ -1131,10 +1132,10 @@ fn an_escape_block_suppresses_interpolation_without_a_fence() {
 }
 
 // ---------------------------------------------------------------------------
-// Compiling: anything exported from the entry
+// Compilation: all exports of the entry
 // ---------------------------------------------------------------------------
 
-/// What the entry compiles to, rendered as JSON.
+/// The output of the entry, as JSON.
 fn entry_surface(sandbox: &Sandbox, entry: &str) -> String {
     let compilation = sandbox.compile(entry);
     let errors: Vec<String> = compilation

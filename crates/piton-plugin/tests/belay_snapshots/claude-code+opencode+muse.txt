@@ -34,6 +34,12 @@ Guidance for everything under src/.
 ## Prompt
 
 Follow [Conventions](../Conventions.md#conventions) for every change here. Add a shape document beside this one, under the matching directory, for guidance that only applies to part of the source.
+==> .claude/skills/piton-fluency/SKILL.md (claude-code, skill)
+---
+name: piton-fluency
+description: "The Piton fluency reference: the Piton language, project configuration, plugins, Belay, packages, tests and the piton CLI. Use when you read or change .pi files or piton.config.pi, or when you run piton commands"
+---
+<the fluency reference>
 ==> .claude/skills/review-change/SKILL.md (claude-code, skill)
 ---
 name: review-change

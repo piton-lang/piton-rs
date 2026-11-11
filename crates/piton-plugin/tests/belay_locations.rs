@@ -1,11 +1,12 @@
-//! Checks the location exports Belay resolves while writing.
+//! Examines the location exports that Belay resolves when it writes files.
 //!
 //! `BELAY_COMPILED_SHAPE`, `BELAY_AGENT_ROOT`, `BELAY_PROJECT_ROOT`,
-//! `BELAY_SHAPE_ROOT` and `BELAY_CODE_ROOT` name directories a generated
-//! artifact has to point at. None can be decided while evaluating: the agent
-//! root depends on which adapter is being compiled, and every one of them is
-//! written relative to the file that carries it. So evaluation leaves a marker
-//! and Belay substitutes a path per file, which is what these tests hold.
+//! `BELAY_SHAPE_ROOT` and `BELAY_CODE_ROOT` name directories. A generated
+//! artifact points to these directories. Evaluation cannot find their values.
+//! The agent root changes with the adapter that Belay compiles. Belay writes
+//! each path relative to the file that holds it. Thus evaluation leaves a
+//! marker. Belay replaces the marker with a path for each file. These tests
+//! examine that replacement.
 
 mod belay;
 
@@ -44,8 +45,8 @@ impl Sandbox {
     }
 }
 
-/// The skill every test compiles: one line per location export, so a failure
-/// names which root moved.
+/// The skill that each test compiles. It has one line for each location
+/// export. Thus a failure names the root that changed.
 const SKILL: &str = "\
 use @piton/belay
 
@@ -97,8 +98,8 @@ belay-config SandboxBelay:
     )
 }
 
-/// Builds the sandbox project and returns the generated skill, keyed by the
-/// location name each line reports.
+/// Builds the sandbox project and returns the generated skill. The key of each
+/// line is the location name that the line shows.
 fn locations(sandbox: &Sandbox) -> Vec<(String, String)> {
     let (project, diagnostics) = config::load(&sandbox.dir, None);
     assert!(
@@ -136,7 +137,7 @@ fn locations(sandbox: &Sandbox) -> Vec<(String, String)> {
         .collect()
 }
 
-/// No marker survives into a generated file, whatever it resolved to.
+/// No marker stays in a generated file. This is true for each value.
 fn no_markers_remain(sandbox: &Sandbox) {
     let (project, _) = config::load(&sandbox.dir, None);
     assert!(!project.plugins.is_empty(), "belay configured");
@@ -158,8 +159,8 @@ fn every_root_resolves_relative_to_the_file_that_names_it() {
     sandbox.write("spec/index.pi", SKILL);
     std::fs::create_dir_all(sandbox.dir.join("src")).expect("code root");
 
-    // The skill lands at .claude/skills/locations/SKILL.md, so every path is
-    // written from two directories below the project root.
+    // Belay writes the skill to .claude/skills/locations/SKILL.md. Thus each
+    // path starts two directories below the project root.
     let found = locations(&sandbox);
     assert_eq!(
         found,
@@ -181,9 +182,9 @@ fn the_agent_root_follows_the_adapter() {
     sandbox.write("spec/index.pi", SKILL);
     std::fs::create_dir_all(sandbox.dir.join("src")).expect("code root");
 
-    // .opencode/skills/locations/SKILL.md sits at the same depth, so only the
-    // directory the agent root names changes -- and it is that directory, not
-    // a path that still says `.claude`.
+    // .opencode/skills/locations/SKILL.md has the same depth. Thus only the
+    // directory of the agent root changes. That directory is `.opencode`, not
+    // `.claude`.
     let found = locations(&sandbox);
     let agent = found
         .iter()

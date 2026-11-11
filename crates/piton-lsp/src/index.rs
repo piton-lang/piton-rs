@@ -1,9 +1,10 @@
-//! A per-module map from source offsets to the things they name.
+//! A map for each module from source offsets to the items that they name.
 //!
-//! Almost every editor feature is the same question asked from a different
-//! angle: what is at this position, and where else does it appear? Building one
-//! index answers both, and it answers them from the resolved program rather
-//! than from raw syntax, so hovering a keyword finds the anchor it aliases.
+//! Almost all editor features ask the same question from a different angle.
+//! The question is: what is at this position, and where else does it occur?
+//! One index gives the answer to both. It uses the resolved program, not the
+//! raw syntax. Thus a hover on a keyword finds the anchor that the keyword
+//! aliases.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,22 +18,23 @@ use piton_syntax::ast::{self, BlockItem, Expr, ExprKind, Item, ProseSegment, Val
 pub enum Target {
     Anchor(AnchorId),
     Variable(piton_compile::VariableId),
-    /// A property of an anchor, identified by the anchor that declares it.
+    /// A property of an anchor. The anchor that declares it identifies it.
     Property(AnchorId, String),
-    /// A key nested inside a property's dictionary: the anchor, then the path
-    /// from the property down, so `config: a: 1` is `(Anchor, [config, a])`.
-    /// Never confused with the anchor's own properties.
+    /// A key inside the dictionary of a property. It holds the anchor, then the
+    /// path down from the property. Thus `config: a: 1` is
+    /// `(Anchor, [config, a])`. It is always different from the properties of
+    /// the anchor.
     Key(AnchorId, Vec<String>),
-    /// A user-defined keyword and the anchor it aliases.
+    /// A keyword that the user defined, and the anchor that it aliases.
     Keyword(String, Option<AnchorId>),
     /// A module path in a `use` or `from` declaration.
     Module(PathBuf),
-    /// A name that did not resolve; still useful for rename and completion.
+    /// A name that did not resolve. Rename and completion can still use it.
     Unresolved(String),
 }
 
-/// Where the type's name sits in a constraint: `extends Base[]` is written
-/// around it, and only the name is a reference.
+/// The position of the type name in a constraint. The text `extends Base[]`
+/// surrounds the name. Only the name is a reference.
 fn type_name_span(source: &str, constraint: &ast::TypeConstraint, name: &str) -> Span {
     let text = source.get(constraint.span.start..constraint.span.end).unwrap_or("");
     let mut at = 0;
@@ -44,7 +46,7 @@ fn type_name_span(source: &str, constraint: &ast::TypeConstraint, name: &str) ->
     Span::new(start, start + name.len())
 }
 
-/// Whether an occurrence declares the thing or merely mentions it.
+/// Whether an occurrence declares the item or only mentions it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Definition,
@@ -57,20 +59,20 @@ pub struct Occurrence {
     pub span: Span,
     pub target: Target,
     pub role: Role,
-    /// The text as written, which is what rename replaces.
+    /// The text as the source has it. Rename replaces this text.
     pub text: String,
 }
 
-/// Every occurrence in one module, plus structural ranges for folding.
+/// All occurrences in one module, and the structural ranges for folding.
 #[derive(Debug, Default)]
 pub struct ModuleIndex {
     pub occurrences: Vec<Occurrence>,
-    /// Declaration spans, used for folding and selection ranges.
+    /// Declaration spans. Folding and selection ranges use them.
     pub structures: Vec<(Span, String)>,
 }
 
 impl ModuleIndex {
-    /// The innermost occurrence covering `offset`.
+    /// The innermost occurrence that covers `offset`.
     pub fn at(&self, offset: usize) -> Option<&Occurrence> {
         self.occurrences
             .iter()
@@ -79,7 +81,7 @@ impl ModuleIndex {
     }
 }
 
-/// The index for every loaded module.
+/// The index for each module that the server loaded.
 #[derive(Debug, Default)]
 pub struct Index {
     modules: HashMap<ModuleId, ModuleIndex>,
@@ -94,12 +96,12 @@ impl Index {
         self.modules.iter()
     }
 
-    /// Every occurrence of `target` across the whole program.
+    /// All occurrences of `target` in the full program.
     pub fn occurrences_of(&self, target: &Target) -> Vec<(ModuleId, &Occurrence)> {
         self.matching(|candidate| candidate == target)
     }
 
-    /// Every occurrence satisfying `predicate`.
+    /// All occurrences that satisfy `predicate`.
     pub fn matching<F>(&self, predicate: F) -> Vec<(ModuleId, &Occurrence)>
     where
         F: Fn(&Target) -> bool,
@@ -183,8 +185,8 @@ impl Builder<'_> {
                     for entry in &decl.items {
                         let target = self.resolve(entry.local_name());
                         self.push(entry.name_span, target.clone(), Role::Reference, &entry.name);
-                        // The alias is the name the file uses; it names the
-                        // same thing, under its own spelling.
+                        // The alias is the name that the file uses. It names
+                        // the same item, with its own spelling.
                         if let Some(alias) = &entry.alias {
                             self.push(alias.span, target, Role::Reference, &alias.value);
                         }
@@ -201,9 +203,9 @@ impl Builder<'_> {
                     let target = self.resolve(&decl.name);
                     self.push(decl.name_span, target, Role::Definition, &decl.name);
                     self.index.structures.push((decl.span, decl.name.clone()));
-                    // `value:: extends Operator[]` references `Operator` just as
-                    // a property constraint does. Skipping it made an import of
-                    // that name look unused.
+                    // `value:: extends Operator[]` references `Operator` in the
+                    // same way as a property constraint. Without this
+                    // reference, an import of that name looked unused.
                     for constraint in &decl.constraints {
                         if let ast::TypeName::Named(name) = &constraint.name {
                             let target = self.resolve(name);
@@ -281,8 +283,8 @@ impl Builder<'_> {
                             Place::Nested(vec![property.name.clone()])
                         }
                         (Some(anchor), Place::Nested(path)) => {
-                            // A key inside a property's dictionary belongs to
-                            // that dictionary, not to the anchor.
+                            // A key inside the dictionary of a property
+                            // belongs to that dictionary, not to the anchor.
                             let mut path = path.clone();
                             path.push(property.name.clone());
                             self.push(
@@ -311,8 +313,8 @@ impl Builder<'_> {
                         .push((property.span, property.name.clone()));
                     self.walk_value(&property.value, owner, &nested);
                 }
-                // Anything under a list item is part of a list, and list
-                // elements are never addressable.
+                // All content below a list item is part of a list. The
+                // elements of a list are never addressable.
                 BlockItem::ListItem(entry) => {
                     self.walk_value(&entry.value, owner, &Place::Unaddressable)
                 }
@@ -323,7 +325,7 @@ impl Builder<'_> {
                     }
                 }
                 BlockItem::Escape(block) => {
-                    // Literal content has no symbols to index, but it folds.
+                    // Literal content has no symbols for the index, but it folds.
                     self.index
                         .structures
                         .push((block.span, "escape block".to_string()));
@@ -364,8 +366,8 @@ impl Builder<'_> {
             ExprKind::Field(base, field) => {
                 self.walk_expr(base, owner);
                 // A field on `this`, `self`, `super` or an anchor names one of
-                // its properties (or, further down, a nested key), which is
-                // what makes go-to-definition work on it.
+                // its properties. Further down, it names a nested key. Thus
+                // go-to-definition operates on it.
                 if let Some((anchor, path)) = self.field_target(expr, owner) {
                     let target = if path.len() == 1 {
                         Target::Property(anchor, field.value.clone())
@@ -395,11 +397,11 @@ impl Builder<'_> {
         }
     }
 
-    /// The anchor a field chain reads from and the path below it.
+    /// The anchor that a field chain reads from, and the path below it.
     ///
     /// `this.a` is `(this, [a])`, `Card.config.size` is `(Card, [config,
     /// size])`. A property that holds an anchor starts a new chain at that
-    /// anchor, because that is where the next name is looked up.
+    /// anchor. The lookup of the next name occurs in that anchor.
     fn field_target(&self, expr: &Expr, owner: Option<AnchorId>) -> Option<(AnchorId, Vec<String>)> {
         let ExprKind::Field(base, field) = &expr.kind else {
             return None;
@@ -414,7 +416,7 @@ impl Builder<'_> {
         if path.len() == 1 {
             return Some((anchor, path));
         }
-        // Re-root at an anchor held by the prefix.
+        // Start again at an anchor that the prefix holds.
         let mut value = store.anchor(anchor).properties.get(&path[0])?;
         for segment in &path[1..path.len() - 1] {
             value = value.property(segment, self.compilation)?;
@@ -424,10 +426,10 @@ impl Builder<'_> {
         }
         Some((anchor, path))
     }
-    /// Which anchor a field access reads from, when that can be known.
+    /// The anchor that a field access reads from, when it is possible to know.
     ///
-    /// `super.x` reads `x` from everything the anchor inherits, merged the way
-    /// inheritance merges it: the right-most base that has `x` supplies it.
+    /// `super.x` reads `x` from all that the anchor inherits. The merge is the
+    /// same as the merge of inheritance. The right-most base with `x` supplies it.
     fn field_owner(&self, base: &Expr, field: &str, owner: Option<AnchorId>) -> Option<AnchorId> {
         match &base.kind {
             ExprKind::This | ExprKind::SelfRef => owner,
@@ -441,9 +443,9 @@ impl Builder<'_> {
     }
 }
 
-/// Where a walk over a block is: directly in an anchor body, inside a
-/// property's dictionary (with the path to it), or somewhere no key can be
-/// addressed from outside, such as a list.
+/// The position of a walk over a block. It is directly in an anchor body, or
+/// inside the dictionary of a property (with the path to it). Or it is at a
+/// location where no key is addressable from outside, for example a list.
 #[derive(Debug, Clone)]
 enum Place {
     Body,
@@ -451,8 +453,9 @@ enum Place {
     Unaddressable,
 }
 
-/// The base `super.<name>` reads from: the right-most base with a value for
-/// it, else the right-most that declares it at all.
+/// The base that `super.<name>` reads from. This is the right-most base with a
+/// value for the name. If no base has a value, it is the right-most base that
+/// declares the name.
 pub fn super_provider(compilation: &Compilation, anchor: AnchorId, name: &str) -> Option<AnchorId> {
     let store = compilation.store();
     let bases = &store.anchor(anchor).bases;

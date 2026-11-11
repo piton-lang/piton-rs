@@ -1,8 +1,8 @@
 //! Reachability analysis.
 //!
-//! Only source reachable from the configured entrypoints is compiled, so
-//! knowing what is reachable -- and what is not -- is part of understanding a
-//! specbase. `piton reach` reports both.
+//! The compiler compiles only the source that the configured entrypoints
+//! reach. Thus a user must know what is reachable and what is not to
+//! understand a specbase. `piton reach` reports both.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -34,25 +34,26 @@ impl EdgeKind {
     }
 }
 
-/// One reachable anchor and how it was found.
+/// One reachable anchor and the path that found it.
 #[derive(Debug, Clone)]
 pub struct Reached {
     pub anchor: AnchorId,
-    /// Number of edges from the nearest root.
+    /// The number of edges from the nearest root.
     pub depth: usize,
     /// The shortest path of anchor names from a root.
     pub path: Vec<String>,
-    /// The edge that arrived here, or `None` for a root, which was not
-    /// reached from anywhere.
+    /// The edge that arrived here. `None` for a root, because no edge reached
+    /// it.
     pub via: Option<EdgeKind>,
 }
 
-/// A source file nothing imports.
+/// A source file that no module imports.
 #[derive(Debug, Clone)]
 pub struct Unloaded {
     pub path: PathBuf,
-    /// How many anchors the file declares. It is parsed for this, never
-    /// compiled, so these anchors have no id and count as unreachable.
+    /// The number of anchors that the file declares. The file gets a parse for
+    /// this, but no compilation. Thus these anchors have no id and count as
+    /// unreachable.
     pub anchors: usize,
 }
 
@@ -61,14 +62,14 @@ pub struct Unloaded {
 pub struct Reachability {
     pub reached: Vec<Reached>,
     pub unreachable: Vec<AnchorId>,
-    /// Modules that carry something the roots reach, either by declaring it or
-    /// by exporting it onward.
+    /// Modules that hold an item that the roots reach. The module declares the
+    /// item or exports it again.
     pub modules: HashSet<ModuleId>,
-    /// Modules that were loaded but carry nothing the roots reach.
+    /// Modules that the compiler loaded, but that hold no item that the roots reach.
     pub unreachable_modules: Vec<PathBuf>,
-    /// Source files nothing imports, so compilation never even opened them.
+    /// Source files that no module imports. Thus the compilation never opened them.
     pub unloaded_modules: Vec<Unloaded>,
-    /// How many modules of the specbase were loaded, packages aside.
+    /// The number of modules of the specbase that the compiler loaded, without packages.
     pub loaded: usize,
 }
 
@@ -77,36 +78,36 @@ impl Reachability {
         self.reached.iter().any(|entry| entry.anchor == anchor)
     }
 
-    /// Anchors declared in files nothing imports.
+    /// Anchors that files declare when no module imports those files.
     pub fn unloaded_anchors(&self) -> usize {
         self.unloaded_modules.iter().map(|module| module.anchors).sum()
     }
 
-    /// Every unreachable anchor: the loaded ones the walk missed and the ones
-    /// in files nothing imports.
+    /// All unreachable anchors. These are the loaded anchors that the walk did
+    /// not reach, and the anchors in files that no module imports.
     pub fn unreachable_anchors(&self) -> usize {
         self.unreachable.len() + self.unloaded_anchors()
     }
 }
 
-/// Computes reachability from a set of root anchors, following references,
-/// inheritance, and composition.
+/// Computes reachability from a set of root anchors. It follows references,
+/// inheritance and composition.
 ///
-/// This is what a build compiles: an anchor a module merely imports, without
-/// anything using it, is not part of the output.
+/// A build compiles this set. An anchor that a module only imports, with no
+/// use, is not part of the output.
 pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability {
     traverse(compilation, roots, &[])
 }
 
-/// Computes reachability from root anchors and root modules, following
-/// imports as well as references, inheritance, and composition.
+/// Computes reachability from root anchors and root modules. It follows
+/// imports, and also references, inheritance and composition.
 ///
-/// `piton reach` asks a wider question than a build does: which parts of the
-/// specbase a starting point can see. A module that imports an anchor can see
-/// it whether or not anything uses it, so every anchor a root module imports
-/// or re-exports is reached, one edge from the module, via imports. Such an
-/// anchor is only reported via imports when nothing else reaches it, so the
-/// more specific edge wins when there is one.
+/// `piton reach` asks a wider question than a build. It asks which parts of
+/// the specbase a start point can see. A module sees each anchor that it
+/// imports, whether or not an item uses it. Thus a root module reaches each
+/// anchor that it imports or exports again. It is one edge from the module,
+/// via imports. The report shows such an anchor via imports only when no other
+/// edge reaches it. Thus the more specific edge wins, if there is one.
 pub fn from_roots_with_imports(
     compilation: &Compilation,
     roots: &[AnchorId],
@@ -115,14 +116,15 @@ pub fn from_roots_with_imports(
     traverse(compilation, roots, modules)
 }
 
-/// Computes reachability from the entry, following imports: its exports are
-/// the roots, and whatever the entry module imports is reached through it.
+/// Computes reachability from the entry, and follows imports. The exports of
+/// the entry are the roots. The walk reaches all imports of the entry module
+/// through the entry.
 pub fn from_entry_with_imports(compilation: &Compilation) -> Reachability {
     from_entry_with_imports_and(compilation, &[])
 }
 
-/// Like [`from_entry_with_imports`], with `extra` roots beside the entry's
-/// exports: the anchors plugins reach themselves.
+/// The same as [`from_entry_with_imports`], but with `extra` roots in addition
+/// to the exports of the entry. These are the anchors that plugins reach.
 pub fn from_entry_with_imports_and(compilation: &Compilation, extra: &[AnchorId]) -> Reachability {
     let mut roots = compilation.entry_exports();
     add_roots(&mut roots, extra);
@@ -131,8 +133,8 @@ pub fn from_entry_with_imports_and(compilation: &Compilation, extra: &[AnchorId]
     result
 }
 
-/// Every anchor a module brings in from elsewhere: what it imports, and what
-/// it re-exports without declaring.
+/// All anchors that a module gets from other modules. These are its imports,
+/// and the anchors that it exports again without a declaration.
 fn imported_anchors(compilation: &Compilation, module: ModuleId) -> Vec<AnchorId> {
     let resolution = &compilation.resolution;
     let declared = &resolution.scope(module).declarations;
@@ -174,8 +176,8 @@ fn traverse(compilation: &Compilation, roots: &[AnchorId], modules: &[ModuleId])
     }
     walk(compilation, &mut queue, &mut seen, &mut result);
 
-    // Imports are followed last, so an anchor something also references,
-    // extends, or composes is reported through that edge instead.
+    // The walk follows imports last. An anchor can also have a reference, an
+    // extension or a composition. Then the report shows that edge.
     for module in modules {
         result.modules.insert(*module);
         let label = compilation
@@ -199,7 +201,7 @@ fn traverse(compilation: &Compilation, roots: &[AnchorId], modules: &[ModuleId])
     finish(compilation, seen, result)
 }
 
-/// Breadth-first from whatever is queued, recording each anchor once.
+/// Walks breadth-first from the queued anchors. It records each anchor one time.
 fn walk(
     compilation: &Compilation,
     queue: &mut std::collections::VecDeque<Pending>,
@@ -237,13 +239,13 @@ fn walk(
     }
 }
 
-/// Follows what evaluating an anchor's properties read.
+/// Follows the reads of the evaluation of the properties of an anchor.
 ///
-/// Evaluation folds `{PURPOSE}` and `${Other.name}` into the value, so the
-/// value alone no longer says that the anchor depends on the module declaring
-/// `PURPOSE` or on `Other`. Reading a variable is composition all the same: its
-/// module carries something reached, and whatever the variable embeds or reads
-/// is reached in turn. Reading another anchor's property composes that anchor.
+/// The evaluation puts `{PURPOSE}` and `${Other.name}` into the value. Thus
+/// the value alone does not show the dependency on `Other` or on the module
+/// that declares `PURPOSE`. A read of a variable is also composition. Its
+/// module holds a reached item. The walk then reaches all that the variable
+/// embeds or reads. A read of a property of another anchor composes that anchor.
 fn read_targets(
     compilation: &Compilation,
     anchor: AnchorId,
@@ -274,8 +276,8 @@ fn read_targets(
                 Read::Variable(variable) => variables.push(*variable),
                 Read::Property(other, _) if *other != anchor => {
                     neighbours.push((*other, EdgeKind::Composition));
-                    // The other anchor is walked on its own; its reads are
-                    // followed from there.
+                    // The walk visits the other anchor separately. It follows
+                    // the reads of that anchor from there.
                     continue;
                 }
                 Read::Property(..) => {}
@@ -292,7 +294,7 @@ fn read_targets(
     }
 }
 
-/// Everything the walk did not reach, and the module-level tallies.
+/// All items that the walk did not reach, and the counts for each module.
 fn finish(
     compilation: &Compilation,
     seen: HashMap<AnchorId, usize>,
@@ -302,8 +304,8 @@ fn finish(
     let embedded = embedded_modules(compilation);
 
     for def in &compilation.resolution.store.anchors {
-        // Anchors inside a bundled package are the compiler's own vocabulary,
-        // not part of the specbase being analyzed.
+        // Anchors in a bundled package are the vocabulary of the compiler.
+        // They are not part of the specbase under analysis.
         if compilation.resolution.graph.get(def.module).is_package() {
             continue;
         }
@@ -315,10 +317,10 @@ fn finish(
         }
     }
 
-    // A module earns its place either by declaring something the roots reach or
-    // by handing it on. An index that does nothing but re-export is how most of
-    // a specbase is held together: it declares no anchor of its own, and
-    // calling it unreachable for that reason is calling the wiring dead.
+    // A module is necessary when it declares an item that the roots reach. It
+    // is also necessary when it exports that item again. Most of a specbase
+    // connects through an index that only exports again. Such an index declares
+    // no anchor. If the report calls it unreachable, it calls the connections dead.
     let reached: HashSet<AnchorId> = seen.keys().copied().collect();
     for module in compilation.resolution.graph.iter() {
         if module.is_package() {
@@ -339,7 +341,7 @@ fn finish(
     result
 }
 
-/// Whether a module exports a name that resolves to something reached.
+/// True when a module exports a name that resolves to a reached item.
 fn forwards_reached(
     compilation: &Compilation,
     module: ModuleId,
@@ -361,12 +363,12 @@ fn forwards_reached(
 
 /// Modules the compiler embeds.
 ///
-/// `prelude` compiles some of the specification's own files into the binary
-/// with `include_str!`, so a project that also has them on disk holds each of
-/// them twice: once as the file, once as the package module it became.
-/// Everything imports the package copy, which leaves the file looking dead --
-/// and it is the opposite of dead. It is the framework, and a report that
-/// invites someone to delete it is worse than no report.
+/// `prelude` compiles some files of the specification into the binary with
+/// `include_str!`. A project can also have them on disk. Then it holds each of
+/// them two times. One copy is the file. One copy is the package module. All
+/// modules import the package copy. Thus the file seems dead. But it is not
+/// dead. It is the framework. A report that tells a person to delete it is
+/// worse than no report.
 fn embedded_modules(compilation: &Compilation) -> HashSet<ModuleId> {
     let packaged: HashSet<&str> = compilation
         .resolution
@@ -387,13 +389,13 @@ fn embedded_modules(compilation: &Compilation) -> HashSet<ModuleId> {
         .collect()
 }
 
-/// Computes reachability from everything the entry module exports.
+/// Computes reachability from all exports of the entry module.
 pub fn from_entry(compilation: &Compilation) -> Reachability {
     from_entry_and(compilation, &[])
 }
 
-/// Like [`from_entry`], with `extra` roots beside the entry's exports: the
-/// anchors plugins reach themselves.
+/// The same as [`from_entry`], but with `extra` roots in addition to the
+/// exports of the entry. These are the anchors that plugins reach.
 pub fn from_entry_and(compilation: &Compilation, extra: &[AnchorId]) -> Reachability {
     let mut roots = compilation.entry_exports();
     add_roots(&mut roots, extra);
@@ -410,8 +412,8 @@ fn add_roots(roots: &mut Vec<AnchorId>, extra: &[AnchorId]) {
     }
 }
 
-/// The anchors named by file and name, as plugins name the anchors they
-/// reach. A name that nothing in that file declares is skipped.
+/// The anchors, by file and name, as plugins name the anchors that they reach.
+/// This function ignores a name that the file does not declare.
 pub fn locate(compilation: &Compilation, named: &[(PathBuf, String)]) -> Vec<AnchorId> {
     let canonical = |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let mut out = Vec::new();
@@ -434,7 +436,7 @@ pub fn locate(compilation: &Compilation, named: &[(PathBuf, String)]) -> Vec<Anc
     out
 }
 
-/// Source files nothing imports, each with the number of anchors it declares.
+/// Source files that no module imports. Each has the number of anchors that it declares.
 fn unloaded(compilation: &Compilation) -> Vec<Unloaded> {
     unloaded_sources(compilation)
         .into_iter()
@@ -445,8 +447,8 @@ fn unloaded(compilation: &Compilation) -> Vec<Unloaded> {
         .collect()
 }
 
-/// How many anchors a file declares, read from its syntax alone. A file that
-/// cannot be read declares none that anyone could count.
+/// The number of anchors that a file declares, from its syntax only. When the
+/// file does not read, the count is zero.
 fn declared_anchor_count(path: &std::path::Path) -> usize {
     let Ok(source) = std::fs::read_to_string(path) else {
         return 0;
@@ -459,11 +461,11 @@ fn declared_anchor_count(path: &std::path::Path) -> usize {
         .count()
 }
 
-/// Source files beneath the project root that no import chain reaches.
+/// Source files below the project root that no import chain reaches.
 ///
-/// A module nothing imports never enters the graph at all, so it cannot show up
-/// as "loaded but unreached". Finding it takes a look at the filesystem, and it
-/// is usually the answer someone is after when they ask what is unreachable.
+/// A module that no module imports never goes into the graph. Thus it cannot
+/// show as "loaded but unreached". Only a search of the file system finds it.
+/// When a user asks what is unreachable, this is usually the answer they need.
 pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
     let config = compilation
         .project
@@ -473,8 +475,8 @@ pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
     crate::module::sources(&compilation.project.source_root)
         .into_iter()
         .filter(|path| compilation.graph().id_for(path).is_none())
-        // The configuration is read, not imported; it is never part of the
-        // specbase's graph and never dead.
+        // The compiler reads the configuration, but no module imports it. It is
+        // never part of the graph of the specbase, and it is never dead.
         .filter(|path| {
             config.as_ref().is_none_or(|config| {
                 std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()) != *config
@@ -483,8 +485,8 @@ pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Collects the anchors a value depends on. A value that embeds an anchor is a
-/// composition edge; a value that links to one is a reference edge.
+/// Collects the anchors that a value depends on. A value that embeds an anchor
+/// is a composition edge. A value that links to an anchor is a reference edge.
 pub(crate) fn collect_targets(value: &Value, out: &mut Vec<(AnchorId, EdgeKind)>) {
     match value {
         Value::Anchor(id) => out.push((*id, EdgeKind::Composition)),

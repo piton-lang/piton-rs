@@ -1,0 +1,9 @@
+use @piton/test
+from .. import CommentLanguage
+
+export test Comments:
+    expects:
+        All code comments and doc comments under crates obey the ASD-STE100
+        rules of the instruction ${CommentLanguage} in spec/shape/Comments.pi.
+
+    tags: [comments]

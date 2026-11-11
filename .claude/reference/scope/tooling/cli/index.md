@@ -24,7 +24,6 @@ piton --update replaces the piton that runs with the latest release, from the sa
 - [Check](./Check.md#check)
 - [Compile](./Compile.md#compile)
 - [Format](./Format.md#format)
-- [Init](./Init.md#init)
 - [Loc](./Loc.md#loc)
 - [Lsp](./Lsp.md#lsp)
 - [PluginsCli](./Plugins.md#plugins-cli)
@@ -37,4 +36,4 @@ piton --update replaces the piton that runs with the latest release, from the sa
 
 ## Plugin Commands
 
-Plugins add commands of their own, listed in `piton --help` beside these, like `piton test` from the bundled test plugin, and `piton agent` and `piton belay slice` from Belay. They are described in [Plugins](../../plugins/index.md#plugins). A plugin can't replace one of these: a command with the same name is reported and left out.
+Plugins add commands of their own, listed in `piton --help` beside these, like `piton init` from the bundled init plugin, `piton test` from the bundled test plugin, and `piton agent` and `piton belay slice` from Belay. They are described in [Plugins](../../plugins/index.md#plugins). A plugin can't replace one of these: a command with the same name is reported and left out.

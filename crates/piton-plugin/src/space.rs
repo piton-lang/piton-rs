@@ -1,11 +1,12 @@
-//! Link spaces and encoders: the compiler's own renderers, offered to
-//! plugins.
+//! Link spaces and encoders. These are the renderers of the compiler, and
+//! plugins can use them.
 //!
-//! A plugin that writes documents says where each anchor goes, and the host
-//! renders them: references become links to the heading their target lands
-//! on, relative to the file being written, with the fragments a Markdown
-//! viewer gives repeated headings. This is the same code Belay's reference
-//! tree is written with, so a plugin's documents match the compiler's.
+//! A plugin that writes documents tells the location of each anchor. The host
+//! then renders the documents. References become links to the heading of
+//! their target. The links are relative to the output file. They use the
+//! fragments that a Markdown viewer gives to repeated headings. Belay writes
+//! its reference tree with the same code. Thus the documents of a plugin
+//! agree with the documents of the compiler.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -19,18 +20,18 @@ use piton_emit::links::{FileIndex, Links};
 use piton_emit::markdown;
 use serde_json::{json, Value as Json};
 
-/// One anchor in a document, with the properties to leave out when they are
-/// null.
+/// One anchor in a document. It also holds the properties to omit when they
+/// are null.
 #[derive(Debug, Clone)]
 struct Part {
     anchor: AnchorId,
     omit_null: Vec<String>,
 }
 
-/// Where a plugin's documents put each anchor, and the headings each
-/// document has.
+/// The location of each anchor in the documents of a plugin, and the
+/// headings of each document.
 pub struct Space {
-    /// The compilation it renders, by handle.
+    /// The handle of the compilation that it renders.
     pub compilation: usize,
     locations: HashMap<AnchorId, PathBuf>,
     documents: BTreeMap<PathBuf, Vec<Part>>,
@@ -55,10 +56,11 @@ fn strings(value: &Json) -> Vec<String> {
 }
 
 impl Space {
-    /// Lays out a plugin's documents. `documents` lists each output path with
-    /// the anchors it holds, in order, each `{id, omitNull}`; `files` lists
-    /// anchors written to a file of their own, without headings, `{id,
-    /// path}`. Paths are relative to the project root.
+    /// Makes the layout of the documents of a plugin. `documents` lists each
+    /// output path with its anchors in order. Each anchor is `{id,
+    /// omitNull}`. `files` lists the anchors that each go to a separate file
+    /// with no headings. Each entry is `{id, path}`. Paths are relative to
+    /// the project root.
     pub fn new(handle: usize, compilation: &Compilation, payload: &Json) -> Result<Space, String> {
         let mut locations = HashMap::new();
         let mut documents: BTreeMap<PathBuf, Vec<Part>> = BTreeMap::new();
@@ -86,8 +88,8 @@ impl Space {
             misses: RefCell::new(Vec::new()),
             generated: RefCell::new(HashSet::new()),
         };
-        // Headings don't depend on links, so a first rendering finds every
-        // document's headings, and later renderings link to them.
+        // Headings do not depend on links. Thus a first render finds the
+        // headings of all documents. Later renders make links to them.
         let mut index = HashMap::new();
         for (path, parts) in &space.documents {
             let rendered: Vec<(AnchorId, String)> = parts
@@ -129,8 +131,8 @@ impl Space {
         markdown::document_with(part.anchor, &properties, &context)
     }
 
-    /// `{from, id, omitNull}`: an anchor's document, with links relative to
-    /// `from`.
+    /// `{from, id, omitNull}`. Gives the document of an anchor, with links
+    /// relative to `from`.
     pub fn document(&self, compilation: &Compilation, payload: &Json) -> Result<Json, String> {
         let from = PathBuf::from(payload.get("from").and_then(Json::as_str).ok_or("`from` is the file being written")?);
         let part = Part {
@@ -140,9 +142,9 @@ impl Space {
         Ok(json!(self.render(compilation, &from, &part, true)))
     }
 
-    /// `{from, id, keys, level}`: some of an anchor's properties as sections,
-    /// in the anchor's order, starting at `level`. Empty when none of them is
-    /// there.
+    /// `{from, id, keys, level}`. Gives some properties of an anchor as
+    /// sections, in the order of the anchor. The first level is `level`. It
+    /// is empty when the anchor has none of the properties.
     pub fn sections(&self, compilation: &Compilation, payload: &Json) -> Result<Json, String> {
         let from = PathBuf::from(payload.get("from").and_then(Json::as_str).ok_or("`from` is the file being written")?);
         let anchor = anchor_id(compilation, payload.get("id").unwrap_or(&Json::Null))?;
@@ -162,8 +164,8 @@ impl Space {
         Ok(json!(markdown::sections(&properties, level, &context)))
     }
 
-    /// `{from, id, key}`: a text property as Markdown, references as links;
-    /// null when the property isn't text.
+    /// `{from, id, key}`. Gives a text property as Markdown, with references
+    /// as links. It is null when the property is not text.
     pub fn text(&self, compilation: &Compilation, payload: &Json) -> Result<Json, String> {
         let from = PathBuf::from(payload.get("from").and_then(Json::as_str).ok_or("`from` is the file being written")?);
         let anchor = anchor_id(compilation, payload.get("id").unwrap_or(&Json::Null))?;
@@ -176,9 +178,10 @@ impl Space {
         })
     }
 
-    /// What rendering found: references to anchors nothing wrote, and every
-    /// link written with the directory it is relative to, so a plugin can
-    /// check the links it wrote. Both in a stable order.
+    /// The results of the render. It gives the references to anchors that no
+    /// file holds. It also gives each written link and the directory of that
+    /// link. Thus a plugin can check its links. Both lists have a stable
+    /// order.
     pub fn report(&self, compilation: &Compilation) -> Json {
         let mut misses: Vec<Json> = self
             .misses
@@ -208,9 +211,10 @@ impl Space {
     }
 }
 
-/// Where a link space put each anchor, as project-relative links: the file,
-/// and the heading a reference lands on when the file is a document. This is
-/// how a command cites compiled output instead of the source.
+/// The location of each anchor in a link space, as links relative to the
+/// project. Each location is a file. When the file is a document, the
+/// location also has the heading of the reference. A command uses this to
+/// cite compiled output and not the source.
 pub struct Located<'a> {
     pub space: &'a Space,
     pub compilation: &'a Compilation,
@@ -232,9 +236,9 @@ impl markdown::LinkResolver for Located<'_> {
     }
 }
 
-/// Converts plugin JSON into typed fields: text, booleans, numbers, lists of
-/// text, and nested dictionaries. Anything else has no representation in
-/// metadata.
+/// Converts plugin JSON into typed fields. The permitted types are text,
+/// booleans, numbers, lists of text, and nested dictionaries. Metadata cannot
+/// show other types.
 fn field_value(value: &Json) -> Result<FieldValue, String> {
     Ok(match value {
         Json::String(text) => FieldValue::Text(text.clone()),
@@ -266,9 +270,9 @@ fn fields_of(value: &Json) -> Result<Fields, String> {
     Ok(out)
 }
 
-/// `{format, value}`: encodes with the compiler's encoders. `frontmatter`,
-/// `yaml` and `toml` take a dictionary of fields; `tomlString`, `yamlScalar`
-/// and `jsonString` take text.
+/// `{format, value}`. Encodes with the encoders of the compiler.
+/// `frontmatter`, `yaml` and `toml` take a dictionary of fields.
+/// `tomlString`, `yamlScalar` and `jsonString` take text.
 pub fn encode(payload: &Json) -> Result<Json, String> {
     let value = payload.get("value").unwrap_or(&Json::Null);
     let text = || value.as_str().map(str::to_string).ok_or("this format encodes text");

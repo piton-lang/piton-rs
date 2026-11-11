@@ -1,16 +1,16 @@
 //! Compiler diagnostics.
 //!
-//! Every phase of the compiler reports through the same structure so `piton
-//! check`, `piton build`, and the language server can all render the same
-//! information without translating between representations.
+//! All phases of the compiler use the same structure for reports. Thus `piton
+//! check`, `piton build` and the language server render the same information.
+//! They do not translate between representations.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// How serious a diagnostic is.
 ///
-/// `check` exits non-zero when any [`Severity::Error`] was reported; warnings
-/// are informational and never fail a build on their own.
+/// `check` exits non-zero when a phase reported a [`Severity::Error`]. Warnings
+/// give information only. A warning alone never causes a build to fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
     Error,
@@ -34,7 +34,7 @@ impl fmt::Display for Severity {
     }
 }
 
-/// A byte range within a single source file.
+/// A byte range in one source file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Span {
     pub start: usize,
@@ -76,8 +76,8 @@ impl From<std::ops::Range<usize>> for Span {
     }
 }
 
-/// A secondary location attached to a diagnostic, used for "originally declared
-/// here" style breadcrumbs.
+/// A secondary location on a diagnostic. It gives breadcrumbs such as
+/// "originally declared here".
 #[derive(Debug, Clone)]
 pub struct Label {
     pub file: PathBuf,
@@ -99,16 +99,16 @@ impl Label {
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub severity: Severity,
-    /// Stable machine-readable identifier, e.g. `unresolved-import`.
+    /// A stable identifier for machines, for example `unresolved-import`.
     pub code: String,
     pub message: String,
     pub file: PathBuf,
     pub span: Span,
     pub labels: Vec<Label>,
-    /// Optional actionable suggestion rendered after the message.
+    /// An optional suggestion for an action. It shows after the message.
     pub help: Option<String>,
-    /// The source anchor and property that produced the failure, when the
-    /// failure happened during resolution or generation rather than parsing.
+    /// The source anchor and property that caused the failure. It has a value
+    /// when the failure occurred during resolution or generation, not the parse.
     pub origin: Option<String>,
 }
 
@@ -220,7 +220,7 @@ impl DiagnosticSink {
         &self.items
     }
 
-    /// Sorts by file then position so output is stable between runs.
+    /// Sorts by file, then by position. Thus the output is the same in each run.
     pub fn sort(&mut self) {
         self.items.sort_by(|a, b| {
             a.file
@@ -264,7 +264,7 @@ impl LineIndex {
         }
     }
 
-    /// Returns a zero-based `(line, column)` pair, with the column counted in
+    /// Returns a zero-based `(line, column)` pair. The column is the number of
     /// bytes from the start of the line.
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
         let offset = offset.min(self.len);
@@ -285,7 +285,7 @@ impl LineIndex {
     }
 }
 
-/// Renders a diagnostic the way the CLI prints it.
+/// Renders a diagnostic in the same format that the CLI prints.
 pub fn render(diagnostic: &Diagnostic, source: Option<&str>, root: Option<&Path>) -> String {
     let path = display_path(&diagnostic.file, root);
     let mut out = String::new();

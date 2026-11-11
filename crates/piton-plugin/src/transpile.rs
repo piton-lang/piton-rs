@@ -1,11 +1,11 @@
-//! TypeScript to JavaScript, in-process.
+//! This module changes TypeScript to JavaScript in the same process.
 //!
-//! Plugins are written in TypeScript, and nobody running `piton` should need
-//! Node or `tsc` installed to use one. oxc strips the types: the parser reads
-//! the TypeScript, semantic analysis gives the transformer the scopes it
-//! needs, the transformer removes everything that is only types, and the code
-//! generator prints the JavaScript QuickJS runs. Nothing is down-levelled:
-//! QuickJS runs modern JavaScript as it is.
+//! Plugins use TypeScript. A user of `piton` must not need Node or `tsc` to
+//! use a plugin. oxc removes the types. The parser reads the TypeScript.
+//! Semantic analysis gives the transformer the scopes that it needs. The
+//! transformer removes all code that is only types. The code generator prints
+//! the JavaScript that QuickJS runs. This module does not change the
+//! JavaScript to an older version. QuickJS runs modern JavaScript as it is.
 
 use std::path::Path;
 
@@ -16,8 +16,8 @@ use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use oxc_transformer::{TransformOptions, Transformer};
 
-/// The JavaScript for one source file. A `.js` or `.mjs` file is returned as
-/// it is; anything else is read as TypeScript.
+/// Gives the JavaScript for one source file. A `.js` or `.mjs` file comes
+/// back as it is. This function reads all other files as TypeScript.
 pub fn transpile(path: &str, source: &str) -> Result<String, String> {
     if path.ends_with(".js") || path.ends_with(".mjs") {
         return Ok(source.to_string());
@@ -39,7 +39,7 @@ pub fn transpile(path: &str, source: &str) -> Result<String, String> {
     Ok(Codegen::new().build(&program).code)
 }
 
-/// The first problem oxc found, with the line it is on.
+/// Gives the first problem that oxc found, and the line of the problem.
 fn first_error(path: &str, source: &str, diagnostics: &[oxc_diagnostics::OxcDiagnostic]) -> String {
     let diagnostic = &diagnostics[0];
     let line = diagnostic

@@ -3,7 +3,7 @@
 ## Description
 
 Plugins make the compiler extensible: they add commands to the CLI and Piton files to import, without changing the compiler. A plugin is declared in Piton and written in TypeScript, which Piton transpiles and runs itself in QuickJS, so using one needs nothing installed beyond piton.
-Two plugins are bundled with the compiler. Belay, the framework that compiles agent guidance, is a plugin: its constructs and adapters are its Piton files, and its build writes what agentic tools read. And [Testing](../testing/index.md#testing): `piton test` and the test keyword, which builds on Belay for the agentic tools it launches.
+Four plugins are bundled with the compiler. Belay, the framework that compiles agent guidance, is a plugin: its constructs and adapters are its Piton files, and its build writes what agentic tools read. [Testing](../testing/index.md#testing): `piton test` and the test keyword, which builds on Belay for the agentic tools it launches. [Migration](../migrate/index.md#migration): `piton migrate`, and the inspection that notices projects written for an older Piton. And [Initialization](../init/index.md#initialization): `piton init`, which starts a project from the templates in its templates directory.
 
 ## Principles
 

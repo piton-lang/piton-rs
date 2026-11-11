@@ -1,13 +1,14 @@
-//! `piton update` — refresh installed packages from the configured dependencies.
+//! `piton update` — update installed packages from the dependencies in the
+//! configuration.
 //!
-//! Update reads `piton.config.pi`, not the tethers directory: the dependency
-//! list is what the project asked for, and an installed package that nothing
-//! asks for any more is `piton remove`'s business, not this command's.
+//! The update reads `piton.config.pi`, not the tethers directory. The
+//! dependency list tells what the project needs. An installed package that
+//! the project does not need now is for `piton remove`, not for this command.
 //!
-//! Nothing is replaced without first checking that what is on disk is still
-//! what was installed. An edited package is carrying work, and the only safe
-//! answers are to leave it alone and say so -- unless `--force` says to throw
-//! the work away, and then what was thrown away is still said.
+//! Before it replaces a package, the command checks that the files on disk
+//! are the same as the installed files. An edited package contains work.
+//! The only safe answer is to keep it and report it. With `--force`, the
+//! command discards the work. Then it still reports the discarded work.
 //!
 //! `--diff` shows what each update changed, file by file.
 
@@ -33,9 +34,8 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
 
     let lock = Lock::load(&configured.root);
 
-    // A name on the command line selects a package, and a package is selected
-    // by what it installed as, not by the repository it came from -- that is
-    // the name the user sees in `tethers/`.
+    // A name on the command line selects a package. The name is the installed
+    // name, not the source repository. The user sees this name in `tethers/`.
     let wanted: Vec<_> = configured
         .dependencies
         .iter()
@@ -79,7 +79,7 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
     installer.diff = diff;
     for dependency in &wanted {
         if let Err(failure) = installer.add(dependency, None) {
-            // An update refused because of local edits still shows them.
+            // When local edits stop an update, the update still shows them.
             for (name, edits) in &installer.edited {
                 match edits {
                     Ok(changes) => {
@@ -128,7 +128,8 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
     let mut changed = 0usize;
     for package in &placed {
         let was = before.get(&package.name);
-        // A plain directory has no commits, so it has moved when its files did.
+        // A plain directory has no commits. Thus it changed when its files
+        // changed.
         let moved = was.is_none_or(|entry| {
             entry.commit != package.commit
                 || (package.commit.is_none()
@@ -173,8 +174,9 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
             println!("{} {}", paint(style::NAME, &package.name), paint(style::DIM, state));
         }
         if diff {
-            // Said even when nothing changed, so an empty diff reads as an
-            // answer rather than as a flag that did nothing.
+            // The command shows this also when there is no change. Thus an
+            // empty diff is an answer. It does not look like a flag without
+            // effect.
             let files = package.changes.len();
             println!(
                 "  {}",
@@ -206,7 +208,7 @@ pub fn run(requested: &[String], force: bool, diff: bool) -> u8 {
     EXIT_SUCCESS
 }
 
-/// A commit, shortened the way git shortens one.
+/// A commit, shortened in the same way as git.
 fn short(commit: &str) -> String {
     commit.chars().take(8).collect()
 }

@@ -1,11 +1,11 @@
 //! Plugin commands in the CLI.
 //!
-//! A plugin's commands are added to the CLI from its declaration: their names,
-//! help and arguments are Piton, so `piton --help` lists them and clap parses
-//! their arguments without running any of the plugin's code. Only invoking one
-//! starts QuickJS. This module is also what the plugin host asks for the
-//! things that belong to the CLI: how output looks, how problems are reported,
-//! and the agentic tools `piton agent` knows.
+//! The CLI adds the commands of a plugin from its declaration. Their names,
+//! help and arguments are Piton. Thus `piton --help` lists them. Also, clap
+//! parses their arguments and runs no plugin code. Only a call to a command
+//! starts QuickJS. The plugin host also asks this module for the parts that
+//! belong to the CLI. These parts are the output style, the problem reports,
+//! and the agentic tools that `piton agent` knows.
 
 use std::path::Path;
 use std::rc::Rc;
@@ -19,8 +19,8 @@ use serde_json::{json, Value as Json};
 use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS};
 
-/// clap wants names that live as long as the program; a CLI parses once, so
-/// leaking the few a plugin declares is the simple way to give it them.
+/// clap needs names that live as long as the program. A CLI parses only once.
+/// Thus the simple method is to leak the few names that a plugin declares.
 fn leak(text: &str) -> &'static str {
     Box::leak(text.to_string().into_boxed_str())
 }
@@ -90,8 +90,9 @@ fn clap_arg(spec: &ArgSpec) -> Arg {
     arg
 }
 
-/// The arguments clap parsed, by name, as the plugin receives them: a flag is
-/// a boolean, a multiple argument a list, anything not given null.
+/// The arguments that clap parsed, by name, in the form that the plugin gets.
+/// A flag is a boolean. A multiple argument is a list. An absent argument is
+/// null.
 fn arguments(spec: &CommandSpec, matches: &ArgMatches) -> Json {
     let mut out = serde_json::Map::new();
     for argument in &spec.arguments {
@@ -116,7 +117,7 @@ fn arguments(spec: &CommandSpec, matches: &ArgMatches) -> Json {
     Json::Object(out)
 }
 
-/// What the plugin host asks the CLI for.
+/// The services that the plugin host asks from the CLI.
 pub struct CliServices {
     pub project: Project,
 }
@@ -202,19 +203,94 @@ impl piton_plugin::Services for CliServices {
         crate::commands::slice::cite(compilation, target, links)
     }
 
+    fn ask(&self, message: &str, help: Option<&str>) -> Option<String> {
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let mut prompt = inquire::Text::new(message);
+        if let Some(help) = help {
+            prompt = prompt.with_help_message(help);
+        }
+        prompt.prompt().ok()
+    }
+
+    fn choose_many(&self, message: &str, options: &[String], defaults: &[usize], minimum: usize) -> Option<Vec<usize>> {
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        inquire::MultiSelect::new(message, options.to_vec())
+            .with_default(defaults)
+            .with_help_message("space to toggle, enter to accept")
+            .with_validator(move |chosen: &[inquire::list_option::ListOption<&String>]| {
+                Ok(if chosen.len() < minimum {
+                    inquire::validator::Validation::Invalid(
+                        format!("choose at least {minimum}").into(),
+                    )
+                } else {
+                    inquire::validator::Validation::Valid
+                })
+            })
+            .raw_prompt()
+            .ok()
+            .map(|chosen| chosen.into_iter().map(|option| option.index).collect())
+    }
+
+    fn scaffold(&self, directory: &Path, files: &[(String, String)]) -> Result<Result<(), Vec<String>>, String> {
+        let existing: Vec<String> = files
+            .iter()
+            .map(|(path, _)| path.clone())
+            .filter(|path| directory.join(path).exists())
+            .collect();
+        if !existing.is_empty() {
+            return Ok(Err(existing));
+        }
+        for (path, contents) in files {
+            let destination = directory.join(path);
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|error| format!("cannot create `{}`: {error}", parent.display()))?;
+            }
+            std::fs::write(&destination, contents)
+                .map_err(|error| format!("cannot write `{}`: {error}", destination.display()))?;
+            let shown = if directory == Path::new(".") {
+                path.clone()
+            } else {
+                destination.display().to_string()
+            };
+            anstream::println!("{}", report::added(shown));
+        }
+        Ok(Ok(()))
+    }
+
+    fn tether(&self, directory: &Path, check: bool) -> String {
+        let config = directory.join("piton.config.pi");
+        if !config.is_file() {
+            return "none".to_string();
+        }
+        let (configured, diagnostics) = project::from_config(Some(&config));
+        if crate::commands::tether::report_config_errors(&configured, &diagnostics) {
+            return "failed".to_string();
+        }
+        if configured.dependencies.is_empty() {
+            "none".to_string()
+        } else if check {
+            "pending".to_string()
+        } else if crate::commands::tether::install_all(&configured) == crate::EXIT_SUCCESS {
+            "installed".to_string()
+        } else {
+            "failed".to_string()
+        }
+    }
+
 }
 
-/// The project in the working directory and the plugins it has.
-/// The project is the one the working directory is inside, so a plugin's
-/// command works from any directory of the project, as `piton slice` does.
+/// The project in the working directory, and its plugins.
+/// The project is the one that contains the working directory. Thus a plugin
+/// command works from all directories of the project, as `piton slice` does.
 pub fn load() -> (Project, DiagnosticSink, Vec<Manifest>, Vec<piton_plugin::Problem>) {
     let (project, diagnostics) = project::enclosing();
     let (manifests, problems) = piton_plugin::discover(&project);
     (project, diagnostics, manifests, problems)
 }
 
-/// Leaves out plugin commands named like one of the compiler's own, which
-/// always wins, and reports each.
+/// Removes a plugin command with the same name as a command of the compiler,
+/// and reports it. The command of the compiler always wins.
 pub fn withhold_builtins(
     cli: &clap::Command,
     manifests: &mut [Manifest],
@@ -264,8 +340,8 @@ pub fn withhold_builtins(
     }
 }
 
-/// Reports what is wrong with the project's plugins: declarations that
-/// aren't well-formed, and entries under `plugins` nothing reads.
+/// Reports the problems with the plugins of the project. These are malformed
+/// declarations, and entries under `plugins` that no plugin reads.
 pub fn report_problems(project: &Project, manifests: &[Manifest], problems: &[piton_plugin::Problem]) {
     for problem in problems {
         report::warn(format!("{}: {}", problem.file.display(), problem.message));
@@ -285,9 +361,9 @@ pub fn report_problems(project: &Project, manifests: &[Manifest], problems: &[pi
     report::diagnostics(&sink, &CliServices::source_of, &project.root);
 }
 
-/// Runs a plugin command clap has parsed.
-/// Adds every plugin command to the CLI: ungrouped ones at the top level,
-/// grouped ones under a command named for their group, which lists them.
+/// Adds all plugin commands to the CLI. A command without a group goes at the
+/// top level. A command with a group goes under a command with the name of
+/// the group. That command lists them.
 pub fn add_commands(mut cli: clap::Command, manifests: &[Manifest]) -> clap::Command {
     let mut groups: Vec<(String, clap::Command)> = Vec::new();
     for manifest in manifests {
@@ -317,8 +393,8 @@ pub fn add_commands(mut cli: clap::Command, manifests: &[Manifest]) -> clap::Com
     cli
 }
 
-/// The plugin command clap matched, if it matched one: the plugin, the
-/// command, and its arguments.
+/// The plugin command that clap matched, if there is one. It gives the plugin,
+/// the command, and its arguments.
 pub fn matched<'a>(
     manifests: &'a [Manifest],
     matches: &'a ArgMatches,
@@ -342,6 +418,7 @@ pub fn matched<'a>(
     None
 }
 
+/// Runs a plugin command that clap parsed.
 pub fn run(
     project: Project,
     config_diagnostics: DiagnosticSink,
@@ -352,14 +429,17 @@ pub fn run(
     matches: &ArgMatches,
 ) -> u8 {
 
-    // The configuration has to be sound before a plugin reads it, except for
-    // a plugin that inspects projects: repairing the configuration may be
-    // what its commands are for.
-    if !manifest.inspect && report::diagnostics(&config_diagnostics, &CliServices::source_of, &project.root) {
+    // The configuration must have no errors before a plugin reads it. There
+    // are two exceptions. The commands of a plugin with an inspect hook can
+    // repair the configuration. A standalone command, such as `piton init`,
+    // does not use the project.
+    if !manifest.inspect && !spec.standalone && report::diagnostics(&config_diagnostics, &CliServices::source_of, &project.root) {
         report::stopped("the configuration has errors");
         return EXIT_ERRORS;
     }
-    report_problems(&project, manifests, problems);
+    if !spec.standalone {
+        report_problems(&project, manifests, problems);
+    }
 
     let services = Rc::new(CliServices { project });
     match piton_plugin::run_command(manifests, &manifest.name, &spec.name, arguments(spec, matches), services) {
@@ -371,8 +451,8 @@ pub fn run(
     }
 }
 
-/// Runs the build of every plugin the project turned on, returning what each
-/// planned, or the failures. Nothing is written.
+/// Runs the build of each plugin that the project enables. Returns the plan of
+/// each plugin, or the failures. It writes no files.
 pub fn plan_builds(
     project: &Project,
     manifests: &[Manifest],

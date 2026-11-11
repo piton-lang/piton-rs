@@ -1,9 +1,9 @@
 //! The layout parser.
 //!
-//! Piton is whitespace-structured, so the outer grammar is driven by lines and
-//! indentation rather than by a token stream. This module turns source text into
-//! both a typed [`SourceFile`] and a lossless rowan tree; expression interiors
-//! are delegated to [`crate::expr`], and prose interiors to [`crate::prose`].
+//! Whitespace gives the structure of Piton. Thus, lines and indentation control
+//! the outer grammar, not a token stream. This module changes source text into
+//! a typed [`SourceFile`] and a lossless rowan tree. [`crate::expr`] parses the
+//! inner text of expressions. [`crate::prose`] parses the inner text of prose.
 
 use std::path::{Path, PathBuf};
 
@@ -14,7 +14,7 @@ use crate::ast::*;
 use crate::kind::{SyntaxKind, SyntaxNode};
 use crate::prose;
 
-/// The result of parsing one file.
+/// The parse result of one file.
 pub struct Parse {
     pub green: GreenNode,
     pub file: SourceFile,
@@ -54,18 +54,18 @@ pub fn parse(source: &str, path: &Path) -> Parse {
 }
 
 // ---------------------------------------------------------------------------
-// Line scanning
+// The line scanner
 // ---------------------------------------------------------------------------
 
-/// What a line is doing with respect to multi-line escape blocks.
+/// The role of a line in relation to multi-line escape blocks.
 ///
-/// A line whose entire content is a run of backslashes delimits a block whose
-/// contents are literal. The delimiters are syntax and are consumed; a run
-/// embedded in a line of text keeps the inline meaning instead.
+/// A line that contains only a run of backslashes is a delimiter of a block.
+/// The content of that block is literal. The delimiters are syntax, and the
+/// parser consumes them. A run in a line of text keeps the inline meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeRole {
     None,
-    /// The opening line, carrying the length of the backslash run.
+    /// The opening line. It holds the length of the backslash run.
     Open(usize),
     /// Literal content.
     Body,
@@ -76,15 +76,16 @@ pub(crate) enum EscapeRole {
 #[derive(Debug, Clone)]
 pub(crate) struct Line {
     pub(crate) indent: usize,
-    /// Offset of the first non-whitespace character.
+    /// The offset of the first character that is not whitespace.
     pub(crate) content_start: usize,
-    /// Offset just past the last character, excluding the line terminator.
+    /// The offset directly after the last character. It does not include the
+    /// line terminator.
     pub(crate) end: usize,
-    /// Offset of the start of the line, including indentation.
+    /// The offset of the start of the line. It includes the indentation.
     pub(crate) start: usize,
-    /// Source text with indentation and any trailing comment removed.
+    /// The source text without indentation and without a trailing comment.
     pub(crate) code: String,
-    /// Span of `code` within the file.
+    /// The span of `code` in the file.
     pub(crate) code_span: Span,
     pub(crate) blank: bool,
     pub(crate) escape: EscapeRole,
@@ -116,13 +117,13 @@ pub(crate) fn scan_lines(source: &str, path: &Path) -> ScannedLines {
         raw.push((0, ""));
     }
 
-    // Pass one: find multi-line escape blocks. One opens and closes on a line
-    // whose only content is a backslash run; its contents are literal, and the
-    // delimiters are consumed rather than emitted.
+    // Pass one finds multi-line escape blocks. A block opens and closes on a
+    // line that contains only a backslash run. The content of the block is
+    // literal. The parser consumes the delimiters and does not emit them.
     //
-    // Code fences are not special. To Piton they're just text, so anything
-    // inside them still gets parsed; an example puts an escape block inside
-    // its fence to keep it literal.
+    // Code fences are not special. To Piton, they are only text. Thus, the
+    // parser parses all the text in them. To keep an example literal, put an
+    // escape block in its fence.
     let mut escape_roles = vec![EscapeRole::None; raw.len()];
     let mut escape: Option<(usize, usize)> = None; // (line, run length)
 
@@ -153,7 +154,8 @@ pub(crate) fn scan_lines(source: &str, path: &Path) -> ScannedLines {
         ));
     }
 
-    // Pass two: build line records, and check that indentation is consistent.
+    // Pass two makes the line records. It also makes sure that the indentation
+    // is consistent.
     let mut indent_char: Option<char> = None;
     let mut mixed_reported = false;
     for (index, (start, text)) in raw.iter().copied().enumerate() {
@@ -183,10 +185,10 @@ pub(crate) fn scan_lines(source: &str, path: &Path) -> ScannedLines {
             }
         }
 
-        // Comments are lexical, so they are removed before the line is
-        // classified. The green tree recovers them from the gaps between
-        // significant tokens, which is how the CST stays lossless. Verbatim
-        // content keeps everything, including what looks like a comment.
+        // Comments are lexical. Thus, this pass removes them before it
+        // classifies the line. The green tree recovers them from the gaps
+        // between significant tokens. Thus, the CST stays lossless. Verbatim
+        // content keeps all text. This includes text that looks like a comment.
         let code_text = if verbatim {
             body
         } else {
@@ -267,7 +269,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// True when a deeper non-blank line still belongs to the current block.
+    /// True when a deeper line that is not blank is still part of the current
+    /// block.
     fn more_below(&self, parent_indent: usize) -> bool {
         self.lines[self.pos..]
             .iter()
@@ -328,7 +331,8 @@ impl<'a> Parser<'a> {
         let rest_start = line.content_start + rest_offset
             + (line.code[rest_offset..].len() - rest.len());
 
-        // A property-shaped line at the top level is a variable declaration.
+        // At the top level, a line with the shape of a property is a variable
+        // declaration.
         if let Some(header) = parse_property_header(rest, rest_start) {
             return Some(Item::Variable(self.parse_variable(&line, exported, header)));
         }
@@ -365,10 +369,10 @@ impl<'a> Parser<'a> {
             );
         }
         self.pos += 1;
-        // The line is kept in the tree as an error, and so is any body under
-        // it: an anchor whose header is half-written still has properties an
-        // editor can fold, select and complete. Only the tree keeps them; the
-        // program does not, so the error does not cascade.
+        // The tree keeps the line as an error. It also keeps the body below the
+        // line. An anchor with an incomplete header still has properties. An
+        // editor can fold, select and complete them. Only the tree keeps them.
+        // The program does not keep them. Thus, the error does not cascade.
         self.enter(SyntaxKind::ERROR, line.start);
         if self.more_below(line.indent) {
             let reported = self.diagnostics.len();
@@ -410,14 +414,14 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// Parses `from <path> import ...` / `from <path> export ...`, joining any
-    /// indented continuation lines.
+    /// Parses `from <path> import ...` / `from <path> export ...`. It joins
+    /// all indented continuation lines.
     fn parse_from(&mut self, line: &Line) -> Option<Item> {
         let start_line = line.clone();
         self.pos += 1;
-        // The lines are read as one, joined with a space. Each piece remembers
-        // where it starts in the joined text and in the file, so a position in
-        // one can be carried to the other.
+        // The parser reads the lines as one line, with a space between them.
+        // Each piece records its start in the joined text and in the file.
+        // Thus, the parser can change a position in one into the other.
         let first = start_line.code.trim_start().to_string();
         let mut joined = first.clone();
         let mut pieces = vec![(0usize, start_line.content_start + leading_len(&start_line.code))];
@@ -506,7 +510,7 @@ impl<'a> Parser<'a> {
             let mut entry_start = list_start;
             for (index, entry) in list_text.split(',').enumerate() {
                 if index > 0 {
-                    // The comma that ended the previous entry.
+                    // The comma at the end of the previous entry.
                     self.token(SyntaxKind::COMMA, span_of(entry_start - 1, entry_start));
                 }
                 let this_start = entry_start;
@@ -622,8 +626,8 @@ impl<'a> Parser<'a> {
         );
         self.token(SyntaxKind::IDENT, header.name_span);
 
-        // `as` and `extends` may come in either order, and the tree has to
-        // follow the source.
+        // `as` and `extends` can come in either order. The tree must follow
+        // the source.
         let mut cursor = header.name_span.end;
         let alias_start = header.alias.as_ref().map(|alias| alias.span.start);
         let extends_start = header.extends.first().map(|base| base.span.start);
@@ -710,7 +714,7 @@ impl<'a> Parser<'a> {
 
     // -- blocks ---------------------------------------------------------
 
-    /// Parses every line indented deeper than `parent_indent`.
+    /// Parses each line that has more indentation than `parent_indent`.
     fn parse_block(&mut self, parent_indent: usize) -> Block {
         let start = self.peek().map(|l| l.start).unwrap_or(self.source.len());
         let mut items: Vec<BlockItem> = Vec::new();
@@ -737,7 +741,7 @@ impl<'a> Parser<'a> {
                 if !self.more_below(parent_indent) {
                     break;
                 }
-                // A blank line is how the language spells an explicit break.
+                // In the language, a blank line is an explicit break.
                 flush!();
                 self.pos += 1;
                 continue;
@@ -847,7 +851,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses a multi-line escape block, consuming its delimiters.
+    /// Parses a multi-line escape block. It consumes the delimiters of the
+    /// block.
     fn parse_escape_block(&mut self, open: &Line, run: usize) -> EscapeBlock {
         let start = open.start;
         let base_indent = open.indent;
@@ -863,8 +868,8 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     let text = &self.source[line.start..line.end];
                     lines.push(strip_indent(text, base_indent));
-                    // The block's own indentation is layout; what is past it
-                    // is the literal text.
+                    // The indentation of the block is layout. The text after
+                    // it is the literal text.
                     let indent: usize = text
                         .chars()
                         .take(base_indent)
@@ -928,8 +933,9 @@ impl<'a> Parser<'a> {
         );
         let operand = &line.code[leading + rest_offset..];
         let text = operand.trim();
-        // The operand's spans count from its first character, so the space
-        // after the operator, which `trim` drops, still has to be counted.
+        // The spans of the operand count from its first character. `trim`
+        // removes the space after the operator. Thus, the parser must count
+        // that space.
         let text_start = marker_start + rest_offset + leading_len(operand);
         let (prose_line, mut diagnostics) = prose::scan_line(text, text_start, &self.file);
         self.diagnostics.append(&mut diagnostics);
@@ -943,7 +949,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Completes a property or variable once its header has been recognized.
+    /// Completes a property or variable after the parser recognizes its header.
     fn finish_property(
         &mut self,
         line: &Line,
@@ -969,16 +975,16 @@ impl<'a> Parser<'a> {
                 SyntaxKind::COLON,
                 Span::new(header.value_start - 1, header.value_start),
             );
-            // `value_offset` is relative to the header text, which may start
-            // partway into the line (after `export`), so index from the line's
-            // own start instead.
+            // `value_offset` is relative to the header text. The header text
+            // can start in the middle of the line (after `export`). Thus, the
+            // index starts at the start of the line.
             let offset = header.value_start - line.content_start;
             let inline = &line.code[offset..];
             self.parse_value(line, inline, header.value_start)
         } else {
-            // A constraint-only declaration still takes an indented block when
-            // one follows, which is how `supportedOperators:: Operator[]` gets
-            // its list.
+            // A declaration with only constraints still takes an indented
+            // block, if one follows. Thus, `supportedOperators:: Operator[]`
+            // gets its list.
             let block = if self.more_below(line.indent) {
                 Some(self.parse_block(line.indent))
             } else {
@@ -1005,8 +1011,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses a value: whatever follows on the same line, plus any indented
-    /// block beneath it.
+    /// Parses a value. The value is the text after the key on the same line,
+    /// and the indented block below it, if there is one.
     fn parse_value(&mut self, line: &Line, inline_text: &str, inline_start: usize) -> ValueNode {
         self.enter(SyntaxKind::VALUE, inline_start);
         let trimmed_start = inline_start + (inline_text.len() - inline_text.trim_start().len());
@@ -1023,8 +1029,8 @@ impl<'a> Parser<'a> {
                 prose::scan_line(trimmed, trimmed_start, &self.file);
             self.diagnostics.append(&mut diagnostics);
             self.enter(SyntaxKind::PROSE_LINE, prose_line.span.start);
-            // A value that is exactly `42`, `true` or `null` is that value,
-            // not a sentence, which is what the evaluator infers too.
+            // A value that is exactly `42`, `true` or `null` is that value. It
+            // is not a sentence. The evaluator also reads it in this way.
             let plain = prose_line.escapes.is_empty()
                 && matches!(prose_line.segments.as_slice(), [ProseSegment::Text(_)]);
             match crate::literal::whole_value_kind(trimmed) {
@@ -1054,8 +1060,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses `[a, b, [c, d]]` written at a value position. Items are values,
-    /// not expressions, so bare words stay prose.
+    /// Parses `[a, b, [c, d]]` at a value position. Items are values, not
+    /// expressions. Thus, bare words stay prose.
     fn parse_inline_list(&mut self, text: &str, start: usize) -> Vec<ValueNode> {
         self.enter(SyntaxKind::INLINE_LIST, start);
         self.token(SyntaxKind::L_BRACKET, Span::new(start, start + 1));
@@ -1102,8 +1108,8 @@ impl<'a> Parser<'a> {
     }
 
     fn emit_prose_tokens(&mut self, line: &ProseLine) {
-        // What interrupts the text, in order: escape delimiters and
-        // interpolations. Everything between them is prose.
+        // These items interrupt the text, in this order: escape delimiters and
+        // interpolations. All the text between them is prose.
         enum Mark<'a> {
             Escape(Span),
             Interpolation(&'a Interpolation),
@@ -1164,9 +1170,9 @@ impl<'a> Parser<'a> {
         self.leave(span.end);
     }
 
-    /// The tokens between two known ones on a header or import line: the
-    /// keywords and punctuation that join the names. A word that is not one
-    /// of those is left to the trivia pass, which makes it prose.
+    /// The tokens between two known tokens on a header or import line. These
+    /// are the keywords and punctuation that join the names. The trivia pass
+    /// gets all other words, and makes them prose.
     fn gap(&mut self, from: usize, to: usize) {
         if to <= from {
             return;
@@ -1287,7 +1293,7 @@ pub(crate) struct PropertyHeader {
     pub(crate) name_span: Span,
     pub(crate) constraints: Vec<TypeConstraint>,
     pub(crate) has_value_colon: bool,
-    /// Absolute offset of the value text.
+    /// The absolute offset of the value text.
     pub(crate) value_start: usize,
 }
 
@@ -1303,15 +1309,14 @@ struct DeclarationHeader {
 
 /// Recognizes `name`, `name:: type`, `name: value`, and combinations.
 ///
-/// `text` must already have its indentation removed; `start` is its absolute
-/// offset.
+/// `text` must not have indentation. `start` is its absolute offset.
 ///
-/// A key is anything that coerces to a string and contains no spaces, so
-/// `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are all keys. A word that
-/// is a keyword elsewhere is still a key here: what makes `anchor MyAnchor:` a
-/// declaration and `anchor: a description` a property is the colon, not the
-/// word. Only a leading `-` or `+` is excluded, because those open a list item
-/// and a merge.
+/// A key is a value that coerces to a string and has no spaces. Thus,
+/// `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are all keys. A word
+/// that is a keyword in other positions is a key here. The colon, not the word,
+/// makes `anchor MyAnchor:` a declaration and `anchor: a description` a
+/// property. Only a leading `-` or `+` cannot start a key. These characters
+/// open a list item and a merge.
 pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
     let name_len = text
         .char_indices()
@@ -1332,7 +1337,7 @@ pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<Property
         let rest = &text[cursor..];
         if let Some(after) = rest.strip_prefix("::") {
             if !after.starts_with(' ') && !after.is_empty() {
-                // `::` must be followed by a space to be a constraint.
+                // A space must follow `::` for it to be a constraint.
                 return None;
             }
             let type_text_start = cursor + 2;
@@ -1380,9 +1385,9 @@ pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<Property
     })
 }
 
-/// True for a line that starts like a typed property but gets the spacing
-/// wrong, such as `myVariable::number:42`. The whitespace after both `::` and
-/// `:` is part of the syntax.
+/// True for a line that starts like a typed property but has incorrect
+/// spaces, such as `myVariable::number:42`. The whitespace after `::` and
+/// after `:` is part of the syntax.
 fn misspaced_constraint(text: &str) -> bool {
     let name_len = text
         .char_indices()
@@ -1395,8 +1400,8 @@ fn misspaced_constraint(text: &str) -> bool {
         && parse_property_header(text, 0).is_none()
 }
 
-/// Length of a type constraint starting at `text`, which ends at the next `::`
-/// or at a `:` that is followed by a space or the end of the line.
+/// The length of a type constraint that starts at `text`. The constraint ends
+/// at the next `::`, or at a `:` before a space or the end of the line.
 fn constraint_length(text: &str) -> usize {
     let bytes: Vec<(usize, char)> = text.char_indices().collect();
     let mut i = 0;
@@ -1490,7 +1495,7 @@ fn parse_declaration_header(text: &str, start: usize) -> Option<DeclarationHeade
                     Span::new(base_span.start, base_span.start + trimmed.len()),
                     trimmed.to_string(),
                 ));
-                // Commas separate bases and may be attached to either side.
+                // Commas separate bases. A comma can touch either base.
                 let rest = body[cursor..].trim_start();
                 if !rest.starts_with(',') {
                     if base.ends_with(',') {
@@ -1522,7 +1527,7 @@ fn parse_declaration_header(text: &str, start: usize) -> Option<DeclarationHeade
 // Small helpers
 // ---------------------------------------------------------------------------
 
-/// The length of a backslash run when `text` is nothing but backslashes.
+/// The length of a backslash run when `text` contains only backslashes.
 fn backslash_run(text: &str) -> Option<usize> {
     if text.is_empty() || !text.chars().all(|c| c == '\\') {
         return None;
@@ -1535,7 +1540,7 @@ fn skip_spaces(text: &str, from: usize) -> usize {
     from + (text[from..].len() - text[from..].trim_start().len())
 }
 
-/// Where the word starting at `from` ends: at whitespace or a comma.
+/// Where the word that starts at `from` ends: at whitespace or a comma.
 fn word_end(text: &str, from: usize) -> usize {
     text[from..]
         .find(|c: char| c.is_whitespace() || c == ',')
@@ -1583,7 +1588,7 @@ pub(crate) fn merge_marker(code: &str) -> Option<(MergeOp, usize)> {
     None
 }
 
-/// Splits on commas that are not inside brackets, braces, or quotes.
+/// Splits on commas that are not in brackets, braces, or quotes.
 fn split_top_level(text: &str) -> Vec<(&str, usize)> {
     let mut parts = Vec::new();
     let mut depth = 0i32;
@@ -1605,7 +1610,7 @@ fn split_top_level(text: &str) -> Vec<(&str, usize)> {
     parts
 }
 
-/// Removes up to `indent` leading whitespace characters.
+/// Removes a maximum of `indent` whitespace characters from the start.
 fn strip_indent(text: &str, indent: usize) -> String {
     let mut removed = 0;
     let mut chars = text.char_indices();
@@ -1626,8 +1631,8 @@ fn strip_indent(text: &str, indent: usize) -> String {
 // Green tree construction
 // ---------------------------------------------------------------------------
 
-/// Replays the parser's events into a rowan green tree, filling every gap with
-/// trivia so the tree reproduces the source byte for byte.
+/// Replays the events of the parser into a rowan green tree. It fills each gap
+/// with trivia. Thus, the tree has the same bytes as the source.
 fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>) -> GreenNode {
     let mut builder = GreenNodeBuilder::new();
     let mut cursor = 0usize;
@@ -1639,7 +1644,7 @@ fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>
         }
         let text = &source[*cursor..to];
         for whole in split_trivia(text) {
-            // Indentation is whitespace, whatever follows it on the line.
+            // Indentation is whitespace, whatever text follows it on the line.
             let content = whole.trim_start_matches([' ', '\t']);
             let indent = &whole[..whole.len() - content.len()];
             if !indent.is_empty() {
@@ -1681,7 +1686,8 @@ fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>
                 let start = span.start.min(source.len());
                 let end = span.end.min(source.len());
                 if start < cursor {
-                    // Overlapping spans would corrupt the tree; skip and note it.
+                    // Overlapped spans corrupt the tree. Ignore this span and
+                    // record it.
                     continue;
                 }
                 emit_trivia(&mut builder, &mut cursor, start);
@@ -1694,7 +1700,7 @@ fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>
     }
 
     if depth == 0 && cursor < source.len() {
-        // The root node was closed with source still left over.
+        // The root node closed, but some source remained.
         diagnostics.push(Diagnostic::warning(
             "internal-tree",
             "syntax tree closed before the end of the file",
@@ -1791,8 +1797,8 @@ mod tests {
 
     #[test]
     fn any_space_free_key_is_a_property() {
-        // A key is anything that coerces to a string without spaces, keywords
-        // and numbers included.
+        // A key is a value that coerces to a string without spaces. This
+        // includes keywords and numbers.
         let parse = parse_str(
             "anchor A:\n    null: The absence of a value\n    anchor: core\n    string: A unicode string\n    123: numeric\n    foo-bar: hyphenated\n    false: boolean-looking\n",
         );
@@ -1807,7 +1813,7 @@ mod tests {
 
     #[test]
     fn a_keyword_followed_by_a_space_is_still_a_declaration() {
-        // The colon is what separates the two readings.
+        // The colon makes the two meanings different.
         let parse = parse_str("anchor MyAnchor:\n    v: 1\n");
         assert_clean(&parse);
         assert_eq!(parse.file.anchors().next().expect("anchor").name, "MyAnchor");
@@ -1890,8 +1896,8 @@ mod tests {
 
     #[test]
     fn code_fences_are_ordinary_text() {
-        // Code blocks are not escaped; what's inside is parsed like anything
-        // else.
+        // Code blocks are not escapes. The parser parses their content like
+        // all other text.
         let source = "anchor A:\n    body:\n        text\n\n        ```piton\n        key: value\n        - a list item\n        ```\n";
         let parse = parse_str(source);
         assert_clean(&parse);
@@ -1966,8 +1972,8 @@ mod tests {
 
     #[test]
     fn only_a_matching_run_closes_an_escape_block() {
-        // A longer or shorter run is content, which is what lets a block quote
-        // another block's delimiters.
+        // A longer or shorter run is content. Thus, a block can quote the
+        // delimiters of another block.
         let source = "anchor A:\n    body:\n        \\\\\n        \\\\\\\n        inner\n        \\\\\n";
         let parse = parse_str(source);
         let anchor = parse.file.anchors().next().expect("anchor");
@@ -2003,7 +2009,7 @@ mod tests {
 
     #[test]
     fn a_backslash_run_inside_a_line_keeps_its_inline_meaning() {
-        // Only a line that is *nothing but* backslashes delimits a block.
+        // Only a line with *only* backslashes is a delimiter of a block.
         let parse = parse_str("anchor A:\n    body: so \\ x \\ ends here\n");
         assert_clean(&parse);
         let anchor = parse.file.anchors().next().expect("anchor");
@@ -2139,7 +2145,7 @@ from ./a/b import b B2
                 SyntaxKind::KW_PASS,
             ]
         );
-        // The alias may come first, and the tree still follows the source.
+        // The alias can come first. The tree still follows the source.
         let flipped = "anchor T as t extends B:\n    pass\n";
         assert_eq!(kind_of(flipped, "B"), vec![SyntaxKind::IDENT]);
         assert_eq!(kind_of(flipped, "extends"), vec![SyntaxKind::KW_EXTENDS]);
@@ -2181,7 +2187,7 @@ from ./a/b import b B2
             assert_eq!(kind_of(&source, text).first().copied(), kind, "{line}");
         }
         assert_eq!(kind_of("anchor A:\n    l:\n        - null\n", "null"), vec![SyntaxKind::KW_NULL]);
-        // An inline list holds prose, and so does a composition line.
+        // An inline list holds prose. A composition line also holds prose.
         assert_eq!(kind_of("anchor A:\n    l: [1, 2]\n", "1"), vec![SyntaxKind::PROSE]);
         assert_eq!(kind_of("anchor A:\n    l:\n        + 3\n", "3"), vec![SyntaxKind::PROSE]);
     }
@@ -2313,7 +2319,7 @@ from ./a/b import b B2
         let anchor = parse.file.anchors().next().expect("anchor");
         let property = anchor.body.properties().next().expect("property");
         let inline = property.value.inline.as_ref().expect("inline");
-        // A comment has to be on its own line; after code, `//` is text.
+        // A comment must be on its own line. After code, `//` is text.
         assert_eq!(
             inline.segments,
             vec![ProseSegment::Text("value // not a comment".to_string())]

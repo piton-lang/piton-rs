@@ -1,9 +1,9 @@
 //! Project configuration.
 //!
-//! A `piton.config.pi` in the working directory configures a project: where the
-//! source root is, which file is the entry point, and which plugins are
-//! enabled. The configuration is itself Piton, so it is compiled the same way
-//! everything else is.
+//! A `piton.config.pi` in the working directory configures a project. It
+//! gives the source root, the entry point file and the enabled plugins. The
+//! configuration is also Piton. Thus the compiler compiles it as it compiles
+//! all other source.
 
 use std::path::{Path, PathBuf};
 
@@ -15,27 +15,27 @@ use crate::packages::{self, Dependency, PackageDecl};
 use crate::resolve;
 use crate::store::Symbol;
 
-/// The name of the configuration file the compiler looks for.
+/// The name of the configuration file that the compiler finds.
 pub const CONFIG_FILE: &str = "piton.config.pi";
 
-/// Where build output goes when the configuration does not say, relative to
-/// the configuration file.
+/// The location of the build output when the configuration does not give
+/// one. It is relative to the configuration file.
 pub const DEFAULT_OUTPUT: &str = "dist";
 
-/// The renderer a build uses when the configuration does not say.
+/// The renderer that a build uses when the configuration does not give one.
 pub const DEFAULT_RENDERER: &str = "json";
 
-/// The renderers a configuration may name, in their canonical spelling.
+/// The renderers that a configuration can name, in their canonical spelling.
 pub const RENDERERS: [&str; 3] = ["json", "yaml", "markdown"];
 
-/// The keyword a configuration anchor is declared with.
+/// The keyword that declares a configuration anchor.
 pub const CONFIG_KEYWORD: &str = "piton-config";
 
-/// The keyword a package declaration is written with.
+/// The keyword that a package declaration uses.
 pub const PACKAGE_KEYWORD: &str = "piton-package";
 
-/// Every key a `piton-config` anchor understands. Anything else is most likely
-/// a typo, and a typo in a configuration is silently ignored configuration.
+/// All keys that a `piton-config` anchor knows. A different key is almost
+/// always a typo. Without a warning, a typo makes a setting silently fail.
 pub const CONFIG_KEYS: [&str; 7] = [
     "root",
     "entry",
@@ -46,55 +46,57 @@ pub const CONFIG_KEYS: [&str; 7] = [
     "plugins",
 ];
 
-/// Keys a configuration used to have. Each is an error that says what to
-/// write instead, rather than a setting silently ignored.
+/// Keys that a configuration had in the past. Each one causes an error. The
+/// error tells what to write in its place. The compiler does not silently
+/// ignore the setting.
 const REMOVED_KEYS: [(&str, &str); 1] = [(
     "frameworks",
     "a framework is a plugin now: move each item under `plugins`, like `plugins:` with `- {BelayConfiguration}` beneath it",
 )];
 
-/// One anchor listed under `plugins` in the configuration.
+/// One anchor in the `plugins` list of the configuration.
 ///
-/// The configuration doesn't know which plugins exist: that is the plugin
-/// host's business, and some plugins are installed rather than bundled. So an
-/// entry is recorded as plain data, with enough to classify it later: every
-/// anchor in its inheritance chain and the module each is declared in, which
-/// tells a `piton-plugin` declaration from the settings anchor of a plugin.
+/// The configuration does not know which plugins exist. The plugin host
+/// knows this. The compiler does not bundle all plugins. A user installs some. Thus the entry
+/// records plain data. This data lets the host classify the entry later. It
+/// holds each anchor in the inheritance chain and the module of each anchor.
+/// With this data, the host can tell a `piton-plugin` declaration from the
+/// settings anchor of a plugin.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PluginEntry {
-    /// The anchor's name.
+    /// The name of the anchor.
     pub name: String,
-    /// The file the anchor is declared in.
+    /// The file that declares the anchor.
     pub file: PathBuf,
-    /// Where the anchor's name is, for a diagnostic about it.
+    /// The location of the anchor name, for a diagnostic about it.
     pub name_span: Span,
-    /// Every anchor in its chain, itself last, as (module path, name).
+    /// Each anchor in its chain as (module path, name). This anchor is last.
     pub chain: Vec<(String, String)>,
-    /// Its resolved properties, as JSON.
+    /// The resolved properties of the anchor, as JSON.
     pub properties: serde_json::Map<String, serde_json::Value>,
-    /// Where each property the anchor writes itself is named.
+    /// The name location of each property that the anchor itself writes.
     pub spans: Vec<(String, Span)>,
-    /// Every anchor its properties name, like the adapters a belay-config
-    /// lists, with its properties as JSON, so a plugin can read what a
-    /// setting points at.
+    /// Each anchor that its properties name, with its properties as JSON. An
+    /// example is the adapters in a belay-config list. Thus a plugin can read
+    /// the target of a setting.
     pub anchors: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
-    /// Where each anchor in `anchors` is declared, in the same order: its
-    /// file and the span of its name, so a plugin can point a diagnostic at
-    /// a setting's target.
+    /// The declaration of each anchor in `anchors`, in the same order. Each
+    /// item is the file and the span of the anchor name. Thus a plugin can
+    /// attach a diagnostic to the target of a setting.
     pub anchor_sites: Vec<(PathBuf, Span)>,
 }
 
 impl PluginEntry {
-    /// Whether `name`, declared in a module whose path starts with
-    /// `module_root` when one is given, is in this entry's chain.
+    /// Whether `name` is in the chain of this entry. If the caller gives
+    /// `module_root`, the module of `name` must have a path that starts with it.
     pub fn extends(&self, module_root: Option<&str>, name: &str) -> bool {
         self.chain.iter().any(|(module, anchor)| {
             anchor == name && module_root.map_or(true, |root| module == root || module.starts_with(&format!("{root}/")))
         })
     }
 
-    /// Where a property is named, or the anchor's name when it doesn't write
-    /// that property itself.
+    /// The location of a property name. If the anchor does not itself write
+    /// that property, this is the location of the anchor name.
     pub fn span_of(&self, property: &str) -> Span {
         self.spans
             .iter()
@@ -104,7 +106,8 @@ impl PluginEntry {
     }
 }
 
-/// Canonical spelling of a renderer name, or `None` when it names none.
+/// The canonical spelling of a renderer name, or `None` if it is not a
+/// renderer.
 pub fn canonical_renderer(text: &str) -> Option<&'static str> {
     match text.trim().to_ascii_lowercase().as_str() {
         "json" => Some("json"),
@@ -117,36 +120,40 @@ pub fn canonical_renderer(text: &str) -> Option<&'static str> {
 /// A resolved project.
 #[derive(Debug, Clone)]
 pub struct Project {
-    /// Directory the configuration was found in; output paths are relative to
-    /// it.
+    /// The directory that contains the configuration. Output paths are
+    /// relative to it.
     pub root: PathBuf,
-    /// Root that absolute module paths resolve against.
+    /// The root for the resolution of absolute module paths.
     pub source_root: PathBuf,
-    /// The file compilation starts from.
+    /// The file where compilation starts.
     pub entry: PathBuf,
-    /// Where `piton build` writes the renderer's output, absolute. `output` in
-    /// the configuration, relative to it; `./dist` when left out.
+    /// The absolute location where `piton build` writes the renderer output.
+    /// This comes from `output` in the configuration, relative to the
+    /// configuration. It is `./dist` if the configuration has no `output`.
     pub output_dir: PathBuf,
-    /// The renderer `piton build` writes with: `json`, `yaml`, or `markdown`.
-    /// `renderer` in the configuration; `json` when left out.
+    /// The renderer that `piton build` uses. It is `json`, `yaml`, or
+    /// `markdown`. This comes from `renderer` in the configuration. It is
+    /// `json` if the configuration has no `renderer`.
     pub renderer: String,
-    /// Whether the configuration asks for the renderer's output by setting
-    /// `output` or `renderer`. A project whose plugins build something gets
-    /// their output instead of the renderer's, unless it asks; a project
-    /// without one always gets the renderer's.
+    /// Whether the configuration sets `output` or `renderer` to ask for the
+    /// renderer output. If the plugins of a project build output, the project
+    /// gets that output and not the renderer output. The configuration can
+    /// ask for the renderer output too. A project without such plugins always
+    /// gets the renderer output.
     pub renders: bool,
     pub config_path: Option<PathBuf>,
-    /// Packages this project publishes, in declaration order.
+    /// The packages that this project publishes, in declaration order.
     pub packages: Vec<PackageDecl>,
-    /// Dependencies the project itself requires, with any version pins.
+    /// The dependencies that the project itself requires, with their version
+    /// pins.
     pub dependencies: Vec<Dependency>,
-    /// The anchors listed under `plugins`: plugin declarations and plugin
-    /// settings, in the order written.
+    /// The anchors in the `plugins` list, in the written order. These are
+    /// plugin declarations and plugin settings.
     pub plugins: Vec<PluginEntry>,
 }
 
 impl Project {
-    /// Builds a project for a single file, with no configuration.
+    /// Makes a project for a single file, with no configuration.
     pub fn for_file(path: &Path) -> Project {
         let directory = path
             .parent()
@@ -168,9 +175,9 @@ impl Project {
 
     /// The same project, compiled from a different file.
     ///
-    /// A command given one file still wants the project's roots, plugins and
-    /// packages: the file is part of that project, and resolving its imports
-    /// without them would answer a different question than the build does.
+    /// A command for one file still needs the roots, plugins and packages of
+    /// the project. The file is part of that project. Without them, import
+    /// resolution gives an answer that is different from the build.
     pub fn with_entry(&self, entry: &Path) -> Project {
         Project {
             entry: entry.to_path_buf(),
@@ -178,8 +185,8 @@ impl Project {
         }
     }
 
-    /// The roots module resolution needs: where absolute imports point, and
-    /// where installed packages live.
+    /// The roots that module resolution needs. These are the target of
+    /// absolute imports and the location of installed packages.
     pub fn roots(&self) -> module::Roots<'_> {
         module::Roots {
             source_root: &self.source_root,
@@ -188,9 +195,9 @@ impl Project {
     }
 }
 
-/// Finds the configuration file in `start` (or the directory of `start` when
-/// it names a file). The compiler reads a `piton.config.pi` in the current
-/// working directory; it does not look in the directories above it.
+/// Finds the configuration file in `start`. If `start` names a file, this
+/// uses the directory of `start`. The compiler reads a `piton.config.pi` in
+/// the current working directory. It does not search the directories above.
 pub fn find_config(start: &Path) -> Option<PathBuf> {
     let directory = if start.is_dir() {
         start.to_path_buf()
@@ -201,8 +208,8 @@ pub fn find_config(start: &Path) -> Option<PathBuf> {
     candidate.is_file().then_some(candidate)
 }
 
-/// Loads a project from an explicit configuration path, or from the
-/// configuration in `start`.
+/// Loads a project from an explicit configuration path. Without such a path,
+/// it loads the configuration in `start`.
 pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) {
     let mut diagnostics = DiagnosticSink::new();
     let config_path = match explicit {
@@ -212,7 +219,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
     };
 
     let Some(config_path) = config_path else {
-        // Without configuration the working directory is the project.
+        // Without a configuration, the working directory is the project.
         let root = if start.is_dir() {
             start.to_path_buf()
         } else {
@@ -240,7 +247,8 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // The configuration is compiled on its own, rooted at its own directory.
+    // The compiler compiles the configuration alone. Its root is its own
+    // directory.
     let resolution = resolve::resolve(&config_path, module::Roots::flat(&root));
     let outcome = eval::evaluate(&resolution);
     diagnostics.extend(resolution.diagnostics.iter().cloned());
@@ -325,10 +333,10 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         .map(|value| module::normalize(&root.join(value)))
         .unwrap_or_else(|| root.clone());
 
-    // The entry is optional and defaults to the root. A root is a directory,
-    // and a directory is a module through its `index.pi` -- the same rule an
-    // import written against a directory follows, so a project and an import
-    // agree about what a directory means.
+    // The entry is optional. The default entry is the root. A root is a
+    // directory. A directory is a module through its `index.pi`. An import of
+    // a directory obeys the same rule. Thus a project and an import agree
+    // about the meaning of a directory.
     let entry = module_entry(
         properties
             .get("entry")
@@ -386,8 +394,9 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
         }
     }
 
-    // A framework decides where its own output goes, so the renderer's copy
-    // is only written when the configuration asks for it by name.
+    // A framework decides the location of its own output. Thus the build
+    // writes the renderer copy only when the configuration asks for it by
+    // name.
     let renders = written
         .iter()
         .any(|property| property.name == "output" || property.name == "renderer");
@@ -409,7 +418,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
     )
 }
 
-/// Records one anchor listed under `plugins`.
+/// Records one anchor in the `plugins` list.
 fn plugin_entry(
     resolution: &resolve::Resolution,
     outcome: &eval::Outcome,
@@ -466,7 +475,8 @@ fn plugin_entry(
     }
 }
 
-/// The anchors a set of properties names, at any depth, each once, in order.
+/// The anchors that a set of properties names, at all depths. Each anchor
+/// occurs once, in order.
 fn named_anchors(properties: Option<&piton_core::Properties>) -> Vec<AnchorId> {
     fn walk(value: &Value, out: &mut Vec<AnchorId>) {
         match value {
@@ -484,7 +494,7 @@ fn named_anchors(properties: Option<&piton_core::Properties>) -> Vec<AnchorId> {
     out
 }
 
-/// The configuration's anchors, as the JSON view reads them.
+/// The anchors of the configuration, in the form that the JSON view reads.
 struct OutcomeView<'a> {
     resolution: &'a resolve::Resolution,
     outcome: &'a eval::Outcome,
@@ -513,12 +523,14 @@ impl piton_core::AnchorView for OutcomeView<'_> {
     }
 }
 
-/// Reads one `piton-package` anchor from the configuration's `packages` list.
+/// Reads one `piton-package` anchor from the `packages` list of the
+/// configuration.
 ///
-/// A package names a directory of this project that is published on its own,
-/// and the dependencies that directory needs. The name it installs under is
-/// its `name` when it has one and its anchor name otherwise, which is what lets
-/// a package be called something an anchor cannot, like `my-package`.
+/// A package names a directory of this project that the project publishes
+/// alone. It also names the dependencies of that directory. The install name
+/// is its `name`, if it has one. If not, the install name is its anchor name.
+/// Thus a package can have a name that an anchor cannot have, like
+/// `my-package`.
 fn read_package(
     resolution: &resolve::Resolution,
     outcome: &eval::Outcome,
@@ -588,9 +600,9 @@ fn read_package(
     })
 }
 
-/// The properties an anchor's own declaration writes, as the syntax tree has
-/// them. Inherited properties are not included, which is the point: these are
-/// the ones with a place in the source to point a diagnostic at.
+/// The properties that the declaration of an anchor itself writes, as they
+/// are in the syntax tree. This does not include inherited properties. That
+/// is intentional. These properties have a source location for a diagnostic.
 fn written_properties(
     resolution: &resolve::Resolution,
     anchor: AnchorId,
@@ -602,7 +614,7 @@ fn written_properties(
     }
 }
 
-/// Warns about keys a `piton-config` anchor does not understand.
+/// Warns about keys that a `piton-config` anchor does not know.
 fn warn_unknown_keys(
     written: &[piton_syntax::ast::Property],
     config_path: &Path,
@@ -636,7 +648,8 @@ fn warn_unknown_keys(
     }
 }
 
-/// The pins an anchor's `dependencies` are written with, and where the list is.
+/// The written pins of the `dependencies` of an anchor, and the location of
+/// the list.
 fn dependency_literals(
     resolution: &resolve::Resolution,
     anchor: AnchorId,
@@ -655,7 +668,7 @@ fn dependency_literals(
         .unwrap_or_else(|| (Vec::new(), def.name_span))
 }
 
-/// Resolves a configured path to the file compilation starts from.
+/// Resolves a configured path to the file where compilation starts.
 fn module_entry(path: PathBuf) -> PathBuf {
     if path.is_dir() {
         return path.join("index.pi");

@@ -1,8 +1,8 @@
-//! Declaration storage.
+//! Stores declarations.
 //!
-//! Anchors and variables are registered once and then referred to by id, so the
-//! resolver can build graphs over them without fighting the borrow checker for
-//! access to the syntax trees they came from.
+//! The store records each anchor and variable one time. Other code then uses
+//! its id. Thus the resolver can make graphs over them. It does not need access
+//! to their syntax trees, and so it has no conflict with the borrow checker.
 
 use indexmap::IndexMap;
 use piton_core::{AnchorId, Properties, Span, Value};
@@ -21,55 +21,55 @@ pub enum Symbol {
     Variable(VariableId),
 }
 
-/// Where a property's declaration lives, so the evaluator can find its syntax
-/// and report the originating anchor when something fails.
+/// The location of the declaration of a property. The evaluator uses it to
+/// find the syntax. When an error occurs, the evaluator reports the source anchor.
 #[derive(Debug, Clone)]
 pub struct Slot {
-    /// The anchor whose body declares the value used for this property.
+    /// The anchor whose body declares the value of this property.
     pub owner: AnchorId,
-    /// Index into `owner`'s body properties.
+    /// The index into the body properties of `owner`.
     pub index: usize,
-    /// Constraints in effect, taken from the right-most declaration that
-    /// supplied any.
+    /// The constraints in effect. They come from the right-most declaration
+    /// that has constraints.
     pub constraints: Vec<TypeConstraint>,
-    /// False when only an abstract slot was declared and no value was given.
+    /// False when the declaration gives only an abstract slot and no value.
     pub has_value: bool,
     pub span: Span,
 }
 
-/// A registered anchor declaration.
+/// An anchor declaration in the store.
 #[derive(Debug, Clone)]
 pub struct AnchorDef {
     pub id: AnchorId,
     pub module: ModuleId,
-    /// Index into the module's top-level items.
+    /// The index into the top-level items of the module.
     pub item: usize,
     pub name: String,
     pub name_span: Span,
     pub span: Span,
     pub exported: bool,
     pub is_abstract: bool,
-    /// `anchor`, or the user keyword that introduced the declaration.
+    /// `anchor`, or the user keyword at the start of the declaration.
     pub keyword: String,
     /// The keyword this anchor declares with `as`.
     pub alias: Option<String>,
-    /// Bases in inheritance order: `extends` left to right, then the keyword's
-    /// anchor, which is always last so it wins collisions.
+    /// Bases in inheritance order. First come the `extends` bases from left to
+    /// right. The anchor of the keyword is always last. Thus it wins collisions.
     pub bases: Vec<AnchorId>,
-    /// Properties in output order, each pointing at the declaration that wins.
+    /// Properties in output order. Each property refers to the declaration that wins.
     pub slots: IndexMap<String, Slot>,
-    /// Resolved values, filled during evaluation.
+    /// Resolved values. The evaluator fills them.
     pub properties: Properties,
 }
 
 impl AnchorDef {
-    /// Every anchor in this one's inheritance chain, nearest first.
+    /// All anchors in the inheritance chain of this anchor, nearest first.
     pub fn is_concrete(&self) -> bool {
         !self.is_abstract
     }
 }
 
-/// A registered top-level variable.
+/// A top-level variable in the store.
 #[derive(Debug, Clone)]
 pub struct VariableDef {
     pub id: VariableId,
@@ -121,8 +121,8 @@ impl Store {
         id
     }
 
-    /// True when `candidate` appears anywhere in `anchor`'s inheritance chain,
-    /// which is what the `extends T` constraint form tests.
+    /// True when `candidate` is in the inheritance chain of `anchor`. The
+    /// `extends T` constraint form makes this test.
     pub fn inherits_from(&self, anchor: AnchorId, candidate: AnchorId) -> bool {
         if anchor == candidate {
             return true;
@@ -142,8 +142,8 @@ impl Store {
         false
     }
 
-    /// The chain an anchor inherits from, nearest base last, in the order
-    /// property collisions are resolved.
+    /// The chain of bases of an anchor, nearest base last. This is the order
+    /// in which the resolver resolves property collisions.
     pub fn base_chain(&self, anchor: AnchorId) -> Vec<AnchorId> {
         let mut out = Vec::new();
         let mut seen = Vec::new();

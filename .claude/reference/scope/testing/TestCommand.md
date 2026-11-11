@@ -78,7 +78,7 @@ PITON-VERDICT: {"pass": true, "reason": "SaveButton's onClick calls saveDocument
 PITON-VERDICT: {"pass": false, "reason": "No handler saves the document", "explanation": "The Save button has no click handler. No function in src writes the document to disk.", "fix": "Add a click handler to SaveButton in src/editor.ts. Make the handler call saveDocument."}
 ```
 Every tool is run in its own non-interactive mode, read-only wherever the tool can enforce it. Asking is not enforcement, so the command never claims more than the tool provides: Claude is limited to reading and searching, Codex runs in its read-only sandbox, OpenCode has editing and the shell denied, and Muse relies on its own default sandbox.
-OpenCode takes extra instructions only as a file, so the fluency prompt is written to a temporary file for the run and removed when the run ends. Writing it is why the plugin declares temporary files among its capabilities, as running the four tools is why it declares them.
+Each tool gets the prompt Belay gives it, as `piton agent` does. Claude and OpenCode read the full fluency prompt from a temporary file, written for the run and removed when the run ends; Belay writes it, with its own capabilities. Codex and Muse take their instructions only as an argument, which the operating system limits in size, so they get Belay's short prompt, which tells them to read the piton-fluency skill, or a temporary file holding the reference when no build wrote the skill. The plugin declares temporary files among its capabilities, as running the four tools is why it declares them.
 
 ## Explanation
 
@@ -131,10 +131,10 @@ After the agent is chosen, a second menu lists its models, with Default model fi
 ## Launch
 
 ```
-claude: claude -p <request> --append-system-prompt <fluency> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose
-codex: codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<fluency as a TOML string> <request>
+claude: claude -p <request> --append-system-prompt-file <fluency file> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose
+codex: codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<short prompt as a TOML string> <request>
 opencode: opencode run --standalone <request>, with OPENCODE_CONFIG_CONTENT naming the fluency file as instructions and denying edit and bash
-muse: muse exec -c run.developer_prompt=<fluency as a JSON string> <request>, inside Muse's own sandbox
+muse: muse exec -c run.developer_prompt=<short prompt as a JSON string> <request>, inside Muse's own sandbox
 model: With a model, each tool also gets its model option before the request, as `piton agent` gives it.
 ```
 

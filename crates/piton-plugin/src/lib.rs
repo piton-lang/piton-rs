@@ -1,10 +1,11 @@
-//! Plugins: commands and behaviour added to Piton in TypeScript, run in
-//! QuickJS.
+//! Plugins add commands and behaviour to Piton. A plugin uses TypeScript, and
+//! QuickJS runs it.
 //!
-//! A plugin is declared in Piton, with a `piton-plugin` anchor that names its
-//! commands, their arguments and what it may do on the machine, and written in
-//! TypeScript, which Piton transpiles and runs itself. See
-//! `spec/scope/plugins` for the whole design.
+//! Piton source declares a plugin with a `piton-plugin` anchor. The anchor
+//! names the commands of the plugin and their arguments. It also tells what
+//! the plugin can do on the machine. The code of the plugin is TypeScript.
+//! Piton transpiles and runs this code itself. See `spec/scope/plugins` for
+//! the full design.
 
 pub mod bundled;
 pub mod host;

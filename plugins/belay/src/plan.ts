@@ -20,6 +20,7 @@ import {
 } from "./adapters";
 import { type Construct, Constructs, metadataProperties } from "./constructs";
 import { error, warning } from "./diagnostics";
+import { FLUENCY_SKILL, skillFile } from "./fluency";
 import { Draft } from "./draft";
 import { instructionSection, renderAgent, renderCommand, renderSkill, type InstructionSection } from "./artifacts";
 import { kebabCase } from "./names";
@@ -409,6 +410,20 @@ function buildTarget(
         break;
       }
     }
+  }
+
+  // Belay writes the Piton fluency reference as a skill. A target does not
+  // write it when its tool finds the copy of another target.
+  if (sharing.skillSource(target) === null) {
+    draft.push({
+      path: skillPath(target, FLUENCY_SKILL),
+      contents: skillFile(source.ctx),
+      kind: "skill",
+      target: target.id,
+      origin: "Piton fluency",
+      copied: null,
+      anchors: [],
+    });
   }
 
   // Belay combines the guidance for one scope into one file for each target,

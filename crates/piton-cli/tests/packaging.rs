@@ -1,12 +1,12 @@
 //! End-to-end tests for the four package commands.
 //!
-//! Each builds a real git repository in a temporary directory and tethers it
-//! into a real project, because what is being tested is exactly the part that
-//! cannot be faked: cloning, un-gitting, the lock file that records what was
-//! installed, and the refusal to overwrite files someone has edited.
+//! Each test builds a real git repository in a temporary directory. It
+//! tethers the repository into a real project. These tests examine the part
+//! that a fake cannot replace. That part is the clone, the un-git, the lock
+//! file of the install, and the refusal to overwrite edited files.
 //!
-//! They are skipped when git is not installed, since without it there is no
-//! package source to speak of.
+//! When the machine does not have git, the tests do not run. Without git, there is no
+//! package source.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -68,7 +68,7 @@ impl Sandbox {
         self.dir.join(relative).exists()
     }
 
-    /// Runs `piton` in the consuming project.
+    /// Runs `piton` in the consumer project.
     fn piton(&self, args: &[&str]) -> (String, String, i32) {
         let output = Command::new(binary())
             .args(args)
@@ -112,14 +112,14 @@ impl Sandbox {
         );
     }
 
-    /// The source path the app declares its dependency as.
+    /// The source path that the app declares for its dependency.
     fn source(&self) -> String {
         self.repo().to_string_lossy().to_string()
     }
 }
 
-/// A repository that publishes one package called `dep-lib`, and a project that
-/// imports it.
+/// A repository that publishes one package with the name `dep-lib`, and a
+/// project that imports it.
 fn fixture(name: &str) -> Option<Sandbox> {
     if !git_available() {
         eprintln!("skipped: git is not installed, so there is no package source to clone");
@@ -149,7 +149,7 @@ piton-package DepPackage:
         "repo/spec/Anchors.pi",
         "export anchor Button as button:\n    label: Save\n",
     );
-    // A file outside the package root, which must not be installed.
+    // A file outside the package root. The install must not copy it.
     sandbox.write("repo/README.md", "not part of the package\n");
     sandbox.git(&sandbox.repo(), &["init", "-q", "."]);
     sandbox.commit("one");
@@ -194,7 +194,7 @@ fn tethering_installs_the_published_package_without_its_repository() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("tethers/dep-lib"), "{stdout}");
 
-    // The package root was installed, not the repository around it.
+    // The install copied the package root, not the full repository.
     assert!(sandbox.exists("app/tethers/dep-lib/index.pi"));
     assert!(sandbox.exists("app/tethers/dep-lib/Anchors.pi"));
     assert!(!sandbox.exists("app/tethers/dep-lib/README.md"));
@@ -205,7 +205,7 @@ fn tethering_installs_the_published_package_without_its_repository() {
     assert!(lock.contains("\"name\": \"dep-lib\""), "{lock}");
     assert!(lock.contains("\"index.pi\""), "{lock}");
 
-    // And the project compiles against it, through the package name.
+    // Also, the project compiles with it, through the package name.
     let (stdout, stderr, code) = sandbox.piton(&["compile", "spec/index.pi"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("\"label\": \"Save\""), "{stdout}");
@@ -229,7 +229,7 @@ fn updating_moves_a_package_to_the_newest_commit() {
     assert!(stdout.contains("updated dep-lib"), "{stdout}");
     assert!(sandbox.read("app/tethers/dep-lib/Anchors.pi").contains("Submit"));
 
-    // Running it again reports no change rather than rewriting the tree.
+    // A second run reports no change. It does not write the tree again.
     let (stdout, stderr, code) = sandbox.piton(&["update"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("0 of 1 package changed"), "{stdout}");
@@ -257,8 +257,8 @@ fn an_edited_package_is_not_overwritten() {
     assert!(stderr.contains("untether"), "{stderr}");
     assert_eq!(sandbox.read("app/tethers/dep-lib/Anchors.pi"), edited);
 
-    // Asked for a diff, the refusal still shows the edit itself: the file as
-    // it was installed against what is on disk now.
+    // With a diff, the refusal still shows the edit. It compares the installed
+    // file with the current file on disk.
     let (stdout, stderr, code) = sandbox.piton(&["update", "--diff"]);
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("has been modified"), "{stderr}");
@@ -267,7 +267,7 @@ fn an_edited_package_is_not_overwritten() {
     assert!(stdout.contains("  2 │+    label: Edited locally"), "{stdout}");
     assert_eq!(sandbox.read("app/tethers/dep-lib/Anchors.pi"), edited);
 
-    // Removing it is refused for the same reason.
+    // The removal fails for the same reason.
     let (_, stderr, code) = sandbox.piton(&["remove", "dep-lib"]);
     assert_eq!(code, 1, "{stderr}");
     assert!(sandbox.exists("app/tethers/dep-lib/Anchors.pi"));
@@ -292,19 +292,20 @@ fn a_forced_update_discards_the_edits_and_shows_the_diff() {
     let (stdout, stderr, code) = sandbox.piton(&["update", "--force", "--diff"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(sandbox.read("app/tethers/dep-lib/Anchors.pi").contains("Submit"));
-    // The edits it threw away are said to be gone...
+    // The command reports the discarded edits...
     assert!(stderr.contains("discarded the local changes to `dep-lib`"), "{stderr}");
     assert!(stderr.contains("Anchors.pi"), "{stderr}");
-    // ...and the diff runs from what was on disk to what is there now.
+    // ...and the diff goes from the old file on disk to the new file.
     assert!(stdout.contains("1 file changed:"), "{stdout}");
     assert!(stdout.contains("\ntethers/dep-lib/Anchors.pi\n"), "{stdout}");
-    // Every line carries its old and new line number: context both, a
-    // removed line only the old, an added line only the new.
+    // Each line shows its old and new line number. Context shows the two
+    // numbers. A removed line shows only the old. An added line shows only the
+    // new.
     assert!(stdout.contains("1 1 │ export anchor Button as button:"), "{stdout}");
     assert!(stdout.contains("2   │-    label: Edited locally"), "{stdout}");
     assert!(stdout.contains("  2 │+    label: Submit"), "{stdout}");
 
-    // With nothing edited and nothing new, a diff has nothing to show.
+    // When there are no edits and no new files, a diff shows nothing.
     let (stdout, stderr, code) = sandbox.piton(&["update", "--diff"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stdout.contains("│"), "{stdout}");
@@ -345,7 +346,7 @@ button Cancel:
         rewritten.contains("from /untethered/dep-lib import Button\n"),
         "{rewritten}"
     );
-    // The deeper path keeps everything after the package name.
+    // The deeper path keeps all the text after the package name.
     assert!(
         rewritten.contains("from /untethered/dep-lib/Anchors import Button ButtonAgain"),
         "{rewritten}"
@@ -374,7 +375,7 @@ fn untethering_can_rename_and_can_leave_imports_alone() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("spec/untethered/vendor/buttons"), "{stdout}");
     assert!(sandbox.exists("app/spec/untethered/vendor/buttons/index.pi"));
-    // Nothing was rewritten, and the imports that still name it are listed.
+    // The command changed no file. It lists the imports that still name it.
     assert_eq!(sandbox.read("app/spec/index.pi"), before);
     assert!(stdout.contains("still name"), "{stdout}");
 }
@@ -396,7 +397,8 @@ fn removing_refuses_while_something_still_imports_it() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("removed dep-lib"), "{stdout}");
     assert!(!sandbox.exists("app/tethers"));
-    // And it is gone from the configuration, so no update brings it back.
+    // Also, it is not in the configuration now. Thus no update installs it
+    // again.
     assert!(stdout.contains("dropped"), "{stdout}");
 }
 
@@ -428,7 +430,7 @@ export piton-config App:
 
     let (stdout, stderr, code) = sandbox.piton(&["tether", &sandbox.source()]);
     assert_eq!(code, 0, "{stderr}");
-    // Named after the repository, since nothing else named it.
+    // The name comes from the repository, because no other source gave a name.
     assert!(stdout.contains("tethers/repo"), "{stdout}");
     assert!(sandbox.exists("app/tethers/repo/index.pi"));
 
@@ -437,8 +439,8 @@ export piton-config App:
     assert!(stdout.contains("\"kind\": \"bare\""), "{stdout}");
 }
 
-/// Commits everything in `directory` with a fixed date, so which of two commits
-/// is newest does not depend on how fast the test runs.
+/// Commits all files in `directory` with a fixed date. Thus the newest of two
+/// commits does not change with the speed of the test.
 fn commit_at(directory: &Path, message: &str, date: &str) {
     for args in [
         &["add", "-A"][..],
@@ -475,13 +477,13 @@ fn a_package_dependency_is_installed_flat_and_project_dependencies_are_not() {
     }
     let sandbox = Sandbox::new("transitive");
 
-    // What the published package needs.
+    // The dependencies of the published package.
     let base = sandbox.dir.join("base");
     sandbox.write("base/index.pi", "export anchor Base:\n    depth: 1\n");
     sandbox.git(&base, &["init", "-q", "."]);
     commit_at(&base, "one", "2026-01-01T00:00:00Z");
 
-    // What the repository needs for its own work, and nobody using it does.
+    // The dependencies for work on the repository. Its users do not need them.
     let tooling = sandbox.dir.join("tooling");
     sandbox.write("tooling/index.pi", "export anchor Tooling:\n    depth: 1\n");
     sandbox.git(&tooling, &["init", "-q", "."]);
@@ -531,10 +533,10 @@ export piton-config App:
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("tethers/middle"), "{stdout}");
     assert!(stdout.contains("tethers/base"), "{stdout}");
-    // Flat: the package's dependency sits beside the package, not inside it.
+    // Flat. The dependency of the package is next to the package, not in it.
     assert!(sandbox.exists("app/tethers/base/index.pi"));
     assert!(!sandbox.exists("app/tethers/middle/tethers"));
-    // And the repository's own project dependency stayed where it belongs.
+    // Also, the project dependency of the repository stayed in its location.
     assert!(!sandbox.exists("app/tethers/tooling"), "{stdout}");
 }
 
@@ -555,8 +557,8 @@ fn two_packages_asking_for_different_versions_get_the_newest_and_a_warning() {
     sandbox.write("shared/index.pi", "export anchor Shared:\n    version: two\n");
     commit_at(&shared, "two", "2026-02-01T00:00:00Z");
 
-    // The package the project tethers pins the tag; the project itself does
-    // not, so the two declarations disagree.
+    // The package that the project tethers pins the tag. The project does not
+    // pin it. Thus the two declarations do not agree.
     sandbox.write(
         "repo/piton.config.pi",
         &format!(
@@ -609,8 +611,8 @@ export piton-config App:
         "the disagreement was not reported: {stderr}"
     );
 
-    // One copy, and it is the newest commit: the default branch's `two`, not
-    // the older tagged `one`.
+    // One copy, from the newest commit. That is `two` on the default branch,
+    // not the older tagged `one`.
     assert!(
         sandbox.read("app/tethers/shared/index.pi").contains("version: two"),
         "the older commit won: {}",
@@ -653,12 +655,12 @@ export piton-config App:
     );
     assert!(sandbox.exists("app/tethers/dep-lib/index.pi"));
 
-    // Tethering it again does not list it twice.
+    // A second tether does not list it two times.
     let before = sandbox.read("app/piton.config.pi");
     assert_eq!(sandbox.piton(&["tether", &sandbox.source()]).2, 0);
     assert_eq!(sandbox.read("app/piton.config.pi"), before);
 
-    // And removing it drops it again.
+    // Also, the removal removes it from the list again.
     sandbox.write("app/spec/index.pi", "export anchor Screen:\n    primary: none\n");
     let (stdout, stderr, code) = sandbox.piton(&["remove", "dep-lib"]);
     assert_eq!(code, 0, "{stderr}");
@@ -802,7 +804,7 @@ export piton-config App:
     entry: ./spec/index.pi
 ",
     );
-    // Work nobody committed is not part of what gets tethered.
+    // The tether does not include work without a commit.
     sandbox.write("repo/spec/Draft.pi", "draft: 1\n");
 
     let (stdout, stderr, code) = sandbox.piton(&["tether", "../repo"]);
@@ -843,7 +845,8 @@ export piton-config App:
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("\"kind\": \"plain\""), "{stdout}");
 
-    // With no commits to compare, an update notices that the files moved.
+    // There are no commits to compare. But an update sees that the files
+    // changed.
     let (stdout, _, _) = sandbox.piton(&["update"]);
     assert!(stdout.contains("0 of 1"), "{stdout}");
     sandbox.write("shared-kit/More.pi", "more: 1\n");
@@ -889,8 +892,8 @@ export piton-config App:
     assert!(!sandbox.exists("app/tethers"));
 }
 
-/// A second repository at `name`, publishing one package called `package`
-/// that requires `requires`, when given.
+/// A second repository at `name`. It publishes one package with the name
+/// `package`. That package needs `requires`, if the caller gives it.
 fn other_repository(sandbox: &Sandbox, name: &str, package: &str, requires: Option<&str>) -> String {
     let dependencies = requires
         .map(|source| format!("    dependencies:\n        - {source}\n"))
@@ -948,7 +951,7 @@ fn tethering_a_source_whose_package_name_is_taken_changes_nothing() {
         "the installed package was replaced"
     );
 
-    // Under another name it does not conflict, and is recorded.
+    // With a different name, there is no conflict, and the lock records it.
     let (_, stderr, code) = sandbox.piton(&["tether", &other, "--as", "other-lib"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(sandbox.exists("app/tethers/other-lib/index.pi"));
@@ -967,7 +970,8 @@ fn tethering_a_source_that_fails_is_not_recorded() {
     assert!(stderr.contains("was not added"), "{stderr}");
     assert_eq!(sandbox.read("app/piton.config.pi"), config);
 
-    // A package whose own dependency can't be fetched places nothing at all.
+    // When the fetch of a dependency of a package fails, the install puts no
+    // files in place.
     let other = other_repository(&sandbox, "other", "other-lib", Some(&missing));
     let (_, stderr, code) = sandbox.piton(&["tether", &other]);
     assert_ne!(code, 0, "{stderr}");

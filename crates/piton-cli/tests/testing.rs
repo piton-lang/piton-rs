@@ -1,8 +1,8 @@
 //! `piton test`, end to end, with a stand-in for the agentic tool.
 //!
-//! The tool is a shell script put first on PATH, so these run only where a
-//! shell does. It answers by keyword and records what it was asked, which is
-//! what lets a test check the request without a model in the loop.
+//! The tool is a shell script at the start of PATH. Thus these tests run only
+//! where a shell runs. The script answers by keyword. It records the request.
+//! Thus a test can check the request without a model.
 
 #![cfg(unix)]
 
@@ -29,8 +29,8 @@ impl Drop for Fixture {
     }
 }
 
-/// A stand-in `claude`: it records its arguments under `calls/`, then gives
-/// a verdict chosen by what the request says.
+/// A stand-in `claude`. It records its arguments under `calls/`. Then it gives
+/// a verdict that agrees with the request text.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 dir="$(dirname "$0")/../calls"
 mkdir -p "$dir"
@@ -79,7 +79,7 @@ impl Fixture {
         )
     }
 
-    /// The arguments of every call the stand-in recorded.
+    /// The arguments of each call that the stand-in recorded.
     fn calls(&self) -> Vec<Vec<String>> {
         let Ok(entries) = std::fs::read_dir(self.dir.join("calls")) else {
             return Vec::new();
@@ -136,16 +136,18 @@ fn exported_tests_are_judged_and_failures_fail_the_run() {
     assert!(stdout.contains("App sets a name"), "{stdout}");
     assert!(stdout.contains("✗ FAIL   SaveWorks"), "{stdout}");
     assert!(stdout.contains("         spec/tests/App.pi\n"), "{stdout}");
-    // A failure is explained beneath its reason, in ASD-STE100. Each is one
-    // line, with no bar, so it copies as plain text.
+    // The explanation of a failure is below its reason, in ASD-STE100. Each
+    // explanation is one line, with no bar. Thus it copies as plain text.
     assert!(stdout.contains("         nothing saves\n         The Save button has no click handler.\n"), "{stdout}");
     assert!(!stdout.contains("│"), "{stdout}");
-    // What didn't pass is listed again at the end.
+    // The failed tests show again at the end.
     assert!(stdout.contains("Not passing\n  ✗ FAIL   SaveWorks  spec/tests/App.pi (spec pass, code FAIL)"), "{stdout}");
-    // Judged against both, it shows each side's result.
+    // When the judge uses the two sides, the output shows the result of each
+    // side.
     assert!(stdout.contains("         spec ✓ pass  The spec says Save saves.\n         code ✗ FAIL  No handler saves.\n"), "{stdout}");
-    // A failure comes with a prompt to fix it, whole and unwrapped, last. A
-    // test judged against both fixes both.
+    // A failure has a prompt to correct it. The prompt is last, complete, and
+    // not wrapped. When the judge uses the two sides, the prompt corrects the
+    // two sides.
     let prompts = stdout.split("Fix prompts\n").nth(1).unwrap_or_else(|| panic!("{stdout}"));
     assert!(prompts.contains("── SaveWorks ──"), "{prompts}");
     assert!(
@@ -161,16 +163,17 @@ fn exported_tests_are_judged_and_failures_fail_the_run() {
     assert!(prompts.contains("- Change the specification and the code. After the fix, they must agree.\n"), "{prompts}");
     assert!(prompts.contains("- Do not change the test.\n"), "{prompts}");
     assert!(prompts.ends_with("run `piton test SaveWorks --against both`.\n"), "{prompts}");
-    // Only failures get one: a passing test doesn't.
+    // Only failures get a prompt. A test that passes does not get one.
     assert!(!prompts.contains("AppHasName"), "{prompts}");
     assert!(!stdout.contains("Unexported"), "{stdout}");
     assert!(stderr.contains("2 tests: 1 passed, 1 failed in 0:0"), "{stderr}");
-    // Piped, each test says when it starts, rather than drawing a status
-    // block, and each result says how long it took.
+    // In a pipe, each test tells when it starts. It does not draw a status
+    // block. Each result tells its duration.
     assert!(stderr.contains("running AppHasName"), "{stderr}");
     assert!(stderr.contains("running SaveWorks"), "{stderr}");
     assert!(stdout.contains("✓ pass   AppHasName"), "{stdout}");
-    // Unreached by the entry, the tests still ran: two calls, one each.
+    // The entry does not reach the tests, but they ran. There are two calls,
+    // one for each test.
     assert_eq!(fixture.calls().len(), 2);
 }
 
@@ -182,7 +185,8 @@ fn the_tool_runs_headless_and_read_only() {
     assert_eq!(calls.len(), 1, "{calls:?}");
     let call = request_of(&calls, "has a name");
     assert_eq!(call[0], "-p");
-    assert!(call.iter().any(|arg| arg == "--append-system-prompt"));
+    // Claude reads the fluency prompt from a temporary file.
+    assert!(call.iter().any(|arg| arg == "--append-system-prompt-file"));
     assert!(call.iter().any(|arg| arg == "Edit,Write,NotebookEdit,Bash"));
     assert!(call.iter().any(|arg| arg.contains("PITON-VERDICT:")));
     assert!(call.iter().any(|arg| arg.contains("ASD-STE100")));
@@ -196,7 +200,7 @@ fn the_flag_beats_the_test_and_the_test_beats_the_config() {
     assert_eq!(code, 0);
     assert!(stdout.contains("spec/tests/App.pi\n  AppHasName  against spec\n"), "{stdout}");
     assert!(stdout.contains("  SaveWorks  against code\n"), "{stdout}");
-    // Listing runs nothing.
+    // The list runs no test.
     assert!(fixture.calls().is_empty());
 
     let (stdout, _, _) = fixture.run(&["test", "--list", "--against", "both"]);
@@ -320,11 +324,11 @@ export test Untagged:
     assert_eq!(listed(&["--tags", "editor"]), ["Opens", "Saves"]);
     assert_eq!(listed(&["--tags", "editor and save"]), ["Saves"]);
     assert_eq!(listed(&["--tags", "editor not save"]), ["Opens"]);
-    // A leading not keeps untagged tests.
+    // A "not" at the start keeps tests without tags.
     assert_eq!(listed(&["--tags", "not editor"]), ["Slow", "Untagged"]);
     assert_eq!(listed(&["--tags", "((editor and save) not slow) or slow"]), ["Saves", "Slow"]);
     assert_eq!(listed(&["--tags", "!(editor || slow)"]), ["Untagged"]);
-    // With a target, both have to select a test.
+    // With a target, the two must select a test.
     assert_eq!(listed(&["Saves", "Slow", "--tags=slow"]), ["Slow"]);
 
     let (_, stderr, code) = fixture.run(&["test", "--tags", "(editor and"]);
@@ -361,7 +365,7 @@ fn a_fix_prompt_aims_at_what_the_test_examines() {
     assert!(spec.contains("Then run `piton check` and `piton build`."), "{spec}");
     assert!(spec.ends_with("run `piton test SaveWorks --against spec`.\n"), "{spec}");
 
-    // The tool is asked for a fix aimed the same way.
+    // The request to the tool asks for a correction with the same direction.
     let calls = fixture.calls();
     assert!(calls.iter().any(|call| call.iter().any(|arg| arg.contains("Do not change the specification."))));
     assert!(calls.iter().any(|call| call.iter().any(|arg| arg.contains("Do not change the code."))));
@@ -375,15 +379,15 @@ fn against_both_a_test_fails_when_one_side_fails() {
         "use @piton/test\n\nexport test Split:\n    expects: The two halves split apart\n\nexport test SpecOnly:\n    expects: The two halves split apart\n    against: spec\n",
     );
     let (stdout, stderr, code) = fixture.run(&["test", "Split"]);
-    // The tool said pass, but the code doesn't hold: the test fails, and the
-    // two results show why.
+    // The tool said "pass", but the code is not correct. The test fails. The
+    // two results show the cause.
     assert_eq!(code, 1, "{stdout}\n{stderr}");
     assert!(stdout.contains("✗ FAIL   Split"), "{stdout}");
     assert!(stdout.contains("spec ✓ pass  The spec agrees.\n         code ✗ FAIL  The code does not.\n"), "{stdout}");
     assert!(stdout.contains("Fix prompts"), "{stdout}");
 
-    // Against one side, the two results mean nothing and the tool's pass
-    // stands.
+    // When the judge uses one side, the two results have no meaning. The
+    // "pass" from the tool stays.
     let (stdout, _, code) = fixture.run(&["test", "SpecOnly"]);
     assert_eq!(code, 0, "{stdout}");
     assert!(!stdout.contains("spec ✓ pass"), "{stdout}");

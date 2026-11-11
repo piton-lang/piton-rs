@@ -1,10 +1,11 @@
-//! What a plugin declares about itself.
+//! The declaration of a plugin about itself.
 //!
-//! A plugin's declaration is a `piton-plugin` anchor, so everything that can
-//! be known without running it is Piton: its name, the commands it adds and
-//! their arguments, what it may do on the machine, and where its code is. The
-//! CLI builds its help and parses arguments from the declaration alone, and
-//! only runs JavaScript when one of the plugin's commands is invoked.
+//! The declaration of a plugin is a `piton-plugin` anchor. Thus Piton holds
+//! all the data that the CLI can know without a run of the plugin. This data
+//! is the name, the commands and their arguments, and the permissions on the
+//! machine. It also includes the location of the code. The CLI makes its help and parses
+//! arguments from the declaration only. It runs JavaScript only when the user
+//! invokes a command of the plugin.
 
 use std::path::{Path, PathBuf};
 
@@ -14,24 +15,73 @@ use serde_json::{Map, Value as Json};
 
 use crate::bundled;
 
-/// The keyword a plugin is declared with.
+/// The keyword that declares a plugin.
 pub const PLUGIN_KEYWORD: &str = "piton-plugin";
-/// The abstract anchor every declaration implements.
+/// The abstract anchor that each declaration implements.
 pub const PLUGIN_ANCHOR: &str = "PitonPlugin";
 
-/// Where a plugin's code is.
+/// The location of the code of a plugin.
 #[derive(Debug, Clone)]
 pub enum Source {
-    /// Built into the compiler: path inside the plugin, and its text.
+    /// In the compiler. Each entry is a path in the plugin and its text.
     Bundled(&'static [(&'static str, &'static str)]),
-    /// On disk, in the directory its declaration is in. Nothing outside it
-    /// is loaded.
+    /// On disk, in the directory of its declaration. The host loads no file
+    /// outside that directory.
     Directory(PathBuf),
 }
 
 impl Source {
-    /// The text of a file inside the plugin, by its path relative to the
-    /// plugin, like `src/index.ts`.
+    /// Returns each file below `directory` in the plugin, in sorted order.
+    /// Each path is relative to `directory` and uses `/`. Symbolic links are
+    /// not in the list.
+    pub fn list(&self, directory: &str) -> Vec<String> {
+        let prefix = directory.trim_matches('/');
+        let mut found: Vec<String> = match self {
+            Source::Bundled(files) => files
+                .iter()
+                .filter_map(|(name, _)| {
+                    if prefix.is_empty() {
+                        Some(name.to_string())
+                    } else {
+                        name.strip_prefix(prefix)?.strip_prefix('/').map(str::to_string)
+                    }
+                })
+                .collect(),
+            Source::Directory(root) => {
+                if prefix.split('/').any(|part| part == "..") {
+                    return Vec::new();
+                }
+                let base = root.join(prefix);
+                let mut out = Vec::new();
+                let mut stack = vec![base.clone()];
+                while let Some(current) = stack.pop() {
+                    let Ok(entries) = std::fs::read_dir(&current) else { continue };
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let Ok(metadata) = std::fs::symlink_metadata(&path) else { continue };
+                        if metadata.file_type().is_symlink() {
+                            continue;
+                        }
+                        if metadata.is_dir() {
+                            stack.push(path);
+                        } else if let Ok(relative) = path.strip_prefix(&base) {
+                            let parts: Vec<String> = relative
+                                .components()
+                                .map(|part| part.as_os_str().to_string_lossy().to_string())
+                                .collect();
+                            out.push(parts.join("/"));
+                        }
+                    }
+                }
+                out
+            }
+        };
+        found.sort();
+        found
+    }
+
+    /// The text of a file in the plugin, by its path relative to the plugin.
+    /// An example is `src/index.ts`.
     pub fn read(&self, path: &str) -> Option<String> {
         match self {
             Source::Bundled(files) => files
@@ -48,32 +98,39 @@ impl Source {
     }
 }
 
-/// What a plugin may do on the machine. Everything not listed is refused.
+/// The permissions of a plugin on the machine. The host refuses all actions
+/// that this list does not give.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Capabilities {
-    /// Programs it may run, by name, looked up on PATH.
+    /// The programs that it can run, by name. The host finds them on PATH.
     pub process: Vec<String>,
-    /// Whether it may read files inside the project.
+    /// True if it can read files in the project.
     pub read_files: bool,
-    /// Whether it may write temporary files, removed when its command ends.
+    /// True if it can write temporary files. The host removes them when the
+    /// command ends.
     pub temporary_files: bool,
-    /// The paths its build may write, as globs relative to the project root.
+    /// The paths that its build can write, as globs relative to the project
+    /// root.
     pub outputs: Vec<String>,
-    /// Whether it may ask the user to choose, on a terminal.
+    /// True if it can ask the user to choose on a terminal.
     pub interactive: bool,
-    /// The files it may propose to change, as globs relative to the project
-    /// root. Edits are applied by the host, with the user's consent.
+    /// The files that it can propose to change, as globs relative to the
+    /// project root. The host applies the edits when the user agrees.
     pub edits: Vec<String>,
+    /// True if the plugin can start a new project. It can then write new
+    /// files into a directory that it names. It can also tether the
+    /// dependencies of that project.
+    pub scaffold: bool,
 }
 
 impl Capabilities {
-    /// The outputs as a matcher: `*` stays within a directory, `**` crosses
-    /// them. A plugin that lists none may write nothing.
+    /// The outputs as a matcher. `*` stays in one directory. `**` goes across
+    /// directories. A plugin with no outputs can write nothing.
     pub fn output_globs(&self) -> globset::GlobSet {
         globs(&self.outputs)
     }
 
-    /// The files it may propose to change, as a matcher.
+    /// The files that it can propose to change, as a matcher.
     pub fn edit_globs(&self) -> globset::GlobSet {
         globs(&self.edits)
     }
@@ -91,10 +148,10 @@ fn globs(patterns: &[String]) -> globset::GlobSet {
     }
 }
 
-/// How an argument is given.
+/// The form of an argument.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArgKind {
-    /// Present or not.
+    /// The flag is present or not present.
     Flag,
     String,
     Number,
@@ -112,74 +169,79 @@ pub struct ArgSpec {
     pub short: Option<char>,
     pub minimum: Option<f64>,
     pub conflicts: Vec<String>,
-    /// The value it has when it isn't given.
+    /// The value of the argument when the user does not give it.
     pub default: Option<String>,
-    /// For the last positional argument: it takes everything after it, the
-    /// values that look like options included, to pass on to a program.
+    /// For the last positional argument. It takes all values after it, also
+    /// values that look like options. The plugin gives them to a program.
     pub trailing: bool,
-    /// For an option: true when it may be given without a value, which the
-    /// plugin then receives as an empty string.
+    /// For an option. True when the user can give it without a value. The
+    /// plugin then receives an empty string.
     pub optional_value: bool,
 }
 
-/// One command a plugin adds to the CLI.
+/// One command that a plugin adds to the CLI.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandSpec {
     pub name: String,
-    /// The word it is grouped under, like `belay` for `piton belay slice`.
+    /// The group word of the command, for example `belay` for `piton belay
+    /// slice`.
     pub group: Option<String>,
     pub about: Option<String>,
     pub help: Option<String>,
     pub arguments: Vec<ArgSpec>,
+    /// True if the command runs without a project, as `piton init` does. It
+    /// runs in each directory. It ignores the configuration there.
+    pub standalone: bool,
 }
 
-/// A plugin, as its declaration describes it.
+/// A plugin, as its declaration tells it.
 #[derive(Debug, Clone)]
 pub struct Manifest {
     pub name: String,
     pub description: Option<String>,
-    /// The module its behaviour starts from, relative to the plugin.
+    /// The start module of its behaviour, relative to the plugin.
     pub entry: String,
     pub source: Source,
-    /// The package its Piton files are imported from, for a bundled plugin.
+    /// The package that holds its Piton files, for a bundled plugin.
     pub module_root: Option<String>,
-    /// The abstract anchor a project's settings for it implement.
+    /// The abstract anchor that the settings of a project for the plugin
+    /// implement.
     pub settings: Option<String>,
     pub commands: Vec<CommandSpec>,
     pub capabilities: Capabilities,
-    /// The file it is declared in, for diagnostics.
+    /// The file of its declaration, for diagnostics.
     pub declared_in: PathBuf,
     pub bundled: bool,
-    /// The plugins it builds on, whose exports it uses.
+    /// The plugins that it requires. It uses their exports.
     pub requires: Vec<String>,
-    /// Names its Piton files export whose value is known only when its
-    /// output is written.
+    /// Names that its Piton files export. Their values exist only when the
+    /// plugin writes its output.
     pub placeholders: Vec<String>,
-    /// Whether it takes part in `piton build`.
+    /// True if it has a part in `piton build`.
     pub build: bool,
-    /// Whether it inspects projects before commands run.
+    /// True if it inspects projects before commands run.
     pub inspect: bool,
-    /// Whether it names anchors it reaches itself, which `piton reach` and
-    /// the editor count as roots beside the entry.
+    /// True if it names the anchors that it reaches itself. `piton reach` and
+    /// the editor count them as roots, together with the entry.
     pub reach: bool,
 }
 
-/// The marker a placeholder evaluates to: private-use brackets around its
-/// name, which no prose contains.
+/// The marker that a placeholder evaluates to. It is the name between
+/// private-use brackets. No prose contains these brackets.
 pub fn placeholder_marker(name: &str) -> String {
     format!("\u{e000}{name}\u{e001}")
 }
 
-/// What is wrong with a declaration, with the file it is in.
+/// A problem in a declaration, with the file of the declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Problem {
     pub file: PathBuf,
     pub message: String,
 }
 
-/// Every plugin a project has: the bundled ones, then those its
-/// configuration declares, in the order listed. A declaration that isn't
-/// well-formed is left out and reported.
+/// All plugins of a project. First come the bundled plugins. Then come the
+/// plugins that its configuration declares, in the order of the list. This
+/// function omits and reports a declaration that is not well-formed.
 pub fn discover(project: &Project) -> (Vec<Manifest>, Vec<Problem>) {
     let mut manifests = Vec::new();
     let mut problems = Vec::new();
@@ -215,9 +277,9 @@ pub fn discover(project: &Project) -> (Vec<Manifest>, Vec<Problem>) {
         }
     }
 
-    // Two plugins can't both add a command, or which one runs would depend
-    // on the order they were listed in: the later one's is reported and left
-    // out.
+    // Two plugins cannot add the same command. If they can, the order of the
+    // list decides which command runs. Thus this function reports and omits
+    // the command of the later plugin.
     let mut seen: Vec<(String, String)> = Vec::new();
     for manifest in &mut manifests {
         let mut kept = Vec::new();
@@ -238,9 +300,10 @@ pub fn discover(project: &Project) -> (Vec<Manifest>, Vec<Problem>) {
         manifest.commands = kept;
     }
 
-    // A plugin whose requirements the project doesn't have, or that require
-    // each other in a circle, can't load; it is reported and left out, and so
-    // is anything that requires it.
+    // Some plugins cannot load. The project does not have the requirements
+    // of such a plugin, or the requirements make a circle. This function
+    // reports and omits such a plugin. It also omits each plugin that
+    // requires it.
     loop {
         let names: Vec<String> = manifests.iter().map(|manifest| manifest.name.clone()).collect();
         let broken = manifests.iter().position(|manifest| {
@@ -264,9 +327,9 @@ pub fn discover(project: &Project) -> (Vec<Manifest>, Vec<Problem>) {
     (manifests, problems)
 }
 
-/// Entries under `plugins` that are neither a plugin's declaration nor the
-/// settings of a plugin the project has: most likely a mistake, since nothing
-/// will read them.
+/// Entries under `plugins` that are not a plugin declaration. They are also
+/// not the settings of a plugin of the project. Such an entry is almost
+/// always a mistake, because nothing will read it.
 pub fn unclaimed<'a>(project: &'a Project, manifests: &[Manifest]) -> Vec<&'a PluginEntry> {
     project
         .plugins
@@ -282,7 +345,7 @@ pub fn unclaimed<'a>(project: &'a Project, manifests: &[Manifest]) -> Vec<&'a Pl
         .collect()
 }
 
-/// Whether `name` reaches itself by following requirements.
+/// True if `name` reaches itself through its requirements.
 fn requires_itself(manifests: &[Manifest], name: &str) -> bool {
     let mut stack: Vec<&str> = manifests
         .iter()
@@ -305,7 +368,8 @@ fn requires_itself(manifests: &[Manifest], name: &str) -> bool {
     false
 }
 
-/// The plugins `main` needs loaded, requirements first and `main` last.
+/// The plugins that `main` must load. The requirements come first and
+/// `main` comes last.
 pub fn load_order<'a>(manifests: &'a [Manifest], main: &str) -> Result<Vec<&'a Manifest>, String> {
     fn visit<'a>(
         manifests: &'a [Manifest],
@@ -336,10 +400,10 @@ pub fn load_order<'a>(manifests: &'a [Manifest], main: &str) -> Result<Vec<&'a M
     Ok(order)
 }
 
-/// The plugins `piton build` runs: those with a build that the project
-/// turned on. A plugin the project declares is on; a bundled one is on when
-/// the project lists its settings, so a project that never mentions it gets
-/// none of its output.
+/// The plugins that `piton build` runs. Each has a build, and the project
+/// turned it on. A plugin that the project declares is on. A bundled plugin
+/// is on when the project lists its settings. Thus a project that does not
+/// name a bundled plugin gets none of its output.
 pub fn builders<'a>(project: &Project, manifests: &'a [Manifest]) -> Vec<&'a Manifest> {
     manifests
         .iter()
@@ -356,13 +420,13 @@ pub fn builders<'a>(project: &Project, manifests: &'a [Manifest]) -> Vec<&'a Man
         .collect()
 }
 
-/// Whether a configuration entry is a plugin declaration rather than settings.
+/// True if a configuration entry is a plugin declaration and not settings.
 pub fn is_declaration(entry: &PluginEntry) -> bool {
     entry.extends(Some(prelude::PLUGIN_PACKAGE), PLUGIN_ANCHOR)
 }
 
-/// Reads a bundled plugin's declaration, compiled from the module it is
-/// embedded as.
+/// Reads the declaration of a bundled plugin. It compiles the embedded
+/// module of the declaration.
 fn bundled_manifest(plugin: &bundled::Bundled) -> Result<Manifest, String> {
     let compilation = Compilation::build(Project::for_file(Path::new(plugin.declaration)));
     if compilation.has_errors() {
@@ -426,8 +490,8 @@ fn strings(value: Option<&Json>, what: &str) -> Result<Vec<String>, String> {
     }
 }
 
-/// A plugin's name: lowercase words joined by hyphens, since it is also part
-/// of a package path.
+/// The name of a plugin. It is lowercase words with hyphens between them.
+/// The name is also part of a package path.
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.split('-').all(|part| {
@@ -435,7 +499,7 @@ fn valid_name(name: &str) -> bool {
         })
 }
 
-/// Reads a declaration's properties.
+/// Reads the properties of a declaration.
 fn read(
     properties: &Map<String, Json>,
     source: Source,
@@ -478,6 +542,10 @@ fn read(
                         capabilities.interactive =
                             value.as_bool().ok_or("capabilities.interactive is true or false")?
                     }
+                    "scaffold" => {
+                        capabilities.scaffold =
+                            value.as_bool().ok_or("capabilities.scaffold is true or false")?
+                    }
                     "outputs" | "edits" => {
                         let patterns = strings(Some(value), &format!("capabilities.{key}"))?;
                         for pattern in &patterns {
@@ -500,7 +568,7 @@ fn read(
                     }
                     other => {
                         return Err(format!(
-                            "`{other}` is not a capability; they are process, files, temporaryFiles, outputs, edits and interactive"
+                            "`{other}` is not a capability; they are process, files, temporaryFiles, outputs, edits, interactive and scaffold"
                         ))
                     }
                 }
@@ -589,12 +657,18 @@ fn read_command(name: &str, spec: &Json) -> Result<CommandSpec, String> {
             return Err(format!("command `{name}`: group `{group}` is not a name; use lowercase words joined by hyphens"));
         }
     }
+    let standalone = match spec.get("standalone") {
+        None | Some(Json::Null) => false,
+        Some(Json::Bool(value)) => *value,
+        Some(_) => return Err(format!("command `{name}`: standalone is true or false")),
+    };
     Ok(CommandSpec {
         name: name.to_string(),
         group,
         about: text(spec, "about"),
         help: text(spec, "help"),
         arguments,
+        standalone,
     })
 }
 

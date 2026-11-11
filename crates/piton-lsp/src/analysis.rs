@@ -1,11 +1,11 @@
-//! Editor analysis that the compiler does not itself report.
+//! Editor analysis that the compiler does not report itself.
 //!
-//! Import cleanup, unused declarations, redundant overrides, inheritance and
-//! composition conflicts, and the map from source to compiled output are
-//! questions an editor asks of a resolved program. They are not part of
-//! `piton check`: a file can be a valid description and still carry an import
-//! nobody reads. The language server publishes them beside the compiler's
-//! diagnostics and answers the queries the features are built on.
+//! An editor asks questions of a resolved program. Examples are import
+//! cleanup, unused declarations, redundant overrides, conflicts of inheritance
+//! and composition, and the map from source to compiled output. They are not
+//! part of `piton check`. A file can be a valid description and still have an
+//! import that no file reads. The language server publishes them next to the
+//! compiler diagnostics. It also answers the queries that the features use.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -27,69 +27,70 @@ use crate::world::{is_config_file, OutputSettings};
 pub struct Mapping {
     pub source_file: PathBuf,
     pub source_span: Span,
-    /// Absolute path of the compiled file this slice belongs to.
+    /// The absolute path of the compiled file that holds this slice.
     pub output_path: PathBuf,
     pub output_start: usize,
     pub output_end: usize,
     /// `markdown`, `json`, `yaml`, or a Belay target id.
     pub adapter: String,
-    /// Short label for code lenses and hover, e.g. `markdown Hello.md:1-12`.
+    /// A short label for code lenses and hover, e.g. `markdown Hello.md:1-12`.
     pub label: String,
 }
 
-/// How a `+` or `++` — or a list merge item — combines its inputs.
+/// How a `+`, a `++` or a list merge item combines its inputs.
 #[derive(Debug, Clone)]
 pub struct Composition {
     pub module: ModuleId,
     pub span: Span,
-    /// The spans a hover explains it on: the operator of the expression, or
-    /// the `+`/`++` of each line of a block. Never the operands, which are
-    /// names with hovers of their own, and never the prose between them.
+    /// The spans where a hover explains it. These are the operator of the
+    /// expression, or the `+`/`++` of each line of a block. They are never the
+    /// operands, because operands are names with their own hovers. They are
+    /// never the prose between the operands.
     pub targets: Vec<Span>,
     pub summary: String,
 }
 
-/// One place a name is bound in a module: a declaration, or an import entry.
+/// One location where a module binds a name: a declaration, or an import entry.
 #[derive(Debug, Clone)]
 pub struct Binding {
-    /// The span of the name as the binding writes it.
+    /// The span of the name in the binding.
     pub span: Span,
-    /// The path text of the `from` declaration, or `None` for a declaration
-    /// written in the module itself.
+    /// The path text of the `from` declaration. It is `None` for a declaration
+    /// in the module itself.
     pub from: Option<String>,
-    /// The span of the whole import entry, for rewriting it.
+    /// The span of the full import entry. The rewrite of the entry uses it.
     pub entry_span: Span,
     pub symbol: Symbol,
 }
 
-/// A name a module binds to more than one thing.
+/// A name that a module binds to more than one item.
 #[derive(Debug, Clone)]
 pub struct Ambiguity {
     pub module: ModuleId,
     pub name: String,
-    /// Every binding, in source order. `winner` indexes the one references
-    /// resolve to.
+    /// All bindings, in source order. `winner` is the index of the binding
+    /// that references resolve to.
     pub bindings: Vec<Binding>,
     pub winner: usize,
-    /// Where the module reads the name.
+    /// The locations where the module reads the name.
     pub references: Vec<Span>,
 }
 
-/// Everything the editor features below read from one compilation.
+/// All data from one compilation that the editor features below read.
 #[derive(Debug, Default)]
 pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     pub compositions: Vec<Composition>,
     pub mappings: Vec<Mapping>,
     pub ambiguities: Vec<Ambiguity>,
-    /// For each anchor, the anchors that copy it in with `{X}`.
+    /// For each anchor, the anchors that copy it with `{X}`.
     pub composers: HashMap<AnchorId, Vec<AnchorId>>,
-    /// For each anchor, the anchors it copies in with `{X}`.
+    /// For each anchor, the anchors that it copies with `{X}`.
     pub components: HashMap<AnchorId, Vec<AnchorId>>,
 }
 
 impl Analysis {
-    /// Compositions whose operator covers `offset`.
+    /// Compositions with an operator that covers `offset`.
     pub fn compositions_at(&self, module: ModuleId, offset: usize) -> Vec<&Composition> {
         self.compositions
             .iter()
@@ -99,7 +100,7 @@ impl Analysis {
             .collect()
     }
 
-    /// Every mapping for the construct at `offset`, widest last.
+    /// All mappings for the construct at `offset`. The widest is last.
     pub fn mappings_at(&self, file: &Path, offset: usize) -> Vec<&Mapping> {
         let mut found: Vec<&Mapping> = self
             .mappings
@@ -112,7 +113,7 @@ impl Analysis {
         found
     }
 
-    /// The tightest mapping whose compiled slice covers `offset`.
+    /// The smallest mapping with a compiled slice that covers `offset`.
     pub fn at_output(&self, file: &Path, offset: usize) -> Option<&Mapping> {
         self.mappings
             .iter()
@@ -125,7 +126,7 @@ impl Analysis {
     }
 }
 
-/// Codes the editor fades, because deleting the declaration would not change
+/// Codes that the editor fades. A deletion of the declaration would not change
 /// the resolved specification.
 pub fn is_unnecessary(code: &str) -> bool {
     matches!(
@@ -149,16 +150,16 @@ pub fn analyze(
     reached: &[(std::path::PathBuf, String)],
 ) -> Analysis {
     let mut analysis = Analysis::default();
-    // What is used is what `piton reach` reaches: the entry's exports, and
-    // the anchors plugins reach themselves, like the tests the test plugin
-    // runs.
+    // The used items are the items that `piton reach` reaches. These are the
+    // exports of the entry, and the anchors that plugins reach themselves. An
+    // example is the tests that the test plugin runs.
     let roots = reach::locate(compilation, reached);
     let reachability = reach::from_entry_and(compilation, &roots);
 
     imports(compilation, index, &mut analysis.diagnostics);
     ambiguities(compilation, index, &mut analysis);
-    // Without an entry nothing is reached, so everything would read as
-    // unused; the missing entry is the one thing to report.
+    // Without an entry, the analysis reaches nothing. Thus all items would look unused.
+    // The only problem to report is that there is no entry.
     if compilation.resolution.has_entry {
         unused(compilation, index, &reachability, &mut analysis.diagnostics);
     }
@@ -177,12 +178,12 @@ pub fn analyze(
     analysis
 }
 
-/// Rewrites a file's imports so only names the file references remain, in
-/// canonical order. `None` when the file is already in that shape.
+/// Rewrites the imports of a file. Only the names that the file references
+/// stay, in canonical order. `None` when the file already has that shape.
 ///
-/// Star re-exports are left alone. `from ./Child export *` is how a directory
-/// publishes its surface; narrowing it to the names some other file happens to
-/// import would turn a public module into a private one.
+/// This does not change star re-exports. `from ./Child export *` is how a
+/// directory publishes its surface. If the rewrite limits it to the names that
+/// some other file imports, a public module becomes a private module.
 pub fn organize_imports(
     compilation: &Compilation,
     index: &Index,
@@ -209,8 +210,8 @@ pub fn organize_imports(
                     .iter()
                     .map(|entry| render_import_entry(entry))
                     .collect::<Vec<_>>();
-                // A path still written with `.pi` is rewritten without it, the
-                // way `piton format` writes it.
+                // When a path still has `.pi`, the rewrite removes it. This is
+                // the same as `piton format`.
                 if kept == current && !decl.path.text.ends_with(".pi") {
                     continue;
                 }
@@ -319,8 +320,8 @@ fn imports(compilation: &Compilation, index: &Index, out: &mut Vec<Diagnostic>) 
                         seen_name.insert(local.to_string(), entry.name_span);
                         if compilation.resolution.lookup(module.id, local).is_none() {
                             // The compiler already reports unresolved imports.
-                            // Recording it again would be a second squiggle on
-                            // the same name; the organize action still drops it.
+                            // A second record would give a second squiggle on
+                            // the same name. The organize action still removes it.
                             continue;
                         }
                         if name_referenced(index, module.id, local, decl.span) {
@@ -464,7 +465,7 @@ fn render_import_entry(entry: &ast::ImportItem) -> String {
 }
 
 fn render_from(path: &str, keyword: &str, names: &[String], star: bool) -> String {
-    // The extension is optional in an import path, and the formatter drops it.
+    // The extension is optional in an import path. The formatter removes it.
     let path = path.strip_suffix(".pi").unwrap_or(path);
     let head = format!("from {path} {keyword}");
     if star {
@@ -496,12 +497,13 @@ fn render_from(path: &str, keyword: &str, names: &[String], star: bool) -> Strin
 // Ambiguous references
 // ---------------------------------------------------------------------------
 
-/// Names a module binds to more than one thing: two imports of the same name
-/// from different modules, or an import a local declaration hides.
+/// Names that a module binds to more than one item. One case is two imports of
+/// the same name from different modules. Another case is an import that a
+/// local declaration hides.
 ///
-/// The compiler resolves these silently -- a declaration beats an import, and
-/// the last import beats earlier ones -- so a reference can mean something
-/// other than what its author had in mind. The editor says so.
+/// The compiler resolves these without a message. A declaration wins over an
+/// import, and the last import wins over earlier imports. Thus a reference can
+/// mean an item that its author did not intend. The editor shows this.
 fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis) {
     for module in compilation.graph().iter() {
         if module.is_package() {
@@ -581,8 +583,8 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
                 .filter(|(bound, _)| *bound == name)
                 .map(|(_, binding)| binding.clone())
                 .collect();
-            // Importing the same thing twice is a duplicate, reported as one;
-            // only different things under one name are ambiguous.
+            // Two imports of the same item are a duplicate. The editor reports
+            // them as one. Only different items with one name are ambiguous.
             let mut distinct: Vec<Symbol> = Vec::new();
             for binding in &found {
                 if !distinct.contains(&binding.symbol) {
@@ -594,7 +596,7 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
             }
             found.sort_by_key(|binding| binding.span.start);
             let resolved = compilation.resolution.lookup(module.id, &name);
-            // The compiler prefers a declaration, then the last import.
+            // The compiler selects a declaration first, then the last import.
             let winner = found
                 .iter()
                 .position(|binding| binding.from.is_none())
@@ -689,8 +691,8 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
 // Unused symbols
 // ---------------------------------------------------------------------------
 
-/// Whether a module is the project configuration, which is read by the
-/// compiler rather than compiled, so nothing in it is "unused" or "output".
+/// Whether a module is the project configuration. The compiler reads it and
+/// does not compile it. Thus no part of it is "unused" or "output".
 fn is_config_module(compilation: &Compilation, module: ModuleId) -> bool {
     is_config_file(&compilation.graph().get(module).path)
 }
@@ -707,8 +709,8 @@ fn unused(
         if path.to_string_lossy().starts_with('@') || is_config_module(compilation, def.module) {
             continue;
         }
-        // A keyword that something actually writes is not dead, even when the
-        // reachability walk did not land on the alias itself.
+        // A keyword that some file uses is not dead. This is also true when the
+        // reachability walk did not find the alias itself.
         if def.alias.as_ref().is_some_and(|alias| {
             index
                 .matching(|target| matches!(target, Target::Keyword(name, _) if name == alias))
@@ -740,8 +742,8 @@ fn unused(
             continue;
         }
         if reachability.modules.contains(&def.module) {
-            // A variable in a module the project reaches is part of that
-            // file's compiled output, whether or not an expression names it.
+            // A variable in a module that the project reaches is part of the
+            // compiled output of that file. This is true if no expression names it.
             continue;
         }
         let referenced = index
@@ -770,7 +772,7 @@ fn unused(
         );
     }
 
-    // `export Name` that nothing, including a reached barrel, ever imports.
+    // `export Name` that no file imports. This includes a reached barrel.
     for module in compilation.graph().iter() {
         if module.is_package() || is_config_module(compilation, module.id) {
             continue;
@@ -846,11 +848,11 @@ fn target_of(symbol: Symbol) -> Target {
 // Redundant definitions
 // ---------------------------------------------------------------------------
 
-/// A property that repeats, value for value, what the anchor would inherit
-/// anyway can be deleted without changing the resolved specification.
+/// A property can repeat exactly the value that the anchor inherits. A
+/// deletion of that property does not change the resolved specification.
 ///
-/// A child cannot redeclare an inherited constraint (the compiler rejects
-/// that), so a constraint on the declaration is no reason to keep it.
+/// A child cannot declare an inherited constraint again (the compiler gives
+/// an error). Thus a constraint on the declaration is no reason to keep it.
 fn redundant(compilation: &Compilation, out: &mut Vec<Diagnostic>) {
     for def in &compilation.store().anchors {
         let path = compilation.graph().get(def.module).path.clone();
@@ -892,8 +894,9 @@ fn redundant(compilation: &Compilation, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// The value the anchor would inherit for `name` without its own declaration:
-/// the right-most base that has one, which is also what `super.name` reads.
+/// The value that the anchor would inherit for `name` without its own
+/// declaration. This is the right-most base with a value. `super.name` reads
+/// the same value.
 fn inherited_value<'a>(
     compilation: &'a Compilation,
     anchor: AnchorId,
@@ -912,15 +915,15 @@ fn inherited_value<'a>(
 // Composition
 // ---------------------------------------------------------------------------
 
-/// Where a composition sits, so its result can be read back from what the
-/// compiler produced rather than worked out a second time.
+/// The location of a composition. Thus the server can read its result from the
+/// compiler output. It does not calculate the result a second time.
 #[derive(Clone)]
 enum Holder {
     /// A property (or a key nested in one) of an anchor.
     Anchor(AnchorId, Vec<String>),
-    /// A top-level variable, or a key nested in one.
+    /// A top-level variable, or a key inside one.
     Variable(piton_compile::VariableId, Vec<String>),
-    /// Somewhere no path reaches, such as inside a list.
+    /// A location that no path reaches, for example inside a list.
     Nowhere,
 }
 
@@ -1108,8 +1111,8 @@ impl Composer<'_, '_> {
         }
     }
 
-    /// `{a + b}` or `{a ++ b}`: both inputs and the result, each evaluated by
-    /// the compiler's own rules.
+    /// `{a + b}` or `{a ++ b}`: the two inputs and the result. The rules of the
+    /// compiler calculate each one.
     fn binary(&mut self, whole: &Expr, op: BinaryOp, left: &Expr, right: &Expr) {
         let left_value = self.probe.expr(self.module, self.owner, left);
         let right_value = self.probe.expr(self.module, self.owner, right);
@@ -1138,14 +1141,14 @@ impl Composer<'_, '_> {
                 out.push_str(&preview(self.compilation, value));
                 out.push_str("\n```");
             }
-            // The compiler reports why; the hover only has to say it failed.
+            // The compiler reports the reason. The hover only shows that it failed.
             None if left_value.is_some() && right_value.is_some() => out.push_str(
                 "_These inputs do not combine under this operator; see the compiler's error._",
             ),
             None => {}
         }
-        // The operator alone is what the hover explains, so that hovering a
-        // name inside the expression still describes the name.
+        // The hover explains only the operator. Thus a hover on a name inside
+        // the expression still describes the name.
         let gap = &source[left.span.end..right.span.start];
         let operator_start = left.span.end + (gap.len() - gap.trim_start().len());
         let operator = Span::new(operator_start, operator_start + gap.trim().len());
@@ -1157,7 +1160,7 @@ impl Composer<'_, '_> {
         });
     }
 
-    /// A block with `+`/`++` lines, built from top to bottom.
+    /// A block with `+`/`++` lines, built from the top to the bottom.
     fn block(
         &mut self,
         node: &ast::ValueNode,
@@ -1199,8 +1202,8 @@ impl Composer<'_, '_> {
             if !hints.contains(&rule.hint) {
                 hints.push(rule.hint.clone());
             }
-            // A line that leaves the result exactly as it was contributes
-            // nothing, whatever it says.
+            // A line that does not change the result adds nothing. Its
+            // content has no effect on this.
             if step.before.as_ref() == Some(&step.after) {
                 self.analysis.diagnostics.push(
                     Diagnostic::warning(
@@ -1250,7 +1253,7 @@ impl Composer<'_, '_> {
     }
 }
 
-/// What an operator does with a pair of inputs, in words and as an inlay.
+/// The effect of an operator on a pair of inputs, in words and as an inlay.
 struct Rule {
     explanation: String,
     hint: String,
@@ -1276,7 +1279,7 @@ fn is_list(value: &Value) -> bool {
     matches!(value.kind(), ValueKind::List)
 }
 
-/// The rule the compiler applies to `left op right`, by the kinds of the two.
+/// The rule that the compiler applies to `left op right`, by the kinds of the two.
 fn rule(op: BinaryOp, left: &Value, right: &Value) -> Rule {
     let string = |value: &Value| matches!(value, Value::Str(_));
     match op {
@@ -1334,7 +1337,7 @@ fn rule(op: BinaryOp, left: &Value, right: &Value) -> Rule {
     }
 }
 
-/// The rule for one block line, which has the block above it as its left side.
+/// The rule for one block line. Its left side is the block above it.
 fn step_rule(step: &BlockStep) -> Rule {
     let op = match step.op {
         MergeOp::Merge => BinaryOp::Add,
@@ -1349,7 +1352,7 @@ fn step_rule(step: &BlockStep) -> Rule {
             op.symbol(),
         ),
         Some(before) => {
-            // A single value combined into a list is one more item.
+            // A single value that combines into a list is one more item.
             let right = if is_list(before) && !is_list(&step.operand) {
                 Value::List(vec![step.operand.clone()])
             } else {
@@ -1360,7 +1363,7 @@ fn step_rule(step: &BlockStep) -> Rule {
     }
 }
 
-/// A one-line rendering of a value for a hover step.
+/// The value as one line of text, for a hover step.
 fn short(compilation: &Compilation, value: &Value) -> String {
     fn walk(compilation: &Compilation, value: &Value, out: &mut String, budget: &mut usize) {
         if *budget == 0 {
@@ -1457,10 +1460,10 @@ fn snippet(source: &str, span: Span) -> String {
 // Composition edges
 // ---------------------------------------------------------------------------
 
-/// Which anchors copy which others in with `{X}`.
+/// The anchors that copy other anchors with `{X}`.
 ///
-/// Only values an anchor writes itself count: an inherited property that
-/// embeds something is the base's composition, not the child's.
+/// Only the values that an anchor writes itself count. An inherited property
+/// that embeds an item is the composition of the base, not of the child.
 fn composition_edges(compilation: &Compilation, analysis: &mut Analysis) {
     fn collect(value: &Value, out: &mut Vec<AnchorId>) {
         match value {
@@ -1512,8 +1515,8 @@ fn composition_edges(compilation: &Compilation, analysis: &mut Analysis) {
 // Source to output
 // ---------------------------------------------------------------------------
 
-/// Maps every compiled module to the file `piton compile` writes for it: the
-/// configured output directory and renderer.
+/// Maps each compiled module to the file that `piton compile` writes for it.
+/// This uses the configured output directory and renderer.
 fn map_outputs(compilation: &Compilation, output: &OutputSettings, mappings: &mut Vec<Mapping>) {
     for module in compilation.graph().iter() {
         if module.is_package() || is_config_module(compilation, module.id) {
@@ -1553,8 +1556,8 @@ fn map_outputs(compilation: &Compilation, output: &OutputSettings, mappings: &mu
     }
 }
 
-/// What a file compiles to, which is what the mapping has to describe: the
-/// same surface `piton compile` renders -- its exports.
+/// The output of a file. The mapping must describe this. It is the same surface
+/// that `piton compile` renders: the exports of the file.
 pub fn file_declarations(compilation: &Compilation, module: ModuleId) -> piton_core::Properties {
     compilation.compiled_surface(module)
 }
@@ -1782,12 +1785,12 @@ fn map_structured_properties(
     }
 }
 
-/// Where a name a file compiles was actually written.
+/// The location where the source declared a name that a file compiles.
 ///
-/// A file compiles what it exports as well as what it declares, so a name in
-/// its output may have been declared somewhere else and only forwarded here.
-/// The mapping has to point at the declaration, wherever it lives, or it would
-/// send someone to a span in a file that never wrote it.
+/// A file compiles its exports as well as its declarations. Thus a name in its
+/// output can come from a declaration in a different file. The mapping must
+/// point to the declaration, in any file. If not, it would send a person to a
+/// span in a file that does not declare the name.
 fn declaration_origin(
     compilation: &Compilation,
     source: &Path,
@@ -1841,8 +1844,8 @@ fn push_mapping(
     });
 }
 
-/// What plugin builds planned at the last save: their diagnostics, and a
-/// mapping from each source anchor to the output it went into.
+/// The plans of the plugin builds at the last save. These are their
+/// diagnostics, and a mapping from each source anchor to its output.
 fn plugin_outputs(compilation: &Compilation, plans: &[piton_plugin::plan::PluginPlan], analysis: &mut Analysis) {
     for plan in plans {
         for diagnostic in &plan.diagnostics {
@@ -1867,8 +1870,8 @@ fn plugin_outputs(compilation: &Compilation, plans: &[piton_plugin::plan::Plugin
     }
 }
 
-/// The first anchor a planned file names as its origin, preferring one in
-/// the project's own source over a bundled package's.
+/// The first anchor that a planned file names as its origin. An anchor in the
+/// source of the project wins over an anchor in a bundled package.
 pub(crate) fn anchor_for_output(compilation: &Compilation, origin: &str) -> Option<AnchorId> {
     let name = origin.split(',').next().unwrap_or(origin).trim();
     let mut found = compilation.store().anchors.iter().filter(|def| def.name == name);
@@ -1880,9 +1883,8 @@ pub(crate) fn anchor_for_output(compilation: &Compilation, origin: &str) -> Opti
         .map(|def| def.id)
 }
 
-/// Plan diagnostics are raised against the configuration, which is not the
-/// construct the editor is looking at. When the plan names an origin, the
-/// squiggle belongs on that anchor.
+/// Plan diagnostics go on the configuration. The editor does not look at that
+/// construct. When the plan names an origin, the squiggle goes on that anchor.
 fn place_belay(compilation: &Compilation, mut diagnostic: Diagnostic) -> Diagnostic {
     let Some(origin) = diagnostic.origin.clone() else {
         return diagnostic;
@@ -1930,8 +1932,8 @@ fn paths_match(left: &Path, right: &Path) -> bool {
     if left == right {
         return true;
     }
-    // A query may hand back a canonical path, or the path as the editor
-    // spelled it. Comparing the lossy form catches the separator difference
-    // without requiring the file to exist.
+    // A query can give a canonical path, or the path as the editor wrote it.
+    // A comparison of the lossy form finds the separator difference. The file
+    // does not have to exist.
     left.to_string_lossy().replace('\\', "/") == right.to_string_lossy().replace('\\', "/")
 }

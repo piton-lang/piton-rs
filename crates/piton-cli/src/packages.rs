@@ -1,17 +1,16 @@
-//! Installing, moving, and removing vendored packages.
+//! Installs, moves, and removes vendored packages.
 //!
-//! A tethered package is plain files. Cloning brings a repository in, the clone
-//! is stripped of everything that made it a repository, and what is left is
-//! copied into `tethers/` and committed with the project. A source can also be
-//! a directory on disk: a git repository there is cloned like any other, and a
-//! plain directory is copied as it stands. Nothing here runs at
-//! compile time; these are the operations the four package commands are made
-//! of.
+//! A tethered package is plain files. A clone gets a repository. The code
+//! removes all repository data from the clone. It copies the other files
+//! into `tethers/`, and the user commits them with the project. A source can
+//! also be a directory on disk. A git repository there clones like all other
+//! repositories. A plain directory copies as it is. No code here runs at
+//! compile time. These are the operations of the four package commands.
 //!
-//! The rule that shapes all of them is that an installed package may have been
-//! edited, and an edit must never be thrown away silently. So every operation
-//! that would overwrite or delete files checks the lock file first and refuses
-//! when what is on disk is not what was installed.
+//! One rule controls all of them. A person can edit an installed package, and
+//! the code must never discard an edit silently. Thus each operation that can
+//! overwrite or delete files first checks the lock file. It refuses when the
+//! files on disk are not the same as the installed files.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,7 +21,7 @@ use piton_compile::{PackageDecl, Project};
 use piton_syntax::ast::Item;
 use piton_syntax::parser;
 
-/// What went wrong, in terms the command can print without decoration.
+/// The problem, in words that the command can print without decoration.
 #[derive(Debug)]
 pub struct Failure {
     pub message: String,
@@ -45,23 +44,23 @@ impl Failure {
 
 pub type Outcome<T> = Result<T, Failure>;
 
-/// One package installed by an operation, for reporting.
+/// One package that an operation installed, for the report.
 pub struct Placed {
     pub name: String,
     pub source: String,
     pub pin: Pin,
     pub commit: Option<String>,
     pub files: usize,
-    /// Every file that differs between what was installed before and what is
-    /// installed now, when the operation was asked for a diff.
+    /// Each file that is different between the previous install and the
+    /// current install. The operation fills it only when it must give a diff.
     pub changes: Vec<FileChange>,
-    /// The local edits a forced replacement threw away, described for a
-    /// warning, when there were any.
+    /// The local edits that a forced replacement discarded, as text for a
+    /// warning. It has a value only when there were edits.
     pub discarded: Option<String>,
 }
 
-/// One file's contents before and after an install. None is a file that
-/// wasn't there.
+/// The contents of one file before and after an install. None is a file that
+/// was not there.
 pub struct FileChange {
     /// The path inside the package, `/`-separated.
     pub path: String,
@@ -69,7 +68,7 @@ pub struct FileChange {
     pub after: Option<Vec<u8>>,
 }
 
-/// Every file under `directory`, by its `/`-separated path inside it.
+/// All files under `directory`, by their `/`-separated path in it.
 fn read_tree(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     fn walk(root: &Path, directory: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
         let Ok(entries) = std::fs::read_dir(directory) else {
@@ -93,7 +92,7 @@ fn read_tree(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     out
 }
 
-/// The files that differ between two snapshots of a package, by path.
+/// The files that are different between two snapshots of a package, by path.
 fn changes(
     mut before: std::collections::BTreeMap<String, Vec<u8>>,
     after: std::collections::BTreeMap<String, Vec<u8>>,
@@ -120,9 +119,9 @@ fn changes(
     out
 }
 
-/// The local edits to an installed package, file by file: the files as they
-/// were installed, fetched again from the commit the lock file records,
-/// against what is on disk now.
+/// The local edits to an installed package, file by file. The function fetches
+/// the installed files again from the commit in the lock file. It compares
+/// them with the current files on disk.
 fn local_edits(
     project_root: &Path,
     lock: &Lock,
@@ -136,8 +135,8 @@ fn local_edits(
         )));
     };
     let Some(commit) = recorded.commit.clone() else {
-        // A plain directory keeps no history, so what it held when it was
-        // installed is gone; only the digests in the lock file remain.
+        // A plain directory keeps no history. Thus its installed contents are
+        // gone. Only the digests in the lock file remain.
         let why = if Dependency::new(&recorded.source).is_local() {
             "came from a plain directory, which keeps no history"
         } else {
@@ -155,8 +154,8 @@ fn local_edits(
     )?;
     let fallback = checkout.fallback_name().unwrap_or_else(|| fallback.to_string());
     let offered = published(&checkout.directory, &fallback);
-    // A package tethered under another name is the one the repository offers
-    // when it offers only one.
+    // A package can have a different tether name. When the repository offers
+    // only one package, that package is the tethered package.
     let package = offered
         .iter()
         .find(|package| package.name == name)
@@ -167,8 +166,8 @@ fn local_edits(
                 recorded.source
             ))
         })?;
-    // Copied the way installing copies it, so only the files an install
-    // writes are compared.
+    // The copy is the same as the install copy. Thus the comparison uses only
+    // the files that an install writes.
     let installed = scratch.join(format!("installed-{name}"));
     let _ = std::fs::remove_dir_all(&installed);
     copy_ungitted(&package.root, &installed)?;
@@ -180,8 +179,8 @@ fn local_edits(
     Ok(edits)
 }
 
-/// What has changed in an installed package since it was installed, for the
-/// warning a forced replacement gives.
+/// The changes in an installed package after its install. A forced
+/// replacement shows them in a warning.
 fn local_changes(project_root: &Path, lock: &Lock, name: &str) -> String {
     let directory = packages::package_directory(project_root, name);
     let Some(recorded) = lock.get(name) else {
@@ -196,7 +195,7 @@ fn local_changes(project_root: &Path, lock: &Lock, name: &str) -> String {
     format!("{}: {}", drift.summary(), listed.join(", "))
 }
 
-/// Runs `git`, returning its trimmed standard output.
+/// Runs `git`. Returns its trimmed standard output.
 fn git(directory: &Path, args: &[&str]) -> Outcome<String> {
     let output = Command::new("git")
         .args(args)
@@ -217,24 +216,25 @@ fn git(directory: &Path, args: &[&str]) -> Outcome<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// A checkout that deletes itself.
+/// A checkout that deletes itself when the program drops it.
 pub struct Checkout {
     pub directory: PathBuf,
     pub commit: Option<String>,
-    /// When `commit` was committed, in seconds since the epoch. Version
-    /// conflicts are settled by it: the newest commit wins.
+    /// The time of `commit`, in seconds since the epoch. This time decides
+    /// version conflicts. The newest commit wins.
     pub committed_at: Option<i64>,
-    /// The directory on disk the source named, when it named one. Relative
-    /// paths among its packages' dependencies are read from here.
+    /// The directory on disk that the source named, if it named one. Relative
+    /// paths in the dependencies of its packages start here.
     pub local: Option<PathBuf>,
-    /// False when `directory` is a plain directory read where it stands. That
-    /// is somebody's work, not a scratch copy, and outlives the checkout.
+    /// False when `directory` is a plain directory that the code reads in
+    /// place. That directory is the work of a person, not a scratch copy. It
+    /// stays after the checkout.
     owned: bool,
 }
 
 impl Checkout {
-    /// The name a local source installs under when it declares none: its
-    /// directory's, which `.` or `..` as written would not give.
+    /// The install name of a local source that declares no name. It is the
+    /// name of its directory. The written `.` or `..` does not give that name.
     pub fn fallback_name(&self) -> Option<String> {
         let name = self.local.as_deref()?.file_name()?.to_string_lossy();
         Some(name.trim_end_matches(".git").to_string())
@@ -251,12 +251,12 @@ impl Drop for Checkout {
 
 /// Fetches `source` at `pin`.
 ///
-/// A URL is cloned. A path is a directory on disk, read from `base` when it is
-/// relative -- the directory holding the configuration that named it, which is
-/// `None` for a repository fetched from a URL, where a relative path leads
-/// nowhere. A directory that is a git repository is cloned like a URL, so pins
-/// work and the commit is recorded; one that is not is read as it stands, and
-/// can't be pinned because it has no versions to pin to.
+/// The function clones a URL. A path is a directory on disk. A relative path
+/// starts at `base`. That is the directory of the configuration that named
+/// the path. For a repository from a URL, `base` is `None`. There, a relative
+/// path has no meaning. The function clones a git directory like a URL. Thus
+/// pins work, and the lock records the commit. It reads a different directory
+/// as it is. That directory has no versions. Thus it cannot have a pin.
 pub fn fetch(source: &str, pin: &Pin, base: Option<&Path>, scratch: &Path) -> Outcome<Checkout> {
     let dependency = Dependency::new(source);
     if !dependency.is_local() {
@@ -304,21 +304,22 @@ pub fn fetch(source: &str, pin: &Pin, base: Option<&Path>, scratch: &Path) -> Ou
     })
 }
 
-/// True when the git repository at `directory` has changes nobody committed,
-/// which cloning it leaves behind.
+/// True when the git repository at `directory` has changes without a commit.
+/// A clone does not copy those changes.
 fn uncommitted(directory: &Path) -> bool {
     git(directory, &["status", "--porcelain"]).is_ok_and(|status| !status.is_empty())
 }
 
 /// Clones `source` at `pin` into a temporary directory.
 ///
-/// A branch or tag is fetched directly, which keeps the clone shallow. A commit
-/// cannot be: a server need not serve an arbitrary revision to a shallow fetch,
-/// so the repository is cloned in full and then checked out.
+/// The function fetches a branch or tag directly. Thus the clone stays
+/// shallow. A commit is different. A server does not always give a random
+/// revision to a shallow fetch. Thus the function clones the full repository
+/// and then checks out the commit.
 pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    // Two checkouts can be alive at once -- comparing two versions of one
-    // repository takes both -- so each gets its own directory.
+    // Two checkouts can exist at the same time. A comparison of two versions
+    // of one repository needs both. Thus each checkout gets its own directory.
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     std::fs::create_dir_all(scratch)
@@ -340,10 +341,11 @@ pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
             )?;
         }
         Pin::Commit(commit) => {
-            // Only that commit is fetched: cloning the whole history to check
-            // one commit out is the slow part of a pinned install. A server
-            // that won't hand out a commit by its hash, or a commit given
-            // abbreviated, falls back to the full clone.
+            // The function fetches only that commit. A clone of the full
+            // history for one commit is the slow part of a pinned install.
+            // Some servers do not give a commit by its hash. Some commits have
+            // an abbreviated hash. In these cases, the function does a full
+            // clone.
             std::fs::create_dir_all(&directory).map_err(|error| {
                 Failure::new(format!("cannot create a working directory: {error}"))
             })?;
@@ -371,21 +373,21 @@ pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
     })
 }
 
-/// The packages a checkout publishes.
+/// The packages that a checkout publishes.
 ///
-/// A repository that carries a `piton.config.pi` says which of its directories
-/// are packages, what each is called, and what each needs. Only those
-/// packages' own dependencies come along: the repository's project-level
-/// dependencies are for working on that repository, not for using what it
-/// publishes.
+/// A repository with a `piton.config.pi` tells which of its directories are
+/// packages. It gives the name and the dependencies of each package. Only the
+/// dependencies of those packages come with them. The project dependencies
+/// of the repository are for work on that repository. They are not for the
+/// use of its packages.
 ///
-/// A repository that publishes no packages is installed whole, under the name
-/// its source implies, which is what makes a plain repository of `.pi` files
-/// usable without it having to know about Piton's packaging at all.
+/// When a repository publishes no packages, the function installs the full
+/// repository. The name comes from its source. Thus a plain repository of
+/// `.pi` files is usable without knowledge of the packages of Piton.
 pub fn published(checkout: &Path, fallback: &str) -> Vec<PackageDecl> {
     let (project, _) = config::load(checkout, None);
-    // A configuration found outside the checkout belongs to whatever directory
-    // the clone happened to land in, not to the package.
+    // A configuration outside the checkout belongs to the directory that
+    // contains the clone. It does not belong to the package.
     let owned = project
         .config_path
         .as_ref()
@@ -400,11 +402,11 @@ pub fn published(checkout: &Path, fallback: &str) -> Vec<PackageDecl> {
     project.packages
 }
 
-/// Copies a tree, leaving behind everything that made it a git repository.
+/// Copies a tree. It does not copy the git repository data.
 ///
-/// "Un-gitting" is the whole point of tethering: what lands in `tethers/` is a
-/// directory of files belonging to this project's history, not a nested
-/// checkout of someone else's.
+/// "Un-gitting" is the main purpose of a tether. The result in `tethers/` is
+/// a directory of files in the history of this project. It is not a nested
+/// checkout of a different project.
 pub fn copy_ungitted(from: &Path, to: &Path) -> Outcome<usize> {
     const GIT_ARTEFACTS: [&str; 6] = [
         ".git",
@@ -447,11 +449,11 @@ pub fn copy_ungitted(from: &Path, to: &Path) -> Outcome<usize> {
     Ok(copied)
 }
 
-/// Refuses to touch a package whose files no longer match the lock file.
+/// Refuses to change a package when its files do not match the lock file.
 ///
-/// This is the conflict rule: an installed package that has been edited is
-/// carrying work, and replacing it would destroy that work. Untethering is the
-/// way out, because it makes the files the project's own.
+/// This is the conflict rule. An edited installed package contains work. A
+/// replacement would destroy that work. An untether is the solution, because
+/// it makes the files part of the project.
 pub fn require_unmodified(project_root: &Path, lock: &Lock, name: &str) -> Outcome<()> {
     let directory = packages::package_directory(project_root, name);
     if !directory.exists() {
@@ -492,7 +494,7 @@ remove it and tether it again, or untether it to keep it",
     )))
 }
 
-/// Installs one package's files, recording what was written.
+/// Installs the files of one package. It records the written files.
 pub fn install(
     project_root: &Path,
     lock: &mut Lock,
@@ -502,8 +504,8 @@ pub fn install(
     commit: Option<&str>,
 ) -> Outcome<Placed> {
     let directory = packages::package_directory(project_root, &package.name);
-    // Tethering a directory the project sits inside would copy the project,
-    // `tethers/` and all, into itself.
+    // A tether of a directory that contains the project copies the project
+    // into itself. That copy also contains `tethers/`.
     if let (Ok(project), Ok(root)) = (
         std::fs::canonicalize(project_root),
         std::fs::canonicalize(&package.root),
@@ -549,52 +551,52 @@ pub fn install(
     })
 }
 
-/// Installs a set of dependencies and everything they in turn require.
+/// Installs a set of dependencies, and all dependencies that they need.
 ///
-/// Dependencies are flat by design: one version of a repository is installed
-/// for the whole project. A source reached twice is fetched once. When two
-/// declarations ask for different versions, the one whose commit is newest is
-/// installed and the disagreement is reported, because a dependency version
-/// nobody chose is worse than one nobody has.
+/// Dependencies are flat by design. The whole project gets one version of a
+/// repository. When the installer reaches a source two times, it fetches it
+/// once. Two declarations can ask for different versions. Then the installer
+/// installs the version with the newest commit, and reports the conflict. A
+/// dependency version that nobody chose is worse than no version.
 pub struct Installer<'a> {
     pub project_root: &'a Path,
     pub scratch: PathBuf,
     pub lock: Lock,
     pub placed: Vec<Placed>,
     pub warnings: Vec<String>,
-    /// Replace an edited package anyway, discarding its local changes, rather
-    /// than refusing.
+    /// Replace an edited package, and discard its local changes. Do not refuse.
     pub force: bool,
-    /// Record what each install changed, for a diff.
+    /// Record the changes of each install, for a diff.
     pub diff: bool,
-    /// With `diff`, the local edits of each package that was edited since it
-    /// was installed, so they can be shown even when the update is refused
-    /// because of them.
+    /// With `diff`, the local edits of each package with edits after its
+    /// install. Thus the command can show them, also when they stop the
+    /// update.
     pub edited: Vec<(String, Outcome<Vec<FileChange>>)>,
-    /// Refuse a package whose name the lock file records under a different
-    /// source, rather than replacing that package with this one.
+    /// Refuse a package when the lock file records its name for a different
+    /// source. Do not replace that package with this package.
     pub guard_owners: bool,
-    /// The names of the packages this project offers itself, which nothing it
-    /// installs may take.
+    /// The names of the packages that this project offers. An installed
+    /// package must not use these names.
     pub own: Vec<String>,
     /// Sources already resolved.
     seen: Vec<Seen>,
-    /// What `finish` will place, once every dependency has resolved.
+    /// The packages that `finish` will put in place, after all dependencies
+    /// resolve.
     planned: Vec<Planned>,
 }
 
-/// A package resolved and checked but not yet written to `tethers/`.
+/// A package that the installer resolved and checked, but not yet in `tethers/`.
 struct Planned {
     package: PackageDecl,
     source: String,
     pin: Pin,
     commit: Option<String>,
     discarded: Option<String>,
-    /// Holds the files `package.root` points into until they are copied.
+    /// Keeps the files of `package.root` until the copy ends.
     _checkout: std::rc::Rc<Checkout>,
 }
 
-/// A source the installer has already placed, and the version it took.
+/// A source that the installer already put in place, and its version.
 struct Seen {
     source: String,
     pin: Pin,
@@ -621,18 +623,19 @@ impl<'a> Installer<'a> {
         }
     }
 
-    /// Resolves `dependency` and, transitively, what the packages it publishes
-    /// require, checking each package against everything else. Nothing is
-    /// written until `finish`, so a failure anywhere leaves the project as it
-    /// was.
+    /// Resolves `dependency`. It also resolves the dependencies of its
+    /// packages transitively. It checks each package against all other
+    /// packages. It writes no files until `finish`. Thus a failure does not
+    /// change the project.
     ///
-    /// `rename` names the single package a repository publishes, which is what
-    /// `piton tether --as` needs; a repository that publishes several names them
-    /// itself.
+    /// `rename` names the single package that a repository publishes.
+    /// `piton tether --as` needs this. A repository that publishes many
+    /// packages names them.
     pub fn add(&mut self, dependency: &Dependency, rename: Option<&str>) -> Outcome<()> {
-        // Each dependency carries the directory its relative path is read from:
-        // the project's for its own, a local repository's for that
-        // repository's packages, and none for a repository behind a URL.
+        // Each dependency has the start directory for its relative path. For
+        // the project dependencies, it is the project directory. For the
+        // packages of a local repository, it is that repository. For a
+        // repository from a URL, there is no directory.
         let mut queue = vec![(
             dependency.clone(),
             rename.map(str::to_string),
@@ -647,8 +650,9 @@ impl<'a> Installer<'a> {
             {
                 Some(index) if self.seen[index].pin == dependency.pin => continue,
                 Some(index) => {
-                    // Asked for at a second version. Both are looked at, and
-                    // the newer commit is the one the project gets.
+                    // A different declaration asks for a second version. The
+                    // installer examines the two. The project gets the newer
+                    // commit.
                     let checkout = fetch(&dependency.source, &dependency.pin, base.as_deref(), &self.scratch)?;
                     let taken = &self.seen[index];
                     if checkout.commit.is_some() && checkout.commit == taken.commit {
@@ -703,8 +707,8 @@ impl<'a> Installer<'a> {
                 .fallback_name()
                 .unwrap_or_else(|| dependency.default_name());
             let mut published = published(&checkout.directory, &fallback);
-            // `packages:` under the dependency picks which of the repository's
-            // packages to take.
+            // `packages:` under the dependency selects the packages of the
+            // repository to install.
             if let Some(wanted) = &dependency.packages {
                 for name in wanted {
                     if !published.iter().any(|package| &package.name == name) {
@@ -761,7 +765,8 @@ impl<'a> Installer<'a> {
                 }
                 match unmodified {
                     Ok(()) => {}
-                    // Forced, the edits are thrown away, and said to be.
+                    // With force, the installer discards the edits and reports
+                    // it.
                     Err(_) if self.force => {
                         discarded.insert(
                             package.name.clone(),
@@ -773,7 +778,7 @@ impl<'a> Installer<'a> {
             }
             let checkout = std::rc::Rc::new(checkout);
             for package in &published {
-                // A later, newer version replaces what an earlier one planned.
+                // A later, newer version replaces the plan of an earlier one.
                 self.planned.retain(|earlier| earlier.package.name != package.name);
                 self.planned.push(Planned {
                     package: package.clone(),
@@ -785,13 +790,14 @@ impl<'a> Installer<'a> {
                 });
             }
 
-            // What each package needs becomes this project's dependency too,
-            // because there is nowhere nested for it to go. The repository's
-            // own project dependencies are not followed: they are for working
-            // on that repository, not for using what it publishes.
+            // The dependencies of each package also become dependencies of
+            // this project. There is no nested location for them. The
+            // installer does not follow the project dependencies of the
+            // repository. They are for work on that repository. They are not
+            // for the use of its packages.
             //
-            // A relative path there is written from the repository's own
-            // directory, so it is made absolute before it leaves it.
+            // A relative path there starts at the directory of the repository.
+            // Thus the installer makes it absolute before it goes out.
             for required in published.iter().flat_map(|package| &package.dependencies) {
                 let mut required = required.clone();
                 if let Some(path) = checkout
@@ -810,10 +816,10 @@ impl<'a> Installer<'a> {
         Ok(())
     }
 
-    /// Refuses a package name another package already has.
+    /// Refuses a package name that a different package already has.
     ///
-    /// Two packages can't share `tethers/<name>`, and installing one over the
-    /// other would quietly swap what every import of that name means.
+    /// Two packages cannot use the same `tethers/<name>`. An install of one
+    /// over the other silently changes the meaning of each import of that name.
     fn check_name(&self, name: &str, source: &str) -> Outcome<()> {
         if self.own.iter().any(|own| own == name) {
             return Err(Failure::new(format!(
@@ -846,7 +852,7 @@ impl<'a> Installer<'a> {
         Ok(())
     }
 
-    /// Writes every planned package to `tethers/` and records it in the lock.
+    /// Writes each planned package to `tethers/`, and records it in the lock.
     pub fn finish(mut self) -> Outcome<(Lock, Vec<Placed>, Vec<String>)> {
         let planned = std::mem::take(&mut self.planned);
         let mut outcome = Ok(());
@@ -874,41 +880,41 @@ impl<'a> Installer<'a> {
                 }
             }
         }
-        // The checkouts go before the scratch directory holding them.
+        // The checkouts drop before the scratch directory that contains them.
         drop(planned);
         let _ = std::fs::remove_dir_all(&self.scratch);
         outcome.map(|()| (self.lock, self.placed, self.warnings))
     }
 }
 
-/// An import that names a package, and where its path sits in the source.
+/// An import that names a package, and the location of its path in the source.
 pub struct ImportSite {
     pub file: PathBuf,
     pub start: usize,
     pub end: usize,
     pub written: String,
-    /// True when the import is itself inside an installed package.
+    /// True when the import is in an installed package.
     ///
-    /// Those are not rewritten. Editing one would make that package differ from
-    /// what the lock file recorded, which is precisely the state that stops it
-    /// being updated -- so it is reported instead, and the person decides.
+    /// The code does not change these imports. An edit makes that package
+    /// different from the lock file record. That state stops all updates of
+    /// the package. Thus the code reports the import, and the person decides.
     pub managed: bool,
 }
 
-/// Every import in the project that reaches into `name`.
+/// All imports in the project that go into `name`.
 ///
-/// Found through the parser rather than by searching text, so a package name
-/// that also appears in prose, in a comment, or as part of a longer name is not
-/// mistaken for an import.
+/// The parser finds them. A text search does not. Thus a package name in
+/// prose, in a comment, or in a longer name does not count as an import.
 pub fn imports_of(project: &Project, name: &str) -> Vec<ImportSite> {
     let mut found = Vec::new();
     let mut files = piton_compile::module::sources(&project.source_root);
     if project.root != project.source_root {
         files.extend(piton_compile::module::sources(&project.root));
     }
-    // `sources` leaves installed packages out, which is right for everything
-    // that reports on the project's own code. Here they matter: one package
-    // importing another by name breaks the same way anything else does.
+    // `sources` does not include installed packages. That is correct for all
+    // reports on the code of the project. Here, they are important. A package
+    // can import a different package by name. That import breaks in the same
+    // way as all other imports.
     let tethers = project.root.join(packages::TETHERS);
     files.extend(piton_compile::module::sources(&tethers));
     files.sort();
@@ -916,8 +922,8 @@ pub fn imports_of(project: &Project, name: &str) -> Vec<ImportSite> {
 
     let inside = packages::package_directory(&project.root, name);
     for file in files {
-        // An import written inside the package being moved is relative to the
-        // package and moves with it.
+        // An import in the package that moves is relative to the package. It
+        // moves with the package.
         if file.starts_with(&inside) {
             continue;
         }
@@ -948,10 +954,10 @@ pub fn imports_of(project: &Project, name: &str) -> Vec<ImportSite> {
     found
 }
 
-/// Rewrites every import of `name` to point at `replacement`, which is written
-/// as a path from the project's source root.
+/// Changes each import of `name` to `replacement`. `replacement` is a path
+/// from the source root of the project.
 ///
-/// Returns how many files changed.
+/// Returns the number of changed files.
 pub fn rewrite_imports(sites: &[ImportSite], name: &str, replacement: &str) -> Outcome<usize> {
     let mut by_file: std::collections::BTreeMap<PathBuf, Vec<&ImportSite>> = Default::default();
     for site in sites.iter().filter(|site| !site.managed) {
@@ -963,7 +969,8 @@ pub fn rewrite_imports(sites: &[ImportSite], name: &str, replacement: &str) -> O
         let mut source = std::fs::read_to_string(&file).map_err(|error| {
             Failure::new(format!("cannot read `{}`: {error}", file.display()))
         })?;
-        // Back to front, so an earlier edit does not move a later span.
+        // From the end to the start. Thus an earlier edit does not move a
+        // later span.
         sites.sort_by_key(|site| std::cmp::Reverse(site.start));
         for site in sites {
             let rest = site.written.strip_prefix(name).unwrap_or_default();
@@ -977,8 +984,8 @@ pub fn rewrite_imports(sites: &[ImportSite], name: &str, replacement: &str) -> O
     Ok(changed)
 }
 
-/// Removes a package's directory, and `tethers/` itself when that leaves it
-/// empty.
+/// Removes the directory of a package. When `tethers/` becomes empty, it
+/// also removes `tethers/`.
 pub fn remove_directory(project_root: &Path, name: &str) -> Outcome<()> {
     let directory = packages::package_directory(project_root, name);
     std::fs::remove_dir_all(&directory).map_err(|error| {
@@ -991,7 +998,7 @@ pub fn remove_directory(project_root: &Path, name: &str) -> Outcome<()> {
     Ok(())
 }
 
-/// Removes `tethers/` when nothing is installed in it any more.
+/// Removes `tethers/` when it contains no installed packages.
 pub fn prune_empty_tethers(project_root: &Path) {
     let tethers = project_root.join(packages::TETHERS);
     if std::fs::read_dir(&tethers).is_ok_and(|mut entries| entries.next().is_none()) {

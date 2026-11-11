@@ -9,48 +9,48 @@ use piton_syntax::ast::{self, FromKind, Item};
 use crate::module::{self, ModuleGraph, ModuleId, ResolutionContext};
 use crate::store::{AnchorDef, Slot, Store, Symbol, VariableDef};
 
-/// How a name leaves a module.
+/// The way a name goes out of a module.
 #[derive(Debug, Clone)]
 enum ExportTarget {
     /// A declaration in this module.
     Local(Symbol),
-    /// A name taken from another module, possibly renamed.
+    /// A name from a different module, possibly with a new name.
     Forwarded { module: ModuleId, name: String },
 }
 
-/// One place a module exports from: a declaration, an explicit re-export, or
-/// an `export *`.
+/// One location from which a module exports. This is a declaration, an explicit
+/// re-export, or an `export *`.
 #[derive(Debug, Clone)]
 struct ExportSite {
-    /// The exported name, or `None` for `export *`, which exports whatever the
-    /// glob's module does.
+    /// The exported name, or `None` for `export *`. `export *` exports all the
+    /// names that the module of the glob exports.
     name: Option<String>,
     target: ExportTarget,
     span: Span,
-    /// How the source reads in a message: the module path as written, or
-    /// "this file" for a declaration.
+    /// The text for the source in a message. This is the module path as the source
+    /// wrote it, or "this file" for a declaration.
     source: String,
 }
 
-/// Everything known about one module's names.
+/// All the known data about the names of one module.
 #[derive(Default)]
 pub struct ModuleScope {
-    /// Declarations written in this module.
+    /// Declarations in this module.
     pub declarations: IndexMap<String, Symbol>,
-    /// Local bindings introduced by `from ... import`.
+    /// Local bindings that `from ... import` adds.
     imports: HashMap<String, (ModuleId, String, Span)>,
     /// Named exports, in declaration order.
     exports: IndexMap<String, ExportTarget>,
-    /// Modules whose exports are re-exported wholesale.
+    /// Modules from which this module re-exports all exports.
     export_globs: Vec<ModuleId>,
-    /// Every way a name leaves this module, in precedence order, so that two
-    /// exports under one name can be reported rather than one silently lost.
+    /// All the ways a name goes out of this module, in precedence order. Thus the
+    /// resolver can report two exports with one name. It does not silently lose one.
     export_sites: Vec<ExportSite>,
-    /// Modules named by `use`, which contribute keywords.
+    /// Modules that `use` names. These modules give keywords.
     pub used: Vec<ModuleId>,
-    /// Keywords usable in this module: keyword text to the anchor it aliases.
+    /// Keywords that this module can use. Each maps keyword text to the anchor that it aliases.
     pub keywords: IndexMap<String, AnchorId>,
-    /// Modules this one imports from, for reachability reporting.
+    /// Modules from which this module imports, for reachability reports.
     pub dependencies: Vec<ModuleId>,
 }
 
@@ -60,9 +60,9 @@ pub struct Resolution {
     pub store: Store,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub entry: ModuleId,
-    /// False when the entry could not be loaded. `entry` then names no module
-    /// of its own -- only the editor's workspace still resolves the files
-    /// around it -- and there is nothing to measure reachability from.
+    /// False when the resolver could not load the entry. Then `entry` names no module
+    /// of its own. Only the workspace of the editor still resolves the files
+    /// around it. Thus there is no start point for reachability.
     pub has_entry: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -75,7 +75,7 @@ impl Resolution {
             .unwrap_or_else(|| EMPTY.get_or_init(ModuleScope::default))
     }
 
-    /// Looks a name up as it would be seen from inside `module`.
+    /// Finds a name as `module` sees it from inside.
     pub fn lookup(&self, module: ModuleId, name: &str) -> Option<Symbol> {
         let scope = self.scope(module);
         if let Some(symbol) = scope.declarations.get(name) {
@@ -87,7 +87,7 @@ impl Resolution {
         None
     }
 
-    /// Resolves an exported name, following re-exports.
+    /// Resolves an exported name. It follows re-exports.
     pub fn lookup_export(
         &self,
         module: ModuleId,
@@ -116,13 +116,13 @@ impl Resolution {
         }
     }
 
-    /// Every name a module can write unqualified: its own declarations, then
-    /// the names it imported.
+    /// All the names that a module can write unqualified. First its own declarations,
+    /// then the names it imported.
     ///
-    /// `lookup` answers this one name at a time, which is what a reference
-    /// needs. Completion needs the other direction -- everything in scope --
-    /// and the imports it has to include are private to the scope, so the list
-    /// is built here rather than guessed from the syntax.
+    /// `lookup` gives one name at a time. A reference needs this. Completion needs the
+    /// other direction, which is all the names in scope. The imports that completion
+    /// must include are private to the scope. Thus this function builds the list. It
+    /// does not guess the list from the syntax.
     pub fn visible_names(&self, module: ModuleId) -> Vec<(String, Symbol)> {
         let scope = self.scope(module);
         let mut out: Vec<(String, Symbol)> = scope
@@ -131,8 +131,8 @@ impl Resolution {
             .map(|(name, symbol)| (name.clone(), *symbol))
             .collect();
         for (local, (source, original, _)) in &scope.imports {
-            // A name that fails to resolve is a diagnostic elsewhere; here it
-            // is simply not something to offer.
+            // A name that does not resolve causes a diagnostic at a different
+            // location. Here, it is only not a name to offer.
             if let Some(symbol) = self.lookup_export(*source, original, &mut HashSet::new()) {
                 out.push((local.clone(), symbol));
             }
@@ -142,7 +142,7 @@ impl Resolution {
         out
     }
 
-    /// Every name a module exports, including names reached through globs.
+    /// All the names that a module exports, also the names that come through globs.
     pub fn exported_names(&self, module: ModuleId) -> Vec<String> {
         let mut names = Vec::new();
         let mut seen = HashSet::new();
@@ -172,12 +172,12 @@ impl Resolution {
     }
 }
 
-/// Loads every module reachable from `entry` and resolves names across them.
+/// Loads all the modules that `entry` reaches and resolves names across them.
 pub fn resolve(entry: &std::path::Path, roots: module::Roots<'_>) -> Resolution {
     resolve_with(entry, roots, ModuleGraph::default())
 }
 
-/// Resolves starting from `entry` using a graph that may already carry editor
+/// Resolves from `entry`. The graph can already contain editor
 /// buffers.
 pub fn resolve_with(
     entry: &std::path::Path,
@@ -199,14 +199,14 @@ pub fn resolve_with(
     resolve_from(graph, entry_id, roots, diagnostics)
 }
 
-/// Resolves starting from `entry`, loading `also` as well.
+/// Resolves from `entry`, and also loads `also`.
 ///
-/// A file nothing imports never enters the graph, which is right for a compiler
-/// -- it is not part of the program -- and wrong for an editor, where the file
-/// is open on screen and still has to have diagnostics, symbols, and a
-/// definition to jump to. The entry stays the entry: it is what reachability is
-/// measured from, and `piton reach` is where the question of what the project
-/// reaches gets answered.
+/// A file that no module imports does not go into the graph. This is correct for a
+/// compiler, because the file is not part of the program. It is not correct for an
+/// editor. The file is open on the screen and must have diagnostics, symbols, and a
+/// definition to go to. The entry stays the entry. Reachability starts from
+/// the entry. `piton reach` gives the answer to the question of what the project
+/// reaches.
 pub fn resolve_including(
     entry: &std::path::Path,
     also: &[std::path::PathBuf],
@@ -219,8 +219,8 @@ pub fn resolve_including(
 
     let mut seeds = Vec::new();
     for path in also {
-        // A path that cannot be read is reported by `graph.load`, and there is
-        // nothing to seed the walk with.
+        // `graph.load` reports a path that it cannot read. There is
+        // no file to start the walk with.
         if let Some(id) = graph.load(path, &mut diagnostics) {
             seeds.push(id);
         }
@@ -228,9 +228,9 @@ pub fn resolve_including(
 
     match entry_id {
         Some(entry_id) => resolve_from_roots(graph, entry_id, &seeds, roots, diagnostics),
-        // A missing entry is reported, but the files being edited still have
-        // to resolve: without them there are no completions, symbols, or
-        // diagnostics for the very files that would fix the project.
+        // The resolver reports an entry that is not there. But the open files must
+        // still resolve. Without them, there are no completions, symbols, or
+        // diagnostics for the files that would fix the project.
         None => match seeds.split_first() {
             Some((first, rest)) => {
                 let mut resolution = resolve_from_roots(graph, *first, rest, roots, diagnostics);
@@ -249,8 +249,8 @@ pub fn resolve_including(
     }
 }
 
-/// Resolves a graph that already has its entry module loaded. The language
-/// server uses this to reuse buffers it has already parsed.
+/// Resolves a graph that already contains its loaded entry module. The language
+/// server uses this function to use again the buffers that it already parsed.
 pub fn resolve_from(
     graph: ModuleGraph,
     entry: ModuleId,
@@ -260,7 +260,7 @@ pub fn resolve_from(
     resolve_from_roots(graph, entry, &[], roots, diagnostics)
 }
 
-/// Resolves from `entry` and from every module in `also`.
+/// Resolves from `entry` and from each module in `also`.
 pub fn resolve_from_roots(
     mut graph: ModuleGraph,
     entry: ModuleId,
@@ -268,8 +268,8 @@ pub fn resolve_from_roots(
     roots: module::Roots<'_>,
     mut diagnostics: Vec<Diagnostic>,
 ) -> Resolution {
-    // Phase 1: transitively load every referenced module. Visiting a module a
-    // second time is a no-op, so circular imports simply terminate.
+    // Phase 1: transitively load all referenced modules. A second visit to a module
+    // does nothing. Thus circular imports stop.
     let mut queue = vec![entry];
     queue.extend_from_slice(also);
     let mut loaded = HashSet::new();
@@ -387,15 +387,15 @@ pub fn resolve_from_roots(
         scopes.insert(*id, scope);
     }
 
-    // Phase 3: wire imports, exports, and `use` edges.
+    // Phase 3: connect imports, exports, and `use` edges.
     for id in &module_ids {
         let module_edges = edges.get(id).cloned().unwrap_or_default();
         let module_path = graph.get(*id).path.clone();
         let items: Vec<Item> = graph.get(*id).ast().items.clone();
         let mut edge_cursor = 0usize;
         let mut scope = scopes.remove(id).unwrap_or_default();
-        // `export *` comes after every named export in precedence, whatever
-        // line it is written on.
+        // `export *` comes after all named exports in precedence, on whichever
+        // line it is.
         let mut globs: Vec<ExportSite> = Vec::new();
 
         for item in &items {
@@ -504,9 +504,9 @@ pub fn resolve_from_roots(
     resolution
 }
 
-/// Warns about an abstract anchor nothing implements. An exported one is left
-/// alone, since another file or project may implement it, and so is anything
-/// from a bundled package.
+/// Warns about an abstract anchor that no anchor implements. The resolver does not
+/// warn about an exported abstract anchor, because a different file or project can implement it.
+/// It also does not warn about an anchor from a bundled package.
 fn report_unimplemented_abstracts(resolution: &mut Resolution) {
     let store = &resolution.store;
     let mut diagnostics = Vec::new();
@@ -569,8 +569,8 @@ fn declare(
     }
 }
 
-/// Records a named export. The first export of a name is the one the module
-/// keeps; a later one is still recorded as a site so it can be reported.
+/// Records a named export. The module keeps the first export of a name.
+/// The resolver also records a later export as a site, so that it can report it.
 fn export(scope: &mut ModuleScope, name: &str, target: ExportTarget, span: Span, source: String) {
     scope
         .exports
@@ -584,8 +584,8 @@ fn export(scope: &mut ModuleScope, name: &str, target: ExportTarget, span: Span,
     });
 }
 
-/// How `export Name` reads when `Name` was imported: the module path written
-/// on the import that brought it in.
+/// The text for `export Name` when `Name` came from an import. This is the module
+/// path on the import that brought it in.
 fn import_source_label(
     items: &[Item],
     source: ModuleId,
@@ -605,11 +605,11 @@ fn import_source_label(
     "an import".to_string()
 }
 
-/// Reports a name a module exports twice with two different meanings.
+/// Reports a name that a module exports two times with two different meanings.
 ///
-/// Lookup keeps the first site in precedence order -- a declaration, then an
-/// explicit export, then the first `export *` -- so every later site that means
-/// something else is the one reported, and it is the one that was dropped.
+/// Lookup keeps the first site in precedence order. This order is a declaration, then
+/// an explicit export, then the first `export *`. Thus the report is about each later
+/// site with a different meaning. Lookup dropped that site.
 fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
     let mut diagnostics = Vec::new();
     for id in modules {
@@ -619,7 +619,7 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
         }
         let module_path = module.path.clone();
 
-        // Every (name, meaning, site) this module exports, in precedence order.
+        // All the (name, meaning, site) values that this module exports, in precedence order.
         let mut candidates: Vec<(String, Symbol, &ExportSite)> = Vec::new();
         for site in &resolution.scope(*id).export_sites {
             match (&site.name, &site.target) {
@@ -627,7 +627,7 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
                     candidates.push((name.clone(), *symbol, site));
                 }
                 (Some(name), ExportTarget::Forwarded { module, name: original }) => {
-                    // An export that does not resolve is reported elsewhere.
+                    // A different location reports an export that does not resolve.
                     if let Some(symbol) =
                         resolution.lookup_export(*module, original, &mut HashSet::new())
                     {
@@ -687,8 +687,8 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
     resolution.diagnostics.extend(diagnostics);
 }
 
-/// A prefix for a suggested alias, taken from the module it comes from:
-/// `./strataglyph` suggests `StrataglyphRoles`.
+/// A prefix for a suggested alias, from the source module.
+/// For example, `./strataglyph` gives `StrataglyphRoles`.
 fn alias_prefix(source: &str) -> String {
     if !source.starts_with('`') {
         return "Other".to_string();
@@ -706,7 +706,7 @@ fn alias_prefix(source: &str) -> String {
     }
 }
 
-/// Reports imports that name something the source module does not export.
+/// Reports imports that name an item that the source module does not export.
 fn check_imports_resolve(resolution: &mut Resolution, modules: &[ModuleId]) {
     let mut diagnostics = Vec::new();
     for id in modules {
@@ -750,15 +750,15 @@ fn check_imports_resolve(resolution: &mut Resolution, modules: &[ModuleId]) {
     resolution.diagnostics.extend(diagnostics);
 }
 
-/// Fills each module's keyword table from the modules it `use`s.
+/// Fills the keyword table of each module from the modules that it `use`s.
 ///
-/// `use` brings in keywords and nothing else, which is why a file still has to
-/// import the symbols it references.
+/// `use` brings in keywords only. Thus a file must still
+/// import the symbols that it references.
 fn populate_keywords(resolution: &mut Resolution, modules: &[ModuleId]) {
     for id in modules {
         let mut keywords: IndexMap<String, AnchorId> = IndexMap::new();
 
-        // A file can always use keywords it declares itself.
+        // A file can always use the keywords that it declares.
         for symbol in resolution.scope(*id).declarations.values() {
             if let Symbol::Anchor(anchor) = symbol {
                 if let Some(alias) = resolution.store.anchor(*anchor).alias.clone() {
@@ -786,7 +786,7 @@ fn populate_keywords(resolution: &mut Resolution, modules: &[ModuleId]) {
     }
 }
 
-/// Turns keyword and `extends` names into anchor ids.
+/// Changes keyword names and `extends` names into anchor ids.
 fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
     let mut diagnostics = Vec::new();
     let mut assignments: Vec<(AnchorId, Vec<AnchorId>)> = Vec::new();
@@ -834,9 +834,9 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
 
             if keyword != "anchor" {
                 match resolution.scope(*id).keywords.get(&keyword).copied() {
-                    // A user keyword is sugar for `extends`, and its anchor is
-                    // always the last in the inheritance chain, so it wins any
-                    // collision with what's in `extends`.
+                    // A user keyword is a short form of `extends`. Its anchor is
+                    // always the last in the inheritance chain. Thus it wins each
+                    // collision with the names in `extends`.
                     Some(base) => bases.push(base),
                     None => diagnostics.push(
                         Diagnostic::error(
@@ -860,7 +860,7 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
         resolution.store.anchor_mut(anchor).bases = bases;
     }
 
-    // Inheritance cycles would make property resolution non-terminating.
+    // Inheritance cycles would cause property resolution to not stop.
     let count = resolution.store.anchors.len();
     let cycles: Vec<(AnchorId, Vec<AnchorId>)> = (0..count)
         .map(|index| AnchorId(index as u32))
@@ -869,7 +869,7 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
     for (anchor, cycle) in cycles {
         let def = resolution.store.anchor(anchor);
         let path = resolution.graph.get(def.module).path.clone();
-        // Show the cycle that caused the error: `A -> B -> A`.
+        // Show the cycle that caused the error, for example `A -> B -> A`.
         let chain: Vec<&str> = std::iter::once(anchor)
             .chain(cycle.iter().copied())
             .map(|id| resolution.store.anchor(id).name.as_str())
@@ -891,8 +891,8 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
         }
         diagnostics.push(diagnostic);
     }
-    // Clear bases only after every cycle is described, so each anchor on a
-    // cycle reports the whole loop.
+    // Clear the bases only after the resolver describes all cycles. Thus each anchor
+    // on a cycle reports the full loop.
     for index in 0..count {
         let anchor = AnchorId(index as u32);
         if has_cycle(&resolution.store, anchor) {
@@ -900,10 +900,10 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
         }
     }
 
-    // An anchor can implement more than one abstract. If two of them put type
-    // constraints on the same property and the types don't overlap at all,
-    // nothing could satisfy both, so that is an error. If they do overlap,
-    // the right-most one wins, like any other inheritance.
+    // An anchor can implement more than one abstract. Two abstracts can put type
+    // constraints on the same property. If the types do not overlap at all,
+    // no value can satisfy both. Thus that is an error. If the types overlap,
+    // the right-most abstract wins, as in all other inheritance.
     for index in 0..count {
         let anchor = AnchorId(index as u32);
         let def = resolution.store.anchor(anchor).clone();
@@ -946,7 +946,7 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
     resolution.diagnostics.extend(diagnostics);
 }
 
-/// The type constraints an anchor's whole chain puts on each property.
+/// The type constraints that the full chain of an anchor puts on each property.
 fn declared_constraints(resolution: &Resolution, anchor: AnchorId) -> Vec<(String, Vec<ast::TypeConstraint>)> {
     let mut out: Vec<(String, Vec<ast::TypeConstraint>)> = Vec::new();
     for member in resolution.store.base_chain(anchor).into_iter().chain(std::iter::once(anchor)) {
@@ -967,7 +967,7 @@ fn declared_constraints(resolution: &Resolution, anchor: AnchorId) -> Vec<(Strin
     out
 }
 
-/// True when some value could satisfy both sets of constraints.
+/// True when a value can satisfy both sets of constraints.
 fn constraints_overlap(store: &Store, left: &[ast::TypeConstraint], right: &[ast::TypeConstraint]) -> bool {
     left.iter()
         .any(|a| right.iter().any(|b| constraint_overlap(store, a, b)))
@@ -1019,7 +1019,7 @@ fn constraint_overlap(store: &Store, a: &ast::TypeConstraint, b: &ast::TypeConst
     }
 }
 
-/// The chain of bases that leads from `anchor` back to itself, if there is one.
+/// The chain of bases from `anchor` back to `anchor`, if this chain exists.
 fn find_cycle(store: &Store, anchor: AnchorId) -> Option<Vec<AnchorId>> {
     fn walk(
         store: &Store,
@@ -1066,12 +1066,12 @@ fn has_cycle(store: &Store, anchor: AnchorId) -> bool {
     walk(store, anchor, anchor, &mut Vec::new())
 }
 
-/// Computes each anchor's property slots.
+/// Calculates the property slots of each anchor.
 ///
-/// Bases contribute their slots left to right, so the right-most declaration
-/// wins a collision, and the anchor's own declarations win over all of them.
-/// Order follows the first declaration of each name, which is why an inherited
-/// property keeps the base's position even when the child overrides its value.
+/// Bases give their slots from left to right. Thus the right-most declaration
+/// wins a collision. The own declarations of the anchor win over all of them.
+/// The order follows the first declaration of each name. Thus an inherited
+/// property keeps the position from the base, also when the child overrides its value.
 fn build_slots(resolution: &mut Resolution) {
     let count = resolution.store.anchors.len();
     let mut done: HashSet<AnchorId> = HashSet::new();
@@ -1110,8 +1110,8 @@ fn build_slots_for(
         for (name, slot) in resolution.store.anchor(*base).slots.clone() {
             match slots.get_mut(&name) {
                 Some(existing) => {
-                    // Left to right, last in line wins -- for values and for
-                    // type constraints alike.
+                    // From left to right, the last item wins. This applies to values and to
+                    // type constraints.
                     let inherited_constraints = slot.constraints.clone();
                     *existing = slot;
                     if existing.constraints.is_empty() {
@@ -1134,7 +1134,7 @@ fn build_slots_for(
 
     for (index, property) in decl.body.properties().enumerate() {
         let has_value = property.value.declared;
-        // A child can't redeclare a constraint it inherits; it can only give
+        // A child cannot declare again a constraint that it inherits. It can only give
         // the property a value.
         if !property.constraints.is_empty() {
             if let Some(inherited) = slots.get(&property.name) {
@@ -1187,8 +1187,8 @@ fn build_slots_for(
         }
     }
 
-    // Report anything in an anchor body that is not a property: it is parsed
-    // but never emitted, and silently dropping it hides real mistakes.
+    // Report each item in an anchor body that is not a property. The parser parses it,
+    // but the compiler never emits it. To silently drop it would hide real mistakes.
     for item in &decl.body.items {
         if matches!(item, ast::BlockItem::Property(_) | ast::BlockItem::Pass(_)) {
             continue;
@@ -1212,7 +1212,7 @@ fn build_slots_for(
         );
     }
 
-    // A concrete anchor must supply a value for every abstract slot it inherits.
+    // A concrete anchor must give a value for each abstract slot that it inherits.
     if def.is_concrete() {
         for (name, slot) in &slots {
             if slot.has_value {
@@ -1221,8 +1221,8 @@ fn build_slots_for(
             let owner = resolution.store.anchor(slot.owner);
             let owner_path = resolution.graph.get(owner.module).path.clone();
             if slot.owner == anchor {
-                // Declared right here with a constraint and no value. Only an
-                // abstract anchor can leave a property without one.
+                // The anchor declares it here with a constraint and no value. Only an
+                // abstract anchor can have a property without a value.
                 diagnostics.push(Diagnostic::error(
                     "missing-value",
                     format!(
@@ -1256,8 +1256,8 @@ fn build_slots_for(
     done.insert(anchor);
 }
 
-/// The key of a line in an anchor body that is written like a property but
-/// uses characters a key can't have, like `a.b: 1`.
+/// The key of a line in an anchor body that looks like a property but
+/// has characters that a key cannot have, for example `a.b: 1`.
 fn invalid_key(item: &ast::BlockItem) -> Option<String> {
     let ast::BlockItem::Prose(paragraph) = item else {
         return None;
@@ -1281,8 +1281,8 @@ fn invalid_key(item: &ast::BlockItem) -> Option<String> {
 
 /// Explains why one line of an anchor body is not a property.
 ///
-/// The causes are different enough that one shared message helps nobody: a
-/// stray list item needs a property to hang from, while a line of prose needs
+/// The causes are very different. Thus one shared message does not help. A
+/// stray list item needs a property above it. A line of prose needs
 /// a key.
 fn describe_non_property(item: &ast::BlockItem, anchor: &str) -> (String, String) {
     match item {

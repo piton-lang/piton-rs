@@ -7,7 +7,7 @@ A project has the plugins bundled with the compiler, and the plugins its piton.c
 ## Bundled
 
 A bundled plugin is part of the compiler. Its Piton files are a bundled package, @piton/ and its name, so `use @piton/test` works in any project, and its declaration and code are embedded with them. Every project has every bundled plugin, and its commands, without configuring anything. A bundled plugin with a build only builds for a project that lists its settings, so a project that never mentions Belay gets no agent files.
-Three are bundled, each in the compiler's source with its declaration in plugin.pi, its TypeScript in src, and any Piton files in pi: Belay, in plugins/belay, the test plugin, in plugins/test, and the migrate plugin, in plugins/migrate.
+Four are bundled, each in the compiler's source with its declaration in plugin.pi, its TypeScript in src, and any Piton files in pi: Belay, in plugins/belay, the test plugin, in plugins/test, the migrate plugin, in plugins/migrate, and the init plugin, in plugins/init, which also holds its templates in templates. Every file under a bundled plugin's src, and under the init plugin's templates, is embedded, so a file added there is part of the next build without being listed anywhere.
 
 ## Installed
 

@@ -1,8 +1,8 @@
 //! End-to-end tests over a fixture project.
 //!
-//! The specification exercises skills and references; this fixture adds
-//! instructions, commands, agents, shape mapping, and all three adapters, so
-//! every output path is covered.
+//! The specification tests skills and references. This fixture adds
+//! instructions, commands, agents, shape mapping, and all three adapters.
+//! Thus the tests examine all output paths.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,7 +57,7 @@ impl Fixture {
         self.run_in(".", args)
     }
 
-    /// Runs piton from a directory inside the fixture.
+    /// Runs piton from a directory in the fixture.
     fn run_in(&self, directory: &str, args: &[&str]) -> (String, String, i32) {
         let output = Command::new(binary())
             .args(args)
@@ -72,8 +72,8 @@ impl Fixture {
     }
 }
 
-/// A project with one of each construct, plus a shape tree over real source
-/// directories.
+/// A project with one of each construct. It also has a shape tree over real
+/// source directories.
 fn full_project(name: &str, adapters: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.mkdir("src/components/button");
@@ -201,8 +201,8 @@ fn a_full_project_builds_every_artifact() {
         "{skill}"
     );
     assert!(
-        // The discovery description is the description followed by `Use when`
-        // and useWhen, exactly as written.
+        // The discovery description is the description, then `Use when` and
+        // useWhen. The text is the same as the source.
         skill.contains("description: Review a component against the house style Use when reviewing or writing a component"),
         "{skill}"
     );
@@ -212,15 +212,15 @@ fn a_full_project_builds_every_artifact() {
     );
     assert!(skill.contains("- Props are flat."), "{skill}");
 
-    // A reference in a prompt becomes a link to the anchor's heading in the
-    // reference file for its module.
+    // A reference in a prompt becomes a link to the heading of the anchor. The
+    // heading is in the reference file of its module.
     assert!(
         skill.contains("[HouseStyle](../../reference/Reference.md#house-style)"),
         "{skill}"
     );
     assert!(fixture.exists(".claude/reference/Reference.md"));
 
-    // Command: an x-prefixed skill with automatic invocation disabled.
+    // Command. This is an x-prefixed skill without automatic invocation.
     let command = fixture.read(".claude/skills/x-release/SKILL.md");
     assert!(command.contains("name: x-release"), "{command}");
     assert!(
@@ -232,7 +232,8 @@ fn a_full_project_builds_every_artifact() {
         "one representation only"
     );
 
-    // Agent: role introduction, then prompt, with explicit native options only.
+    // Agent. The role introduction comes first, then the prompt. It has only
+    // explicit native options.
     let agent = fixture.read(".claude/agents/reviewer.md");
     assert!(agent.contains("name: reviewer"), "{agent}");
     assert!(agent.contains("model: fast"), "{agent}");
@@ -242,14 +243,15 @@ fn a_full_project_builds_every_artifact() {
         "absent options stay absent:\n{agent}"
     );
 
-    // Instruction: placed at the matching code scope, not at the shape path.
+    // Instruction. The build puts it at the code scope that matches, not at the
+    // shape path.
     let instruction = fixture.read("src/components/button/CLAUDE.md");
     assert!(instruction.contains("# Button Shape"), "{instruction}");
     assert!(
         instruction.contains("label and an onPress handler"),
         "{instruction}"
     );
-    // And preserved in the compiled shape tree.
+    // The compiled shape tree also keeps it.
     assert!(fixture.exists(".claude/reference/shape/components/button/Button.md"));
 }
 
@@ -267,11 +269,11 @@ fn an_instruction_falls_back_to_the_nearest_existing_scope() {
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
 
-    // `src/components/missing` does not exist, so placement walks up.
+    // `src/components/missing` does not exist. Thus the placement goes up.
     assert!(!fixture.exists("src/components/missing/CLAUDE.md"));
     let combined = fixture.read("src/components/CLAUDE.md");
     assert!(combined.contains("# Ghost Shape"), "{combined}");
-    // The original location survives in the shape tree.
+    // The shape tree keeps the original location.
     assert!(fixture.exists(".claude/reference/shape/components/missing/Ghost.md"));
 }
 
@@ -281,8 +283,8 @@ fn every_adapter_emits_its_own_native_form() {
         "adapters",
         "        - {ClaudeCodeAdapter}\n        - {CodexAdapter}\n        - {OpenCodeAdapter}\n\n    crossDiscovery: allow",
     );
-    // OpenCode wants a provider-qualified model, and only loads a nested
-    // AGENTS.md that its configuration lists.
+    // OpenCode needs a provider-qualified model. It loads a nested AGENTS.md
+    // only when its configuration lists it.
     let constructs = fixture.read("spec/Constructs.pi").replace("model: fast", "model: anthropic/fast");
     fixture.write("spec/Constructs.pi", &constructs);
     fixture.write(
@@ -292,25 +294,26 @@ fn every_adapter_emits_its_own_native_form() {
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
 
-    // Codex: a command is a skill plus an explicit-invocation policy file.
+    // Codex. A command is a skill and an explicit-invocation policy file.
     assert!(fixture.exists(".agents/skills/x-release/SKILL.md"));
     let policy = fixture.read(".agents/skills/x-release/agents/openai.yaml");
     assert_eq!(policy, "policy:\n  allow_implicit_invocation: false\n");
 
-    // Codex agents are TOML with the three identity and instruction fields.
+    // Codex agents are TOML. They have the three identity and instruction
+    // fields.
     let toml = fixture.read(".codex/agents/reviewer.toml");
     assert!(toml.contains("name = \"reviewer\""), "{toml}");
     assert!(toml.contains("description = "), "{toml}");
     assert!(toml.contains("developer_instructions = "), "{toml}");
     assert!(toml.contains("You are a careful reviewer"), "{toml}");
-    // `model` is not a documented option for the standalone agent format here,
-    // so it must not be invented.
+    // The docs of the standalone agent format do not give `model` as an
+    // option. Thus the output must not add it.
     assert!(
         toml.contains("model = \"anthropic/fast\""),
         "model is supported: {toml}"
     );
 
-    // OpenCode: commands are native and agent mode is explicit.
+    // OpenCode. Commands are native, and the agent mode is explicit.
     let command = fixture.read(".opencode/commands/x-release.md");
     assert!(command.contains("description: Cut a release"), "{command}");
     assert!(
@@ -320,10 +323,12 @@ fn every_adapter_emits_its_own_native_form() {
     let agent = fixture.read(".opencode/agents/reviewer.md");
     assert!(agent.contains("mode: subagent"), "{agent}");
 
-    // Codex and OpenCode share AGENTS.md; identical guidance is written once.
+    // Codex and OpenCode use the same AGENTS.md. The build writes identical
+    // guidance one time.
     assert!(fixture.exists("src/components/button/AGENTS.md"));
 
-    // Cross-target discovery is reported, not silently accepted.
+    // The build reports cross-target discovery. It does not accept it
+    // silently.
     assert!(
         stderr.contains("cross-target-discovery"),
         "expected a discovery warning:\n{stderr}"
@@ -478,15 +483,15 @@ fn reach_separates_reachable_from_unreachable() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("reachable"), "{stdout}");
     assert!(stdout.contains("ReviewComponents"), "{stdout}");
-    // Nothing imports the orphan, so it is not even loaded.
+    // No file imports the orphan. Thus the loader does not load it.
     assert!(!stdout.contains("NobodyImportsThis"), "{stdout}");
 }
 
 #[test]
 fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
-    // A module that only re-exports declares no anchor of its own, so a
-    // reachability walk that counts only declarations finds nothing in it and
-    // calls it unreachable -- while the whole import chain runs through it.
+    // A module with only re-exports declares no anchor. A reachability walk
+    // that counts only declarations finds no anchor in it. Thus that walk
+    // calls it unreachable. But the full import chain goes through it.
     let fixture = full_project("reach-index", "        - {ClaudeCodeAdapter}");
     fixture.write(
         "spec/index.pi",
@@ -511,9 +516,9 @@ fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
 
 #[test]
 fn reach_follows_variables_and_property_reads() {
-    // Evaluation folds `{PURPOSE}` and `${Names.title}` into the value, so a
-    // walk over values alone loses the modules they came from and calls them
-    // dead while the entry is built out of them.
+    // The evaluation puts `{PURPOSE}` and `${Names.title}` into the value. A
+    // walk over only values loses their source modules. Thus that walk calls
+    // the modules dead. But the entry contains their values.
     let fixture = Fixture::new("reach-reads");
     fixture.write(
         "piton.config.pi",
@@ -532,7 +537,7 @@ fn reach_follows_variables_and_property_reads() {
     let (reachable, unreachable) = stdout.split_once("\nunreachable").unwrap();
     assert!(reachable.contains("Names  depth 1  via composition"), "{stdout}");
     assert!(!unreachable.contains("Overview.pi"), "{stdout}");
-    // The configuration is read, never imported.
+    // The CLI reads the configuration. No file imports it.
     assert!(!unreachable.contains("piton.config.pi"), "{stdout}");
     assert!(unreachable.contains("nothing"), "{stdout}");
 }
@@ -540,9 +545,9 @@ fn reach_follows_variables_and_property_reads() {
 #[test]
 fn reach_counts_every_line_it_prints() {
     let fixture = full_project("reach-counts", "        - {ClaudeCodeAdapter}");
-    // Loaded, because a file the entry does not reach imports it, and nothing
-    // reachable uses what it declares: a dead anchor in a file that is
-    // load-bearing for nothing.
+    // The loader loads it, because an unreachable file imports it. No
+    // reachable part uses its declarations. Thus it is a dead anchor in a
+    // file that no reachable part needs.
     fixture.write(
         "spec/Dead.pi",
         "export anchor NothingUsesThis:\n    value: 1\n",
@@ -559,9 +564,9 @@ fn reach_counts_every_line_it_prints() {
     let unreachable = stdout.split("\nunreachable").nth(1).unwrap_or_default();
     assert!(unreachable.contains("NothingUsesThis"), "{stdout}");
 
-    // The summary has to agree with the listing: an anchor count that leaves
-    // out the module lines printed under the same heading is what made the
-    // report hard to trust.
+    // The summary must agree with the list. Before, the anchor count did not
+    // include the module lines under the same heading. Thus the report was
+    // not reliable.
     let anchors = unreachable.matches("NothingUsesThis").count();
     assert_eq!(anchors, 1, "{stdout}");
     assert!(
@@ -576,8 +581,8 @@ fn reach_counts_every_line_it_prints() {
 
 #[test]
 fn reach_counts_what_plugins_reach_as_roots() {
-    // Nothing imports the test, but the test plugin runs it: it is a root,
-    // and what it reads is reached through it.
+    // No file imports the test, but the test plugin runs it. Thus it is a
+    // root. Its reads are reachable through it.
     let fixture = Fixture::new("reach-plugin-roots");
     fixture.write(
         "piton.config.pi",
@@ -597,10 +602,10 @@ fn reach_counts_what_plugins_reach_as_roots() {
     assert!(reachable.contains("SaveWorks"), "{stdout}");
     assert!(reachable.contains("Helper"), "{stdout}");
     assert!(!unreachable.contains("App.pi"), "{stdout}");
-    // Files nothing imports and no plugin reaches are still never imported.
+    // Files without imports that no plugin reaches stay "never imported".
     assert!(unreachable.contains("Orphan.pi  (never imported, 1 anchor)"), "{stdout}");
 
-    // Named targets ask what they see; plugins add nothing to them.
+    // Named targets ask for their visible parts. Plugins add no roots to them.
     let (stdout, _, _) = fixture.run(&["reach", "index.pi", "--no-paths"]);
     let reachable = stdout.split("\nunreachable").next().unwrap_or_default();
     assert!(!reachable.contains("SaveWorks"), "{stdout}");
@@ -608,9 +613,9 @@ fn reach_counts_what_plugins_reach_as_roots() {
 
 #[test]
 fn reach_counts_the_anchors_of_never_imported_files() {
-    // A file nothing imports is listed as unreachable, so a headline reading
-    // "0 unreachable" next to it reads as nothing dead while the list says
-    // otherwise.
+    // The list shows a file without imports as unreachable. Thus a headline
+    // with "0 unreachable" is incorrect. It tells that there are no dead parts.
+    // But the list shows a dead part.
     let fixture = Fixture::new("reach-never-imported");
     fixture.write(
         "piton.config.pi",
@@ -682,12 +687,12 @@ fn reach_follows_imports_and_reports_paths_by_default() {
 
     let (stdout, stderr, code) = fixture.run(&["reach"]);
     assert_eq!(code, 0, "{stderr}");
-    // Imported by the entry and used by nothing: reached through the import.
+    // The entry imports it, and no part uses it. The import reaches it.
     assert!(
         stdout.contains("OnlyImported  depth 1  via imports  [index.pi -> OnlyImported]"),
         "{stdout}"
     );
-    // Paths and the unreachable half are on without asking.
+    // Paths and the unreachable half show by default.
     assert!(stdout.contains(" -> "), "{stdout}");
     assert!(stdout.contains("\nunreachable"), "{stdout}");
 
@@ -783,7 +788,7 @@ fn naming_the_renderer_output_writes_it_alongside_a_framework() {
         let manifest = fixture.read(".piton/manifest.json");
         assert!(manifest.contains(&format!("\"dist/index.{extension}\"")), "{manifest}");
 
-        // Taking the setting out again removes what it wrote.
+        // When the setting goes away, the build removes the files from it.
         let without = config.replace(&format!("    {setting}\n"), "");
         fixture.write("piton.config.pi", &without);
         let (stdout, stderr, code) = fixture.run(&["build"]);
@@ -866,7 +871,7 @@ fn agent_prints_its_fluency_without_a_project() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("# Piton Fluency"), "{stdout}");
 
-    // A project's own FLUENCY_PROMPT.md is the one it gets.
+    // A project gets its own FLUENCY_PROMPT.md.
     fixture.write("FLUENCY_PROMPT.md", "# Project Fluency\n\nlocal words\n");
     let (stdout, stderr, code) = fixture.run(&["agent", "--print-fluency"]);
     assert_eq!(code, 0, "{stderr}");
@@ -879,8 +884,8 @@ fn reach_marks_a_root_as_a_root() {
     let fixture = full_project("reach-root", "        - {ClaudeCodeAdapter}");
     let (stdout, stderr, code) = fixture.run(&["reach", "ReviewComponents"]);
     assert_eq!(code, 0, "{stderr}");
-    // A root was not reached from anywhere, so naming an edge it arrived on
-    // is naming an edge that does not exist.
+    // No path reached a root. Thus an edge to the root does not exist, and
+    // the report must not name one.
     assert!(
         stdout.contains("ReviewComponents  depth 0  root"),
         "{stdout}"
@@ -898,7 +903,7 @@ fn build_cleans_up_only_what_it_generated() {
     assert_eq!(code, 0, "{stderr}");
     assert!(fixture.exists(".claude/skills/x-release/SKILL.md"));
 
-    // A file the user wrote inside an output directory must survive.
+    // A file that the user wrote in an output directory must stay.
     fixture.write(
         ".claude/skills/mine/SKILL.md",
         "---\nname: mine\n---\n\nhand written\n",
@@ -946,8 +951,8 @@ fn an_unknown_adapter_is_rejected() {
 
 #[test]
 fn a_relative_file_argument_resolves() {
-    // The module graph is keyed by absolute paths, so a relative argument has
-    // to be resolved before it will match anything.
+    // The keys of the module graph are absolute paths. Thus a relative
+    // argument must resolve before it can match a key.
     let fixture = Fixture::new("relative-target");
     fixture.write(
         "piton.config.pi",
@@ -984,8 +989,8 @@ fn help_lists_every_documented_command() {
     let _ = Path::new(".");
 }
 
-/// Two files where a button reads and references a document, with an
-/// unrelated sibling property.
+/// Two files. In them, a button reads and refers to a document. There is also
+/// an unrelated sibling property.
 fn slice_project(name: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.write(
@@ -1016,12 +1021,12 @@ fn slice_prints_what_a_target_depends_on() {
     assert!(stdout.contains("### Document.save\n"), "{stdout}");
     assert!(!stdout.contains("SaveButton.color"), "{stdout}");
 
-    // A property with no dependencies is a slice of one.
+    // A property without dependencies is a slice with one item.
     let (stdout, _, code) = fixture.run(&["slice", "spec/ui.pi#SaveButton.color"]);
     assert_eq!(code, 0);
     assert!(!stdout.contains("Document"), "{stdout}");
 
-    // A bare name is looked up across the project, and gives the same bytes.
+    // The command finds a bare name in the project. It gives the same bytes.
     let (bare, stderr, code) = fixture.run(&["slice", "SaveButton.color"]);
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(bare, stdout);
@@ -1047,9 +1052,9 @@ fn slice_reports_targets_it_cannot_resolve() {
     }
 }
 
-/// A Belay project whose build compiles a skill and the reference it cites,
-/// and an anchor that reads one the build never writes out, plus a file
-/// nothing imports.
+/// A Belay project. Its build compiles a skill and the reference that the
+/// skill cites. It has an anchor that reads an anchor that the build never
+/// writes. It also has a file that no file imports.
 fn slice_adapter_project(name: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.write(
@@ -1103,8 +1108,8 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
         stdout.contains("Anchor in `.claude/reference/Reference.md#house-style`"),
         "{stdout}"
     );
-    // An abstract base has no document of its own; what it declares is
-    // compiled into the anchors that extend it, and the source is not cited.
+    // An abstract base has no document. Its declarations compile into the
+    // anchors that extend it. The slice does not cite the source.
     assert!(
         stdout.contains("Abstract anchor, compiled into the anchors that extend it."),
         "{stdout}"
@@ -1112,8 +1117,8 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
     assert!(!stdout.contains("spec/"), "{stdout}");
     assert!(!stdout.contains("@piton/"), "{stdout}");
 
-    // Nor is it for an anchor that is only read: its value is compiled into
-    // the reader's document.
+    // The slice also does not cite it for an anchor that others only read. Its
+    // value compiles into the document of the reader.
     let (uses, stderr, code) =
         fixture.run(&["belay", "slice", "spec/Constructs.pi#Uses", "--adapter", "claude-code"]);
     assert_eq!(code, 0, "{stderr}");
@@ -1121,7 +1126,7 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
     assert!(uses.contains("## Orphan\n\nAnchor with no compiled document of its own.\n"), "{uses}");
     assert!(!uses.contains(".pi"), "{uses}");
 
-    // Every location cited is one the build really writes.
+    // The build really writes each cited location.
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(fixture.exists(".claude/skills/review-components/SKILL.md"));
@@ -1143,9 +1148,9 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
 
 #[test]
 fn slice_with_an_adapter_finds_an_anchor_embedded_upstream() {
-    // `Leaf` has no document of its own: the build inlines it into
-    // `Group.items`, which is itself inlined into `Index.group`. Nothing the
-    // slice of `Leaf` depends on says so, since what embeds it is upstream.
+    // `Leaf` has no document. The build inlines it into `Group.items`. The
+    // build inlines `Group.items` into `Index.group`. The dependencies of
+    // the slice of `Leaf` do not show this. The anchor that embeds it is upstream.
     let fixture = slice_adapter_project("slice-adapter-embedded");
     fixture.write(
         "spec/Group.pi",
@@ -1185,8 +1190,8 @@ fn slice_with_an_adapter_finds_an_anchor_embedded_upstream() {
         "{stdout}"
     );
 
-    // Citing the source, the chain is still traced from the project's entry,
-    // not from the file the target is in.
+    // When the slice cites the source, the chain still starts at the entry of
+    // the project. It does not start at the file of the target.
     let (source, stderr, code) = fixture.run(&["slice", "spec/Group.pi#Leaf"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(
@@ -1199,8 +1204,8 @@ fn slice_with_an_adapter_finds_an_anchor_embedded_upstream() {
 
 #[test]
 fn slice_writes_every_path_relative_to_where_it_runs() {
-    // Run from spec/, below the configuration, which slice finds by looking
-    // upward.
+    // Run from spec/, below the configuration. Slice finds the configuration
+    // above it.
     let fixture = slice_adapter_project("slice-here");
 
     let (stdout, stderr, code) = fixture.run_in(
@@ -1259,22 +1264,22 @@ fn slice_with_an_adapter_needs_a_target_the_build_writes() {
         }
     }
 
-    // Without an adapter the same targets slice from the source.
+    // Without an adapter, the same targets slice from the source.
     let (_, stderr, code) = fixture.run(&["slice", "spec/Loose.pi#Loose"]);
     assert_eq!(code, 0, "{stderr}");
 
-    // A project without Belay has nothing to cite.
+    // A project without Belay has no compiled location to cite.
     let plain = slice_project("slice-adapter-plain");
     let (_, stderr, code) = plain.run(&["belay", "slice", "SaveButton", "--adapter", "claude-code"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("no Belay configuration"), "{stderr}");
 }
 
-/// The template names `piton init --list` reports.
+/// The template names that `piton init --list` shows.
 fn templates(fixture: &Fixture) -> Vec<String> {
     let (stdout, stderr, code) = fixture.run(&["init", "--list"]);
     assert_eq!(code, 0, "{stderr}");
-    // Templates are the indented lines, under their group's line.
+    // Templates are the indented lines, under the line of their group.
     stdout
         .lines()
         .filter(|line| line.starts_with("  "))
@@ -1299,8 +1304,8 @@ fn every_template_starts_a_project_that_checks_and_builds() {
     stub_crux(&fixture);
 
     for name in &names {
-        // Tethering is left out, since the tests don't reach GitHub; a
-        // template's dependencies are tethered from a stand-in instead.
+        // The tests do not connect to GitHub. Thus they do not tether. They
+        // tether the dependencies of a template from a stand-in.
         let (stdout, stderr, code) = fixture.run(&["init", name, "--template", name, "--no-tether"]);
         assert_eq!(code, 0, "{name}: {stderr}");
         assert!(stdout.contains(&format!("{name}/piton.config.pi")), "{name}: {stdout}");
@@ -1326,7 +1331,7 @@ fn every_template_starts_a_project_that_checks_and_builds() {
     assert!(fixture.exists("crux/project/.claude/skills/crux-stand-in/SKILL.md"));
 }
 
-/// The crux package as `stub-crux/`: one skill, offered as `crux`.
+/// The crux package as `stub-crux/`. It has one skill, with the name `crux`.
 fn stub_crux(fixture: &Fixture) {
     fixture.write(
         "stub-crux/piton.config.pi",
@@ -1338,8 +1343,8 @@ fn stub_crux(fixture: &Fixture) {
     );
 }
 
-/// Points the template written in `name` at the stand-in crux, when it
-/// depends on crux, and tethers it.
+/// When the template in `name` needs crux, this function changes it to use
+/// the stand-in crux. Then it tethers it.
 fn tether_stub_crux(fixture: &Fixture, name: &str) {
     let config = format!("{name}/piton.config.pi");
     let text = fixture.read(&config);
@@ -1368,7 +1373,7 @@ fn init_leaves_tethering_to_later_when_asked() {
     assert!(config.contains("- https://github.com/piton-lang/crux.git"), "{config}");
     assert_eq!(fixture.read("app/spec/index.pi").lines().last(), Some("from crux export *"));
 
-    // A template without dependencies has nothing to tether.
+    // A template without dependencies has no package to tether.
     let (_, stderr, code) = fixture.run(&["init", "plain", "--template", "piton/minimal"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stderr.contains("piton tether"), "{stderr}");
@@ -1458,7 +1463,7 @@ fn init_never_overwrites_a_file() {
 fn init_needs_a_template_it_knows() {
     let fixture = Fixture::new("init-choose");
 
-    // With no terminal to ask on, the template has to be named.
+    // Without a terminal for questions, the user must name the template.
     let (_, stderr, code) = fixture.run(&["init"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("pick a template with --template"), "{stderr}");
@@ -1467,7 +1472,8 @@ fn init_needs_a_template_it_knows() {
     assert_eq!(code, 1);
     assert!(stderr.contains("`nope` is not a template; the templates are"), "{stderr}");
 
-    // A group alone isn't enough without a terminal to pick from it.
+    // Without a terminal, a group is not sufficient. The user cannot select
+    // from it.
     let (_, stderr, code) = fixture.run(&["init", "--template", "belay"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("`belay` is a group of templates"), "{stderr}");
@@ -1477,9 +1483,9 @@ fn init_needs_a_template_it_knows() {
 
 #[test]
 fn a_markdown_link_an_author_writes_is_passed_through() {
-    // Piton has no link syntax of its own, so a Markdown link or image in
-    // prose is text: Belay checks the links it generates from references,
-    // never these.
+    // Piton has no link syntax. Thus a Markdown link or image in prose is
+    // text. Belay checks the links that it makes from references. It never
+    // checks these links.
     let fixture = slice_adapter_project("authored-links");
     fixture.write(
         "spec/Reference.pi",
@@ -1544,13 +1550,13 @@ fn compile_can_report_what_it_read() {
     ]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("\"value\""), "{stdout}");
-    // The imported file is a dependency even though the caller never named
-    // it, and every path is absolute although the argument was relative.
+    // The imported file is a dependency, but the caller did not name it. All
+    // paths are absolute, but the argument was relative.
     let base = fixture.dir.join("spec/base.pi");
     let index = fixture.dir.join("spec/index.pi");
     assert!(stdout.contains(&format!("\"{}\"", base.display())), "{stdout}");
     assert!(stdout.contains(&format!("\"{}\"", index.display())), "{stdout}");
-    // A bundled package lives in the binary and cannot be watched.
+    // A bundled package is in the binary. A tool cannot watch it.
     assert!(!stdout.contains("\"@piton"), "{stdout}");
 }
 
@@ -1605,8 +1611,8 @@ fn build_output_references_point_into_the_output_tree() {
 
 #[test]
 fn the_language_server_accepts_the_stdio_flag() {
-    // Many editors' language clients (VS Code's among them) start a server
-    // with `--stdio`. Rejecting it stops the server before it says a word.
+    // Many language clients of editors start a server with `--stdio`. VS Code
+    // is one example. If the server refuses the flag, it stops before output.
     use std::io::{Read, Write};
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_piton"))
         .args(["lsp", "--stdio"])
@@ -1638,8 +1644,8 @@ fn the_language_server_accepts_the_stdio_flag() {
     let _ = child.kill();
     let response = String::from_utf8_lossy(&response);
     assert!(response.contains("\"capabilities\""), "{response}");
-    // Compiled outputs are shown in hover and code lenses. As document links
-    // they spanned whole anchor bodies, so an editor underlined the body as
-    // navigable and stacked one tooltip per adapter on every hover.
+    // Hover and code lenses show compiled outputs. Before, they were document
+    // links over full anchor bodies. Thus an editor underlined the body as a
+    // link. Also, each hover showed one tooltip for each adapter.
     assert!(!response.contains("documentLinkProvider"), "{response}");
 }

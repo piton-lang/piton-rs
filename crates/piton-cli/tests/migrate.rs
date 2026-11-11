@@ -1,8 +1,8 @@
-//! The migrate plugin, end to end: a project written for an older Piton is
-//! noticed before any command, and `piton migrate` brings it up to date.
+//! The migrate plugin, end to end. Before a command, the plugin finds a
+//! project for an older Piton. `piton migrate` updates the project.
 //!
-//! These run piped, where nothing is asked: the findings are reported, and
-//! only `piton migrate` changes files.
+//! These tests run in a pipe, where the CLI asks no questions. The CLI reports
+//! the findings. Only `piton migrate` changes files.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -79,7 +79,7 @@ fn an_old_project_is_noticed_before_any_command_and_left_alone() {
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("piton.config.pi lists frameworks, which is now plugins"), "{stderr}");
     assert!(stderr.contains("run `piton migrate` to update it"), "{stderr}");
-    // Piped, nothing is asked and nothing changes.
+    // In a pipe, the CLI asks no questions and changes no files.
     assert_eq!(fixture.config(), OLD);
 
     let (_, stderr, code) = fixture.run(&["migrate", "--check"]);
@@ -97,7 +97,7 @@ fn piton_migrate_brings_the_project_up_to_date() {
     assert!(stderr.contains("updated 1 file"), "{stderr}");
     assert_eq!(fixture.config(), OLD.replace("    frameworks:\n", "    plugins:\n"));
 
-    // Up to date: nothing is reported, and the project checks.
+    // The project is up to date. The CLI reports nothing, and the check passes.
     let (_, stderr, code) = fixture.run(&["check"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stderr.contains("frameworks"), "{stderr}");

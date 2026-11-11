@@ -1,9 +1,8 @@
-//! Expression lexing and parsing.
+//! The lexer and the parser for expressions.
 //!
-//! Expressions are the only context-free corner of Piton, so this is where
-//! chumsky earns its keep. Everything outside `{...}` is layout-sensitive and is
-//! handled by the line parser; everything inside is an ordinary precedence
-//! grammar.
+//! Expressions are the only context-free part of Piton. Thus, this module uses
+//! chumsky. The text outside `{...}` is sensitive to layout, and the line parser
+//! reads it. The text inside `{...}` is an ordinary precedence grammar.
 
 use chumsky::prelude::*;
 use piton_core::{Diagnostic, Span};
@@ -12,8 +11,8 @@ use crate::ast::{BinaryOp, Expr, ExprKind, Sigil, Spanned, UnaryOp};
 
 /// A token inside an expression.
 ///
-/// The payload is kept as text rather than a parsed number so the token type can
-/// derive `Hash` and `Eq`, which chumsky's error type requires.
+/// The token keeps the payload as text, not as a parsed number. Thus, the token
+/// type can derive `Hash` and `Eq`. The chumsky error type requires them.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExprToken {
     pub kind: ExprTokenKind,
@@ -48,7 +47,7 @@ pub enum ExprTokenKind {
     RParen,
     LBracket,
     RBracket,
-    /// `${`, `#{`, or `@{` opening a nested conversion or reference.
+    /// `${`, `#{`, or `@{`. It opens a nested conversion or reference.
     DollarBrace,
     HashBrace,
     AtBrace,
@@ -64,13 +63,13 @@ impl std::fmt::Display for ExprToken {
 
 /// Splits expression source into tokens.
 ///
-/// `base` is the absolute offset of `source` within the file so spans point at
+/// `base` is the absolute offset of `source` in the file. Thus, the spans show
 /// real positions.
 pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>)>, Vec<Diagnostic>) {
     let mut tokens = Vec::new();
     let diagnostics = Vec::new();
     let chars: Vec<char> = source.chars().collect();
-    // Byte offset of each char index, so spans stay byte-based.
+    // The byte offset of each char index. Thus, the spans stay in bytes.
     let mut offsets = Vec::with_capacity(chars.len() + 1);
     let mut offset = 0usize;
     for ch in &chars {
@@ -87,9 +86,9 @@ pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>
             continue;
         }
         let start = i;
-        // A minus is only ever part of a number: `-5` where a value is
-        // expected is a negative literal. There is no minus in front of an
-        // expression, so `-price` is a `-` with nothing on its left.
+        // A minus is always part of a number. Where a value is necessary,
+        // `-5` is a negative literal. No minus can come before an expression.
+        // Thus, `-price` is a `-` with nothing on its left.
         let expects_value = tokens.last().is_none_or(|(token, _): &(ExprToken, _)| {
             !matches!(
                 token.kind,
@@ -120,8 +119,8 @@ pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>
                 while j < chars.len()
                     && (chars[j].is_ascii_digit() || chars[j] == '_' || chars[j] == '.')
                 {
-                    // A dot only continues the number when a digit follows,
-                    // otherwise it is property access on a numeric key.
+                    // A dot continues the number only when a digit follows it.
+                    // If not, the dot is property access on a numeric key.
                     if chars[j] == '.' && !chars.get(j + 1).is_some_and(|c| c.is_ascii_digit()) {
                         break;
                     }
@@ -146,9 +145,9 @@ pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>
                     while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
                         j += 1;
                     }
-                    // A hyphen in the middle of a name is part of the name, so
-                    // `config.foo-bar` reads the key `foo-bar`. Subtraction
-                    // needs spaces around it.
+                    // A hyphen in the middle of a name is part of the name.
+                    // Thus, `config.foo-bar` reads the key `foo-bar`.
+                    // Subtraction must have spaces around it.
                     if j + 1 < chars.len()
                         && chars[j] == '-'
                         && (chars[j + 1].is_alphanumeric() || chars[j + 1] == '_')
@@ -222,8 +221,8 @@ fn binary_of(kind: ExprTokenKind) -> BinaryOp {
     }
 }
 
-/// Parses a number literal, honouring the underscore digit separators the
-/// language allows for readability.
+/// Parses a number literal. The language allows underscores as digit
+/// separators, to make numbers easier to read. This function accepts them.
 pub fn parse_number(text: &str) -> Option<f64> {
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();
     cleaned.parse::<f64>().ok()
@@ -339,7 +338,7 @@ pub fn parser() -> impl Parser<ExprToken, Expr, Error = Simple<ExprToken>> + Clo
             }),
         ));
 
-        // Property access binds tighter than every operator.
+        // Property access binds more tightly than all operators.
         let access = atom
             .then(
                 token(ExprTokenKind::Dot)
@@ -407,7 +406,7 @@ pub fn parser() -> impl Parser<ExprToken, Expr, Error = Simple<ExprToken>> + Clo
         let and = binary_level(equality, &[ExprTokenKind::AmpAmp]);
         let or = binary_level(and, &[ExprTokenKind::PipePipe]);
 
-        // The ternary is right-associative so it can be chained in either slot.
+        // The ternary is right-associative. Thus, you can chain it in either slot.
         or.clone()
             .then(
                 token(ExprTokenKind::Question)
@@ -434,8 +433,8 @@ pub fn parser() -> impl Parser<ExprToken, Expr, Error = Simple<ExprToken>> + Clo
     .then_ignore(end())
 }
 
-/// Parses one expression, returning a recovered [`ExprKind::Error`] node and a
-/// diagnostic when the source does not parse.
+/// Parses one expression. When the source does not parse, it returns a
+/// recovered [`ExprKind::Error`] node and a diagnostic.
 pub fn parse(source: &str, base: usize, file: &std::path::Path) -> (Expr, Vec<Diagnostic>) {
     let span = Span::new(base, base + source.len());
     let (tokens, mut diagnostics) = lex(source, base);

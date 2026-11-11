@@ -1,9 +1,10 @@
 //! `piton remove` — delete an installed package.
 //!
-//! Removing deletes files, so it checks two things first: that the package is
-//! still what was installed, and that nothing imports it. Either one being
-//! false means removing it would lose something -- edits in the first case, a
-//! working build in the second -- so both are reported rather than overridden.
+//! The removal deletes files. Thus it does two checks first. The package must
+//! be the same as the installed package. No file must import it. If a check
+//! fails, the removal causes a loss. In the first case, the user loses edits. In the
+//! second case, the build stops. Thus the command reports these problems, and
+//! does not ignore them.
 
 use piton_compile::packages::{self, Lock};
 
@@ -55,9 +56,9 @@ pub fn run(name: &str) -> u8 {
     if let Err(failure) = ops::remove_directory(&configured.root, name) {
         return fail(failure);
     }
-    // The repository it came from, which is not derivable from the name: a
-    // package installs under the name it publishes, not the one its URL
-    // suggests.
+    // The source repository of the package. The name does not give it. A
+    // package installs with the name that it publishes, not the name in its
+    // URL.
     let removed = lock.remove(name);
     if removed.is_some() {
         if let Err(error) = lock.save(&configured.root) {
@@ -68,15 +69,15 @@ pub fn run(name: &str) -> u8 {
 
     println!("{} {}", paint(style::SUCCESS, "removed"), paint(style::NAME, name));
 
-    // And from the configuration, or the next `piton tether` or `piton update`
-    // would install it again.
+    // Also remove it from the configuration. If not, the next `piton tether`
+    // or `piton update` installs it again.
     let source = removed.map(|entry| entry.source);
     let declared = configured.dependencies.iter().find(|dependency| {
         source.as_deref() == Some(dependency.source.as_str()) || dependency.default_name() == name
     });
     if let (Some(dependency), Some(config_path)) = (declared, &configured.config_path) {
-        // A repository can publish several packages. It stays declared while
-        // any of the others is still installed from it.
+        // A repository can publish many packages. The declaration stays while
+        // one of the other packages from it is still installed.
         let siblings: Vec<String> = lock
             .packages
             .iter()

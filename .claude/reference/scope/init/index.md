@@ -1,0 +1,26 @@
+# Initialization
+
+## Description
+
+The init plugin, bundled with the compiler, adds `piton init`, which starts a new project from a template. It is a plugin, described in [Plugins](../plugins/index.md#plugins), like any other: the compiler has no init command of its own.
+Its source is in the compiler's repository at plugins/init: its declaration in plugin.pi, its code in src, and its templates in templates. It has no Piton files of its own.
+
+## Command
+
+[Init](./Init.md#init)
+
+## Declaration
+
+Its declaration names the init command and its arguments: directory, positional; template, short t; adapter, short a, which can be given more than once; list, a flag that can't be given with the others; and no-tether, a flag. The command is standalone, so it runs outside a project, and inside one whose configuration has errors.
+
+## Capabilities
+
+It may ask the user on the terminal, which is interactive, and start new projects, which is scaffold: write the template's files into the directory the user names, never over a file, and tether the new project's dependencies. It reads no project files and runs no programs.
+
+## Templates
+
+The templates are in the templates directory of the plugin, one directory for each group and one in it for each template, as [Init](./Init.md#init) describes. The plugin lists them with its resources, and reads each file as a resource. Authors edit a template by editing its files, and add one by adding a directory with a `.template` file beside its files; nothing else changes.
+
+## Adapters
+
+The adapters it offers are those @piton/belay exports, each with its target id, the name of the anchor exported for it, and the platform's name. The plugin keeps that table in its code.

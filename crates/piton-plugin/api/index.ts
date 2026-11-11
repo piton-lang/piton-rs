@@ -1,16 +1,16 @@
-// @piton/plugin: what a plugin's code can do.
+// @piton/plugin. This module tells what the code of a plugin can do.
 //
-// Bundled with the Piton compiler and importable only from inside a plugin.
-// Everything here is a thin, typed layer over one host function, which takes
-// the plugin making the call, an operation, and its arguments as JSON.
-// Operations that wait, like reading a process's output, return promises the
-// host resolves from its event loop, so a plugin can run many processes at
-// once with plain async code.
+// The Piton compiler contains this module. Only a plugin can import it. All
+// of this module is a thin, typed layer over one host function. That function
+// takes the plugin that calls, an operation, and the arguments as JSON. Some
+// operations wait, for example a read of the output of a process. They return
+// promises. The host resolves these promises from its event loop. Thus a
+// plugin can run many processes at the same time with plain async code.
 //
-// The host function is taken by this module before any plugin's code runs,
-// and each plugin only ever reaches it through its own context, which names
-// the plugin. So every operation is checked against the capabilities of the
-// plugin that made it.
+// This module takes the host function before the code of a plugin runs. Each
+// plugin can get the function only through its own context. The context
+// names the plugin. Thus the host checks each operation against the
+// capabilities of the plugin that made it.
 
 type Raw = (plugin: string, operation: string, payload: string) => unknown;
 let raw: Raw | null = null;
@@ -25,11 +25,11 @@ async function callAsync<T>(plugin: string, operation: string, payload: unknown 
   return JSON.parse(result) as T;
 }
 
-/** A Piton value as plugin code sees it. Strings are plain text; an anchor
- * used as a value is `{ $anchor: name }`, a reference `{ $reference: name }`. */
+/** A Piton value, as plugin code sees it. Strings are plain text. An anchor
+ * as a value is `{ $anchor: name }`. A reference is `{ $reference: name }`. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
-/** A place in a source file, for pointing a diagnostic at. */
+/** A location in a source file. A diagnostic uses it. */
 export interface Location {
   file: string;
   start: number;
@@ -45,35 +45,39 @@ export interface Project {
   configPath: string | null;
 }
 
-/** An anchor read from a compilation, or a project's settings for a plugin. */
+/** An anchor from a compilation, or the settings of a project for a plugin. */
 export interface Anchor {
-  /** Its id in the compilation it came from, for link spaces. */
+  /** Its id in its source compilation, for link spaces. */
   id: number;
   name: string;
   file: string;
   exported: boolean;
   abstract: boolean;
   keyword: string;
-  /** Its place among its file's declarations, for keeping their order. */
+  /** Its position in the declarations of its file. It keeps their order. */
   item: number;
   properties: Record<string, Json>;
-  /** Where the anchor names a property itself, else where its name is. */
+  /** The location where the anchor names a property itself. If there is no
+   * such location, the location of its name. */
   location(property?: string): Location;
 }
 
-/** A project's settings for a plugin: an anchor, with the properties of
- * every anchor it names, like the adapters a belay-config lists. */
+/** The settings of a project for a plugin. It is an anchor, with the
+ * properties of each anchor that it names. An example is the adapters that a
+ * belay-config lists. */
 export interface Settings extends Anchor {
   anchors: Record<string, Record<string, Json>>;
-  /** Where each anchor it names is declared: its file and its name. */
+  /** The declaration of each anchor that it names. Each entry is a file and
+   * a name. */
   anchorLocations: Record<string, Location>;
 }
 
-/** A Piton value with nothing flattened, for a plugin that has to tell apart
- * what Json merges: text with references from plain text, a dictionary from a
- * block that mixes keys with other items, and keys in the order written,
- * whatever they look like. Text is its plain text, with references written as
- * the names they point at, and lists each reference it holds. */
+/** A Piton value with no flattened parts. A plugin uses it when it must see
+ * differences that Json merges. Json does not show text with references as
+ * different from plain text. It does not show a dictionary as different from
+ * a block with keys and other items. It does not keep all keys in the written
+ * order. Here, text holds its plain text, with each reference as the name of
+ * its target. It also lists each of its references. */
 export type Value =
   | { kind: "null" }
   | { kind: "boolean"; value: boolean }
@@ -85,18 +89,19 @@ export type Value =
   | { kind: "anchor"; id: number; name: string }
   | { kind: "reference"; id: number; path: string[]; name: string };
 
-/** Where an anchor's property gets its value: the anchor whose declaration
- * writes it, which is the anchor itself or one it inherits from. */
+/** The source of the value of a property of an anchor. The source is the
+ * anchor whose declaration writes the value. It is the anchor itself or an
+ * anchor that it inherits from. */
 export interface Slot {
   /** The id of the anchor that writes the value. */
   owner: number;
-  /** False when only a type was declared for it, and no value. */
+  /** False when the declaration gives only a type and no value. */
   hasValue: boolean;
-  /** Where the owner names the property. */
+  /** The location where the owner names the property. */
   location: Location;
 }
 
-/** A file or directory, as a plugin that reads files can see it. */
+/** A file or directory, as a plugin that reads files sees it. */
 export interface FileStatus {
   kind: "file" | "directory" | "other";
   /** Its size in bytes. */
@@ -104,17 +109,18 @@ export interface FileStatus {
   executable: boolean;
 }
 
-/** Which anchors to read. */
+/** The anchors to read. */
 export interface AnchorQuery {
-  /** Only anchors with this one in their inheritance chain, not counting it.
-   * `module` is a package like `@piton/test`, or an installed package's name. */
+  /** Only anchors with this anchor in their inheritance chain. This anchor
+   * itself does not count. `module` is a package, for example `@piton/test`,
+   * or the name of an installed package. */
   extends?: { module: string; name: string };
   /** Only anchors declared with `export`. */
   exported?: boolean;
-  /** Only anchors that aren't abstract. */
+  /** Only anchors that are not abstract. */
   concrete?: boolean;
-  /** Only anchors declared in the project's own source, not in tethers/ or
-   * a bundled package. */
+  /** Only anchors that the source of the project declares. Anchors in
+   * tethers/ or in a bundled package do not count. */
   withinSourceRoot?: boolean;
 }
 
@@ -129,44 +135,48 @@ interface AnchorRecord {
   properties: Record<string, Json>;
 }
 
-/** Where a plugin's documents put each anchor. Paths are relative to the
- * project root. */
+/** The location of each anchor in the documents of a plugin. Paths are
+ * relative to the project root. */
 export interface Layout {
-  /** Each document and the anchors it holds, in order. A property listed in
-   * omitNull is left out of that anchor's document when it is null. */
+  /** Each document and its anchors, in order. When a property in omitNull
+   * is null, the document of that anchor omits the property. */
   documents: { path: string; anchors: { id: number; omitNull?: string[] }[] }[];
-  /** Anchors written to a file of their own, without headings, like a
-   * skill's SKILL.md: a reference to one links to the file. */
+  /** Anchors that each go to a separate file with no headings. An example is
+   * the SKILL.md of a skill. A reference to such an anchor links to the
+   * file. */
   files: { id: number; path: string }[];
 }
 
-/** Documents rendered with references linked between them. Each method takes
- * the path of the file being written, so links are relative to it. */
+/** Rendered documents, with links for the references between them. Each
+ * method takes the path of the output file. Thus links are relative to that
+ * file. */
 export class LinkSpace {
   constructor(
     private readonly plugin: string,
     private readonly handle: number,
   ) {}
 
-  /** An anchor as a document: its title, then its properties as sections. */
+  /** An anchor as a document. First comes its title, then its properties as
+   * sections. */
   document(from: string, id: number, omitNull: string[] = []): string {
     return call<string>(this.plugin, "spaceDocument", { space: this.handle, from, id, omitNull });
   }
 
-  /** Some of an anchor's properties as sections, in the anchor's order,
-   * starting at `level`; empty when it has none of them. */
+  /** Some properties of an anchor as sections, in the order of the anchor.
+   * The first level is `level`. It is empty when the anchor has none of the
+   * properties. */
   sections(from: string, id: number, keys: string[], level: number): string {
     return call<string>(this.plugin, "spaceSections", { space: this.handle, from, id, keys, level });
   }
 
-  /** A text property as Markdown, references as links; null when the
-   * property isn't text. */
+  /** A text property as Markdown, with references as links. It is null when
+   * the property is not text. */
   text(from: string, id: number, key: string): string | null {
     return call<string | null>(this.plugin, "spaceText", { space: this.handle, from, id, key });
   }
 
-  /** References to anchors nothing wrote, and every link written so far
-   * with the directory it is relative to. */
+  /** The references to anchors that no file holds. Also each link that the
+   * render wrote until now, with the directory of that link. */
   report(): {
     misses: { id: number; anchor: string; path: string[] }[];
     links: { from: string; link: string }[];
@@ -180,13 +190,13 @@ export class Compilation {
   constructor(
     private readonly plugin: string,
     private readonly handle: number,
-    /** How many errors compiling found. */
+    /** The number of errors that the compilation found. */
     readonly errors: number,
-    /** How many warnings compiling found. */
+    /** The number of warnings that the compilation found. */
     readonly warnings: number,
   ) {}
 
-  /** The anchors matching a query, ordered by file, then name. */
+  /** The anchors that agree with a query, in the order of file, then name. */
   anchors(query: AnchorQuery = {}): Anchor[] {
     const { plugin, handle } = this;
     return call<AnchorRecord[]>(plugin, "anchors", { handle, query }).map((record) => ({
@@ -196,57 +206,61 @@ export class Compilation {
     }));
   }
 
-  /** The ids of the anchors the entry exports, in the order it exports them,
-   * the ones it forwards from other modules included. */
+  /** The ids of the anchors that the entry exports, in the order of export.
+   * The list includes the anchors that it forwards from other modules. */
   exports(): number[] {
     return call<number[]>(this.plugin, "exports", { handle: this.handle });
   }
 
-  /** An anchor's resolved properties, in order, with nothing flattened. */
+  /** The resolved properties of an anchor, in order, with no flattened
+   * parts. */
   values(id: number): [string, Value][] {
     return call<[string, Value][]>(this.plugin, "values", { handle: this.handle, id });
   }
 
-  /** Where an anchor's property gets its value, or null when the anchor has
-   * no such property. */
+  /** The source of the value of a property of an anchor. It is null when the
+   * anchor does not have the property. */
   slot(id: number, property: string): Slot | null {
     return call<Slot | null>(this.plugin, "slot", { handle: this.handle, id, property });
   }
 
-  /** Prints the compilation's diagnostics as `piton check` does, with the
-   * count last, and says whether any were errors. */
+  /** Prints the diagnostics of the compilation as `piton check` does. The
+   * count comes last. Returns true if one or more were errors. */
   reportDiagnostics(): boolean {
     return call<boolean>(this.plugin, "diagnostics", { handle: this.handle });
   }
 
-  /** Prints the slice of `target`, like `piton slice`, citing where `layout`
-   * puts each anchor instead of the source, and returns the exit code. The
-   * compilation has to be the project's own, as `compile()` makes it. */
+  /** Prints the slice of `target`, as `piton slice` does. For each anchor,
+   * it cites the location from `layout`, not the source. Returns the exit
+   * code. The compilation must be the compilation of the project, as
+   * `compile()` makes it. */
   slice(target: string, layout: Layout): number {
     return call<number>(this.plugin, "slice", { handle: this.handle, target, layout });
   }
 
-  /** Lays out documents to render with references linked between them. */
+  /** Makes the layout of documents. The render adds links for the references
+   * between them. */
   linkSpace(layout: Layout): LinkSpace {
     return new LinkSpace(this.plugin, call<number>(this.plugin, "space", { handle: this.handle, ...layout }));
   }
 }
 
-/** One line a process wrote. */
+/** One line that a process wrote. */
 export interface Line {
   stream: "stdout" | "stderr";
   line: string;
 }
 
-/** A running process. Its output is read line by line as it is written. */
+/** A process that runs. The plugin reads its output one line at a time, as
+ * the process writes it. */
 export class Process {
   constructor(
     private readonly plugin: string,
     private readonly id: number,
   ) {}
 
-  /** The next line it wrote, or null once it has exited and every line has
-   * been read. */
+  /** The next line that it wrote. It is null after the process exits and the
+   * plugin read all lines. */
   next(): Promise<Line | null> {
     return callAsync<Line | null>(this.plugin, "next", { id: this.id });
   }
@@ -259,18 +273,18 @@ export class Process {
     }
   }
 
-  /** Its exit code once it has exited, or null when a signal stopped it. */
+  /** Its exit code after it exits, or null when a signal stopped it. */
   wait(): Promise<number | null> {
     return callAsync<number | null>(this.plugin, "wait", { id: this.id });
   }
 }
 
-/** The styles text can be painted in. On a terminal they are colours; piped,
- * and with NO_COLOR set, the text is plain. */
+/** The styles for text. On a terminal they are colours. In a pipe, or when
+ * the environment sets NO_COLOR, the text is plain. */
 export type Style = "error" | "warning" | "success" | "help" | "note" | "name" | "heading" | "dim";
 
-/** A problem to report. With a location, it is shown with the source it
- * points at, like a compiler diagnostic. */
+/** A problem to report. When it has a location, the host shows the source at
+ * that location, as for a compiler diagnostic. */
 export interface Problem {
   code?: string;
   location?: Location;
@@ -278,22 +292,24 @@ export interface Problem {
 }
 
 export interface Terminal {
-  /** Whether stdin, stdout and stderr are terminals. */
+  /** True for each of stdin, stdout and stderr that is a terminal. */
   stdin: boolean;
   stdout: boolean;
   stderr: boolean;
-  /** The terminal's width in columns, when stdout or stderr is one. */
+  /** The width of the terminal in columns, when stdout or stderr is a
+   * terminal. */
   width: number | null;
-  /** Whether colour is shown: false with NO_COLOR set. */
+  /** True if the output shows colour. It is false when the environment sets
+   * NO_COLOR. */
   color: boolean;
 }
 
-/** A file under a directory the plugin listed. */
+/** A file below a directory that the plugin listed. */
 export interface ListedFile {
-  /** Relative to the directory listed, with forward slashes. */
+  /** Relative to the listed directory, with forward slashes. */
   path: string;
   executable: boolean;
-  /** A symbolic link, which is never followed. */
+  /** True for a symbolic link. The host never follows it. */
   symlink: boolean;
 }
 
@@ -301,31 +317,33 @@ export interface ListedFile {
  * dictionaries. */
 export type Fields = { [key: string]: string | boolean | number | string[] | Fields };
 
-/** A file a build writes. */
+/** A file that a build writes. */
 export interface PlannedFile {
   /** Relative to the project root. */
   path: string;
   contents: string;
-  /** What it was made from, for diagnostics. */
+  /** The source of the file, for diagnostics. */
   origin?: string;
   /** A short description for `piton build --dry-run`. */
   label?: string;
-  /** A name the editor's preview selects outputs by, like a Belay target id. */
+  /** The preview of the editor uses this name to select outputs. An example
+   * is a Belay target id. */
   group?: string;
 }
 
-/** A file a build copies as it is, keeping its execute permission. */
+/** A file that a build copies with no change. The copy keeps its execute
+ * permission. */
 export interface PlannedCopy {
-  /** The file copied, relative to the project root. */
+  /** The source file, relative to the project root. */
   from: string;
-  /** Where it goes, relative to the project root. */
+  /** The destination, relative to the project root. */
   to: string;
   origin?: string;
   label?: string;
   group?: string;
 }
 
-/** A problem a build found. */
+/** A problem that a build found. */
 export interface PlannedDiagnostic {
   severity: "error" | "warning";
   code: string;
@@ -334,112 +352,153 @@ export interface PlannedDiagnostic {
   help?: string;
 }
 
-/** What a build would write. */
+/** The files that a build wants to write. */
 export interface Plan {
   files?: PlannedFile[];
   copies?: PlannedCopy[];
   diagnostics?: PlannedDiagnostic[];
-  /** Labels recorded in the manifest, like each target's documentation date. */
+  /** Labels that the manifest records, for example the documentation date of
+   * each target. */
   targets?: Record<string, string>;
-  /** Where each anchor was placed, by name: the file and heading a
-   * reference to it lands on. */
+  /** The location of each anchor, by name. A location is the file and the
+   * heading that a reference to the anchor goes to. */
   locations?: Record<string, string>;
 }
 
-/** A file a finding changes, and its whole new contents. */
+/** A file that a finding changes, and its full new contents. */
 export interface Edit {
   /** Relative to the project root. */
   path: string;
   contents: string;
 }
 
-/** Something out of date in a project, and the edits that fix it. */
+/** A problem in a project that is out of date, and the edits that fix it. */
 export interface Finding {
   message: string;
   edits: Edit[];
 }
 
-/** What an inspect hook found. */
+/** The findings of an inspect hook. */
 export interface Inspection {
   findings: Finding[];
 }
 
-/** An anchor a reach hook names: the file that declares it, as an
- * anchor's `file` gives it or relative to the project root, and its name. */
+/** An anchor that a reach hook names. It holds the file that declares the
+ * anchor, and the name of the anchor. The file is as the `file` of an anchor
+ * gives it, or relative to the project root. */
 export interface ReachedAnchor {
   file: string;
   name: string;
 }
 
-/** What a reach hook gives: the anchors the plugin reaches itself. */
+/** The result of a reach hook. It gives the anchors that the plugin reaches
+ * itself. */
 export interface Reach {
   anchors: ReachedAnchor[];
 }
 
-/** Everything a plugin can do. Each method that reaches the machine is
- * checked against the capabilities the plugin declares. */
+/** All that a plugin can do. The host checks each method that gets access
+ * to the machine against the capabilities that the plugin declares. */
 export interface Context {
-  /** The plugin's name. */
+  /** The name of the plugin. */
   readonly plugin: string;
   readonly terminal: Terminal;
   project(): Project;
-  /** The project's settings for this plugin: the anchor under `plugins` in
-   * piton.config.pi implementing the plugin's settings anchor, if any. */
+  /** The settings of the project for this plugin, if there are settings.
+   * They are the anchor under `plugins` in piton.config.pi that implements
+   * the settings anchor of the plugin. */
   settings(): Settings | null;
-  /** Compiles the project. With `workspace`, every source under the root,
-   * not only what the entry reaches. */
+  /** Compiles the project. With `workspace`, it compiles each source below
+   * the root, not only the sources that the entry reaches. */
   compile(options?: { workspace?: boolean }): Compilation;
-  /** What a plugin this one requires exports. */
+  /** The exports of a plugin that this plugin requires. */
   require(name: string): Record<string, unknown>;
-  /** The marker each placeholder this plugin declares evaluates to. */
+  /** The marker for each placeholder that this plugin declares. The
+   * placeholder evaluates to the marker. */
   placeholders(): Record<string, string>;
   /** A path from the file `from` to `to`, both relative to the project root. */
   relativePath(from: string, to: string): string;
-  /** Encodes with the compiler's encoders. */
+  /** Encodes with the encoders of the compiler. */
   encode(format: "frontmatter" | "yaml" | "toml", fields: Fields): string;
   encode(format: "tomlString" | "yamlScalar" | "jsonString", text: string): string;
-  /** Starts a program the plugin declares under capabilities.process, in the
-   * project root unless `cwd` says otherwise, with nothing on its stdin. */
+  /** Starts a program that the plugin declares under capabilities.process.
+   * The program runs in the project root, or in `cwd` if given. Its stdin is
+   * empty. */
   spawn(program: string, args: string[], options?: { cwd?: string; env?: Record<string, string> }): Process;
-  /** Runs a program the plugin declares under capabilities.process with the
-   * terminal: its input, its output and its prompts are the user's. Returns
-   * its exit code once it ends, or null when a signal stopped it. */
+  /** Runs a program that the plugin declares under capabilities.process. The
+   * program has the terminal. The user sees its output and prompts and gives
+   * its input. Returns its exit code after it ends, or null when a signal
+   * stopped it. */
   exec(program: string, args: string[], options?: { cwd?: string; env?: Record<string, string> }): number | null;
-  /** Writes edits, for a command the user ran to make them, and returns the
-   * paths changed. Each path has to be among capabilities.edits. */
+  /** Writes edits and returns the changed paths. Use it in a command that the
+   * user ran to make the edits. Each path must agree with
+   * capabilities.edits. */
   applyEdits(edits: Edit[]): string[];
-  /** Asks the user to choose one of `options` on the terminal, and returns
-   * the index chosen, or null when they cancel or no one can answer: stdin
-   * or stdout isn't a terminal. Needs capabilities.interactive. */
+  /** Asks the user to choose one of `options` on the terminal. Returns the
+   * chosen index. It returns null when the user cancels. It also returns null
+   * when no person can answer, because stdin or stdout is not a terminal.
+   * Needs capabilities.interactive. */
   choose(message: string, options: string[]): number | null;
-  /** The text of a file in the plugin's own directory, like a prompt it
-   * ships with. Needs no capability: the files are the plugin's. */
+  /** Asks the user to type an answer on the terminal. Returns the answer, or
+   * null when the user cancels or no terminal is available. Needs
+   * capabilities.interactive. */
+  ask(message: string, options?: { help?: string }): string | null;
+  /** Asks the user to select items of `options` on the terminal. At the
+   * start, `defaults` gives the selected items. The user must select
+   * `minimum` items or more. Returns the selected indexes, or null when the
+   * user cancels or no terminal is available. Needs
+   * capabilities.interactive. */
+  chooseMany(message: string, options: string[], settings?: { defaults?: number[]; minimum?: number }): number[] | null;
+  /** The text of a file in the directory of the plugin, for example a prompt
+   * of the plugin. Needs no capability, because the plugin owns the files. */
   resource(path: string): string;
-  /** Whether a program the plugin declares is on PATH. */
+  /** Returns each file below a directory of the plugin, at all depths, in
+   * sorted order. Each path is relative to the directory and uses forward
+   * slashes. Needs no capability. */
+  resources(path: string): string[];
+  /** Piton source in the canonical format, as `piton format` writes it. */
+  format(source: string, path?: string): string;
+  /** Starts a new project. Writes each file into `directory` and prints
+   * each written path. Each file is a path relative to `directory` and its
+   * contents. `directory` is relative to the directory where piton started.
+   * It never overwrites a file. If a file exists, it writes nothing and
+   * returns the files that exist. Needs capabilities.scaffold. */
+  scaffold(directory: string, files: Edit[]): { existing: string[] };
+  /** Tethers the dependencies of the new project in `directory`, as
+   * `piton tether` without a source does. Returns `none` when the project
+   * has no dependencies, else `installed` or `failed`. With `check`, it
+   * tethers nothing and returns `pending` when dependencies exist. Needs
+   * capabilities.scaffold. */
+  tether(directory: string, options?: { check?: boolean }): "none" | "pending" | "installed" | "failed";
+  /** True if PATH contains a program that the plugin declares. */
   onPath(program: string): boolean;
-  /** Reads a file inside the project. Needs capabilities.files: read. */
+  /** Reads a file in the project. Needs capabilities.files: read. */
   readFile(path: string): string;
-  /** Every file under a directory inside the project, recursively. Needs
+  /** All files below a directory in the project, at all depths. Needs
    * capabilities.files: read. */
   listFiles(path: string): ListedFile[];
-  /** What is at a path inside the project, following symbolic links, or null
-   * when nothing is. Needs capabilities.files: read. */
+  /** The file or directory at a path in the project. It follows symbolic
+   * links. It is null when the path does not exist. Needs
+   * capabilities.files: read. */
   stat(path: string): FileStatus | null;
-  /** Writes a temporary file and returns its path. It is removed when the
-   * command ends. Needs capabilities.temporaryFiles. */
+  /** Writes a temporary file and returns its path. The host removes the file
+   * when the command ends. Needs capabilities.temporaryFiles. */
   temporaryFile(contents: string, extension?: string): string;
   /** Resolves after `ms` milliseconds. */
   sleep(ms: number): Promise<void>;
-  /** Text in a style. */
+  /** Gives text in a style. */
   paint(style: Style, text: string): string;
-  /** Writes to stdout or stderr. Colour is removed where it isn't shown. */
+  /** Writes to stdout or stderr. The host removes colour where the output
+   * cannot show colour. */
   stdout(text: string): void;
   stderr(text: string): void;
-  /** Writes to stderr exactly as given, terminal control codes included, for
-   * redrawing a status line. Only meaningful when terminal.stderr is true. */
+  /** Writes to stderr with no change, also terminal control codes. Use it to
+   * draw a status line again. It is useful only when terminal.stderr is
+   * true. */
   stderrRaw(text: string): void;
-  /** Problems are held back and printed after everything else, with the
-   * count last; done and stopped print the command's outcome line. */
+  /** The host keeps problems and prints them after all other output. The
+   * count comes last. done and stopped print the result line of the
+   * command. */
   report: {
     error(message: string, problem?: Problem): void;
     warning(message: string, problem?: Problem): void;
@@ -450,36 +509,39 @@ export interface Context {
   };
 }
 
-/** Runs one command. Arguments arrive by name: a flag is a boolean, a
- * multiple argument a list, anything not given null. The number returned is
- * the exit code; nothing returned is 0. */
+/** Runs one command. Arguments come by name. A flag is a boolean. A multiple
+ * argument is a list. An argument that the user does not give is null. The
+ * returned number is the exit code. When the handler returns nothing, the
+ * exit code is 0. */
 export type CommandHandler = (
   ctx: Context,
   args: Record<string, Json>,
 ) => number | void | Promise<number | void>;
 
 export interface Plugin {
-  /** A handler for each command the plugin's declaration lists. */
+  /** A handler for each command that the declaration of the plugin lists. */
   commands?: Record<string, CommandHandler>;
-  /** The plan of what `piton build` writes, for a plugin whose declaration
-   * says `build: true`. */
+  /** The plan of the files that `piton build` writes. It is for a plugin
+   * whose declaration says `build: true`. */
   build?: (ctx: Context) => Plan | Promise<Plan>;
-  /** Looks at the project before a command runs, for a plugin whose
-   * declaration says `inspect: true`, and gives what is out of date. The
-   * host shows the findings and asks before it applies any edit. */
+  /** Examines the project before a command runs. It gives the parts that are
+   * out of date. It is for a plugin whose declaration says `inspect: true`.
+   * The host shows the findings and asks before it applies an edit. */
   inspect?: (ctx: Context) => Inspection | Promise<Inspection>;
-  /** Names the anchors the plugin reaches itself, for a plugin whose
-   * declaration says `reach: true`: anchors it uses though nothing in the
-   * specbase leads to them, like the tests the test plugin runs. `piton
-   * reach` and the editor count them as roots beside the entry, so they are
-   * neither unreachable nor unused. */
+  /** Names the anchors that the plugin reaches itself. It is for a plugin
+   * whose declaration says `reach: true`. The plugin uses these anchors, but
+   * nothing in the specbase goes to them. An example is the tests that the
+   * test plugin runs. `piton reach` and the editor count them as roots,
+   * together with the entry. Thus they are not unreachable and not
+   * unused. */
   reach?: (ctx: Context) => Reach | Promise<Reach>;
-  /** What plugins that require this one can use. Each is a factory given
-   * this plugin's own context, so it runs with this plugin's capabilities. */
+  /** The exports for plugins that require this plugin. Each export is a
+   * factory. It gets the context of this plugin. Thus it runs with the
+   * capabilities of this plugin. */
   exports?: Record<string, (ctx: Context) => unknown>;
 }
 
-/** What a plugin's entry module exports as its default. */
+/** The default export of the entry module of a plugin. */
 export function definePlugin(plugin: Plugin): Plugin {
   return plugin;
 }
@@ -534,6 +596,19 @@ function makeContext(plugin: string, plugins: Map<string, Plugin>, contexts: Map
     exec: (program, args, options = {}) =>
       call<number | null>(plugin, "exec", { program, args, cwd: options.cwd ?? null, env: options.env ?? {} }),
     resource: (path) => call<string>(plugin, "resource", { path }),
+    resources: (path) => call<string[]>(plugin, "resources", { path }),
+    ask: (message, options = {}) => call<string | null>(plugin, "ask", { message, help: options.help ?? null }),
+    chooseMany: (message, options, settings = {}) =>
+      call<number[] | null>(plugin, "chooseMany", {
+        message,
+        options,
+        defaults: settings.defaults ?? [],
+        minimum: settings.minimum ?? 0,
+      }),
+    format: (source, path = "index.pi") => call<string>(plugin, "format", { source, path }),
+    scaffold: (directory, files) => call<{ existing: string[] }>(plugin, "scaffold", { directory, files }),
+    tether: (directory, options = {}) =>
+      call<"none" | "pending" | "installed" | "failed">(plugin, "tether", { directory, check: options.check ?? false }),
     choose: (message, options) => call<number | null>(plugin, "choose", { message, options }),
     applyEdits: (edits) => call<string[]>(plugin, "applyEdits", { edits }),
     onPath: (program) => call<boolean>(plugin, "onPath", { program }),
@@ -558,9 +633,9 @@ function makeContext(plugin: string, plugins: Map<string, Plugin>, contexts: Map
   return context;
 }
 
-/** Takes the host function, once, before any plugin is imported. Not part of
- * the API plugins use: a plugin that calls it gets an error, since the host
- * function is already taken. */
+/** Takes the host function one time, before the import of a plugin. It is
+ * not part of the API for plugins. A plugin that calls it gets an error,
+ * because this module already has the host function. */
 export function __setup() {
   const global = globalThis as unknown as { __piton?: Raw };
   if (raw !== null || typeof global.__piton !== "function") {

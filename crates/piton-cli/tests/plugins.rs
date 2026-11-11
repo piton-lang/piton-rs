@@ -1,9 +1,9 @@
 //! Plugins installed in a project, end to end.
 //!
-//! The bundled test plugin covers what a real plugin does; these cover the
-//! edges a plugin author meets: a plugin declared in the project, its
-//! settings, the compile queries, and every capability it didn't ask for
-//! being refused.
+//! The bundled test plugin tests the work of a real plugin. These tests
+//! examine the edge cases for a plugin author. They test a plugin declared in
+//! the project, its settings, and the compile queries. They also test that
+//! the host refuses each capability that the plugin did not ask for.
 
 #![cfg(unix)]
 
@@ -169,20 +169,21 @@ fn an_installed_plugin_adds_its_command() {
 
     let (stdout, stderr, code) = fixture.run(&["hello", "Ada", "--times", "2"]);
     assert_eq!(code, 0, "{stdout}\n{stderr}");
-    // Its settings, its own module, a process it may run, and the compiled
-    // project.
+    // Its settings, its own module, a process that it can run, and the
+    // compiled project.
     assert_eq!(stdout.matches("Howdy, Ada\n").count(), 2, "{stdout}");
     assert!(stdout.contains("stdout: from echo\necho exited 0\n"), "{stdout}");
     assert!(stdout.contains("anchors: Thing\n"), "{stdout}");
     assert!(stdout.contains("colour: blue\n"), "{stdout}");
     assert!(stderr.contains("✓ said hello"), "{stderr}");
 
-    // The number it returns is the exit code.
+    // The return number is the exit code.
     let (stdout, _, code) = fixture.run(&["hello", "Ada", "--loud"]);
     assert_eq!(code, 3);
     assert!(stdout.contains("HOWDY, ADA!"), "{stdout}");
 
-    // Arguments are checked from the declaration, before it runs.
+    // The CLI checks the arguments with the declaration, before the command
+    // runs.
     let (_, stderr, code) = fixture.run(&["hello", "--times", "0"]);
     assert_eq!(code, 2);
     assert!(stderr.contains("it has to be at least 1"), "{stderr}");
@@ -211,7 +212,8 @@ fn piton_plugins_lists_what_each_may_do() {
     assert!(stdout.contains("hello (piton.config.pi)"), "{stdout}");
     assert!(stdout.contains("may: run echo"), "{stdout}");
     assert!(stdout.contains("settings: HelloSettings"), "{stdout}");
-    assert!(stderr.contains("4 plugins"), "{stderr}");
+    assert!(stderr.contains("5 plugins"), "{stderr}");
+    assert!(stdout.contains("init (bundled)") && stdout.contains("start new projects"), "{stdout}");
     assert!(stdout.contains("migrate (bundled)") && stdout.contains("propose edits to piton.config.pi"), "{stdout}");
     assert!(stdout.contains("belay (bundled)"), "{stdout}");
 }
@@ -227,13 +229,13 @@ fn a_plugin_that_fails_is_reported() {
     assert_eq!(code, 1);
     assert!(stderr.contains("plugin `hello` failed: no greeting today"), "{stderr}");
 
-    // Its TypeScript doesn't parse.
+    // Its TypeScript does not parse.
     fixture.write("plugin/index.ts", "export default {\n  commands: { hello( { }\n");
     let (_, stderr, code) = fixture.run(&["hello"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("plugin `hello` failed") && stderr.contains("plugin/index.ts:"), "{stderr}");
 
-    // It imports something that isn't its own.
+    // It imports a module that is not its own.
     fixture.write("plugin/index.ts", "import fs from \"node:fs\";\nexport default { commands: { hello: () => fs.readFileSync(\"x\") } };\n");
     let (_, stderr, code) = fixture.run(&["hello"]);
     assert_eq!(code, 1);
@@ -266,8 +268,8 @@ fn a_command_piton_has_is_not_replaced() {
     assert!(stderr.contains("adds the command `check`, which piton already has"), "{stderr}");
 }
 
-/// A stand-in for an agentic tool: it records its arguments and the
-/// OpenCode configuration it was given, then exits with 7.
+/// A stand-in for an agentic tool. It records its arguments and its OpenCode
+/// configuration. Then it exits with 7.
 const FAKE_TOOL: &str = "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/../$(basename \"$0\").args\"\nprintf '%s' \"$OPENCODE_CONFIG_CONTENT\" > \"$(dirname \"$0\")/../$(basename \"$0\").env\"\nexit 7\n";
 
 #[test]
@@ -299,21 +301,35 @@ fn piton_agent_launches_each_tool_with_fluency_through_belay() {
         )
     };
 
-    // The tool's exit code is the command's, and arguments pass through,
-    // options included.
+    // The exit code of the tool is the exit code of the command. The
+    // arguments, with the options, go to the tool unchanged.
     let (code, args, _) = run(&["agent", "claude", "--resume"]);
     assert_eq!(code, 7);
-    assert_eq!(args[0], "--append-system-prompt");
-    assert!(args.iter().any(|arg| arg.contains("This project is written in Piton")), "{args:?}");
+    // Claude reads the full prompt from a temporary file.
+    assert_eq!(args[0], "--append-system-prompt-file");
+    assert!(args[1].contains("piton-belay-"), "{args:?}");
     assert_eq!(args.last().map(String::as_str), Some("--resume"));
 
+    // Codex gets a short prompt. The system limits the size of one
+    // argument, and the full prompt is larger. Without a built skill, the
+    // short prompt points to a temporary file that holds the reference.
     let (_, args, _) = run(&["agent", "codex"]);
     assert_eq!(args[0], "-c");
     assert!(args[1].starts_with("developer_instructions=\""), "{:?}", &args[..2]);
+    let text = args.join("\n");
+    assert!(text.contains("This project is written in Piton"), "{text}");
+    assert!(text.contains("piton-belay-") && text.len() < 4096, "{text}");
+
+    // With a built skill, the short prompt points to the skill.
+    fixture.write(".agents/skills/piton-fluency/SKILL.md", "---\nname: piton-fluency\n---\nFluency.\n");
+    let (_, args, _) = run(&["agent", "codex"]);
+    let text = args.join("\n");
+    assert!(text.contains("`piton-fluency` skill, at `.agents/skills/piton-fluency/SKILL.md`"), "{text}");
 
     // Muse takes the prompt after `exec`, and runs `resume` without it.
     let (_, args, _) = run(&["agent", "muse", "exec", "hi"]);
     assert_eq!(&args[..2], ["exec", "-c"]);
+    assert!(args.join("\n").contains(".agents/skills/piton-fluency/SKILL.md"), "{args:?}");
     let (_, args, _) = run(&["agent", "muse", "resume", "--last"]);
     assert_eq!(args, ["resume", "--last"]);
 
@@ -322,7 +338,8 @@ fn piton_agent_launches_each_tool_with_fluency_through_belay() {
     assert_eq!(args, ["--standalone"]);
     assert!(env.contains("\"instructions\":[") && env.contains("piton-belay-"), "{env}");
 
-    // A tool that isn't installed is named, with what to do instead.
+    // The output names a tool that is not installed, and tells the
+    // alternative.
     std::fs::remove_file(fixture.dir.join("bin/codex")).expect("remove");
     let output = Command::new(binary())
         .args(["agent", "codex"])

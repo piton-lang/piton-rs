@@ -1,4 +1,4 @@
-//! Exercises the editor features against the real specification.
+//! Tests the editor features on the real specification.
 
 use std::path::{Path, PathBuf};
 
@@ -79,8 +79,8 @@ fn hover_on_an_anchor_shows_its_inheritance_chain() {
         panic!("expected markup")
     };
     assert!(markup.value.contains("Inherits: Type"), "{}", markup.value);
-    // The compiled interpretation is shown in the project's renderer (JSON by
-    // default).
+    // The compiled interpretation shows in the renderer of the project (JSON
+    // by default).
     assert!(markup.value.contains("Resolves to (json):"), "{}", markup.value);
     assert!(markup.value.contains("```json"), "{}", markup.value);
 }
@@ -219,8 +219,8 @@ fn inlay_hints_on_the_specification_are_only_the_two_kinds() {
             InlayHintLabel::String(text) => text.clone(),
             InlayHintLabel::LabelParts(parts) => parts.iter().map(|part| part.value.clone()).collect(),
         };
-        // An inferred type written as a constraint, or the anchor that
-        // supplies a value; nothing the source already says.
+        // An inferred type in the form of a constraint, or the anchor that
+        // supplies a value. Never data that the source already gives.
         assert!(
             label.starts_with(":: ") || label.starts_with('\u{2190}'),
             "{label}"
@@ -275,8 +275,8 @@ fn semantic_tokens_are_produced_in_order() {
         panic!("expected tokens");
     };
     assert!(!tokens.data.is_empty());
-    // Deltas are relative and must never be negative, which the type enforces;
-    // check that the first token starts at or after the document start.
+    // Deltas are relative and must never be negative. The type enforces this.
+    // Make sure that the first token starts at or after the document start.
     assert!(tokens.data[0].delta_line < 1000);
 }
 
@@ -293,8 +293,8 @@ fn formatting_reports_no_change_for_canonical_files() {
 
 #[test]
 fn formatting_leaves_comments_alone() {
-    // The LSP `formatting` handler is what an editor calls on save, so it is
-    // the "autoformat" the spec governs: "Autoformat should add the space
+    // An editor calls the LSP `formatting` handler on save. Thus it is the
+    // "autoformat" that the spec controls: "Autoformat should add the space
     // after `//`, but not touch anything else that's commented."
     let mut fixture = Fixture::new();
     let path = fixture.root.join("spec/scope/language/types/Strings.pi");
@@ -336,9 +336,8 @@ fn diagnostics_reach_the_editor() {
     let path = fixture.root.join(file);
     let original = std::fs::read_to_string(&path).expect("readable");
 
-    // Introduce a problem in an unsaved buffer rather than relying on the
-    // specification having one: a clean specbase is the goal, not a test
-    // fixture.
+    // Put a problem into an unsaved buffer. Do not trust the specification to
+    // have one. A clean specbase is the goal, not a test fixture.
     fixture.world.set_document(
         path.clone(),
         format!("{original}\nexport anchor Broken:\n    value: {{NotDefined}}\n"),
@@ -363,9 +362,9 @@ fn diagnostics_reach_the_editor() {
 fn a_clean_specbase_reports_nothing() {
     let fixture = Fixture::new();
     let compilation = fixture.world.compilation.as_ref().expect("compiled");
-    // Editor analysis (unused imports, Belay plan checks) is allowed to notice
-    // things the compiler accepts. This test holds the compiler's own
-    // diagnostics: a clean specbase still compiles.
+    // Editor analysis (unused imports, Belay plan checks) can find problems
+    // that the compiler accepts. This test checks only the diagnostics of the
+    // compiler. A clean specbase still compiles.
     let problems: Vec<String> = compilation
         .diagnostics
         .iter()
@@ -387,12 +386,12 @@ fn a_clean_specbase_reports_nothing() {
 // Completion
 // ---------------------------------------------------------------------------
 
-/// A file the server sees the way an editor would: the project on disk, with
-/// one buffer replaced by text that has not been saved.
+/// A file that the server sees as an editor does. This is the project on disk,
+/// but one buffer has text that the user did not save.
 ///
-/// The cursor is written into the text as `<|>`. Replacing a file the project
-/// already reaches rather than inventing a new one keeps the whole module graph
-/// in play, which is what questions about imports and inheritance need.
+/// The text holds the cursor as `<|>`. The test replaces a file that the
+/// project already reaches. It does not invent a new file. Thus the full module
+/// graph stays in use. Questions about imports and inheritance need this.
 struct Buffer {
     world: World,
     uri: Url,
@@ -431,11 +430,11 @@ impl Buffer {
         self.items().into_iter().map(|item| item.label).collect()
     }
 
-    /// The document as it would read after accepting the item with this label.
+    /// The document after the user accepts the item with this label.
     ///
-    /// The edit takes the place of the range it covers, which is the whole
-    /// question here: a completion replaces the text being typed rather than
-    /// being appended to it.
+    /// The edit replaces the range that it covers. This is the main question
+    /// here. A completion replaces the text that the user types. It does not
+    /// append to it.
     fn accept(&self, label: &str) -> String {
         let item = self
             .items()
@@ -454,8 +453,8 @@ impl Buffer {
     }
 }
 
-/// The file every buffer below stands in for: small, imported from, and
-/// reachable from the project's entry point.
+/// The file that each buffer below replaces. It is small, other files import
+/// from it, and the entry point of the project reaches it.
 const NULL: &str = "spec/scope/language/types/Null.pi";
 
 #[test]
@@ -465,8 +464,8 @@ fn completion_at_the_top_of_a_file_offers_declarations_and_user_keywords() {
     for expected in ["anchor", "export", "abstract", "use", "from"] {
         assert!(labels.contains(&expected.to_string()), "{labels:?}");
     }
-    // `use ./lib/Type` brings `type` into scope as a declaration keyword,
-    // because `Type` is declared `as type`.
+    // `use ./lib/Type` puts `type` into scope as a declaration keyword,
+    // because the source declares `Type` with `as type`.
     assert!(labels.contains(&"type".to_string()), "{labels:?}");
 }
 
@@ -474,12 +473,12 @@ fn completion_at_the_top_of_a_file_offers_declarations_and_user_keywords() {
 fn completion_after_use_offers_module_paths() {
     let buffer = Buffer::over(NULL, "use <|>\n");
     let labels = buffer.labels();
-    // The packages are bundled with the compiler rather than on disk, so
-    // nothing but naming them outright would find them.
+    // The packages are inside the compiler, not on disk. Thus only a direct
+    // list of their names finds them.
     assert!(labels.contains(&"@piton/belay".to_string()), "{labels:?}");
     assert!(labels.contains(&"@piton/config".to_string()), "{labels:?}");
-    // And the source root is read from disk, because the point of completing
-    // an import is to reach something the project does not reach yet.
+    // Also, the server reads the source root from disk. The purpose of import
+    // completion is to reach an item that the project does not reach yet.
     assert!(labels.contains(&"./lib/Type".to_string()), "{labels:?}");
     assert!(
         !labels.contains(&"./Null".to_string()),
@@ -512,7 +511,7 @@ fn completion_after_extends_offers_anchors_rather_than_keywords() {
         !labels.contains(&"anchor"),
         "a base is not a keyword: {labels:?}"
     );
-    // An abstract anchor reads as an interface: it cannot stand on its own.
+    // An abstract anchor shows as an interface. You cannot use it alone.
     let kind = items
         .iter()
         .find(|item| item.label == "Type")
@@ -522,32 +521,32 @@ fn completion_after_extends_offers_anchors_rather_than_keywords() {
 
 #[test]
 fn accepting_a_candidate_replaces_the_text_being_written() {
-    // The word under the cursor is what gets replaced: `anc` becomes
+    // The completion replaces the word below the cursor. `anc` becomes
     // `anchor`, not `ancanchor`.
     let declaration = Buffer::over(NULL, "use ./lib/Type\n\nanc<|>\n");
     assert_eq!(declaration.accept("anchor"), "use ./lib/Type\n\nanchor\n");
 
-    // A module path is written whole: the at-sign and the slashes are part of
-    // what is being replaced.
+    // A module path is one full word. The at-sign and the slashes are part of
+    // the replaced text.
     let bundled = Buffer::over(NULL, "use @piton/be<|>\n");
     assert_eq!(bundled.accept("@piton/belay"), "use @piton/belay\n");
 
     let relative = Buffer::over(NULL, "from ./lib/Ty<|>\n");
     assert_eq!(relative.accept("./lib/Type"), "from ./lib/Type\n");
 
-    // Only the name being imported moves; the import around it stands.
+    // Only the imported name changes. The import around it stays.
     let imported = Buffer::over(NULL, "from ./lib/Type import Ty<|>\n");
     assert_eq!(imported.accept("Type"), "from ./lib/Type import Type\n");
 
-    // A base takes the place of the half-written name it stands in for.
+    // A base replaces the partial name.
     let base = Buffer::over(NULL, "use ./lib/Type\n\nexport anchor A extends Ty<|>\n");
     assert_eq!(
         base.accept("Type"),
         "use ./lib/Type\n\nexport anchor A extends Type\n"
     );
 
-    // A member is only ever the segment after the dot; the expression it hangs
-    // off stays as it was.
+    // A member is only the segment after the dot. The expression before it
+    // does not change.
     let member = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    a: ${self.sup<|>}\n",
@@ -557,22 +556,21 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
         "use ./lib/Type\n\nexport type Null:\n    a: ${self.supportedOperators}\n"
     );
 
-    // A key in a body takes its colon with it, under the indent it was
-    // written at.
+    // A key in a body gets its colon, at the same indent as the original key.
     let key = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    wh<|>\n");
     assert_eq!(
         key.accept("what-is-a-type"),
         "use ./lib/Type\n\nexport type N:\n    what-is-a-type: \n"
     );
 
-    // The `::` before a constraint is not part of the type being named.
+    // The `::` before a constraint is not part of the type name.
     let constraint = Buffer::over(NULL, "export type N:\n    a:: str<|>\n");
     assert_eq!(
         constraint.accept("string"),
         "export type N:\n    a:: string\n"
     );
 
-    // The `-` that opens a list item is the item's, not the value's.
+    // The `-` that opens a list item belongs to the item, not to the value.
     let item = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - nu<|>\n",
@@ -581,16 +579,16 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
         item.accept("null"),
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - null\n"
     );
-    // Without its space the dash opens no list item -- the parser reads `-nu`
-    // as a sentence -- so there is nothing to complete.
+    // Without its space, the dash opens no list item. The parser reads `-nu`
+    // as a sentence. Thus there is nothing to complete.
     let glued = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        -nu<|>\n",
     );
     assert!(glued.labels().is_empty(), "{:?}", glued.labels());
 
-    // With nothing written yet there is nothing to replace, so the edit
-    // inserts where the cursor is.
+    // When there is no text yet, there is nothing to replace. Thus the edit
+    // inserts at the cursor.
     let empty = Buffer::over(NULL, "use <|>\n");
     let offered = empty
         .items()
@@ -612,15 +610,15 @@ fn completion_in_a_type_constraint_offers_types() {
     for expected in ["string", "number", "boolean", "dictionary", "extends"] {
         assert!(labels.contains(&expected.to_string()), "{labels:?}");
     }
-    // An anchor's name is a type too, and constraining to one is how a
-    // property says which anchors it takes.
+    // The name of an anchor is also a type. A constraint to an anchor tells
+    // which anchors a property accepts.
     assert!(labels.contains(&"Type".to_string()), "{labels:?}");
 }
 
 #[test]
 fn completion_of_a_value_offers_only_what_its_constraint_accepts() {
-    // `supportedOperators:: extends Operator[]:: null` -- so an operator or
-    // nothing, and nothing else.
+    // `supportedOperators:: extends Operator[]:: null`. Thus the value is an
+    // operator or null, and nothing else.
     let buffer = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators: n<|>\n",
@@ -642,8 +640,8 @@ fn completion_of_a_value_offers_only_what_its_constraint_accepts() {
         "the constraint does not accept a boolean: {labels:?}"
     );
 
-    // A value that has to be an anchor is written as a reference to one, so
-    // completing it writes the braces as well.
+    // A value that must be an anchor is a reference to an anchor. Thus the
+    // completion also writes the braces.
     let insert = items
         .iter()
         .find(|item| item.label == "PropertyAccessOperator")
@@ -659,8 +657,8 @@ fn completion_after_a_dot_offers_the_members_of_what_it_follows() {
     );
     let items = buffer.items();
     let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
-    // `self` is the anchor being written, so its slots are what follows the
-    // dot -- the inherited ones included.
+    // `self` is the anchor that the user writes. Thus its slots come after the
+    // dot, with the inherited slots.
     assert!(labels.contains(&"what-is-a-type"), "{labels:?}");
     assert!(labels.contains(&"supportedOperators"), "{labels:?}");
     let detail = items
@@ -676,8 +674,8 @@ fn a_reference_expression_offers_only_things_a_reference_can_name() {
     let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    a: @{<|>}\n");
     let labels = buffer.labels();
     assert!(labels.contains(&"Type".to_string()), "{labels:?}");
-    // `@{...}` has to resolve to a referenceable anchor, so a literal in there
-    // is an error waiting to be written.
+    // `@{...}` must resolve to an anchor that a reference can target. Thus a
+    // literal in it would cause an error.
     for wrong in ["true", "false", "null"] {
         assert!(
             !labels.contains(&wrong.to_string()),
@@ -688,12 +686,12 @@ fn a_reference_expression_offers_only_things_a_reference_can_name() {
 
 #[test]
 fn a_string_and_a_sentence_have_nothing_to_complete() {
-    // The specification is explicit: typing a property access in the middle of
-    // a string should complete nothing, because a string has no members.
+    // The specification is explicit. A property access in the middle of a
+    // string must complete nothing, because a string has no members.
     let string = Buffer::over(NULL, "export type N:\n    a: ${\"the end.<|>\"}\n");
     assert!(string.labels().is_empty(), "{:?}", string.labels());
 
-    // And prose is a value in Piton rather than a name being completed.
+    // Also, prose in Piton is a value. It is not a name to complete.
     let prose = Buffer::over(NULL, "export type N:\n    a: the quick brown<|>\n");
     assert!(prose.labels().is_empty(), "{:?}", prose.labels());
 
@@ -747,8 +745,8 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
         "an anchor with nothing to say still has to say so: {labels:?}"
     );
 
-    // `description:: simple:: complex` has no value on `Type`, so an anchor
-    // extending it has to write one. Those sort above the rest.
+    // `description:: simple:: complex` has no value on `Type`. Thus an anchor
+    // that extends it must write one. These go above the other items.
     let required = items
         .iter()
         .find(|item| item.label == "description")
@@ -783,8 +781,8 @@ fn resolving_an_item_fills_in_its_documentation() {
         .into_iter()
         .find(|item| item.label == "Type")
         .expect("Type");
-    // The list itself carries no description: building one renders the whole
-    // compiled value, and a list is hundreds of items long.
+    // The list itself has no description. A description renders the full
+    // compiled value, and a list has hundreds of items.
     assert!(offered.documentation.is_none());
 
     let resolved = features::resolve_completion(&buffer.world, offered);
@@ -797,8 +795,8 @@ fn resolving_an_item_fills_in_its_documentation() {
 
 #[test]
 fn a_list_item_takes_the_constraints_of_the_key_above_it() {
-    // `supportedOperators:: extends Operator[]` -- the items of the list are
-    // what the constraint is about, so they are what it narrows.
+    // `supportedOperators:: extends Operator[]`. The constraint is about the
+    // items of the list. Thus it limits the items.
     let buffer = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    supportedOperators:\n        - P<|>\n",
@@ -828,7 +826,7 @@ fn a_module_that_does_not_exist_exports_nothing() {
 // On-type formatting
 // ---------------------------------------------------------------------------
 
-/// The edits pressing enter produces, applied to the buffer.
+/// The edits from the enter key, applied to the buffer.
 fn after_enter(marked: &str) -> String {
     let buffer = Buffer::over(NULL, marked);
     let path = repo_root().join(NULL);
@@ -837,7 +835,7 @@ fn after_enter(marked: &str) -> String {
         .unwrap_or_default();
 
     let mut out = text.clone();
-    // One edit, and applying it back to front would matter if there were more.
+    // One edit. With more edits, the back-to-front order would be important.
     for edit in edits.iter().rev() {
         let start = piton_lsp::convert::position_to_offset(&out, edit.range.start);
         let end = piton_lsp::convert::position_to_offset(&out, edit.range.end);
@@ -848,8 +846,8 @@ fn after_enter(marked: &str) -> String {
 
 #[test]
 fn enter_after_a_key_that_opens_a_block_indents() {
-    // `frameworks:` with nothing after it opens a block, and the block is the
-    // indented lines beneath it.
+    // `frameworks:` with no text after it opens a block. The block is the
+    // indented lines below it.
     let text = after_enter("export type N:\n    frameworks:\n<|>");
     assert!(
         text.ends_with("    frameworks:\n        "),
@@ -868,7 +866,7 @@ fn enter_after_a_declaration_indents_into_its_body() {
 
 #[test]
 fn enter_after_a_value_keeps_the_indentation() {
-    // `title: a book` is a whole property; the line after it is a sibling.
+    // `title: a book` is a full property. The line after it is a sibling.
     let text = after_enter("export type N:\n    title: a book\n<|>");
     assert!(
         text.ends_with("    title: a book\n    "),
@@ -878,7 +876,7 @@ fn enter_after_a_value_keeps_the_indentation() {
 
 #[test]
 fn enter_after_a_comment_that_ends_in_a_colon_does_not_indent() {
-    // A comment is not structure, whatever it happens to end with.
+    // A comment is not structure, whatever its last character is.
     let text = after_enter("export type N:\n    // a note about this:\n<|>");
     assert!(
         text.ends_with("// a note about this:\n    "),
@@ -888,7 +886,7 @@ fn enter_after_a_comment_that_ends_in_a_colon_does_not_indent() {
 
 #[test]
 fn enter_after_a_value_that_ends_in_a_colon_does_not_indent() {
-    // `prompt: Careful: ` ends a sentence, not a property: the colon is part
+    // `prompt: Careful: ` ends a sentence, not a property. The colon is part
     // of the value, and the line after it is a sibling.
     let text = after_enter("export type N:\n    prompt: Careful:\n<|>");
     assert!(
@@ -899,8 +897,8 @@ fn enter_after_a_value_that_ends_in_a_colon_does_not_indent() {
 
 #[test]
 fn enter_after_a_constraint_that_leaves_the_value_unwritten_does_indent() {
-    // `config:: dictionary:` is a key with no value: the colon that closes
-    // the constraint is the one that opens the block beneath it.
+    // `config:: dictionary:` is a key with no value. The colon that closes
+    // the constraint also opens the block below it.
     let text = after_enter("export type N:\n    config:: dictionary:\n<|>");
     assert!(
         text.ends_with("    config:: dictionary:\n        "),
@@ -910,10 +908,10 @@ fn enter_after_a_constraint_that_leaves_the_value_unwritten_does_indent() {
 
 #[test]
 fn enter_replaces_indentation_the_cursor_has_not_reached() {
-    // The line the newline landed on may already be indented, with the cursor
-    // still at the margin. Replacing only what sits before the cursor would
-    // stack the two together and put the line at twelve spaces instead of
-    // eight -- a double indent.
+    // The new line can already have indentation while the cursor is still at
+    // the margin. A replacement of only the text before the cursor would add
+    // the two together. Then the line would have twelve spaces, not eight.
+    // That is a double indent.
     let text = after_enter("export type N:\n    frameworks:\n<|>    title: x");
     assert!(
         text.ends_with("    frameworks:\n        title: x"),
@@ -923,7 +921,7 @@ fn enter_replaces_indentation_the_cursor_has_not_reached() {
 
 #[test]
 fn enter_when_the_client_already_indented_changes_nothing() {
-    // Same indent as the one wanted: there is nothing to correct.
+    // The indent is already correct. Thus there is nothing to correct.
     let buffer = Buffer::over(NULL, "export type N:\n    frameworks:\n        <|>");
     let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
@@ -931,8 +929,8 @@ fn enter_when_the_client_already_indented_changes_nothing() {
 
 #[test]
 fn enter_inside_an_escape_block_changes_nothing() {
-    // The contents of an escape block are verbatim, so reindenting them would
-    // change what the block says.
+    // The contents of an escape block are verbatim. A change to their
+    // indentation would change the meaning of the block.
     let buffer = Buffer::over(
         NULL,
         "export type N:\n    a:\n        \\\\\\\n        key:\n<|>",
@@ -944,9 +942,9 @@ fn enter_inside_an_escape_block_changes_nothing() {
 #[test]
 fn enter_on_a_blank_line_dedents_one_level() {
     // The spec: "On a blank line inside a dictionary or anchor, enter should
-    // insert a new line and dedent it by 1 level." The line being left behind
-    // (`    `) is blank and indented, so the new line backs out one level to
-    // the margin rather than holding the body's depth.
+    // insert a new line and dedent it by 1 level." The cursor leaves a blank,
+    // indented line (`    `). Thus the new line moves out one level to the
+    // margin. It does not stay at the depth of the body.
     let text = after_enter("export type N:\n    key: value\n    \n<|>");
     assert!(
         text.ends_with("    key: value\n    \n"),
@@ -957,7 +955,7 @@ fn enter_on_a_blank_line_dedents_one_level() {
 #[test]
 fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
     // Deeper nesting: from level 2 (8 spaces) back to level 1 (4 spaces), not
-    // all the way to the margin.
+    // back to the margin.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n        \n<|>");
     assert!(
         text.ends_with("        inner: 1\n        \n    "),
@@ -967,24 +965,24 @@ fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
 
 #[test]
 fn enter_on_a_blank_line_the_editor_emptied_dedents_by_one_level() {
-    // Zed strips the whitespace from a blank line as Enter leaves it, so the
-    // blank line arrives empty. It still backs out one level, not to the
+    // Zed removes the whitespace from a blank line when Enter leaves it. Thus
+    // the blank line comes empty. It still moves out one level, not to the
     // margin.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n<|>");
     assert!(
         text.ends_with("        inner: 1\n\n    "),
         "expected one level out, not all the way: {text:?}"
     );
-    // A second Enter on another emptied blank line backs out one more.
+    // A second Enter on a different emptied blank line moves out one more level.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n\n<|>");
     assert!(text.ends_with("        inner: 1\n\n\n"), "{text:?}");
 }
 
 #[test]
 fn enter_on_a_blank_line_at_the_margin_stays_there() {
-    // A blank line already at the margin has nothing to dedent out of, so it is
-    // a no-op rather than wrapping to a negative depth. Here the line above the
-    // cursor is itself blank and at column zero.
+    // A blank line at the margin has no level to move out of. Thus nothing
+    // changes. The depth does not become negative. Here the line above the
+    // cursor is also blank and at column zero.
     let buffer = Buffer::over(NULL, "anchor A:\n\n<|>");
     let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
@@ -1001,10 +999,10 @@ fn only_the_newline_triggers_a_reindent() {
 
 #[test]
 fn an_unconstrained_value_proposes_nothing() {
-    // The specification is explicit: `property: ` should propose nothing,
-    // because the likely intent is to write prose. Only a constraint saying
-    // what belongs there makes a proposal something other than a guess.
-    // `what-is-a-type` carries no constraint at all.
+    // The specification is explicit. `property: ` must propose nothing,
+    // because the user probably intends to write prose. Only a constraint
+    // that tells what belongs there makes a proposal more than a guess.
+    // `what-is-a-type` has no constraint.
     let free = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    what-is-a-type: <|>\n",
@@ -1015,10 +1013,10 @@ fn an_unconstrained_value_proposes_nothing() {
         free.labels()
     );
 
-    // `description:: simple:: complex` does carry one, but it describes the
-    // shape of a value rather than naming which values there are -- so there
-    // is still nothing to propose, and proposing every anchor in the project
-    // would be the same guess.
+    // `description:: simple:: complex` has a constraint. But it describes the
+    // shape of a value. It does not name the permitted values. Thus there is
+    // still nothing to propose. A proposal of all anchors in the project would
+    // be the same guess.
     let shaped = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    description: <|>\n",
@@ -1040,7 +1038,7 @@ fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
     let Some(request::GotoImplementationResponse::Array(locations)) = response else {
         panic!("expected implementations of Type");
     };
-    // Every `type X` in the specification is one of them.
+    // Each `type X` in the specification is one of them.
     assert!(locations.len() > 5, "only {} found", locations.len());
     for location in &locations {
         assert!(
@@ -1055,11 +1053,11 @@ fn implementations_lead_from_an_abstract_anchor_to_what_extends_it() {
 fn a_leaf_anchor_leads_only_to_what_composes_it() {
     let fixture = Fixture::new();
     let uri = fixture.uri("spec/scope/belay/Compilation.pi");
-    // On the anchor's own name, not on the base it extends, which does have
-    // implementations.
+    // On the name of the anchor itself, not on the base that it extends. That
+    // base has implementations.
     let position = fixture.position_of("spec/scope/belay/Compilation.pi", "MarkdownSerialization extends");
-    // Nothing extends a concrete leaf. What it does have is the anchors that
-    // compose it: `Compilation` writes `serialization: {MarkdownSerialization}`.
+    // No anchor extends a concrete leaf. But other anchors compose it:
+    // `Compilation` writes `serialization: {MarkdownSerialization}`.
     let Some(request::GotoImplementationResponse::Array(locations)) =
         features::implementations(&fixture.world, &uri, position)
     else {
@@ -1101,7 +1099,7 @@ fn the_type_hierarchy_walks_both_ways() {
     let names: Vec<&str> = subtypes.iter().map(|item| item.name.as_str()).collect();
     assert!(names.contains(&"Strings"), "{names:?}");
 
-    // Walking down and then back up returns to where it started.
+    // A walk down and then back up goes back to the start.
     let back = features::type_hierarchy_supertypes(&fixture.world, &subtypes[0])
         .expect("supertypes of a subtype");
     assert!(
@@ -1121,8 +1119,8 @@ fn a_hierarchy_item_survives_a_lost_identity() {
         .remove(0);
     assert_eq!(item.name, "Strings");
 
-    // An item prepared before a recompilation carries an id that may no longer
-    // mean anything; the name still does.
+    // An item from before a recompilation has an id that can be invalid now.
+    // The name is still valid.
     item.data = None;
     let supertypes =
         features::type_hierarchy_supertypes(&fixture.world, &item).expect("supertypes");
@@ -1135,8 +1133,8 @@ fn a_hierarchy_item_survives_a_lost_identity() {
 
 #[test]
 fn enter_after_a_list_item_ending_in_a_colon_does_not_indent() {
-    // A list item is never a key: `- Settings:` is just the string
-    // `Settings:`, so it opens nothing.
+    // A list item is never a key. `- Settings:` is only the string
+    // `Settings:`. Thus it opens nothing.
     let text = after_enter("export type N:\n    items:\n        - Settings:\n<|>");
     assert!(
         text.ends_with("        - Settings:\n        "),
@@ -1175,7 +1173,7 @@ fn a_nested_dictionary_is_not_offered_the_anchors_properties() {
         "the anchor's own properties do not go inside `config`: {:?}",
         buffer.labels()
     );
-    // Directly in the body they still are.
+    // Directly in the body, they are still keys.
     let body = Buffer::over(NULL, "use ./lib/Type\n\nexport type Null:\n    <|>\n");
     assert!(body.labels().contains(&"description".to_string()));
 }
@@ -1218,9 +1216,9 @@ fn the_type_hierarchy_includes_composition() {
 
 #[test]
 fn a_name_re_exported_by_an_index_is_offered_once() {
-    // `BuildTooling` is declared in `spec/agent/skills/BuildTooling.pi` and
-    // re-exported by `spec/agent/index.pi` and `spec/index.pi`: three modules
-    // export it, and all three lead to the same anchor.
+    // `spec/agent/skills/BuildTooling.pi` declares `BuildTooling`.
+    // `spec/agent/index.pi` and `spec/index.pi` re-export it. Thus three
+    // modules export it, and all three go to the same anchor.
     let buffer = Buffer::over(
         "spec/scope/tooling/cli/Loc.pi",
         "export anchor Probe:\n    x: {<|>}\n",
@@ -1231,7 +1229,7 @@ fn a_name_re_exported_by_an_index_is_offered_once() {
         .filter(|item| item.label == "BuildTooling")
         .collect();
     assert_eq!(offered.len(), 1, "{:?}", offered.iter().map(|item| &item.label_details).collect::<Vec<_>>());
-    // Imported from the shortest path, which is the index that re-exports it.
+    // The import uses the shortest path. This is the index that re-exports it.
     let from = offered[0]
         .label_details
         .as_ref()
@@ -1252,13 +1250,13 @@ fn plain_text_has_no_hover_and_no_actions() {
             }
         })
     };
-    // Prose, including a word that happens to name an anchor.
+    // Prose with a word that is also the name of an anchor.
     assert_eq!(text(3, 22), None);
     assert_eq!(text(3, 40), None);
-    // Prose in a block that is composed: only the `+` line explains it.
+    // Prose in a composed block. Only the `+` line explains it.
     assert_eq!(text(5, 12), None);
     assert!(text(6, 8).is_some_and(|hover| hover.contains("Composition")));
-    // The declaring name still says where it compiles to.
+    // The declared name still shows its compiled output.
     assert!(text(3, 6).is_some_and(|hover| hover.contains("Compiled to")));
 
     let titles = |line: u32, column: u32| -> Vec<String> {

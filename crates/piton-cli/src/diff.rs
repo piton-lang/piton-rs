@@ -1,8 +1,8 @@
-//! Line-by-line diffs of files a command changed, computed in the compiler so
-//! no diff program has to be installed.
+//! Line-by-line diffs of the files that a command changed. The compiler
+//! calculates them. Thus the user does not need a diff program.
 //!
-//! Each changed region is printed with its old and new line numbers beside
-//! every line, the way a code review shows it:
+//! Each changed region shows its old and new line numbers next to each line.
+//! A code review shows them in the same way:
 //!
 //! ```text
 //! tethers/piton/scope/belay/Belay.pi
@@ -21,20 +21,21 @@ use crate::style::{self, paint};
 /// Lines of unchanged context shown around each change.
 const CONTEXT: usize = 3;
 
-/// Prints each change line by line, with paths shown under `prefix`: removed
-/// lines red with only their old number, added lines green with only their
-/// new one, and unchanged context with both. Separate regions of one file are
-/// split by a `⋯` line.
+/// Prints each change line by line. It shows the paths below `prefix`. A
+/// removed line is red, with only its old number. An added line is green, with
+/// only its new number. Unchanged context shows the two numbers. A `⋯` line
+/// divides separate regions of one file.
 pub fn print(prefix: &str, changes: &[FileChange]) {
     anstream::print!("{}", render(prefix, changes));
 }
 
-/// The same, on stderr, for a command whose stdout is its own output.
+/// The same function, on stderr. It is for a command that uses stdout for its
+/// own output.
 pub fn eprint(prefix: &str, changes: &[FileChange]) {
     anstream::eprint!("{}", render(prefix, changes));
 }
 
-/// The diff [`print`] writes, as text.
+/// The diff that [`print`] writes, as text.
 pub fn render(prefix: &str, changes: &[FileChange]) -> String {
     let mut out = String::new();
     macro_rules! println {
@@ -59,7 +60,7 @@ pub fn render(prefix: &str, changes: &[FileChange]) -> String {
         };
 
         let diff = TextDiff::from_lines(old, new);
-        // Wide enough for the largest line number in either version.
+        // Sufficiently wide for the largest line number in the two versions.
         let width = old.lines().count().max(new.lines().count()).max(1).to_string().len();
         let number = |index: Option<usize>| match index {
             Some(index) => format!("{:>width$}", index + 1),

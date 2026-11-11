@@ -1,14 +1,15 @@
-//! Snapshots what Belay writes for every combination of the built-in adapters.
+//! Records the Belay output for each combination of the built-in adapters.
 //!
-//! The project is the `belay/application` template `piton init` writes, which
-//! has an instruction, a skill, a command, an agent, and references, so each
-//! combination exercises what the tools share: one reference tree, one
-//! AGENTS.md, and the skills one tool finds in another's directory.
+//! The project is the `belay/application` template of `piton init`. It has an
+//! instruction, a skill, a command, an agent and references. Thus each
+//! combination examines what the tools share. The tools share one reference
+//! tree and one AGENTS.md. A tool also finds skills in the directory of
+//! another tool.
 //!
-//! Each combination's plan -- every file with its contents, then every
-//! diagnostic -- is compared with `tests/belay_snapshots/<combination>.txt`. Run with
-//! `BELAY_UPDATE_SNAPSHOTS=1` to rewrite them after an intended change, and
-//! read the diff.
+//! The test compares the plan of each combination with
+//! `tests/belay_snapshots/<combination>.txt`. The plan is each file with its
+//! contents, then each diagnostic. After an intended change, set
+//! `BELAY_UPDATE_SNAPSHOTS=1` to write the snapshots again. Then read the diff.
 
 mod belay;
 
@@ -31,7 +32,7 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Copies `from` into `to`, skipping the template's description.
+/// Copies `from` into `to`. It does not copy the description of the template.
 fn copy(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).expect("directory");
     for entry in std::fs::read_dir(from).expect("template").flatten() {
@@ -48,9 +49,10 @@ fn copy(from: &Path, to: &Path) {
     }
 }
 
-/// The template's project, configured for `adapters`, in a fresh directory.
+/// Makes the project of the template in a new directory, with `adapters` in
+/// its configuration.
 fn project(name: &str, adapters: &[(&str, &str)]) -> PathBuf {
-    let template = repo_root().join("create-templates/belay/application");
+    let template = repo_root().join("plugins/init/templates/belay/application");
     let dir = std::env::temp_dir().join(format!("piton-combination-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     copy(&template, &dir);
@@ -77,7 +79,7 @@ fn project(name: &str, adapters: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
-/// The plan for one combination, as the snapshot records it.
+/// Returns the plan for one combination in the form of the snapshot.
 fn snapshot(adapters: &[(&str, &str)]) -> String {
     let name: Vec<&str> = adapters.iter().map(|(id, _)| *id).collect();
     let dir = project(&name.join("+"), adapters);
@@ -93,7 +95,7 @@ fn snapshot(adapters: &[(&str, &str)]) -> String {
             file.path.display(),
             file.target,
             file.kind.as_str(),
-            file.contents.trim_end()
+            shown(&file.path, &file.contents)
         ));
     }
     out.push_str("==> diagnostics\n");
@@ -107,7 +109,21 @@ fn snapshot(adapters: &[(&str, &str)]) -> String {
     out
 }
 
-/// Every non-empty combination of the adapters, in their listed order.
+/// Returns the contents of a file as the snapshot shows them. The snapshot
+/// shows only the frontmatter of the `piton-fluency` skill, because its body
+/// is the full fluency reference.
+fn shown(path: &Path, contents: &str) -> String {
+    let contents = contents.trim_end();
+    if !path.to_string_lossy().contains("/piton-fluency/") {
+        return contents.to_string();
+    }
+    match contents.match_indices("---\n").nth(1) {
+        Some((end, _)) => format!("{}<the fluency reference>", &contents[..end + 4]),
+        None => contents.to_string(),
+    }
+}
+
+/// Returns each combination of one or more adapters, in the order of the list.
 fn combinations() -> Vec<Vec<(&'static str, &'static str)>> {
     (1..1u32 << ADAPTERS.len())
         .map(|mask| {

@@ -1,8 +1,8 @@
-//! `piton reach` — report what the entrypoints can and cannot see.
+//! `piton reach` — report the parts that the entrypoints can see and cannot see.
 //!
-//! The report covers what is reachable, what is unreachable, the depth of each
-//! reachable anchor, and the path taken to it; `--no-paths` and
-//! `--no-unreachable` leave those parts out. The traversal follows imports,
+//! The report shows the reachable parts, the unreachable parts, the depth of
+//! each reachable anchor, and the path to it. `--no-paths` and
+//! `--no-unreachable` remove those parts. The traversal follows imports,
 //! references, inheritance, and composition.
 
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use anstream::println;
 use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS, EXIT_SUCCESS};
 
-/// What a command-line target names.
+/// The item that a command-line target names.
 enum Target {
     Files(Vec<PathBuf>),
     Anchor(String),
@@ -58,7 +58,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     }
 
     if project.config_path.is_none() && targets.is_empty() {
-        // Without a configuration the working directory is the project, and a
+        // Without a configuration, the working directory is the project. A
         // directory is a module through its index.
         let index = project.root.join("index.pi");
         if !index.is_file() {
@@ -71,8 +71,9 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     }
     let root = project.root.clone();
 
-    // Without targets, the project's roots are the entry's exports and the
-    // anchors plugins reach themselves, like the tests the test plugin runs.
+    // Without targets, the roots of the project are the entry exports and
+    // the anchors that plugins reach. An example is the tests that the test
+    // plugin runs.
     let plugin_roots: Vec<(PathBuf, String)> = if targets.is_empty() {
         plugin_roots(&project)
     } else {
@@ -80,8 +81,8 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     };
 
     let mut compilation = project::compile_project(project.clone());
-    // A file nothing imports is not in the project's graph, but it can still
-    // be asked about: compile the workspace with it included.
+    // A file that no file imports is not in the graph of the project. But a
+    // user can ask about it. Thus compile the workspace with that file.
     if files
         .iter()
         .any(|file| compilation.graph().id_for(file).is_none())
@@ -89,9 +90,9 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         compilation =
             Compilation::build_workspace(project.clone(), Default::default(), &files);
     }
-    // A file nothing imports can hold an anchor a plugin reaches: compile it
-    // with the project, as if imported, so its anchors can be roots. Other
-    // files nothing imports still count as never imported.
+    // A file that no file imports can contain an anchor that a plugin reaches.
+    // Thus compile it with the project, as if a file imports it. Then its
+    // anchors can be roots. Other files without imports stay "never imported".
     let mut holding: Vec<PathBuf> = Vec::new();
     for (file, _) in &plugin_roots {
         let canonical = project::canonical_target(file);
@@ -133,7 +134,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         reach::from_roots_with_imports(&compilation, &roots, &modules)
     };
 
-    // Grouped by the source that declares each anchor.
+    // The groups are by the source that declares each anchor.
     let mut by_source: std::collections::BTreeMap<String, Vec<&reach::Reached>> =
         Default::default();
     for entry in &reachability.reached {
@@ -150,8 +151,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         println!("  {}", paint(style::DIM, &source));
         for entry in entries {
             let name = compilation.store().anchor(entry.anchor).name.clone();
-            // A root was not reached from anywhere; it is where the reading
-            // starts.
+            // No path reached a root. The walk starts at a root.
             let via = match entry.via {
                 Some(kind) => format!("via {}", kind.as_str()),
                 None => "root".to_string(),
@@ -173,9 +173,9 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
             println!("  {}", paint(style::SUCCESS, "nothing"));
         }
 
-        // Grouped by source, the same as the reachable half, so a file whose
-        // every anchor is dead reads as one entry rather than a list of names
-        // and then the file again at the bottom.
+        // The groups are by source, the same as the reachable half. Thus a
+        // file with only dead anchors shows as one entry. It does not show as
+        // a list of names and then again as the file at the bottom.
         let dead_files: std::collections::BTreeSet<String> = reachability
             .unreachable_modules
             .iter()
@@ -191,8 +191,9 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
                 .or_default()
                 .push(def.name.clone());
         }
-        // A file that carries nothing reachable but declares nothing either --
-        // an index whose every export is dead -- still has to be named.
+        // A file can have no reachable parts and also no declarations. An
+        // example is an index with only dead exports. The report must name
+        // that file.
         for file in &dead_files {
             by_source.entry(file.clone()).or_default();
         }
@@ -213,8 +214,8 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         }
 
         for module in &reachability.unloaded_modules {
-            // Nothing imports these, so compilation never opened them; they
-            // are parsed only to count what they declare.
+            // No file imports these files. Thus the compilation never opened
+            // them. The parser reads them only to count their declarations.
             let detail = format!(
                 "(never imported, {} {})",
                 module.anchors,
@@ -228,12 +229,11 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         }
     }
 
-    // Every line printed above is counted here, and counted once. Anchors and
-    // modules are tallied apart because they are different questions: a dead
-    // anchor is something to delete, a dead module is a file to delete, and a
-    // file nothing imports was never read at all. Its anchors still count as
-    // unreachable, so the headline cannot read clean while files are listed
-    // as dead.
+    // This code counts each line above one time. Anchors and modules have
+    // separate counts because they are different questions. A dead anchor is
+    // a declaration to delete. A dead module is a file to delete. The compiler
+    // never read a file that no file imports. Its anchors still count as unreachable.
+    // Thus the headline cannot show "clean" when the list shows dead files.
     let mut anchors = format!(
         "{} {} reachable, {} unreachable",
         reachability.reached.len(),
@@ -260,7 +260,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     EXIT_SUCCESS
 }
 
-/// Every anchor a module declares, which is where reading a file starts.
+/// All anchors that a module declares. The walk of a file starts at them.
 fn declared_anchors(compilation: &Compilation, module: ModuleId) -> Vec<piton_core::AnchorId> {
     compilation
         .resolution
@@ -278,8 +278,8 @@ fn declared_anchors(compilation: &Compilation, module: ModuleId) -> Vec<piton_co
         .collect()
 }
 
-/// The anchors the project's plugins reach themselves, by file and name. A
-/// plugin that can't say is reported as a warning, and the others still count.
+/// The anchors that the plugins of the project reach, by file and name. When
+/// a plugin cannot tell, a warning reports it. The other plugins still count.
 fn plugin_roots(project: &piton_compile::Project) -> Vec<(PathBuf, String)> {
     let (manifests, _) = piton_plugin::discover(project);
     let (roots, failures) = piton_plugin::reach::roots(project, &manifests, || {

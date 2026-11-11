@@ -1,5 +1,5 @@
-// The Belay plugin's code, embedded. One line per file in plugins/belay/src,
-// and the fluency prompt it ships with.
+// The embedded code of the Belay plugin. There is one line for each file in
+// plugins/belay/src. There is also a line for the fluency prompt of the plugin.
 &[
     ("src/adapters.ts", include_str!("../../../plugins/belay/src/adapters.ts")),
     ("src/agents.ts", include_str!("../../../plugins/belay/src/agents.ts")),
@@ -7,6 +7,7 @@
     ("src/build.ts", include_str!("../../../plugins/belay/src/build.ts")),
     ("src/constructs.ts", include_str!("../../../plugins/belay/src/constructs.ts")),
     ("src/diagnostics.ts", include_str!("../../../plugins/belay/src/diagnostics.ts")),
+    ("src/fluency.ts", include_str!("../../../plugins/belay/src/fluency.ts")),
     ("src/draft.ts", include_str!("../../../plugins/belay/src/draft.ts")),
     ("src/index.ts", include_str!("../../../plugins/belay/src/index.ts")),
     ("src/names.ts", include_str!("../../../plugins/belay/src/names.ts")),

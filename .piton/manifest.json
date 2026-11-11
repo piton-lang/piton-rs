@@ -22,6 +22,8 @@
     ".claude/reference/scope/founding-thesis/Introduction.md",
     ".claude/reference/scope/founding-thesis/TheProblem.md",
     ".claude/reference/scope/founding-thesis/index.md",
+    ".claude/reference/scope/init/Init.md",
+    ".claude/reference/scope/init/index.md",
     ".claude/reference/scope/language/anchors/Abstract.md",
     ".claude/reference/scope/language/anchors/Keywords.md",
     ".claude/reference/scope/language/anchors/SelfReference.md",
@@ -109,7 +111,6 @@
     ".claude/reference/scope/tooling/cli/Check.md",
     ".claude/reference/scope/tooling/cli/Compile.md",
     ".claude/reference/scope/tooling/cli/Format.md",
-    ".claude/reference/scope/tooling/cli/Init.md",
     ".claude/reference/scope/tooling/cli/Loc.md",
     ".claude/reference/scope/tooling/cli/Lsp.md",
     ".claude/reference/scope/tooling/cli/Plugins.md",
@@ -133,10 +134,13 @@
     ".claude/reference/scope/tooling/index.md",
     ".claude/reference/scope/tooling/project-config/index.md",
     ".claude/reference/scope/tooling/vite/index.md",
+    ".claude/reference/shape/Comments.md",
     ".claude/skills/build-tooling/SKILL.md",
     ".claude/skills/generate-fluency-prompt/SKILL.md",
     ".claude/skills/inspect-spec/SKILL.md",
-    ".claude/skills/x-check-spec-for-problems/SKILL.md"
+    ".claude/skills/piton-fluency/SKILL.md",
+    ".claude/skills/x-check-spec-for-problems/SKILL.md",
+    "crates/CLAUDE.md"
   ],
   "targets": {
     "claude-code": "2026-09-21"

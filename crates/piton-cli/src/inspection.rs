@@ -1,10 +1,10 @@
-//! Inspecting a project before a command runs.
+//! Inspects a project before a command runs.
 //!
-//! Plugins with an inspect hook, like the bundled migrate plugin, look at the
-//! project before each command and say what is out of date, with the edits
-//! that would fix it. Nothing changes without the user: on a terminal the
-//! edits are shown and the user is asked once; anywhere else they are only
-//! reported, with the command that applies them.
+//! Some plugins have an inspect hook, for example the bundled migrate plugin.
+//! They examine the project before each command. They tell which parts are
+//! out of date, and give the edits that correct them. Only the user can apply
+//! a change. On a terminal, the CLI shows the edits and asks the user once.
+//! In other places, it only reports them with the command that applies them.
 
 use std::io::IsTerminal;
 use std::rc::Rc;
@@ -18,14 +18,14 @@ use crate::plugins::CliServices;
 use crate::style::{self, paint};
 use crate::{diff, report};
 
-/// Set on a command run again after its project was updated, so the run
-/// doesn't inspect and ask a second time.
+/// The CLI sets this on a command that runs again after an update to its
+/// project. Thus the second run does not inspect and ask again.
 const RERUN: &str = "PITON_INSPECTED";
 
-/// Runs every inspection, and offers what they find. Returns the exit code
-/// when the command was run again against an updated project; None when the
-/// command should run as asked. `skip` is the plugin whose own command is
-/// running, which deals with its findings itself.
+/// Runs all inspections, and offers their findings. When the command ran
+/// again on an updated project, it returns the exit code. It returns None when
+/// the command must run as the user asked. `skip` is the plugin whose command
+/// runs now. That plugin uses its own findings.
 pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> Option<u8> {
     if project.config_path.is_none() || std::env::var_os(RERUN).is_some() {
         return None;
@@ -99,8 +99,8 @@ pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> O
     report::done("updated the project; running the command again");
     report::flush();
 
-    // The command runs again from the start, so everything it reads, the
-    // configuration first, is the updated project.
+    // The command runs again from the start. Thus it reads the updated project
+    // for all data, and it reads the configuration first.
     let program = std::env::current_exe().ok()?;
     let status = std::process::Command::new(program)
         .args(std::env::args_os().skip(1))

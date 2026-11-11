@@ -1,13 +1,13 @@
 //! The typed syntax tree.
 //!
-//! The parser produces this alongside a lossless rowan tree. The rowan tree is
-//! what the editor walks; this is what the compiler lowers. Keeping them
-//! separate means neither has to compromise: the CST keeps every byte, and the
-//! AST keeps the shape the resolver actually wants.
+//! The parser makes this tree together with a lossless rowan tree. The editor
+//! walks the rowan tree. The compiler lowers this tree. The two trees are
+//! separate. Thus each tree can have its best design. The CST keeps each byte.
+//! The AST keeps the shape that the resolver needs.
 
 use piton_core::Span;
 
-/// A value paired with its source range.
+/// A value together with its source range.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
     pub span: Span,
@@ -46,15 +46,15 @@ impl SourceFile {
 /// A top-level declaration.
 #[derive(Debug, Clone)]
 pub enum Item {
-    /// `use ./path` — brings user-defined keywords into scope.
+    /// `use ./path`. It brings user-defined keywords into scope.
     Use(UseDecl),
     /// `from ./path import A, B` or `from ./path export *`.
     From(FromDecl),
-    /// An anchor declaration, including ones written with a user keyword.
+    /// An anchor declaration. This includes declarations with a user keyword.
     Anchor(AnchorDecl),
-    /// A top-level variable, optionally exported.
+    /// A top-level variable. An export of the variable is optional.
     Variable(VariableDecl),
-    /// `export Name` — re-exports an already bound symbol.
+    /// `export Name`. It re-exports a symbol that already has a binding.
     ReExport(ReExportDecl),
 }
 
@@ -70,8 +70,8 @@ impl Item {
     }
 }
 
-/// A module path as written in source: `./Foo`, `../bar`, `/abs/path`,
-/// `@piton/belay`, or `.` for the current directory's module.
+/// A module path as the source shows it. Examples are `./Foo`, `../bar`,
+/// `/abs/path`, `@piton/belay`, and `.` for the module of the current directory.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModulePath {
     pub span: Span,
@@ -94,7 +94,7 @@ pub struct UseDecl {
     pub path: ModulePath,
 }
 
-/// Whether a `from` declaration binds names locally or re-exports them.
+/// Tells if a `from` declaration binds names locally or re-exports them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FromKind {
     Import,
@@ -111,8 +111,8 @@ pub struct FromDecl {
     pub items: Vec<ImportItem>,
 }
 
-/// One entry in an import or export list. `alias` holds the optional rename
-/// that follows the name: `from ./F import pi SliceOf`.
+/// One entry in an import list or an export list. `alias` holds the optional
+/// new name that follows the name, as in `from ./F import pi SliceOf`.
 #[derive(Debug, Clone)]
 pub struct ImportItem {
     pub span: Span,
@@ -122,7 +122,7 @@ pub struct ImportItem {
 }
 
 impl ImportItem {
-    /// The name the symbol is bound under locally.
+    /// The local name of the symbol.
     pub fn local_name(&self) -> &str {
         match &self.alias {
             Some(alias) => &alias.value,
@@ -143,15 +143,15 @@ pub struct AnchorDecl {
     pub span: Span,
     pub exported: bool,
     pub is_abstract: bool,
-    /// `anchor`, or the user-defined keyword that introduced this declaration.
+    /// `anchor`, or the user-defined keyword that starts this declaration.
     pub keyword: String,
     pub keyword_span: Span,
     pub name: String,
     pub name_span: Span,
-    /// `as my-keyword` — declares a user keyword aliasing this anchor.
+    /// `as my-keyword`. It declares a user keyword that is an alias of this anchor.
     pub alias: Option<Spanned<String>>,
-    /// Bases in source order. A user keyword's anchor comes after these, as the
-    /// last base, when inheritance is resolved.
+    /// The bases in source order. The resolver adds the anchor of a user keyword
+    /// after these bases. That anchor is the last base.
     pub extends: Vec<Spanned<String>>,
     pub body: Block,
 }
@@ -166,15 +166,16 @@ pub struct VariableDecl {
     pub value: ValueNode,
 }
 
-/// One `:: type` annotation. Multiple constraints are tried left to right.
+/// One `:: type` annotation. The compiler tries more than one constraint
+/// from left to right.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeConstraint {
     pub span: Span,
-    /// `extends A` — satisfied by any anchor whose inheritance chain includes
-    /// `A`. Only meaningful inside abstract declarations.
+    /// `extends A`. An anchor satisfies it when the inheritance chain of the
+    /// anchor includes `A`. It has a meaning only in abstract declarations.
     pub extends: bool,
     pub name: TypeName,
-    /// `T[]` — a list whose elements each satisfy `T`.
+    /// `T[]`. A list where each element satisfies `T`.
     pub list: bool,
 }
 
@@ -191,7 +192,7 @@ pub enum TypeName {
     Any,
     Simple,
     Complex,
-    /// A reference to a declared anchor used as a type.
+    /// A reference to a declared anchor. The anchor is the type.
     Named(String),
 }
 
@@ -231,23 +232,23 @@ impl TypeName {
     }
 }
 
-/// A value: an optional same-line part, an optional inline list, and an
-/// optional indented block. A property can carry a same-line fragment *and* an
-/// indented continuation, and both contribute to the result.
+/// A value. It has an optional same-line part, an optional inline list and an
+/// optional indented block. A property can have a same-line fragment *and* an
+/// indented continuation. Both parts go into the result.
 #[derive(Debug, Clone, Default)]
 pub struct ValueNode {
     pub span: Span,
-    /// Text written on the same line as the `:`.
+    /// The text on the same line as the `:`.
     pub inline: Option<ProseLine>,
-    /// `[a, b, c]` written on the same line as the `:`.
+    /// A `[a, b, c]` on the same line as the `:`.
     pub inline_list: Option<Vec<ValueNode>>,
-    /// Content indented beneath the declaration.
+    /// The indented content below the declaration.
     pub block: Option<Block>,
-    /// True when the source actually supplied a value, even an empty one.
+    /// True when the source gives a value. The value can be empty.
     ///
-    /// `description:` declares a property whose value is null; `description::
-    /// string` with no colon declares an abstract slot with no value at all.
-    /// The two look similar and mean different things.
+    /// `description:` declares a property with a null value. `description::
+    /// string` with no colon declares an abstract slot with no value.
+    /// The two look almost the same, but they have different meanings.
     pub declared: bool,
 }
 
@@ -257,7 +258,7 @@ impl ValueNode {
     }
 }
 
-/// An indented run of lines belonging to one declaration.
+/// An indented run of lines that are part of one declaration.
 #[derive(Debug, Clone, Default)]
 pub struct Block {
     pub span: Span,
@@ -275,18 +276,18 @@ impl Block {
 
 #[derive(Debug, Clone)]
 pub enum BlockItem {
-    /// `key: value`, possibly with type constraints.
+    /// `key: value`. It can have type constraints.
     Property(Property),
     /// `- value`
     ListItem(ListItem),
     /// `+ {expr}` or `++ {expr}`
     Merge(MergeItem),
-    /// A run of prose lines terminated by a blank line or a structural line.
+    /// A run of prose lines. A blank line or a structural line ends the run.
     Prose(Paragraph),
-    /// A multi-line escape block. Its contents are literal and its delimiters
-    /// are consumed.
+    /// A multi-line escape block. Its contents are literal. The parser removes
+    /// its delimiters.
     Escape(EscapeBlock),
-    /// `pass` — an intentionally empty body.
+    /// `pass`. A body that is empty on purpose.
     Pass(Span),
 }
 
@@ -318,7 +319,7 @@ pub struct ListItem {
     pub value: ValueNode,
 }
 
-/// `+` merges with deduplication; `++` concatenates and keeps duplicates.
+/// `+` merges and removes duplicates. `++` concatenates and keeps duplicates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MergeOp {
     Merge,
@@ -329,13 +330,13 @@ pub enum MergeOp {
 pub struct MergeItem {
     pub span: Span,
     pub op: MergeOp,
-    /// The `+` or `++` itself.
+    /// The `+` or the `++` token.
     pub op_span: Span,
     pub value: ProseLine,
 }
 
-/// Prose lines separated only by line breaks. A blank line starts a new
-/// paragraph, which is how the language spells an explicit line break.
+/// Prose lines with only line breaks between them. A blank line starts a new
+/// paragraph. The language uses a blank line for an explicit line break.
 #[derive(Debug, Clone, Default)]
 pub struct Paragraph {
     pub span: Span,
@@ -351,10 +352,10 @@ pub struct ProseLine {
 }
 
 impl ProseLine {
-    /// The single interpolation this line consists of, if that is all it holds.
+    /// The single interpolation of this line, if the line holds only that.
     ///
-    /// A value written as exactly one `{...}` keeps its intrinsic type; anything
-    /// else is a string.
+    /// A value that is exactly one `{...}` keeps its intrinsic type. All other
+    /// values are strings.
     pub fn sole_interpolation(&self) -> Option<&Interpolation> {
         let mut found = None;
         for segment in &self.segments {
@@ -376,24 +377,24 @@ impl ProseLine {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProseSegment {
-    /// Ordinary text. Escapes have already been applied.
+    /// Usual text. The scanner has already applied the escapes.
     Text(String),
-    /// Text that was written inside a backslash-delimited escape and must not be
-    /// reinterpreted.
+    /// Text from a backslash-delimited escape. No later step must interpret
+    /// this text again.
     Literal(String),
     Interpolation(Interpolation),
 }
 
-/// Which conversion an interpolation requests.
+/// The conversion that an interpolation requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sigil {
-    /// `{...}` — the intrinsic value.
+    /// `{...}`. The intrinsic value.
     Standard,
-    /// `${...}` — converted to a string.
+    /// `${...}`. It converts the value to a string.
     Stringify,
-    /// `#{...}` — converted to a number.
+    /// `#{...}`. It converts the value to a number.
     Numeric,
-    /// `@{...}` — a reference that keeps the anchor's identity.
+    /// `@{...}`. A reference that keeps the identity of the anchor.
     Reference,
 }
 
@@ -415,20 +416,20 @@ pub struct Interpolation {
     pub expr: Expr,
 }
 
-/// A run of lines delimited by backslash-only lines.
+/// A run of lines between two lines that contain only backslashes.
 ///
-/// The delimiters are syntax: they are consumed, and what sits between them is
-/// taken exactly as written.
+/// The delimiters are syntax. The parser removes them. It keeps the text
+/// between them exactly as the source shows it.
 #[derive(Debug, Clone)]
 pub struct EscapeBlock {
     pub span: Span,
-    /// Content lines with the block's base indentation removed.
+    /// The content lines, without the base indentation of the block.
     pub lines: Vec<String>,
-    /// Length of the backslash run that delimits the block.
+    /// The length of the backslash run that is the delimiter of the block.
     pub run: usize,
 }
 
-/// An expression inside an interpolation or an inline list.
+/// An expression in an interpolation or in an inline list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
     pub span: Span,
@@ -440,15 +441,15 @@ pub enum ExprKind {
     Number(f64),
     Bool(bool),
     Null,
-    /// A quoted string. Quoted values are explicitly strings and never coerce.
+    /// A quoted string. A quoted value is always a string. It never changes type.
     Quoted(String),
-    /// A bare identifier resolved in the enclosing scope.
+    /// A bare identifier. The resolver finds it in the scope that contains it.
     Name(String),
-    /// `this` — the anchor the expression is written in.
+    /// `this`. The anchor that contains the expression.
     This,
-    /// `self` — the most derived anchor in the inheritance chain.
+    /// `self`. The most derived anchor in the inheritance chain.
     SelfRef,
-    /// `super` — the right-most base of the anchor the expression is written in.
+    /// `super`. The right-most base of the anchor that contains the expression.
     Super,
     Field(Box<Expr>, Spanned<String>),
     Unary(UnaryOp, Box<Expr>),
@@ -456,11 +457,11 @@ pub enum ExprKind {
     Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
     List(Vec<Expr>),
     Paren(Box<Expr>),
-    /// `${...}`, `#{...}`, or `@{...}` written inside an expression, so a
-    /// conversion or a reference can take part in a larger expression:
+    /// `${...}`, `#{...}` or `@{...}` in an expression. Thus a conversion or a
+    /// reference can be part of a larger expression, as in
     /// `{@{Button} == @{Card}}`.
     Nested(Sigil, Box<Expr>),
-    /// Produced by error recovery so later phases can keep going.
+    /// Error recovery makes this node. Thus the later phases can continue.
     Error,
 }
 
@@ -484,7 +485,7 @@ pub enum BinaryOp {
     GreaterEqual,
     And,
     Or,
-    /// `++` — concatenate without deduplication.
+    /// `++`. It concatenates and does not remove duplicates.
     Concat,
 }
 

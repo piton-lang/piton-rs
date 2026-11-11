@@ -1,15 +1,15 @@
-//! `piton build` — compile the project and write every configured artifact.
+//! `piton build` — compile the project and write all configured artifacts.
 //!
-//! Without a plugin that builds, a build writes the renderer's output to the
-//! configured output directory: the entry file, and every file holding
-//! something the entry's exports reference, each keeping its place under the
-//! source root and taking the renderer's extension. A plugin's build, like
-//! Belay's, replaces it, unless the configuration sets `output` or `renderer`
-//! to ask for both.
+//! When no plugin builds, a build writes the renderer output to the output
+//! directory in the configuration. It writes the entry file. It also writes
+//! each file that declares a reference target of the entry exports. Each file
+//! keeps its place under the source root and gets the renderer extension. A
+//! plugin build, for example the Belay build, replaces this output. If the
+//! configuration sets `output` or `renderer`, the build writes the two outputs.
 //!
-//! The plan is built and validated in full before anything is written, so a
-//! project either produces a consistent set of artifacts or produces
-//! diagnostics and no partial output.
+//! The build makes and validates the full plan before it writes a file. Thus
+//! a project gives a consistent set of artifacts, or it gives diagnostics and
+//! no partial output.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -50,7 +50,7 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         }
     };
 
-    // Every plugin with a build plans its share; none writes anything.
+    // Each plugin with a build plans its part. No plugin writes a file.
     let (_, _, manifests, _) = crate::plugins::load();
     let builders = piton_plugin::builders(&compilation.project, &manifests);
     let (plugin_plans, failures) = crate::plugins::plan_builds(&compilation.project, &manifests);
@@ -62,8 +62,8 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         return EXIT_ERRORS;
     }
 
-    // A plugin's build replaces the renderer's output, unless the
-    // configuration asks for the renderer's too.
+    // A plugin build replaces the renderer output. If the configuration asks
+    // for the renderer output, the build also writes it.
     let mut plan = BuildPlan {
         files: if builders.is_empty() || compilation.project.renders {
             rendered_files(&compilation, renderer)
@@ -78,9 +78,10 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         diagnostics.extend(plugin_plan.diagnostics);
     }
 
-    // The whole plan is checked before anything is written: paths stay in
-    // the project, inside what each plugin may write, producers don't
-    // collide, and nothing the build didn't write is overwritten.
+    // The build checks the full plan before it writes a file. Paths must stay
+    // in the project. Each path must be in the area that its plugin can write.
+    // Two producers must not write the same path. The build must not overwrite
+    // a file that it did not write.
     let previous = output::previous(&root);
     let outputs = |owner: &str| {
         manifests
@@ -109,7 +110,7 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
         report::stopped("build stopped; no files were written");
         return EXIT_ERRORS;
     }
-    // A clean build says so in its outcome; the count is only for problems.
+    // A clean build tells this in its outcome. The count is only for problems.
     if !diagnostics.is_empty() {
         report::summary(&diagnostics);
     }
@@ -167,7 +168,7 @@ pub fn run(config: Option<&Path>, dry_run: bool) -> u8 {
     EXIT_SUCCESS
 }
 
-/// The renderer's share of the build: one file per module that is emitted.
+/// The renderer part of the build. It is one file for each emitted module.
 fn rendered_files(compilation: &Compilation, renderer: Adapter) -> Vec<OutputFile> {
     let project = &compilation.project;
     let mut files = Vec::new();
@@ -192,9 +193,9 @@ fn rendered_files(compilation: &Compilation, renderer: Adapter) -> Vec<OutputFil
     files
 }
 
-/// The modules a build emits: the entry, and every module that declares
-/// something the entry's exports reach, so each reference has a file to land
-/// in. Bundled packages live in the compiler and are never written out.
+/// The modules that a build emits. These are the entry, and each module that
+/// declares a target of the entry exports. Thus each reference has a file to
+/// go to. Bundled packages are in the compiler, and the build never writes them.
 fn emitted_modules(compilation: &Compilation) -> Vec<ModuleId> {
     let reachability = reach::from_entry(compilation);
     let mut modules: BTreeSet<ModuleId> = BTreeSet::new();
@@ -208,10 +209,10 @@ fn emitted_modules(compilation: &Compilation) -> Vec<ModuleId> {
         .collect()
 }
 
-/// Where a source file's rendered output goes: its place under the source
-/// root, inside the output directory, with the renderer's extension. A file
-/// outside the source root -- an installed package -- keeps its place under
-/// the project root instead, so it cannot land on top of a project file.
+/// The location of the rendered output of a source file. It is the place of
+/// the file under the source root, in the output directory, with the renderer
+/// extension. A file outside the source root is an installed package. It keeps
+/// its place under the project root. Thus it cannot replace a project file.
 fn output_path(project: &piton_compile::Project, source: &Path, renderer: Adapter) -> PathBuf {
     let relative = source
         .strip_prefix(&project.source_root)

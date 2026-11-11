@@ -106,6 +106,10 @@ Optional. A word the command is grouped under, so `slice` grouped under belay is
 
 More, shown under it in `piton <command> --help`.
 
+### Standalone
+
+Optional. true for a command that doesn't use a project, like `piton init`. It runs wherever it is invoked, outside a project and inside one whose configuration has errors, and the project's plugin problems are not reported before it.
+
 ### Arguments
 
 A dictionary from each argument's name to what it is, in the order they are listed in help.
