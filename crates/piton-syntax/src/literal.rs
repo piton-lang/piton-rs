@@ -1,9 +1,9 @@
-//! The meaning of a whole value when the value is not prose.
+//! The sense of a whole value when the value is not prose.
 //!
 //! The type of a value without a constraint comes from the text of the value.
 //! `42` is a number. `true` is a boolean. `null` is no value. All other text is
 //! a string. The evaluator uses this rule. The parser marks the same values in
-//! the syntax tree. Thus the two share the rule here, and neither keeps a copy.
+//! the syntax tree. Thus the two share the rule here, and the two do not keep a copy.
 
 use crate::kind::SyntaxKind;
 

@@ -2,7 +2,7 @@
 //!
 //! The value model maps directly to YAML. The adapter quotes a scalar only when
 //! YAML reads the bare scalar differently. Thus prose stays easy to read, and
-//! it has only one meaning.
+//! it has only one sense.
 
 use piton_core::{format_number, AnchorId, AnchorView, Properties, Ref, Value};
 
@@ -191,7 +191,7 @@ fn render_key(key: &str) -> String {
 }
 
 /// Quotes a scalar. It uses a double-quoted form when the bare text has more
-/// than one meaning. It also uses that form when the bare text changes in a
+/// than one sense. It also uses that form when the bare text changes in a
 /// round trip.
 pub fn quote(text: &str) -> String {
     let needs_quotes = text.is_empty()

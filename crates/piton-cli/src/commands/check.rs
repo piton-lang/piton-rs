@@ -18,7 +18,7 @@ pub fn run(paths: &[PathBuf]) -> u8 {
     let (project, diagnostics) = project::current();
     if project.config_path.is_none() {
         // Without a project, there is no entry. Thus the check examines each
-        // file below the working directory separately. `piton loc` and
+        // file below the current directory separately. `piton loc` and
         // `piton format` use the same set of files.
         return check_files(&[]);
     }

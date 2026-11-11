@@ -1,8 +1,8 @@
 //! The canonical formatter.
 //!
 //! `piton format` normalizes the structure. It does not change prose. The
-//! indentation becomes four spaces for each level. Each comment gets a space
-//! after `//`. Declaration punctuation gets its mandatory spaces. The formatter
+//! indentation becomes four spaces for each level. Each comment has a space
+//! after `//`. Declaration punctuation has its mandatory spaces. The formatter
 //! sorts and wraps import lists. It does not change the text of a string,
 //! because in Piton that text is the value.
 
@@ -47,7 +47,8 @@ pub fn autoformat(source: &str, path: &Path) -> String {
 ///
 /// If a file does not parse, a format of the file is only a guess. An editor
 /// can send a buffer through the formatter. The editor then replaces the buffer
-/// with the result. Thus a broken file gets no result. It does not get a rewrite.
+/// with the result. Thus a broken file has no result. The editor does not
+/// rewrite it.
 pub fn format_checked(source: &str, path: &Path) -> Result<String, Vec<Diagnostic>> {
     let parse = parser::parse(source, path);
     let errors: Vec<Diagnostic> = parse
@@ -126,7 +127,7 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
         // still goes into the indentation stack above. Thus the code around it
         // goes where `piton format` puts it. Only the output of the comment is
         // different. This code runs outside escape blocks. In an escape block,
-        // a leading `//` is literal text, and the code above handles it.
+        // a `//` at the start is literal text, and the code above handles it.
         let depth = depth_for(&mut stack, indent);
 
         if preserve_comments && trimmed.starts_with("//") {
@@ -155,7 +156,7 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
 /// lines. It sorts each group by path. A run is a group of top-level `use` and
 /// `from` statements with no other lines between them. Thus a blank line
 /// divides two groups. This function does not change a run with a comment.
-/// A move of the lines would separate the comment from the lines it describes.
+/// A move of the lines separates the comment from the lines it describes.
 fn sort_import_lines(text: &str) -> String {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let is_import = |line: &str| line.starts_with("use ") || line.starts_with("from ");
@@ -206,7 +207,7 @@ fn import_key(statement: &str) -> (u8, String) {
     (group, words.next().unwrap_or_default().to_string())
 }
 
-/// True when the file is already in the canonical format.
+/// True when the file is in the canonical format at this time.
 pub fn is_formatted(source: &str, path: &Path) -> bool {
     format(source, path) == source
 }
@@ -232,7 +233,7 @@ fn indent_bytes(text: &str, chars: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-/// Maps a source indent column to a nesting depth. Thus different indent
+/// Maps a source indent column to a nested depth. Thus different indent
 /// widths give the same output.
 fn depth_for(stack: &mut Vec<usize>, indent: usize) -> usize {
     while let Some(top) = stack.last() {
@@ -262,7 +263,7 @@ fn push_line(out: &mut String, depth: usize, extra: usize, text: &str) {
 }
 
 /// Applies the small space rules. It puts a single space between code and a
-/// trailing comment. It puts a space after `//` when the comment has no space.
+/// comment at the end of a line. It puts a space after `//` when the comment has no space.
 /// It never changes the text of the comment.
 fn normalize(text: &str) -> String {
     let (code, comment) = prose::split_comment(text);
@@ -433,8 +434,8 @@ mod tests {
 
     #[test]
     fn autoformat_adds_the_space_and_leaves_comment_lines_where_they_are() {
-        // The spec says: "Autoformat should add the space after //, but not touch
-        // anything else that's commented." A whole-line comment keeps its
+        // The spec tells autoformat to add the space after //. Autoformat must
+        // not change other comment text. A whole-line comment keeps its
         // original indentation. This is also true for an incorrect indentation.
         assert_eq!(auto("//no space\n"), "// no space\n");
         assert_eq!(
@@ -485,7 +486,7 @@ mod tests {
         );
         assert_eq!(fmt("from ../x.pi export *\n"), "from ../x export *\n");
         assert_eq!(fmt("use ./Keywords.pi\n"), "use ./Keywords\n");
-        // The formatter does not change paths that are already canonical.
+        // The formatter does not change paths that are canonical.
         assert_eq!(fmt("use ./Keywords\n"), "use ./Keywords\n");
         assert_eq!(fmt("use my-package\n"), "use my-package\n");
     }

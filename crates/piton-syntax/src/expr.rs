@@ -69,7 +69,7 @@ pub fn lex(source: &str, base: usize) -> (Vec<(ExprToken, std::ops::Range<usize>
     let mut tokens = Vec::new();
     let diagnostics = Vec::new();
     let chars: Vec<char> = source.chars().collect();
-    // The byte offset of each char index. Thus, the spans stay in bytes.
+    // This holds the byte offset of each char index. Thus, the spans stay in bytes.
     let mut offsets = Vec::with_capacity(chars.len() + 1);
     let mut offset = 0usize;
     for ch in &chars {
@@ -406,7 +406,7 @@ pub fn parser() -> impl Parser<ExprToken, Expr, Error = Simple<ExprToken>> + Clo
         let and = binary_level(equality, &[ExprTokenKind::AmpAmp]);
         let or = binary_level(and, &[ExprTokenKind::PipePipe]);
 
-        // The ternary is right-associative. Thus, you can chain it in either slot.
+        // The ternary is right-associative. Thus, you can chain it in the two slots.
         or.clone()
             .then(
                 token(ExprTokenKind::Question)

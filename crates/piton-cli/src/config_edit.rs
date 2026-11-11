@@ -16,7 +16,7 @@ use piton_syntax::parser;
 
 /// Adds `- <source>` to the `dependencies` of the configuration. When there is
 /// no list, it makes the list. Returns the new text. Returns `None` when the
-/// list already contains the source.
+/// list contains the source.
 pub fn add_dependency(text: &str, path: &Path, source: &str) -> Result<Option<String>, String> {
     let parse = parser::parse(text, path);
     let anchor = config_anchor(&parse.file.items)?;
@@ -45,7 +45,7 @@ pub fn add_dependency(text: &str, path: &Path, source: &str) -> Result<Option<St
     }
 
     // There is no list. Thus the edit adds a list at the end of the anchor
-    // body, with the same indentation as the current properties.
+    // body. The list has the same indentation as the current properties.
     let head = lines.index_of(anchor.span.start);
     let body_indent = anchor
         .body
@@ -80,7 +80,7 @@ pub fn remove_dependency(text: &str, path: &Path, source: &str) -> Result<Option
     };
 
     let (from, to) = if items.len() == 1 {
-        // The list would be empty. Thus the edit removes the property. It also
+        // The list will be empty. Thus the edit removes the property. It also
         // removes the blank line between the property and the text before it.
         let mut from = start;
         if from > 0 && lines.is_blank(from - 1) {

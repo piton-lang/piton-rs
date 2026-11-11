@@ -2,7 +2,7 @@
 //! proposes.
 //!
 //! A plugin never changes a source file itself. Its inspect hook returns
-//! findings. Each finding has the edits that can fix it. The host and the
+//! results. Each result has the edits that can fix it. The host and the
 //! user decide if they apply the edits. This module checks each edit. The
 //! path must stay in the project. The path must also agree with the edits
 //! that the capabilities of the plugin list.
@@ -14,7 +14,7 @@ use serde_json::Value as Json;
 use crate::manifest::Manifest;
 use crate::output::is_safe;
 
-/// One file that a finding changes. It holds the full contents before and
+/// One file that a result changes. It holds the full contents before and
 /// after the change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Edit {
@@ -87,7 +87,7 @@ pub fn read(manifest: &Manifest, inspection: &Json, root: &Path) -> Result<Vec<F
     Ok(findings)
 }
 
-/// Writes edits. It writes each full file through a staging file next to it.
+/// Writes edits. It writes each full file through a temporary file next to it.
 /// Thus a write that stops never leaves half a file. Returns the paths that
 /// it changed.
 pub fn apply(edits: &[Edit], root: &Path) -> std::io::Result<Vec<PathBuf>> {

@@ -30,9 +30,9 @@ pub struct OutputSettings {
 }
 
 impl OutputSettings {
-    /// The compiled file that a module makes. It is the output directory, then
-    /// the path of the module relative to the source root, with the extension
-    /// of the renderer.
+    /// The compiled file that a module makes. Its path starts with the output
+    /// directory. Then comes the path of the module relative to the source
+    /// root. The file has the extension of the renderer.
     pub fn output_for(&self, project: &Project, module: &Path) -> PathBuf {
         self.output_with(project, module, self.renderer)
     }
@@ -64,7 +64,7 @@ pub fn output_settings(project: &Project) -> OutputSettings {
     }
 }
 
-/// Whether a path is the project configuration file.
+/// Tells if a path is the project configuration file.
 pub fn is_config_file(path: &Path) -> bool {
     path.file_name()
         .is_some_and(|name| name == language::CONFIG_FILE)
@@ -111,8 +111,8 @@ pub struct World {
     pub index: Index,
     /// Import, composition, conflict, and source-map analysis of `compilation`.
     pub analysis: Analysis,
-    /// Paths that had diagnostics the last time. Thus files without problems
-    /// get an empty publish, not old squiggles.
+    /// Paths that had diagnostics the last time. Thus the server sends an
+    /// empty publish for files without problems, not old squiggles.
     pub last_reported: Vec<PathBuf>,
     /// The buffers that `compilation` used, and their versions.
     compiled_documents: HashMap<PathBuf, String>,
@@ -169,7 +169,7 @@ impl World {
     ///
     /// The configuration names the source root and the entry point. Thus a
     /// change to it changes the set of files in the project. A recompile of the
-    /// old project would not see this change.
+    /// old project does not see this change.
     pub fn reload_project(&mut self) {
         self.plans_stale = true;
         let (project, diagnostics) = config::load(&self.root, None);
@@ -216,7 +216,7 @@ impl World {
         self.stale = true;
     }
 
-    /// Whether the compilation is different from the buffers or the disk.
+    /// Tells if the compilation is different from the buffers or the disk.
     pub fn needs_compile(&self) -> bool {
         self.stale || self.compilation.is_none() || self.compiled_documents != self.documents
     }
@@ -237,7 +237,7 @@ impl World {
     }
 
     /// Recompiles only when a change occurred after the last compilation.
-    /// Returns whether it compiled.
+    /// Returns true if it compiled.
     pub fn refresh(&mut self, focus: Option<&Path>) -> bool {
         if !self.needs_compile() {
             return false;
@@ -251,7 +251,7 @@ impl World {
     /// The server loads all sources below the project root, not only the
     /// sources that the entry point reaches. `piton reach` answers questions
     /// about reachability. Reachability does not decide which files exist. A
-    /// file that no file imports yet is a file that a person writes now. It
+    /// file that no file imports at this time is a file that a person writes now. It
     /// needs diagnostics, symbols, and jump targets, as all files do.
     pub fn recompile(&mut self, focus: Option<&Path>) {
         if let Some(path) = focus {
@@ -262,8 +262,8 @@ impl World {
             // When there is no configuration, there is no project. Thus the
             // file that the user edits is the full project. When the user
             // edits no file, there is nothing to compile. A compile of the
-            // workspace directory as an entry point would only make noise.
-            // It would also race the first `didOpen`.
+            // workspace directory as an entry point only makes noise.
+            // It also races the first `didOpen`.
             let focus = self
                 .focus
                 .clone()
@@ -309,8 +309,8 @@ impl World {
     /// Diagnostics, in groups by the file that they belong to.
     pub fn diagnostics_by_file(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let mut out: HashMap<PathBuf, Vec<Diagnostic>> = HashMap::new();
-        // Each open buffer gets an entry. Thus when a problem goes away, its
-        // squiggle also goes away.
+        // Each open buffer has an entry. Thus when a problem stops, its
+        // squiggle also disappears.
         for path in self.documents.keys() {
             out.entry(path.clone()).or_default();
         }

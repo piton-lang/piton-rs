@@ -310,7 +310,7 @@ fn piton_agent_launches_each_tool_with_fluency_through_belay() {
     assert!(args[1].contains("piton-belay-"), "{args:?}");
     assert_eq!(args.last().map(String::as_str), Some("--resume"));
 
-    // Codex gets a short prompt. The system limits the size of one
+    // The CLI gives a short prompt to Codex. The system limits the size of one
     // argument, and the full prompt is larger. Without a built skill, the
     // short prompt points to a temporary file that holds the reference.
     let (_, args, _) = run(&["agent", "codex"]);

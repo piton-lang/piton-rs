@@ -6,10 +6,10 @@
 //! words. Thus a name always splits into the same words, in each direction.
 //!
 //! A split occurs only where an uppercase letter follows a lowercase letter or
-//! a digit. A split also occurs at explicit `-` and `_` separators. Runs of
+//! a digit. A split also occurs at literal `-` and `_` separators. Runs of
 //! uppercase letters do *not* split, and this is intentional. `whatIsAType`
 //! renders as `What Is AType`, as in the reference output. A split for acronyms
-//! would give `What Is A Type`, which is a different document.
+//! gives `What Is A Type`, which is a different document.
 
 /// Splits a source name into its words.
 pub fn split_words(name: &str) -> Vec<String> {
@@ -97,7 +97,7 @@ pub fn is_reserved(word: &str) -> bool {
     RESERVED_WORDS.contains(&word)
 }
 
-/// True when `name` is a legal user-defined keyword. All letters are lowercase.
+/// True when `name` is a permitted user-defined keyword. All letters are lowercase.
 /// Kebab case is optional.
 pub fn is_valid_keyword(name: &str) -> bool {
     if name.is_empty() {

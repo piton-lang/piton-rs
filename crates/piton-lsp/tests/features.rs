@@ -220,7 +220,7 @@ fn inlay_hints_on_the_specification_are_only_the_two_kinds() {
             InlayHintLabel::LabelParts(parts) => parts.iter().map(|part| part.value.clone()).collect(),
         };
         // An inferred type in the form of a constraint, or the anchor that
-        // supplies a value. Never data that the source already gives.
+        // supplies a value. Never data that the source gives.
         assert!(
             label.starts_with(":: ") || label.starts_with('\u{2190}'),
             "{label}"
@@ -294,8 +294,8 @@ fn formatting_reports_no_change_for_canonical_files() {
 #[test]
 fn formatting_leaves_comments_alone() {
     // An editor calls the LSP `formatting` handler on save. Thus it is the
-    // "autoformat" that the spec controls: "Autoformat should add the space
-    // after `//`, but not touch anything else that's commented."
+    // autoformat of the spec. The spec tells autoformat to add the space after
+    // `//`. Autoformat must not change other comment text.
     let mut fixture = Fixture::new();
     let path = fixture.root.join("spec/scope/language/types/Strings.pi");
     let original = std::fs::read_to_string(&path).expect("readable");
@@ -390,7 +390,7 @@ fn a_clean_specbase_reports_nothing() {
 /// but one buffer has text that the user did not save.
 ///
 /// The text holds the cursor as `<|>`. The test replaces a file that the
-/// project already reaches. It does not invent a new file. Thus the full module
+/// project reaches at this time. It does not make a new file. Thus the full module
 /// graph stays in use. Questions about imports and inheritance need this.
 struct Buffer {
     world: World,
@@ -478,7 +478,7 @@ fn completion_after_use_offers_module_paths() {
     assert!(labels.contains(&"@piton/belay".to_string()), "{labels:?}");
     assert!(labels.contains(&"@piton/config".to_string()), "{labels:?}");
     // Also, the server reads the source root from disk. The purpose of import
-    // completion is to reach an item that the project does not reach yet.
+    // completion is to reach an item that the project does not reach at this time.
     assert!(labels.contains(&"./lib/Type".to_string()), "{labels:?}");
     assert!(
         !labels.contains(&"./Null".to_string()),
@@ -556,7 +556,7 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
         "use ./lib/Type\n\nexport type Null:\n    a: ${self.supportedOperators}\n"
     );
 
-    // A key in a body gets its colon, at the same indent as the original key.
+    // A key in a body has its colon, at the same indent as the original key.
     let key = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    wh<|>\n");
     assert_eq!(
         key.accept("what-is-a-type"),
@@ -587,7 +587,7 @@ fn accepting_a_candidate_replaces_the_text_being_written() {
     );
     assert!(glued.labels().is_empty(), "{:?}", glued.labels());
 
-    // When there is no text yet, there is nothing to replace. Thus the edit
+    // When there is no text at this time, there is nothing to replace. Thus the edit
     // inserts at the cursor.
     let empty = Buffer::over(NULL, "use <|>\n");
     let offered = empty
@@ -675,7 +675,7 @@ fn a_reference_expression_offers_only_things_a_reference_can_name() {
     let labels = buffer.labels();
     assert!(labels.contains(&"Type".to_string()), "{labels:?}");
     // `@{...}` must resolve to an anchor that a reference can target. Thus a
-    // literal in it would cause an error.
+    // literal in it causes an error.
     for wrong in ["true", "false", "null"] {
         assert!(
             !labels.contains(&wrong.to_string()),
@@ -686,7 +686,7 @@ fn a_reference_expression_offers_only_things_a_reference_can_name() {
 
 #[test]
 fn a_string_and_a_sentence_have_nothing_to_complete() {
-    // The specification is explicit. A property access in the middle of a
+    // The specification is clear. A property access in the middle of a
     // string must complete nothing, because a string has no members.
     let string = Buffer::over(NULL, "export type N:\n    a: ${\"the end.<|>\"}\n");
     assert!(string.labels().is_empty(), "{:?}", string.labels());
@@ -823,7 +823,7 @@ fn a_module_that_does_not_exist_exports_nothing() {
 }
 
 // ---------------------------------------------------------------------------
-// On-type formatting
+// On-type format
 // ---------------------------------------------------------------------------
 
 /// The edits from the enter key, applied to the buffer.
@@ -835,7 +835,7 @@ fn after_enter(marked: &str) -> String {
         .unwrap_or_default();
 
     let mut out = text.clone();
-    // One edit. With more edits, the back-to-front order would be important.
+    // There is one edit. With more edits, the back-to-front order is important.
     for edit in edits.iter().rev() {
         let start = piton_lsp::convert::position_to_offset(&out, edit.range.start);
         let end = piton_lsp::convert::position_to_offset(&out, edit.range.end);
@@ -866,7 +866,7 @@ fn enter_after_a_declaration_indents_into_its_body() {
 
 #[test]
 fn enter_after_a_value_keeps_the_indentation() {
-    // `title: a book` is a full property. The line after it is a sibling.
+    // `title: a book` is a full property. The line after it is at the same level.
     let text = after_enter("export type N:\n    title: a book\n<|>");
     assert!(
         text.ends_with("    title: a book\n    "),
@@ -876,7 +876,7 @@ fn enter_after_a_value_keeps_the_indentation() {
 
 #[test]
 fn enter_after_a_comment_that_ends_in_a_colon_does_not_indent() {
-    // A comment is not structure, whatever its last character is.
+    // A comment is not structure, for all last characters.
     let text = after_enter("export type N:\n    // a note about this:\n<|>");
     assert!(
         text.ends_with("// a note about this:\n    "),
@@ -887,7 +887,7 @@ fn enter_after_a_comment_that_ends_in_a_colon_does_not_indent() {
 #[test]
 fn enter_after_a_value_that_ends_in_a_colon_does_not_indent() {
     // `prompt: Careful: ` ends a sentence, not a property. The colon is part
-    // of the value, and the line after it is a sibling.
+    // of the value, and the line after it is at the same level.
     let text = after_enter("export type N:\n    prompt: Careful:\n<|>");
     assert!(
         text.ends_with("    prompt: Careful:\n    "),
@@ -908,9 +908,9 @@ fn enter_after_a_constraint_that_leaves_the_value_unwritten_does_indent() {
 
 #[test]
 fn enter_replaces_indentation_the_cursor_has_not_reached() {
-    // The new line can already have indentation while the cursor is still at
-    // the margin. A replacement of only the text before the cursor would add
-    // the two together. Then the line would have twelve spaces, not eight.
+    // The new line can have indentation while the cursor is still at
+    // the margin. A replacement of only the text before the cursor adds
+    // the two together. Then the line has twelve spaces, not eight.
     // That is a double indent.
     let text = after_enter("export type N:\n    frameworks:\n<|>    title: x");
     assert!(
@@ -921,7 +921,7 @@ fn enter_replaces_indentation_the_cursor_has_not_reached() {
 
 #[test]
 fn enter_when_the_client_already_indented_changes_nothing() {
-    // The indent is already correct. Thus there is nothing to correct.
+    // The indent is correct at this time. Thus there is nothing to correct.
     let buffer = Buffer::over(NULL, "export type N:\n    frameworks:\n        <|>");
     let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
@@ -930,7 +930,7 @@ fn enter_when_the_client_already_indented_changes_nothing() {
 #[test]
 fn enter_inside_an_escape_block_changes_nothing() {
     // The contents of an escape block are verbatim. A change to their
-    // indentation would change the meaning of the block.
+    // indentation changes the sense of the block.
     let buffer = Buffer::over(
         NULL,
         "export type N:\n    a:\n        \\\\\\\n        key:\n<|>",
@@ -941,9 +941,9 @@ fn enter_inside_an_escape_block_changes_nothing() {
 
 #[test]
 fn enter_on_a_blank_line_dedents_one_level() {
-    // The spec: "On a blank line inside a dictionary or anchor, enter should
-    // insert a new line and dedent it by 1 level." The cursor leaves a blank,
-    // indented line (`    `). Thus the new line moves out one level to the
+    // The spec has this rule. On a blank line inside a dictionary or anchor,
+    // enter must insert a new line. The new line goes 1 level left. The cursor leaves a blank,
+    // indented line (`    `). Thus the new line moves one level left, to the
     // margin. It does not stay at the depth of the body.
     let text = after_enter("export type N:\n    key: value\n    \n<|>");
     assert!(
@@ -954,7 +954,7 @@ fn enter_on_a_blank_line_dedents_one_level() {
 
 #[test]
 fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
-    // Deeper nesting: from level 2 (8 spaces) back to level 1 (4 spaces), not
+    // Deeper levels: from level 2 (8 spaces) back to level 1 (4 spaces), not
     // back to the margin.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n        \n<|>");
     assert!(
@@ -966,21 +966,21 @@ fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
 #[test]
 fn enter_on_a_blank_line_the_editor_emptied_dedents_by_one_level() {
     // Zed removes the whitespace from a blank line when Enter leaves it. Thus
-    // the blank line comes empty. It still moves out one level, not to the
+    // the blank line comes empty. It still moves one level left, not to the
     // margin.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n<|>");
     assert!(
         text.ends_with("        inner: 1\n\n    "),
         "expected one level out, not all the way: {text:?}"
     );
-    // A second Enter on a different emptied blank line moves out one more level.
+    // A second Enter on a different emptied blank line moves one more level left.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n\n<|>");
     assert!(text.ends_with("        inner: 1\n\n\n"), "{text:?}");
 }
 
 #[test]
 fn enter_on_a_blank_line_at_the_margin_stays_there() {
-    // A blank line at the margin has no level to move out of. Thus nothing
+    // A blank line at the margin has no level to leave. Thus nothing
     // changes. The depth does not become negative. Here the line above the
     // cursor is also blank and at column zero.
     let buffer = Buffer::over(NULL, "anchor A:\n\n<|>");
@@ -999,7 +999,7 @@ fn only_the_newline_triggers_a_reindent() {
 
 #[test]
 fn an_unconstrained_value_proposes_nothing() {
-    // The specification is explicit. `property: ` must propose nothing,
+    // The specification is clear. `property: ` must propose nothing,
     // because the user probably intends to write prose. Only a constraint
     // that tells what belongs there makes a proposal more than a guess.
     // `what-is-a-type` has no constraint.
@@ -1015,8 +1015,8 @@ fn an_unconstrained_value_proposes_nothing() {
 
     // `description:: simple:: complex` has a constraint. But it describes the
     // shape of a value. It does not name the permitted values. Thus there is
-    // still nothing to propose. A proposal of all anchors in the project would
-    // be the same guess.
+    // still nothing to propose. A proposal of all anchors in the project is
+    // the same guess.
     let shaped = Buffer::over(
         NULL,
         "use ./lib/Type\n\nexport type Null:\n    description: <|>\n",
@@ -1099,7 +1099,7 @@ fn the_type_hierarchy_walks_both_ways() {
     let names: Vec<&str> = subtypes.iter().map(|item| item.name.as_str()).collect();
     assert!(names.contains(&"Strings"), "{names:?}");
 
-    // A walk down and then back up goes back to the start.
+    // A walk down and then up returns to the start.
     let back = features::type_hierarchy_supertypes(&fixture.world, &subtypes[0])
         .expect("supertypes of a subtype");
     assert!(
@@ -1253,7 +1253,7 @@ fn plain_text_has_no_hover_and_no_actions() {
     // Prose with a word that is also the name of an anchor.
     assert_eq!(text(3, 22), None);
     assert_eq!(text(3, 40), None);
-    // Prose in a composed block. Only the `+` line explains it.
+    // This is prose in a composed block. Only the `+` line explains it.
     assert_eq!(text(5, 12), None);
     assert!(text(6, 8).is_some_and(|hover| hover.contains("Composition")));
     // The declared name still shows its compiled output.

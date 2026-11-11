@@ -1,4 +1,4 @@
-//! One module per CLI command.
+//! One module for each CLI command.
 
 pub mod build;
 pub mod check;

@@ -10,7 +10,7 @@
 //! lists under `dependencies`. With a source, it installs the source. Then it
 //! adds the source to the list. Thus the configuration and `tethers/` agree
 //! about the dependencies of the project. A source can fail to install. A
-//! source can publish a package name that a different package already has.
+//! source can publish a package name that a different package has.
 //! In these two cases, the command changes nothing.
 //!
 //! A source is a URL or a directory on disk. A relative path starts at the
@@ -45,7 +45,7 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
     let source = as_configured(&configured, source);
     let source = source.as_str();
 
-    // A repository that `dependencies` already names keeps its pin. Thus the
+    // A repository that `dependencies` names keeps its pin. Thus the
     // tether and the build agree about the version that the project needs.
     let declared = configured
         .dependencies
@@ -110,7 +110,7 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
 
 /// A source in the form that the configuration must record.
 ///
-/// A relative path on the command line starts at the working directory. But
+/// A relative path on the command line starts at the current directory. But
 /// the configuration reads it from the directory of the configuration. When
 /// the two directories are different, this function changes the path. Then
 /// the path goes to the same location from the directory of the configuration.
@@ -158,7 +158,7 @@ pub fn install_all(configured: &Project) -> u8 {
 }
 
 /// Installs all `dependencies`, or none of them. With `guard_owners`, it
-/// refuses a package that a different source already tethered. It does not
+/// refuses a package that a different source tethered before. It does not
 /// replace that package. A new source needs this behaviour.
 fn install(
     configured: &Project,

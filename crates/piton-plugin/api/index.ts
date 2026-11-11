@@ -8,7 +8,7 @@
 // plugin can run many processes at the same time with plain async code.
 //
 // This module takes the host function before the code of a plugin runs. Each
-// plugin can get the function only through its own context. The context
+// plugin can use the function only through its own context. The context
 // names the plugin. Thus the host checks each operation against the
 // capabilities of the plugin that made it.
 
@@ -90,7 +90,7 @@ export type Value =
   | { kind: "reference"; id: number; path: string[]; name: string };
 
 /** The source of the value of a property of an anchor. The source is the
- * anchor whose declaration writes the value. It is the anchor itself or an
+ * anchor that has the declaration that writes the value. It is the anchor itself or an
  * anchor that it inherits from. */
 export interface Slot {
   /** The id of the anchor that writes the value. */
@@ -352,7 +352,7 @@ export interface PlannedDiagnostic {
   help?: string;
 }
 
-/** The files that a build wants to write. */
+/** The files that a build will write. */
 export interface Plan {
   files?: PlannedFile[];
   copies?: PlannedCopy[];
@@ -361,11 +361,11 @@ export interface Plan {
    * each target. */
   targets?: Record<string, string>;
   /** The location of each anchor, by name. A location is the file and the
-   * heading that a reference to the anchor goes to. */
+   * header that a reference to the anchor goes to. */
   locations?: Record<string, string>;
 }
 
-/** A file that a finding changes, and its full new contents. */
+/** A file that a result changes, and its full new contents. */
 export interface Edit {
   /** Relative to the project root. */
   path: string;
@@ -397,7 +397,7 @@ export interface Reach {
   anchors: ReachedAnchor[];
 }
 
-/** All that a plugin can do. The host checks each method that gets access
+/** All that a plugin can do. The host checks each method that has access
  * to the machine against the capabilities that the plugin declares. */
 export interface Context {
   /** The name of the plugin. */
@@ -422,7 +422,7 @@ export interface Context {
   encode(format: "frontmatter" | "yaml" | "toml", fields: Fields): string;
   encode(format: "tomlString" | "yamlScalar" | "jsonString", text: string): string;
   /** Starts a program that the plugin declares under capabilities.process.
-   * The program runs in the project root, or in `cwd` if given. Its stdin is
+   * The program runs in the project root, or in `cwd` if the plugin gives it. Its stdin is
    * empty. */
   spawn(program: string, args: string[], options?: { cwd?: string; env?: Record<string, string> }): Process;
   /** Runs a program that the plugin declares under capabilities.process. The
@@ -522,21 +522,21 @@ export interface Plugin {
   /** A handler for each command that the declaration of the plugin lists. */
   commands?: Record<string, CommandHandler>;
   /** The plan of the files that `piton build` writes. It is for a plugin
-   * whose declaration says `build: true`. */
+   * that has the declaration `build: true`. */
   build?: (ctx: Context) => Plan | Promise<Plan>;
   /** Examines the project before a command runs. It gives the parts that are
-   * out of date. It is for a plugin whose declaration says `inspect: true`.
+   * out of date. It is for a plugin that has the declaration `inspect: true`.
    * The host shows the findings and asks before it applies an edit. */
   inspect?: (ctx: Context) => Inspection | Promise<Inspection>;
   /** Names the anchors that the plugin reaches itself. It is for a plugin
-   * whose declaration says `reach: true`. The plugin uses these anchors, but
+   * that has the declaration `reach: true`. The plugin uses these anchors, but
    * nothing in the specbase goes to them. An example is the tests that the
    * test plugin runs. `piton reach` and the editor count them as roots,
    * together with the entry. Thus they are not unreachable and not
    * unused. */
   reach?: (ctx: Context) => Reach | Promise<Reach>;
   /** The exports for plugins that require this plugin. Each export is a
-   * factory. It gets the context of this plugin. Thus it runs with the
+   * factory. It takes the context of this plugin. Thus it runs with the
    * capabilities of this plugin. */
   exports?: Record<string, (ctx: Context) => unknown>;
 }
@@ -634,8 +634,8 @@ function makeContext(plugin: string, plugins: Map<string, Plugin>, contexts: Map
 }
 
 /** Takes the host function one time, before the import of a plugin. It is
- * not part of the API for plugins. A plugin that calls it gets an error,
- * because this module already has the host function. */
+ * not part of the API for plugins. If a plugin calls it, the call fails,
+ * because this module has the host function. */
 export function __setup() {
   const global = globalThis as unknown as { __piton?: Raw };
   if (raw !== null || typeof global.__piton !== "function") {

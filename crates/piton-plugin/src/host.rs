@@ -2,7 +2,7 @@
 //!
 //! One runtime runs one command. A loader loads the modules of the plugin.
 //! The loader knows only `@piton/plugin` and the files of the plugin. It
-//! transpiles each file from TypeScript at import. The plugin gets access to
+//! transpiles each file from TypeScript at import. The plugin has access to
 //! the machine through one host function, `__piton`. The host checks each
 //! operation against the capabilities in the declaration.
 //!
@@ -86,8 +86,8 @@ pub trait Services {
         None
     }
     /// Writes the files of a new project into `directory`. Each file is a
-    /// path relative to `directory` and its contents. Prints each written
-    /// path. If a file exists, it writes nothing. Then the error holds the
+    /// path relative to `directory` and its contents. Prints each path that
+    /// it wrote. If a file exists, it writes nothing. Then the error holds the
     /// files that exist.
     fn scaffold(&self, _directory: &Path, _files: &[(String, String)]) -> Result<Result<(), Vec<String>>, String> {
         Err("this host cannot start projects".to_string())
@@ -105,7 +105,7 @@ pub trait Services {
 /// The reason that a command stopped without an exit code.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Failure {
-    /// The host could not make the runtime, or the code of the plugin did not
+    /// The host did not make the runtime, or the code of the plugin did not
     /// load.
     Load(String),
     /// The code of the plugin threw an exception.
@@ -167,7 +167,7 @@ struct Host {
 pub enum Invocation {
     /// One of its commands, with the arguments by name.
     Command { name: String, arguments: Json },
-    /// Its build. It gives the plan of the files that it wants to write.
+    /// Its build. It gives the plan of the files that it will write.
     Build,
     /// Its inspect hook. It gives the parts of the project that are out of
     /// date.
@@ -245,7 +245,7 @@ pub fn run(
     let result = start(&context, &host, &order, main, &invocation)
         .and_then(|()| event_loop(&runtime, &context, &host, &receiver));
 
-    // In all cases, all things that the command started stop with it. The
+    // In all cases, all tasks that the command started stop with it. The
     // host releases each handle into the runtime before the runtime.
     host.shutdown();
     context.with(|ctx| {
@@ -255,7 +255,7 @@ pub fn run(
 }
 
 /// Installs the host function and starts the run. The API module takes the
-/// host function before the import of plugin code. Thus a plugin can get
+/// host function before the import of plugin code. Thus a plugin can have
 /// access to the host only through its own context.
 fn start(
     context: &Context,
@@ -1137,7 +1137,7 @@ impl Host {
             ready.extend(due.into_iter().map(|(_, waiter)| (waiter, "null".to_string())));
         }
         // The host releases the state first. The resolve step runs no
-        // JavaScript yet. But a resolved function can call the host again.
+        // JavaScript at this time. But a resolved function can call the host again.
         let delivered = !ready.is_empty();
         for (waiter, answer) in ready {
             let resolve = waiter.restore(ctx)?;
@@ -1267,7 +1267,7 @@ fn check_sizes(program: &str, args: &[String], env: &Json) -> Result<(), String>
 }
 
 /// Returns the directory of a new project, as the user wrote it. The path is
-/// relative to the working directory. It is not relative to a parent
+/// relative to the current directory. It is not relative to a parent
 /// project.
 fn scaffold_directory(directory: &str) -> PathBuf {
     if directory.is_empty() {
@@ -1298,7 +1298,7 @@ pub fn on_path(program: &str) -> bool {
 ///
 /// The name of each module starts with the name of its plugin, for example
 /// `test/src/tags.ts`. Thus two plugins in one runtime never share a module.
-/// The resolver refuses a path that goes out of the directory of the
+/// The resolver refuses a path that leaves the directory of the
 /// plugin.
 struct PluginResolver {
     sources: HashMap<String, Source>,
@@ -1403,7 +1403,7 @@ mod tests {
         assert_eq!(join("<piton>", "./test/src/index.ts"), "test/src/index.ts");
         assert_eq!(join("test/src/index.ts", "./tags"), "test/src/tags");
         assert_eq!(join("test/src/a/b.ts", "../c"), "test/src/c");
-        // A path out of the directory of the plugin goes out of its name.
+        // A path that leaves the directory of the plugin leaves its name.
         assert_eq!(split(&join("test/src/index.ts", "../../belay/src/x")), Some(("belay", "src/x")));
     }
 }

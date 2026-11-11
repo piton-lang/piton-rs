@@ -184,7 +184,7 @@ pub fn reference_location(anchors: &dyn AnchorView, target: &Ref, extension: &st
     )
 }
 
-/// The fragment of a Markdown heading, as GitHub makes it. All letters become
+/// The fragment of a Markdown header, as GitHub makes it. All letters become
 /// lowercase. Spaces become hyphens. The function removes punctuation.
 pub fn heading_slug(title: &str) -> String {
     let mut out = String::new();
@@ -198,8 +198,8 @@ pub fn heading_slug(title: &str) -> String {
     out
 }
 
-/// The heading fragment that a reference links to. It is the heading of the
-/// property, or the heading of the anchor.
+/// The header fragment that a reference links to. It is the header of the
+/// property, or the header of the anchor.
 pub fn reference_fragment(anchors: &dyn AnchorView, target: &Ref) -> String {
     let name = target
         .path
@@ -228,8 +228,8 @@ pub fn relative_file(from_directory: &Path, target: &Path) -> String {
 
 /// Builds a relative Markdown link from one directory to a target path.
 ///
-/// A link has an explicit `./` or `../` prefix only when it needs one. A link to
-/// a sibling file is a bare name. The reference tree uses this form.
+/// A link has a `./` or `../` prefix only when it needs one. A link to
+/// a file in the same directory is a bare name. The reference tree uses this form.
 pub fn relative_link(from_directory: &Path, target: &Path) -> String {
     let from: Vec<_> = from_directory
         .components()

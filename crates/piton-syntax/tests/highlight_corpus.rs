@@ -18,7 +18,7 @@
 //! list cannot become old.
 //!
 //! Not all machines have the tools. If the tool of a runner is
-//! missing, the runner says so and passes. This is not true when
+//! not there, the runner says so and passes. This is not true when
 //! `PITON_REQUIRE_EDITOR_TOOLS=1`. CI sets that value.
 //!
 //! `PITON_BLESS=1 cargo test -p piton-syntax --test highlight_corpus`
@@ -192,11 +192,11 @@ fn class_name(class: Option<Class>) -> &'static str {
 }
 
 /// Compares the classes that a tool gives each fixture with the classes from
-/// the parser. It fails with the first disagreements, unless `gaps.toml`
-/// excuses their lines.
+/// the parser. It fails with the first disagreements, if `gaps.toml`
+/// does not excuse their lines.
 ///
-/// The function does not compare whitespace. A tool can give either class to
-/// the space between a key and its value, and nobody can see the difference.
+/// The function does not compare whitespace. A tool can give one of the two classes to
+/// the space between a key and its value. Nobody can see the difference.
 fn compare(format: &str, paintings: &[(&Fixture, Painting)]) {
     let gaps = gaps(format);
     let mut problems: Vec<String> = Vec::new();
@@ -571,7 +571,7 @@ fn textmate() {
 ///
 /// The match must be exact, not a prefix. Thus `string.unquoted.verbatim.piton`
 /// is not a quoted string. A scope that the table does not name is plain text,
-/// whatever its spelling.
+/// for all letters.
 fn innermost<S: AsRef<str>>(scopes: &[S], names: &HashMap<String, Class>) -> Option<Class> {
     scopes
         .iter()
@@ -723,11 +723,11 @@ qall!
 }
 
 /// The Kate definition, through the command-line highlighter of
-/// KSyntaxHighlighting.
+/// `KSyntaxHighlighting`.
 ///
 /// `--syntax-trace=format` writes a row under each line. The row has a `|`
 /// where each format starts, and the name of the format below it. The test
-/// reads that back into a format name for each character.
+/// changes that into a format name for each character.
 #[test]
 fn kate() {
     if !have("ksyntaxhighlighter6", "--version") {
@@ -810,7 +810,7 @@ fn read_kate_trace(
             out.push(classes);
             continue;
         }
-        // The source line itself. An empty line also has a marker and a label
+        // This row is the source line itself. An empty line also has a marker and a label
         // below it, for the format that contains its line break.
         row += 1;
         let markers: Vec<usize> = rows

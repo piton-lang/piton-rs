@@ -2,7 +2,7 @@
 //! plugins can use them.
 //!
 //! A plugin that writes documents tells the location of each anchor. The host
-//! then renders the documents. References become links to the heading of
+//! then renders the documents. References become links to the header of
 //! their target. The links are relative to the output file. They use the
 //! fragments that a Markdown viewer gives to repeated headings. Belay writes
 //! its reference tree with the same code. Thus the documents of a plugin
@@ -213,7 +213,7 @@ impl Space {
 
 /// The location of each anchor in a link space, as links relative to the
 /// project. Each location is a file. When the file is a document, the
-/// location also has the heading of the reference. A command uses this to
+/// location also has the header of the reference. A command uses this to
 /// cite compiled output and not the source.
 pub struct Located<'a> {
     pub space: &'a Space,

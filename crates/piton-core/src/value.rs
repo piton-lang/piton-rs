@@ -73,7 +73,7 @@ pub type Properties = IndexMap<String, Value>;
 pub enum MixedItem {
     /// A run of prose.
     Text(Text),
-    /// An explicit list in the block.
+    /// A literal list in the block.
     List(Vec<Value>),
     /// A `key: value` pair declared directly in the block.
     Entry(String, Value),
@@ -120,7 +120,7 @@ pub enum Value {
     Bool(bool),
     /// Piton has one numeric type. Int and float are the same type.
     Number(f64),
-    /// The value stores explicit line breaks in a string block as `\n`.
+    /// The value stores the line breaks in a string block as `\n`.
     Str(Text),
     List(Vec<Value>),
     Dict(Properties),

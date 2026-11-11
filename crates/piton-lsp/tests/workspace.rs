@@ -316,8 +316,8 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
         Some(CompletionResponse::List(list)) => list.items.into_iter().map(|item| item.label).collect(),
         None => Vec::new(),
     };
-    // The page already has `title`. Thus the list does not offer it a second
-    // time. The list offers the keys that the page does not have yet.
+    // The page has `title`. Thus the list does not offer it a second
+    // time. The list offers the keys that the page does not have at this time.
     assert!(labels.contains(&"path".to_string()), "{labels:?}");
     assert!(!labels.contains(&"title".to_string()), "{labels:?}");
 }

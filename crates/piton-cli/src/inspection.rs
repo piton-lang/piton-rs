@@ -3,7 +3,7 @@
 //! Some plugins have an inspect hook, for example the bundled migrate plugin.
 //! They examine the project before each command. They tell which parts are
 //! out of date, and give the edits that correct them. Only the user can apply
-//! a change. On a terminal, the CLI shows the edits and asks the user once.
+//! a change. On a terminal, the CLI shows the edits and asks the user one time.
 //! In other places, it only reports them with the command that applies them.
 
 use std::io::IsTerminal;
@@ -24,8 +24,8 @@ const RERUN: &str = "PITON_INSPECTED";
 
 /// Runs all inspections, and offers their findings. When the command ran
 /// again on an updated project, it returns the exit code. It returns None when
-/// the command must run as the user asked. `skip` is the plugin whose command
-/// runs now. That plugin uses its own findings.
+/// the command must run as the user asked. `skip` is the plugin that
+/// owns the command that runs now. That plugin uses its own findings.
 pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> Option<u8> {
     if project.config_path.is_none() || std::env::var_os(RERUN).is_some() {
         return None;

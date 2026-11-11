@@ -51,8 +51,8 @@ pub struct Reached {
 #[derive(Debug, Clone)]
 pub struct Unloaded {
     pub path: PathBuf,
-    /// The number of anchors that the file declares. The file gets a parse for
-    /// this, but no compilation. Thus these anchors have no id and count as
+    /// The number of anchors that the file declares. The code parses the file
+    /// for this, but does not compile it. Thus these anchors have no id and count as
     /// unreachable.
     pub anchors: usize,
 }
@@ -104,9 +104,9 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
 ///
 /// `piton reach` asks a wider question than a build. It asks which parts of
 /// the specbase a start point can see. A module sees each anchor that it
-/// imports, whether or not an item uses it. Thus a root module reaches each
+/// imports, if an item uses it or not. Thus a root module reaches each
 /// anchor that it imports or exports again. It is one edge from the module,
-/// via imports. The report shows such an anchor via imports only when no other
+/// through imports. The report shows such an anchor through imports only when no other
 /// edge reaches it. Thus the more specific edge wins, if there is one.
 pub fn from_roots_with_imports(
     compilation: &Compilation,
@@ -133,7 +133,7 @@ pub fn from_entry_with_imports_and(compilation: &Compilation, extra: &[AnchorId]
     result
 }
 
-/// All anchors that a module gets from other modules. These are its imports,
+/// All anchors that a module takes from other modules. These are its imports,
 /// and the anchors that it exports again without a declaration.
 fn imported_anchors(compilation: &Compilation, module: ModuleId) -> Vec<AnchorId> {
     let resolution = &compilation.resolution;

@@ -4,7 +4,7 @@
 //! plans a build while the user types. Thus a keystroke does not run plugin code.
 //! The editor keeps the plans until the next save. Their diagnostics show
 //! next to the compiler diagnostics. The editor preview and the source map
-//! show the files that the plans would write.
+//! show the files that the plans will write.
 
 use std::rc::Rc;
 

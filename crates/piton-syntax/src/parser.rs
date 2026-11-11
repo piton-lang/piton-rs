@@ -61,15 +61,15 @@ pub fn parse(source: &str, path: &Path) -> Parse {
 ///
 /// A line that contains only a run of backslashes is a delimiter of a block.
 /// The content of that block is literal. The delimiters are syntax, and the
-/// parser consumes them. A run in a line of text keeps the inline meaning.
+/// parser consumes them. A run in a line of text keeps the inline sense.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeRole {
     None,
-    /// The opening line. It holds the length of the backslash run.
+    /// The first line. It holds the length of the backslash run.
     Open(usize),
     /// Literal content.
     Body,
-    /// The closing line.
+    /// The last line.
     Close,
 }
 
@@ -83,7 +83,7 @@ pub(crate) struct Line {
     pub(crate) end: usize,
     /// The offset of the start of the line. It includes the indentation.
     pub(crate) start: usize,
-    /// The source text without indentation and without a trailing comment.
+    /// The source text without indentation and without a comment at the end.
     pub(crate) code: String,
     /// The span of `code` in the file.
     pub(crate) code_span: Span,
@@ -626,7 +626,7 @@ impl<'a> Parser<'a> {
         );
         self.token(SyntaxKind::IDENT, header.name_span);
 
-        // `as` and `extends` can come in either order. The tree must follow
+        // `as` and `extends` can come in any order. The tree must follow
         // the source.
         let mut cursor = header.name_span.end;
         let alias_start = header.alias.as_ref().map(|alias| alias.span.start);
@@ -741,7 +741,7 @@ impl<'a> Parser<'a> {
                 if !self.more_below(parent_indent) {
                     break;
                 }
-                // In the language, a blank line is an explicit break.
+                // In the language, a blank line is a hard break.
                 flush!();
                 self.pos += 1;
                 continue;
@@ -984,7 +984,7 @@ impl<'a> Parser<'a> {
         } else {
             // A declaration with only constraints still takes an indented
             // block, if one follows. Thus, `supportedOperators:: Operator[]`
-            // gets its list.
+            // has its list.
             let block = if self.more_below(line.indent) {
                 Some(self.parse_block(line.indent))
             } else {
@@ -1011,8 +1011,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses a value. The value is the text after the key on the same line,
-    /// and the indented block below it, if there is one.
+    /// Parses a value. The value is the text after the key on the same line.
+    /// It also includes the indented block below it, if there is one.
     fn parse_value(&mut self, line: &Line, inline_text: &str, inline_start: usize) -> ValueNode {
         self.enter(SyntaxKind::VALUE, inline_start);
         let trimmed_start = inline_start + (inline_text.len() - inline_text.trim_start().len());
@@ -1147,7 +1147,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// The sigil, every token of the expression, and the closing brace.
+    /// The sigil, every token of the expression, and the brace at the end.
     fn emit_interpolation(&mut self, interpolation: &Interpolation) {
         let span = interpolation.span;
         let open = interpolation.sigil.prefix().len();
@@ -1172,7 +1172,7 @@ impl<'a> Parser<'a> {
 
     /// The tokens between two known tokens on a header or import line. These
     /// are the keywords and punctuation that join the names. The trivia pass
-    /// gets all other words, and makes them prose.
+    /// takes all other words, and makes them prose.
     fn gap(&mut self, from: usize, to: usize) {
         if to <= from {
             return;
@@ -1315,7 +1315,7 @@ struct DeclarationHeader {
 /// `thisIsAKey`, `123`, `foo-bar`, `false`, and `null` are all keys. A word
 /// that is a keyword in other positions is a key here. The colon, not the word,
 /// makes `anchor MyAnchor:` a declaration and `anchor: a description` a
-/// property. Only a leading `-` or `+` cannot start a key. These characters
+/// property. Only a `-` or `+` at the start cannot start a key. These characters
 /// open a list item and a merge.
 pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<PropertyHeader> {
     let name_len = text
@@ -1495,7 +1495,8 @@ fn parse_declaration_header(text: &str, start: usize) -> Option<DeclarationHeade
                     Span::new(base_span.start, base_span.start + trimmed.len()),
                     trimmed.to_string(),
                 ));
-                // Commas separate bases. A comma can touch either base.
+                // Commas separate bases. A comma can touch the base before it or
+                // the base after it.
                 let rest = body[cursor..].trim_start();
                 if !rest.starts_with(',') {
                     if base.ends_with(',') {
@@ -1644,7 +1645,7 @@ fn build_green(source: &str, events: &[Event], diagnostics: &mut Vec<Diagnostic>
         }
         let text = &source[*cursor..to];
         for whole in split_trivia(text) {
-            // Indentation is whitespace, whatever text follows it on the line.
+            // Indentation is whitespace, for all text that follows it on the line.
             let content = whole.trim_start_matches([' ', '\t']);
             let indent = &whole[..whole.len() - content.len()];
             if !indent.is_empty() {

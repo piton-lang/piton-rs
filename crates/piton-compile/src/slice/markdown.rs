@@ -1,10 +1,10 @@
 //! Renders a slice as one Markdown document. A user can paste it into a prompt.
 //!
 //! The values use the same Markdown rules as `piton compile`. The reader has
-//! one document and not a tree of files. Thus two things are different. First,
+//! one document and not a tree of files. Thus two rules are different. First,
 //! a reference becomes the name of its target. The declaration of that name is
 //! lower on the same page. Second, an embedded anchor also becomes its name and
-//! not a copy. The slice already holds the anchor one time.
+//! not a copy. The slice holds the anchor one time before.
 //!
 //! A slice can cite the source or a compiled output. [`render`] tells the `.pi`
 //! file of each declaration. [`render_compiled`] tells where a build compiled
@@ -29,7 +29,7 @@ use crate::Compilation;
 
 /// Renders `slice` with citations of the source. Each path is relative to
 /// `base`, the directory of the reader. For example, the path is `../ui.pi`
-/// when `base` is a sibling of the directory of the file.
+/// when `base` is in the same parent directory as the directory of the file.
 pub fn render(compilation: &Compilation, slice: &Slice, base: &Path) -> String {
     Writer {
         compilation,
@@ -118,8 +118,8 @@ impl<'a> Located<'a> {
     /// The section of the first property that embeds `anchor` and has a
     /// compiled location. The search follows embeddings outward.
     ///
-    /// `path` is the target in `anchor`. It gets longer with each step out.
-    /// Thus the link goes to the deepest heading of the build. For example,
+    /// `path` is the target in `anchor`. It becomes longer with each step out.
+    /// Thus the link goes to the deepest header of the build. For example,
     /// `Cli.commands` in `Tooling.cli` becomes `Tooling.cli.commands`.
     fn embedding(
         &self,
@@ -225,7 +225,7 @@ sections below.\n\n"
     /// The location where the reader finds `entity`. This is its source file
     /// or its compiled location. A variable never compiles alone. Its value is
     /// part of the items that read it. An anchor with no document of its own
-    /// also never compiles alone. Thus neither has a compiled location.
+    /// also never compiles alone. Thus the two have no compiled location.
     fn location(&self, entity: &Entity) -> Option<String> {
         match self.cite {
             Cite::Source(base) => Some(self.source_path(base, entity.module(self.compilation))),
@@ -310,7 +310,7 @@ sections below.\n\n"
         }
 
         // A property that the anchor only inherits tells its source. The slice
-        // can already hold the inherited declaration with the same value. Then
+        // can hold the inherited declaration with the same value. Then
         // the output does not write the value two times.
         let mut repeated = false;
         if slot.owner != anchor {

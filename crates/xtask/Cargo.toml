@@ -9,6 +9,6 @@ publish = false
 name = "xtask"
 path = "src/main.rs"
 
-# Deliberately dependency-free: `cargo xtask` should be usable without waiting
-# for a dependency tree to build first.
+# This crate has no dependencies. Thus you can use `cargo xtask` at once. You
+# do not wait for a dependency tree to build.
 [dependencies]

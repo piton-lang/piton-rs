@@ -68,7 +68,7 @@ impl Text {
             .any(|s| matches!(s, Segment::Reference(_)))
     }
 
-    /// Borrows the text as a plain string when it has one literal or less.
+    /// Gives the text as a plain string when it has zero or one literal.
     pub fn as_plain(&self) -> Option<&str> {
         match self.segments.as_slice() {
             [] => Some(""),

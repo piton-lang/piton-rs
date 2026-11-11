@@ -56,9 +56,9 @@ pub fn run(name: &str) -> u8 {
     if let Err(failure) = ops::remove_directory(&configured.root, name) {
         return fail(failure);
     }
-    // The source repository of the package. The name does not give it. A
-    // package installs with the name that it publishes, not the name in its
-    // URL.
+    // The lock gives the source repository of the package. The name does not
+    // give it. A package installs with the name that it publishes, not the
+    // name in its URL.
     let removed = lock.remove(name);
     if removed.is_some() {
         if let Err(error) = lock.save(&configured.root) {

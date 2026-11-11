@@ -1,8 +1,8 @@
 //! Counts lines.
 //!
 //! `piton loc` reports total, code, comment, and blank lines. A line with code
-//! and a comment at its end counts as code. Thus the categories add up to the
-//! total.
+//! and a comment at its end counts as code. Thus the sum of the categories is
+//! the total.
 
 use std::path::{Path, PathBuf};
 
@@ -26,7 +26,7 @@ impl Counts {
     }
 }
 
-/// Counts in groups by file. `piton loc` reports this grouping.
+/// Counts in groups by file. `piton loc` reports these groups.
 #[derive(Debug, Clone, Default)]
 pub struct Report {
     pub files: Vec<(PathBuf, Counts)>,
@@ -82,7 +82,7 @@ pub fn count(source: &str) -> Counts {
 
     // A file without a newline at its end also has that last line.
     if source.ends_with('\n') || source.is_empty() {
-        // `lines()` already handled it.
+        // `lines()` handled it before.
     }
     counts
 }

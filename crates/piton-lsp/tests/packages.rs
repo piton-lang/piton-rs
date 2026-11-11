@@ -3,7 +3,7 @@
 //! An import of a tethered package uses its name, not a path. The package is
 //! outside the source root. The editor must understand these two facts
 //! itself. Completion must offer the name. Navigation must follow the name to
-//! a directory in `tethers/`, not to a sibling file.
+//! a directory in `tethers/`, not to a file in the same directory.
 
 use std::path::PathBuf;
 
@@ -131,7 +131,7 @@ fn completing_a_module_path_offers_installed_packages() {
         "{labels:?}"
     );
     // Also, the list offers a file inside a package by its package path. It
-    // does not offer a relative path that goes out of the source root.
+    // does not offer a relative path that leaves the source root.
     assert!(
         labels.contains(&"dep-lib/Anchors".to_string()),
         "{labels:?}"

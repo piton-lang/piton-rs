@@ -1,6 +1,6 @@
 //! Links between generated Markdown documents.
 //!
-//! A reference becomes a link to the heading of its target. The link goes to
+//! A reference becomes a link to the header of its target. The link goes to
 //! the file that contains the target. The link is relative to the output file.
 //! The caller decides which anchor goes in which file. This module changes that
 //! layout into headings, fragments and links. Belay uses it for its reference
@@ -14,7 +14,7 @@ use piton_core::{title_case, AnchorId, AnchorView, Ref};
 
 use crate::markdown;
 
-/// A heading in a generated file, with the fragment that a link uses for it.
+/// A header in a generated file, with the fragment that a link uses for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
     pub level: usize,
@@ -38,9 +38,9 @@ pub struct FileIndex {
 impl FileIndex {
     /// Indexes a file that has one rendered document for each anchor, in order.
     ///
-    /// This function assigns fragments as GitHub does. A repeated slug gets
+    /// This function assigns fragments as GitHub does. A repeated slug has
     /// `-1`, `-2` and so on, across the whole file. Thus a link to the
-    /// `Description` of the second anchor goes to the heading of that anchor.
+    /// `Description` of the second anchor goes to the header of that anchor.
     pub fn build(parts: &[(AnchorId, &str)]) -> FileIndex {
         let mut counts: HashMap<String, usize> = HashMap::new();
         let chunks = parts
@@ -73,10 +73,10 @@ impl FileIndex {
             .flat_map(|chunk| chunk.headings.iter().map(|h| h.slug.as_str()))
     }
 
-    /// The fragment that a reference links to. It is the heading of the anchor,
-    /// or the heading of the property that the reference names. Some
-    /// properties render without a heading, in a list or a fenced structure. A
-    /// link to such a property goes to the nearest heading above it.
+    /// The fragment that a reference links to. It is the header of the anchor,
+    /// or the header of the property that the reference names. Some
+    /// properties render without a header, in a list or a fenced structure. A
+    /// link to such a property goes to the nearest header above it.
     pub fn fragment(&self, target: &Ref, anchors: &dyn AnchorView) -> Option<String> {
         let chunk = self.chunks.iter().find(|chunk| chunk.anchor == target.anchor)?;
         let headings = &chunk.headings;
@@ -139,7 +139,7 @@ pub struct Links<'a> {
     pub anchors: &'a dyn AnchorView,
     /// The file of each documented anchor.
     pub locations: &'a HashMap<AnchorId, PathBuf>,
-    /// The headings of each reference file. It is absent during the first
+    /// The headings of each reference file. It is not there during the first
     /// render of the files. That render finds their headings.
     pub index: Option<&'a HashMap<PathBuf, FileIndex>>,
     /// References with no planned location. The report occurs after the

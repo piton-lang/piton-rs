@@ -163,7 +163,7 @@ fn exported_tests_are_judged_and_failures_fail_the_run() {
     assert!(prompts.contains("- Change the specification and the code. After the fix, they must agree.\n"), "{prompts}");
     assert!(prompts.contains("- Do not change the test.\n"), "{prompts}");
     assert!(prompts.ends_with("run `piton test SaveWorks --against both`.\n"), "{prompts}");
-    // Only failures get a prompt. A test that passes does not get one.
+    // Only failures have a prompt. A test that passes does not have one.
     assert!(!prompts.contains("AppHasName"), "{prompts}");
     assert!(!stdout.contains("Unexported"), "{stdout}");
     assert!(stderr.contains("2 tests: 1 passed, 1 failed in 0:0"), "{stderr}");
@@ -386,7 +386,7 @@ fn against_both_a_test_fails_when_one_side_fails() {
     assert!(stdout.contains("spec ✓ pass  The spec agrees.\n         code ✗ FAIL  The code does not.\n"), "{stdout}");
     assert!(stdout.contains("Fix prompts"), "{stdout}");
 
-    // When the judge uses one side, the two results have no meaning. The
+    // When the judge uses one side, the two results have no sense. The
     // "pass" from the tool stays.
     let (stdout, _, code) = fixture.run(&["test", "SpecOnly"]);
     assert_eq!(code, 0, "{stdout}");

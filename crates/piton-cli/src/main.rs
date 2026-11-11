@@ -49,7 +49,7 @@ enum Command {
     Build {
         /// Path to a piton.config.pi file
         config: Option<PathBuf>,
-        /// Report the files that the build would write. Do not write them
+        /// Report the files that the build will write. Do not write them
         #[arg(long)]
         dry_run: bool,
     },
@@ -58,7 +58,7 @@ enum Command {
     Check {
         /// Optional file, directory, or glob. The default is the project.
         /// When there is no piton.config.pi, the default is all .pi files
-        /// below the working directory
+        /// below the current directory
         paths: Vec<PathBuf>,
     },
 
@@ -82,7 +82,7 @@ enum Command {
         dependencies: bool,
     },
 
-    /// Apply canonical formatting
+    /// Apply the canonical format
     Format {
         /// File or glob. The default is the project. `-` reads the source from
         /// stdin and writes the formatted text to stdout
@@ -107,7 +107,7 @@ enum Command {
         stdio: bool,
     },
 
-    /// Analyze which parts of the specbase are reachable
+    /// Analyze which parts of the specbase are reachable.
     ///
     /// Reports the reachable parts, the unreachable parts, the depth of each
     /// reachable anchor, and the path to it.
@@ -132,7 +132,7 @@ enum Command {
         package: String,
     },
 
-    /// Print the part of the specification that one anchor or property needs
+    /// Print the part of the specification that one anchor or property needs.
     ///
     /// Follows the anchors that the target extends, reads, refers to, and
     /// embeds. Also follows the names in its types. It follows them
@@ -184,7 +184,7 @@ enum Command {
 
 fn main() -> ExitCode {
     // Plugins add commands from their declarations. Thus, before it parses,
-    // the CLI gets the built-in commands and the commands of all plugins of
+    // the CLI loads the built-in commands and the commands of all plugins of
     // the project.
     let (project, config_diagnostics, mut manifests, mut problems) = plugins::load();
     let mut command = Cli::command();

@@ -3,7 +3,7 @@
 //! When no plugin builds, a build writes the renderer output to the output
 //! directory in the configuration. It writes the entry file. It also writes
 //! each file that declares a reference target of the entry exports. Each file
-//! keeps its place under the source root and gets the renderer extension. A
+//! keeps its place under the source root and takes the renderer extension. A
 //! plugin build, for example the Belay build, replaces this output. If the
 //! configuration sets `output` or `renderer`, the build writes the two outputs.
 //!

@@ -1,6 +1,6 @@
 //! Import organization, composition, conflicts, unused symbols, and the
-//! source-to-output map. Each fixture is a separate project. Thus a finding
-//! here is a finding in the analysis, not a quirk of the specification corpus.
+//! source-to-output map. Each fixture is a separate project. Thus a result
+//! here is a result in the analysis, not a special property of the specification corpus.
 
 use std::path::PathBuf;
 
@@ -233,8 +233,8 @@ fn composition_hover_shows_how_inputs_combine() {
             _ => String::new(),
         })
         .collect();
-    // The line already has the operator, and the hover explains it. An inlay
-    // that repeats it would only give data that the source already gives.
+    // The line has the operator, and the hover explains it. An inlay
+    // that repeats it only gives data that the source gives.
     assert!(
         !labels.iter().any(|label| label.contains("merge")),
         "a merge is not repeated inline: {labels:?}"
@@ -812,7 +812,7 @@ fn an_ambiguous_name_is_reported_and_can_be_qualified() {
     assert!(ambiguous.message.contains("./a") && ambiguous.message.contains("./b"));
     assert!(reported.iter().any(|item| item.code == "shadowed-import"));
 
-    // Related information points to each binding, on its own line.
+    // Related information points to each declaration of the name, on its own line.
     let text = std::fs::read_to_string(fixture.path("spec/index.pi")).expect("readable");
     let converted = features::to_lsp_diagnostic(ambiguous, &text, &|_| None);
     let lines: Vec<u32> = converted
@@ -944,8 +944,9 @@ fn a_nested_key_is_not_an_anchor_property() {
         .iter()
         .map(|location| location.range.start.line)
         .collect();
-    // The nested declaration and the read through `this.config`. Never the
-    // own `description` of the anchor on line 1.
+    // The references are the nested declaration and the read through
+    // `this.config`. They never include the own `description` of the anchor on
+    // line 1.
     assert_eq!(lines, vec![3, 4], "{references:?}");
 }
 

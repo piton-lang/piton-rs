@@ -5,19 +5,19 @@ use std::path::{Path, PathBuf};
 use globset::Glob;
 use piton_compile::{config, Compilation, Project};
 
-/// Loads the project at the current working directory.
+/// Loads the project at the current directory.
 pub fn current() -> (Project, piton_core::DiagnosticSink) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     config::load(&cwd, None)
 }
 
-/// Loads the project that contains the working directory. The project is at
-/// the nearest `piton.config.pi` in the working directory or in a directory
-/// above it. When there is no such file, the project is the working directory.
+/// Loads the project that contains the current directory. The project is at
+/// the nearest `piton.config.pi` in the current directory or in a directory
+/// above it. When there is no such file, the project is the current directory.
 ///
 /// A user runs `piton slice` from the directory where they work. Its output
 /// is for that directory. Thus it looks upward. Other commands read only the
-/// configuration in the working directory.
+/// configuration in the current directory.
 pub fn enclosing() -> (Project, piton_core::DiagnosticSink) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let found = cwd
@@ -26,7 +26,7 @@ pub fn enclosing() -> (Project, piton_core::DiagnosticSink) {
     config::load(&cwd, found.as_deref())
 }
 
-/// Loads a project from an explicit configuration path.
+/// Loads a project from a given configuration path.
 pub fn from_config(path: Option<&Path>) -> (Project, piton_core::DiagnosticSink) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     config::load(&cwd, path)
@@ -109,8 +109,8 @@ pub fn walk(root: &Path) -> Vec<PathBuf> {
 ///
 /// The loader uses absolute paths for a project. Thus the key of a module is
 /// an absolute path. A relative path from the command line must join the
-/// working directory before it can match a key. Thus `piton reach
-/// spec/Thing.pi` finds the same module as the absolute form.
+/// current directory before it can match a key. Thus
+/// `piton reach spec/Thing.pi` finds the same module as the absolute form.
 pub fn canonical_target(path: &Path) -> PathBuf {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -119,7 +119,7 @@ pub fn canonical_target(path: &Path) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(path)
     };
-    // `canonicalize` also resolves symlinks. Then the result would not match
+    // `canonicalize` also resolves symlinks. Then the result does not match
     // a graph with the written paths as keys. Normalization keeps symlinks.
     piton_compile::module::normalize(&absolute)
 }

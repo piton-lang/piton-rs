@@ -8,7 +8,7 @@
 //! on disk *are* the dependency.
 //!
 //! The rest of this module protects that choice. The files are ordinary, thus
-//! a user can edit them. An update must not silently overwrite an edited
+//! a user can edit them. An update must not overwrite an edited
 //! package. Thus the lock file records a digest of each installed file.
 //! [`Installed::compare`] answers the one question that the package commands
 //! ask before they change a file. Is this package still the package that the
@@ -25,7 +25,7 @@ use crate::digest;
 /// The directory, relative to the project root, that holds installed packages.
 pub const TETHERS: &str = "tethers";
 
-/// The directory, relative to the source root, that gets untethered packages.
+/// The directory, relative to the source root, that holds untethered packages.
 pub const UNTETHERED: &str = "untethered";
 
 /// The lock file, relative to the project root. The project root is the
@@ -93,7 +93,7 @@ pub struct Dependency {
     pub source: String,
     pub pin: Pin,
     /// The packages to take from the repository. Use this when the repository
-    /// has many packages and you want only some. `None` takes all of them.
+    /// has many packages and you need only some. `None` takes all of them.
     pub packages: Option<Vec<String>>,
 }
 
@@ -140,7 +140,7 @@ impl Dependency {
 
     /// The location of a local source. A relative path starts at `base`.
     /// `base` is the directory of the `piton.config.pi` that declared the
-    /// source. A `~/` path starts at the home directory. None for a URL.
+    /// source. A `~/` path starts at the home directory. It is None for a URL.
     pub fn local_path(&self, base: &Path) -> Option<PathBuf> {
         if !self.is_local() {
             return None;
@@ -274,9 +274,9 @@ impl Lock {
         Some(self.packages.remove(index))
     }
 
-    /// Reads the lock file. An absent or unreadable lock file is empty.
+    /// Reads the lock file. A lock file that is not there, or that the code cannot read, is empty.
     ///
-    /// An absent lock file is not an error. A project can commit a package
+    /// A lock file that is not there is not an error. A project can commit a package
     /// without a lock file. Each command that needs the lock file gives its
     /// own message about the requested package.
     pub fn load(project_root: &Path) -> Lock {
@@ -359,7 +359,7 @@ fn null() -> String {
 /// Parses the lock file.
 ///
 /// This parser is tolerant on purpose. It ignores an entry that it cannot
-/// read. It does not fail on the full file. If it failed, the project could
+/// read. It does not fail on the full file. If it failed, the project can
 /// not run a package command. Then a person must repair a generated file by
 /// hand.
 fn parse_lock(text: &str) -> Option<Lock> {
@@ -436,7 +436,7 @@ pub fn digest_tree(directory: &Path) -> BTreeMap<String, String> {
 ///
 /// A name is one directory directly below `tethers/`. Thus it cannot contain
 /// `/`. A first `@` is only for the packages that the compiler bundles, for
-/// example `@piton/belay`. A name of only dots goes out of `tethers/`.
+/// example `@piton/belay`. A name of only dots leaves `tethers/`.
 pub fn validate_name(name: &str) -> Option<String> {
     if name.is_empty() {
         return Some("a package name cannot be empty".to_string());
@@ -526,7 +526,7 @@ pub fn is_bare_path(text: &str) -> bool {
 ///
 /// `@piton/config` gives commit, tag, and branch the type string. Thus
 /// `tag: 1.0` pins the tag `1.0`. Evaluation reads an unquoted `1.0` as the
-/// number 1. The number does not keep the spelling. Thus this code collects
+/// number 1. The number does not keep the original text. Thus this code collects
 /// the written text from the syntax tree. It uses that text when a pin
 /// evaluates to a value that is not a string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -713,7 +713,7 @@ fn pin_text(
 ) -> Option<String> {
     if let Value::Str(text) = value {
         if let Some(text) = text.as_plain() {
-            // Quotes have no meaning in a value. No git ref contains a quote.
+            // Quotes have no sense in a value. No git ref contains a quote.
             // Thus `tag: "v1"` reads as the tag `v1`, as the user intended.
             let text = unquote(text.trim());
             mark_literal(key, text, literals, used);

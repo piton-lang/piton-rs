@@ -1,7 +1,7 @@
 //! Built-in packages.
 //!
 //! The compiler contains `@piton/config` and `@piton/belay`. They resolve from
-//! a virtual file system and not from disk. Thus a project gets the same
+//! a virtual file system and not from disk. Thus a project has the same
 //! vocabulary in all checkouts.
 //!
 //! Belay and the test plugin are plugins in the compiler. The compiler embeds
@@ -214,7 +214,7 @@ pub fn is_package(path: &str) -> bool {
     package_source(path).is_some()
 }
 
-/// True when `path` is in a bundled package, whether or not it names a module.
+/// True when `path` is in a bundled package, if it names a module or not.
 /// Callers use it to keep package internals out of reports for users.
 pub fn is_package_path(path: &str) -> bool {
     path.starts_with('@')

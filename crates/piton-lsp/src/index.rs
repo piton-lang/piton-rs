@@ -46,7 +46,7 @@ fn type_name_span(source: &str, constraint: &ast::TypeConstraint, name: &str) ->
     Span::new(start, start + name.len())
 }
 
-/// Whether an occurrence declares the item or only mentions it.
+/// Tells if an occurrence declares the item or only mentions it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Definition,
@@ -63,11 +63,11 @@ pub struct Occurrence {
     pub text: String,
 }
 
-/// All occurrences in one module, and the structural ranges for folding.
+/// All occurrences in one module, and the structural ranges to fold.
 #[derive(Debug, Default)]
 pub struct ModuleIndex {
     pub occurrences: Vec<Occurrence>,
-    /// Declaration spans. Folding and selection ranges use them.
+    /// Declaration spans. Fold and selection ranges use them.
     pub structures: Vec<(Span, String)>,
 }
 
@@ -186,7 +186,7 @@ impl Builder<'_> {
                         let target = self.resolve(entry.local_name());
                         self.push(entry.name_span, target.clone(), Role::Reference, &entry.name);
                         // The alias is the name that the file uses. It names
-                        // the same item, with its own spelling.
+                        // the same item, with its own letters.
                         if let Some(alias) = &entry.alias {
                             self.push(alias.span, target, Role::Reference, &alias.value);
                         }

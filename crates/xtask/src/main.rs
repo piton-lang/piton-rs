@@ -191,7 +191,7 @@ fn build_release(workspace: &Path, dry_run: bool) -> Result<(), Error> {
     Ok(())
 }
 
-/// Copies `source` over `destination` through a staging file.
+/// Copies `source` over `destination` through a temporary file.
 ///
 /// On Linux, a direct write over a binary that runs fails with "text file
 /// busy".
@@ -257,7 +257,7 @@ fn target_directory(workspace: &Path) -> PathBuf {
     }
 }
 
-/// The root directory of `cargo install` when we give no `--root`. The order
+/// The root directory of `cargo install` when the command has no `--root`. The order
 /// is `CARGO_INSTALL_ROOT`, then `CARGO_HOME`, then `~/.cargo`.
 fn cargo_home() -> Result<PathBuf, Error> {
     for variable in ["CARGO_INSTALL_ROOT", "CARGO_HOME"] {
@@ -530,7 +530,7 @@ mod tests {
             let mode = fs::metadata(&destination).expect("stat").permissions().mode();
             assert_eq!(mode & 0o111, 0o111, "the copy must stay executable");
         }
-        // The function leaves no staging file.
+        // The function leaves no temporary file.
         assert!(!dir.join(format!(".{}.new", file_name())).exists());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -547,12 +547,12 @@ const GRAMMAR_REMOTE: &str = "git@github.com:piton-lang/tree-sitter-piton.git";
 
 /// Copies the tree-sitter grammar into its own repository and pushes it.
 ///
-/// We develop the grammar here, next to the compiler. Only here can a test
-/// compare the grammar with the language. The keyword list of `piton-syntax`
+/// The project develops the grammar here, next to the compiler. Only here can
+/// a test compare the grammar with the language. The keyword list of `piton-syntax`
 /// is the source of truth. A test reads the grammar to make sure that the two
 /// agree. Editors that use tree-sitter grammars expect one repository for each
-/// grammar. Thus the task publishes a copy. We do not develop the grammar in
-/// that repository.
+/// grammar. Thus the task publishes a copy. The project does not develop the
+/// grammar in that repository.
 ///
 /// The task keeps the published history. It clones the remote, replaces its
 /// contents, and commits the result. Each publish is one commit. The commit
@@ -569,7 +569,7 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
     }
 
     // A reader must be able to find the published source again. Thus the
-    // working tree must agree with the last commit.
+    // work tree must agree with the last commit.
     let dirty = git_output(
         &workspace,
         &["status", "--porcelain", "--", GRAMMAR_DIRECTORY],
@@ -928,7 +928,7 @@ fn staging_directory() -> Result<PathBuf, Error> {
     Ok(base)
 }
 
-/// Removes the staging directory when the task ends, in all cases.
+/// Removes the temporary directory when the task ends, in all cases.
 struct Cleanup(PathBuf);
 
 impl Drop for Cleanup {
@@ -955,7 +955,7 @@ mod publish_tests {
     #[test]
     fn clearing_a_checkout_keeps_its_git_directory() {
         // Each publish replaces all other contents of the checkout. If the
-        // task removes `.git`, the published history goes away. Then each
+        // task removes `.git`, the published history disappears. Then each
         // publish makes a new repository.
         let checkout = scratch("clear");
         fs::create_dir_all(checkout.join(".git/objects")).unwrap();

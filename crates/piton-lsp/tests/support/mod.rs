@@ -1,4 +1,4 @@
-//! A workspace written out of one string, for testing the editor features.
+//! A workspace written out of one string. The tests of the editor features use it.
 //!
 //! ```text
 //! //- /piton.config.pi

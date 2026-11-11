@@ -25,7 +25,7 @@ pub enum Symbol {
 /// find the syntax. When an error occurs, the evaluator reports the source anchor.
 #[derive(Debug, Clone)]
 pub struct Slot {
-    /// The anchor whose body declares the value of this property.
+    /// The anchor that has the body that declares the value of this property.
     pub owner: AnchorId,
     /// The index into the body properties of `owner`.
     pub index: usize,

@@ -2,7 +2,7 @@
 //!
 //! All phases of the compiler use the same structure for reports. Thus `piton
 //! check`, `piton build` and the language server render the same information.
-//! They do not translate between representations.
+//! They do not change the information into a different form.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 /// How serious a diagnostic is.
 ///
 /// `check` exits non-zero when a phase reported a [`Severity::Error`]. Warnings
-/// give information only. A warning alone never causes a build to fail.
+/// give information only. A `Severity::Warning` diagnostic
+/// alone does not stop a build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
     Error,
@@ -76,8 +77,8 @@ impl From<std::ops::Range<usize>> for Span {
     }
 }
 
-/// A secondary location on a diagnostic. It gives breadcrumbs such as
-/// "originally declared here".
+/// A secondary location on a diagnostic. It shows a related place,
+/// for example the first declaration.
 #[derive(Debug, Clone)]
 pub struct Label {
     pub file: PathBuf,
@@ -108,7 +109,7 @@ pub struct Diagnostic {
     /// An optional suggestion for an action. It shows after the message.
     pub help: Option<String>,
     /// The source anchor and property that caused the failure. It has a value
-    /// when the failure occurred during resolution or generation, not the parse.
+    /// when the failure happened in resolution or generation, not the parse.
     pub origin: Option<String>,
 }
 

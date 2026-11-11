@@ -1,8 +1,9 @@
 //! Editor analysis that the compiler does not report itself.
 //!
 //! An editor asks questions of a resolved program. Examples are import
-//! cleanup, unused declarations, redundant overrides, conflicts of inheritance
-//! and composition, and the map from source to compiled output. They are not
+//! cleanup, unused declarations and redundant overrides. Other examples are
+//! conflicts of inheritance and composition, and the map from source to
+//! compiled output. They are not
 //! part of `piton check`. A file can be a valid description and still have an
 //! import that no file reads. The language server publishes them next to the
 //! compiler diagnostics. It also answers the queries that the features use.
@@ -33,7 +34,7 @@ pub struct Mapping {
     pub output_end: usize,
     /// `markdown`, `json`, `yaml`, or a Belay target id.
     pub adapter: String,
-    /// A short label for code lenses and hover, e.g. `markdown Hello.md:1-12`.
+    /// A short label for code lenses and hover, for example `markdown Hello.md:1-12`.
     pub label: String,
 }
 
@@ -53,7 +54,7 @@ pub struct Composition {
 /// One location where a module binds a name: a declaration, or an import entry.
 #[derive(Debug, Clone)]
 pub struct Binding {
-    /// The span of the name in the binding.
+    /// The span of the name in the declaration.
     pub span: Span,
     /// The path text of the `from` declaration. It is `None` for a declaration
     /// in the module itself.
@@ -68,7 +69,7 @@ pub struct Binding {
 pub struct Ambiguity {
     pub module: ModuleId,
     pub name: String,
-    /// All bindings, in source order. `winner` is the index of the binding
+    /// All `bindings`, in source order. `winner` is the index of the `Binding`
     /// that references resolve to.
     pub bindings: Vec<Binding>,
     pub winner: usize,
@@ -113,7 +114,7 @@ impl Analysis {
         found
     }
 
-    /// The smallest mapping with a compiled slice that covers `offset`.
+    /// The smallest map with a compiled slice that covers `offset`.
     pub fn at_output(&self, file: &Path, offset: usize) -> Option<&Mapping> {
         self.mappings
             .iter()
@@ -126,7 +127,7 @@ impl Analysis {
     }
 }
 
-/// Codes that the editor fades. A deletion of the declaration would not change
+/// Codes that the editor fades. A deletion of the declaration does not change
 /// the resolved specification.
 pub fn is_unnecessary(code: &str) -> bool {
     matches!(
@@ -158,7 +159,7 @@ pub fn analyze(
 
     imports(compilation, index, &mut analysis.diagnostics);
     ambiguities(compilation, index, &mut analysis);
-    // Without an entry, the analysis reaches nothing. Thus all items would look unused.
+    // Without an entry, the analysis reaches nothing. Thus all items look unused.
     // The only problem to report is that there is no entry.
     if compilation.resolution.has_entry {
         unused(compilation, index, &reachability, &mut analysis.diagnostics);
@@ -179,7 +180,7 @@ pub fn analyze(
 }
 
 /// Rewrites the imports of a file. Only the names that the file references
-/// stay, in canonical order. `None` when the file already has that shape.
+/// stay, in canonical order. `None` when the file has that shape.
 ///
 /// This does not change star re-exports. `from ./Child export *` is how a
 /// directory publishes its surface. If the rewrite limits it to the names that
@@ -319,8 +320,8 @@ fn imports(compilation: &Compilation, index: &Index, out: &mut Vec<Diagnostic>) 
                         }
                         seen_name.insert(local.to_string(), entry.name_span);
                         if compilation.resolution.lookup(module.id, local).is_none() {
-                            // The compiler already reports unresolved imports.
-                            // A second record would give a second squiggle on
+                            // The compiler reports unresolved imports.
+                            // A second record gives a second squiggle on
                             // the same name. The organize action still removes it.
                             continue;
                         }
@@ -691,7 +692,7 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
 // Unused symbols
 // ---------------------------------------------------------------------------
 
-/// Whether a module is the project configuration. The compiler reads it and
+/// Tells if a module is the project configuration. The compiler reads it and
 /// does not compile it. Thus no part of it is "unused" or "output".
 fn is_config_module(compilation: &Compilation, module: ModuleId) -> bool {
     is_config_file(&compilation.graph().get(module).path)
@@ -894,7 +895,7 @@ fn redundant(compilation: &Compilation, out: &mut Vec<Diagnostic>) {
     }
 }
 
-/// The value that the anchor would inherit for `name` without its own
+/// The value that the anchor inherits for `name` without its own
 /// declaration. This is the right-most base with a value. `super.name` reads
 /// the same value.
 fn inherited_value<'a>(
@@ -1556,7 +1557,7 @@ fn map_outputs(compilation: &Compilation, output: &OutputSettings, mappings: &mu
     }
 }
 
-/// The output of a file. The mapping must describe this. It is the same surface
+/// The output of a file. The map must describe this. It is the same surface
 /// that `piton compile` renders: the exports of the file.
 pub fn file_declarations(compilation: &Compilation, module: ModuleId) -> piton_core::Properties {
     compilation.compiled_surface(module)
@@ -1787,9 +1788,9 @@ fn map_structured_properties(
 
 /// The location where the source declared a name that a file compiles.
 ///
-/// A file compiles its exports as well as its declarations. Thus a name in its
-/// output can come from a declaration in a different file. The mapping must
-/// point to the declaration, in any file. If not, it would send a person to a
+/// A file compiles its exports and its declarations. Thus a name in its
+/// output can come from a declaration in a different file. The map must
+/// point to the declaration, in any file. If not, it sends a person to a
 /// span in a file that does not declare the name.
 fn declaration_origin(
     compilation: &Compilation,
@@ -1845,7 +1846,7 @@ fn push_mapping(
 }
 
 /// The plans of the plugin builds at the last save. These are their
-/// diagnostics, and a mapping from each source anchor to its output.
+/// diagnostics, and a map from each source anchor to its output.
 fn plugin_outputs(compilation: &Compilation, plans: &[piton_plugin::plan::PluginPlan], analysis: &mut Analysis) {
     for plan in plans {
         for diagnostic in &plan.diagnostics {

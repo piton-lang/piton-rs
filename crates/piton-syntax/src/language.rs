@@ -3,8 +3,8 @@
 //! The editor support is not in this crate. It includes a TextMate grammar, a
 //! Vim syntax file, a tree-sitter grammar and more. Each of these must know the
 //! same list of keywords. This module keeps that list. Tests compare the shipped
-//! grammars with this module. Thus, when a person adds a keyword to the
-//! compiler, the tests make sure that the grammars also get the keyword.
+//! grammars with this module. A person can add a keyword to the compiler.
+//! Thus the tests make sure that the grammars also contain the keyword.
 
 /// The file extension of Piton source files.
 pub const EXTENSION: &str = "pi";
@@ -20,7 +20,7 @@ pub const DECLARATION_KEYWORDS: &[&str] = &[
 /// Literal values.
 pub const LITERALS: &[&str] = &["true", "false", "null"];
 
-/// Words that have a meaning only in an expression.
+/// Words that have a sense only in an expression.
 pub const EXPRESSION_KEYWORDS: &[&str] = &["this", "self", "super"];
 
 /// Type names that a `::` constraint can use. They are contextual words.
@@ -45,7 +45,7 @@ pub const COMMENT_PREFIX: &str = "//";
 /// All the words that an editor must colour as keywords.
 ///
 /// A syntax definition needs this list. It is the union of all the words that
-/// have a meaning, in all contexts.
+/// have a sense, in all contexts.
 pub fn highlight_keywords() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = DECLARATION_KEYWORDS
         .iter()
@@ -58,7 +58,7 @@ pub fn highlight_keywords() -> Vec<&'static str> {
     out
 }
 
-/// All the words that have a meaning in some context. The list includes type names.
+/// All the words that have a sense in some context. The list includes type names.
 pub fn all_keywords() -> Vec<&'static str> {
     let mut out = highlight_keywords();
     out.extend(TYPE_NAMES);

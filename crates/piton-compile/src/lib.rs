@@ -53,7 +53,7 @@ impl Compilation {
     /// That is an error of the editor, and not an empty project.
     ///
     /// `also` holds buffers from outside the root. The user edits them,
-    /// whether or not the project claims them.
+    /// if the project claims them or not.
     pub fn build_workspace(
         project: Project,
         overrides: std::collections::HashMap<PathBuf, String>,

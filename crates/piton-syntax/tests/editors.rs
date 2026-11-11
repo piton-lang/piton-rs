@@ -1,4 +1,4 @@
-//! Checks the editor definitions that we ship against the language.
+//! Checks the editor definitions that this repository ships against the language.
 //!
 //! The `editors/` directory has nine syntax definitions. Each one has a
 //! different format. Each one repeats the keyword list of the language. Thus
@@ -35,7 +35,7 @@ const QUERY_FILES: &[&str] = &[
 ///
 /// Zed matches these names and ignores all other names without a message.
 /// Thus a `zed/languages/piton/indents.scm` in the vocabulary of Neovim stayed
-/// in this directory and did nothing. It used `@indent.begin`, but Zed wants
+/// in this directory and did nothing. It used `@indent.begin`, but Zed needs
 /// `@indent`. A wrong capture name is not an error in any place. The result is
 /// only an editor that does not do the task.
 const ZED_CAPTURES: &[(&str, &[&str])] = &[
@@ -94,11 +94,11 @@ const DEFINITIONS: &[&str] = &[
     "kate/piton.xml",
 ];
 
-/// Every definition must know every word that has a meaning.
+/// Every definition must know every word that has a sense.
 ///
-/// This is a cheap, early signal. The highlighter corpus
+/// This is a fast, early signal. The highlighter corpus
 /// (`tests/highlight_corpus.rs`) has a different question. It asks if each word
-/// gets colour where it has a meaning, and only there.
+/// has colour where it has a sense, and only there.
 #[test]
 fn every_definition_covers_the_keywords() {
     let definitions = DEFINITIONS;
@@ -246,8 +246,8 @@ fn every_definition_indents_after_a_colon() {
 /// Zed compiles the pattern with the regex crate of Rust. Thus the pattern must
 /// compile there. VS Code can accept a pattern that Rust rejects. If that occurs,
 /// Zed uses its own old rule for indentation. Also, the pattern must find the
-/// same boundary as the server between the colon of a key and the colon of a
-/// value. If not, the two will fight over every newline.
+/// same boundary as the server. This is the boundary between the colon of a
+/// key and the colon of a value. If not, the two will disagree on each newline.
 #[test]
 fn the_block_opens_pattern_agrees_with_the_server() {
     let pattern = regex::Regex::new(BLOCK_OPENS).expect(
@@ -591,7 +591,7 @@ fn scope_column(column: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The test reads the output of a tool back to a class through these names.
+/// The test converts the output of a tool to a class through these names.
 /// Thus in one format, two classes cannot share one name. The default styles
 /// and faces of the names can repeat, because a style is a colour, not an
 /// identity.
@@ -787,7 +787,7 @@ fn the_zed_extension_ships_the_code_that_starts_the_server() {
 /// The workspace of the repository must not include the extension.
 ///
 /// The extension is a `cdylib` for `wasm32-wasip2`. A build for the host does
-/// not link. Thus `cargo test` at the root would stop on it.
+/// not link. Thus `cargo test` at the root stops on it.
 #[test]
 fn the_workspace_excludes_the_zed_extension() {
     let path = repo_root().join("Cargo.toml");
@@ -800,7 +800,7 @@ fn the_workspace_excludes_the_zed_extension() {
 
 /// Zed reads captures by name. Thus a query must use the names that Zed reads.
 ///
-/// This check would have found the old `indents.scm` in this directory. That
+/// This check finds the old `indents.scm` in this directory. That
 /// file was a copy of the grammar file in the vocabulary of Neovim. Zed ignored
 /// every capture in it.
 #[test]

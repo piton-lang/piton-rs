@@ -54,7 +54,7 @@ pub enum Item {
     Anchor(AnchorDecl),
     /// A top-level variable. An export of the variable is optional.
     Variable(VariableDecl),
-    /// `export Name`. It re-exports a symbol that already has a binding.
+    /// `export Name`. It re-exports a symbol that has a name before.
     ReExport(ReExportDecl),
 }
 
@@ -172,7 +172,7 @@ pub struct VariableDecl {
 pub struct TypeConstraint {
     pub span: Span,
     /// `extends A`. An anchor satisfies it when the inheritance chain of the
-    /// anchor includes `A`. It has a meaning only in abstract declarations.
+    /// anchor includes `A`. It has a sense only in abstract declarations.
     pub extends: bool,
     pub name: TypeName,
     /// `T[]`. A list where each element satisfies `T`.
@@ -336,7 +336,7 @@ pub struct MergeItem {
 }
 
 /// Prose lines with only line breaks between them. A blank line starts a new
-/// paragraph. The language uses a blank line for an explicit line break.
+/// paragraph. The language uses a blank line for a hard line break.
 #[derive(Debug, Clone, Default)]
 pub struct Paragraph {
     pub span: Span,
@@ -377,7 +377,7 @@ impl ProseLine {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProseSegment {
-    /// Usual text. The scanner has already applied the escapes.
+    /// Usual text. The scanner applied the escapes before.
     Text(String),
     /// Text from a backslash-delimited escape. No later step must interpret
     /// this text again.
@@ -388,7 +388,7 @@ pub enum ProseSegment {
 /// The conversion that an interpolation requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sigil {
-    /// `{...}`. The intrinsic value.
+    /// `{...}`. It gives the intrinsic value.
     Standard,
     /// `${...}`. It converts the value to a string.
     Stringify,

@@ -1,8 +1,8 @@
-//! `piton slice` — print the part of the specification one thing depends on.
+//! `piton slice` — print the part of the specification that one item needs.
 //!
 //! The target is `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name.
 //! The command finds a bare name in the project. The result is one Markdown
-//! document on stdout. An agent gets this document as it is.
+//! document on stdout. The command gives this document to an agent as it is.
 //!
 //! A plugin can make the slice cite its compiled output, not the source. An
 //! example is `piton belay slice --adapter` of Belay. The plugin gives
@@ -31,7 +31,7 @@ pub fn run(target: &str) -> u8 {
 
     let (configured, _) = project::enclosing();
     let (compilation, entry) = match &target.file {
-        // The build of the project. Thus the command can trace the chain from
+        // The command builds the project. Thus it can trace the chain from
         // its entry. When that build does not reach a file, the file compiles
         // from itself. That file has no chain.
         Some(file) => {
@@ -49,7 +49,7 @@ pub fn run(target: &str) -> u8 {
             }
         }
         // Any file can declare a bare name, also a file that no file imports
-        // yet. Thus the command compiles the full source tree to find it.
+        // at this time. Thus the command compiles the full source tree to find it.
         None => {
             let mut project = configured;
             if !project.entry.is_file() {

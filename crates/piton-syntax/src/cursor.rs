@@ -16,15 +16,15 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Site {
     /// No completion is possible. Examples are a comment, prose, a verbatim
-    /// block, a quoted string, a new name in a declaration, a new keyword, and
-    /// an empty value.
+    /// block and a quoted string. Other examples are a new name in a
+    /// declaration, a new keyword, and an empty value.
     Inert,
     /// The module path after `use` or `from`.
     ModulePath,
     /// After `from <path>`: `import` or `export`.
     ImportDirection,
     /// A name in the list after `from <path> import`. It also has the names
-    /// that the list already contains.
+    /// that the list contains at this time.
     ImportName { path: String, listed: Vec<String> },
     /// The first words of a top-level line.
     DeclarationHead { exported: bool, is_abstract: bool },
@@ -32,10 +32,10 @@ pub enum Site {
     Base,
     /// A type, after `::`.
     Constraint,
-    /// Inside braces. `member_of` is the dotted path before a trailing `.`.
+    /// Inside braces. `member_of` is the dotted path before a `.` at the end.
     Expression { sigil: Sigil, member_of: Option<String> },
     /// The key at the start of a line in the body of an anchor. It also has the
-    /// keys that the body already has, other than the key of this line. It also
+    /// keys that the body has at this time, other than the key of this line. It also
     /// tells if the body has other content.
     Key { block_keys: Vec<String>, block_has_items: bool },
     /// A single word of value after `key: `, `- ` or `+ `. `key` is the
@@ -195,7 +195,7 @@ fn indented(lines: &[Line], current: usize, content: &str) -> Site {
         return Site::Constraint;
     }
 
-    // The line has no colon yet. Thus, the first word of the line is a key
+    // The line has no colon at this time. Thus, the first word of the line is a key
     // that the author still writes. A key cannot contain a space. Thus, a line
     // with a space is prose.
     if content.contains(char::is_whitespace) || !in_body {
@@ -238,7 +238,7 @@ fn indented(lines: &[Line], current: usize, content: &str) -> Site {
 /// does not open a block. In `prompt: Careful:`, the colon ends a sentence,
 /// not a property. A list item is never a key, with or without a colon.
 /// `- Settings:` is the string `Settings:`. A `+`/`++` line holds a value. A
-/// comment is not structure, whatever its last character. A key with
+/// comment is not structure, for all last characters. A key with
 /// constraints and no value (`title:: string`) also opens a block. A block can
 /// follow it.
 pub fn opens_block(line: &str) -> bool {
@@ -308,7 +308,7 @@ fn value_after_constraints(after: &str) -> Option<&str> {
     loop {
         if let Some(constraint) = rest.strip_prefix("::") {
             // A constraint continues to the next `:`. If there is no `:`
-            // yet, the cursor is in the constraint.
+            // at this time, the cursor is in the constraint.
             let end = constraint.find(':')?;
             rest = &constraint[end..];
             continue;
@@ -322,7 +322,7 @@ fn value_after_constraints(after: &str) -> Option<&str> {
 }
 
 /// The sigil of the innermost brace that is still open at the end of `text`.
-/// Also the position where the text in that brace starts. This function obeys
+/// It also gives the position where the text in that brace starts. This function obeys
 /// inline escapes. Thus, a brace in `\ ... \` does not open an expression. The
 /// prose scanner does the same.
 pub fn open_sigil(text: &str) -> Option<(Sigil, usize)> {
@@ -398,7 +398,7 @@ fn in_quotes(inside: &str) -> bool {
     quoted
 }
 
-/// The dotted path before a trailing `.`. For `this.config.`, it is
+/// The dotted path before a `.` at the end. For `this.config.`, it is
 /// `this.config`. Only the last operand is important. In `a + b.`, it is `b`.
 fn member_path(inside: &str) -> Option<&str> {
     let before = inside.strip_suffix('.').or_else(|| {

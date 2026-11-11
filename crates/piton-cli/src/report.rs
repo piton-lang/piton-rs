@@ -20,7 +20,7 @@ use crate::style::{self, paint};
 /// The problems that wait until the command ends, as styled text.
 static DEFERRED: Mutex<String> = Mutex::new(String::new());
 
-/// Whether the command printed an outcome. If it did, a blank line comes
+/// Tells if the command printed an outcome. If it did, a blank line comes
 /// before the problems.
 static OUTCOME: AtomicBool = AtomicBool::new(false);
 
@@ -30,7 +30,7 @@ fn defer(text: impl AsRef<str>) {
     deferred.push_str(text.as_ref());
 }
 
-/// Prints the problems that wait, last. `main` calls it once, when the command
+/// Prints the problems that wait, last. `main` calls it one time, when the command
 /// ends.
 pub fn flush() {
     let deferred = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
@@ -44,7 +44,7 @@ pub fn flush() {
 }
 
 /// Keeps diagnostics with source context until the command ends. Returns
-/// whether one or more diagnostics are errors.
+/// true if one or more diagnostics are errors.
 pub fn diagnostics(sink: &DiagnosticSink, sources: &dyn Fn(&Path) -> Option<String>, root: &Path) -> bool {
     let mut cache: HashMap<PathBuf, Option<String>> = HashMap::new();
     for diagnostic in sink.iter() {
@@ -95,18 +95,18 @@ pub fn fail(message: impl std::fmt::Display) {
     defer(format!("{} {message}\n", paint(style::ERROR, "error:")));
 }
 
-/// A warning without a source location. It prints with the other problems when
+/// A `Severity::Warning` diagnostic without a source location. It prints with the other problems when
 /// the command ends.
 pub fn warn(message: impl std::fmt::Display) {
     defer(format!("{} {message}\n", paint(style::WARNING, "warning:")));
 }
 
-/// A suggestion under the error or warning before it.
+/// A suggestion under the error or `Severity::Warning` diagnostic before it.
 pub fn help(message: impl std::fmt::Display) {
     defer(format!("  {} {message}\n", paint(style::HELP, "help:")));
 }
 
-/// A detail under the error or warning before it.
+/// A detail under the error or `Severity::Warning` diagnostic before it.
 pub fn note(message: impl std::fmt::Display) {
     defer(format!("  {} {message}\n", paint(style::NOTE, "note:")));
 }

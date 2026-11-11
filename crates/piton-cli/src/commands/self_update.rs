@@ -233,7 +233,7 @@ fn replace(fresh: &Path, current: &Path) -> Result<(), String> {
         return Err(format!("couldn't replace {}: {error}", current.display()));
     }
     if cfg!(target_os = "macos") {
-        // The macOS builds do not have a signature yet. Thus remove the
+        // The macOS builds do not have a signature at this time. Thus remove the
         // quarantine flag. Then Gatekeeper runs the new binary.
         let _ = Command::new("xattr")
             .args(["-d", "com.apple.quarantine"])
@@ -244,7 +244,7 @@ fn replace(fresh: &Path, current: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether version `a` is later than `b`. It compares dotted numbers. A part
+/// Tells if version `a` is later than `b`. It compares dotted numbers. A part
 /// that is not a number compares as 0.
 fn newer(a: &str, b: &str) -> bool {
     let parts = |v: &str| -> Vec<u64> { v.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
@@ -364,7 +364,7 @@ mod tests {
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        // Two blocks of padding.
+        // Two blocks of fill bits.
         assert_eq!(
             sha256_hex(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"

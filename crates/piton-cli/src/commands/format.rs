@@ -1,4 +1,4 @@
-//! `piton format` — apply canonical formatting.
+//! `piton format` — apply the canonical format.
 
 use std::path::PathBuf;
 

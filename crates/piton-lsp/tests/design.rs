@@ -500,7 +500,7 @@ fn nothing_completes_inside_an_inline_escape() {
 }
 
 // ---------------------------------------------------------------------------
-// Formatting, folding, selection
+// Format, fold, selection
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -682,7 +682,7 @@ $0",
             "14:5 :: number edit",
             "15:5 :: number edit",
             "15:16 \u{2190} Foo -",
-            // The source reads it through an anchor whose base supplies it.
+            // The source reads it through an anchor. The base of that anchor supplies it.
             "16:5 :: string edit",
             "16:13 \u{2190} Root -",
             // `self` is the anchor that the compiler compiles. Thus it names no supplier.

@@ -58,7 +58,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     }
 
     if project.config_path.is_none() && targets.is_empty() {
-        // Without a configuration, the working directory is the project. A
+        // Without a configuration, the current directory is the project. A
         // directory is a module through its index.
         let index = project.root.join("index.pi");
         if !index.is_file() {
@@ -279,7 +279,7 @@ fn declared_anchors(compilation: &Compilation, module: ModuleId) -> Vec<piton_co
 }
 
 /// The anchors that the plugins of the project reach, by file and name. When
-/// a plugin cannot tell, a warning reports it. The other plugins still count.
+/// a plugin cannot tell, a `Severity::Warning` diagnostic reports it. The other plugins still count.
 fn plugin_roots(project: &piton_compile::Project) -> Vec<(PathBuf, String)> {
     let (manifests, _) = piton_plugin::discover(project);
     let (roots, failures) = piton_plugin::reach::roots(project, &manifests, || {

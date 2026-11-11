@@ -1,7 +1,7 @@
 //! End-to-end tests over a fixture project.
 //!
 //! The specification tests skills and references. This fixture adds
-//! instructions, commands, agents, shape mapping, and all three adapters.
+//! instructions, commands, agents, shape maps, and all three adapters.
 //! Thus the tests examine all output paths.
 
 use std::path::{Path, PathBuf};
@@ -212,8 +212,8 @@ fn a_full_project_builds_every_artifact() {
     );
     assert!(skill.contains("- Props are flat."), "{skill}");
 
-    // A reference in a prompt becomes a link to the heading of the anchor. The
-    // heading is in the reference file of its module.
+    // A reference in a prompt becomes a link to the header of the anchor. The
+    // header is in the reference file of its module.
     assert!(
         skill.contains("[HouseStyle](../../reference/Reference.md#house-style)"),
         "{skill}"
@@ -233,7 +233,7 @@ fn a_full_project_builds_every_artifact() {
     );
 
     // Agent. The role introduction comes first, then the prompt. It has only
-    // explicit native options.
+    // the native options that the source states.
     let agent = fixture.read(".claude/agents/reviewer.md");
     assert!(agent.contains("name: reviewer"), "{agent}");
     assert!(agent.contains("model: fast"), "{agent}");
@@ -269,7 +269,7 @@ fn an_instruction_falls_back_to_the_nearest_existing_scope() {
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
 
-    // `src/components/missing` does not exist. Thus the placement goes up.
+    // `src/components/missing` does not exist. Thus the placement moves to the parent directory.
     assert!(!fixture.exists("src/components/missing/CLAUDE.md"));
     let combined = fixture.read("src/components/CLAUDE.md");
     assert!(combined.contains("# Ghost Shape"), "{combined}");
@@ -294,7 +294,7 @@ fn every_adapter_emits_its_own_native_form() {
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
 
-    // Codex. A command is a skill and an explicit-invocation policy file.
+    // Codex. A command is a skill and a policy file for direct invocation.
     assert!(fixture.exists(".agents/skills/x-release/SKILL.md"));
     let policy = fixture.read(".agents/skills/x-release/agents/openai.yaml");
     assert_eq!(policy, "policy:\n  allow_implicit_invocation: false\n");
@@ -313,7 +313,7 @@ fn every_adapter_emits_its_own_native_form() {
         "model is supported: {toml}"
     );
 
-    // OpenCode. Commands are native, and the agent mode is explicit.
+    // OpenCode. Commands are native, and the file states the agent mode.
     let command = fixture.read(".opencode/commands/x-release.md");
     assert!(command.contains("description: Cut a release"), "{command}");
     assert!(
@@ -328,7 +328,7 @@ fn every_adapter_emits_its_own_native_form() {
     assert!(fixture.exists("src/components/button/AGENTS.md"));
 
     // The build reports cross-target discovery. It does not accept it
-    // silently.
+    // without a report.
     assert!(
         stderr.contains("cross-target-discovery"),
         "expected a discovery warning:\n{stderr}"
@@ -565,7 +565,7 @@ fn reach_counts_every_line_it_prints() {
     assert!(unreachable.contains("NothingUsesThis"), "{stdout}");
 
     // The summary must agree with the list. Before, the anchor count did not
-    // include the module lines under the same heading. Thus the report was
+    // include the module lines under the same header. Thus the report was
     // not reliable.
     let anchors = unreachable.matches("NothingUsesThis").count();
     assert_eq!(anchors, 1, "{stdout}");
@@ -788,7 +788,7 @@ fn naming_the_renderer_output_writes_it_alongside_a_framework() {
         let manifest = fixture.read(".piton/manifest.json");
         assert!(manifest.contains(&format!("\"dist/index.{extension}\"")), "{manifest}");
 
-        // When the setting goes away, the build removes the files from it.
+        // When the user removes the option, the build removes the files from it.
         let without = config.replace(&format!("    {setting}\n"), "");
         fixture.write("piton.config.pi", &without);
         let (stdout, stderr, code) = fixture.run(&["build"]);
@@ -871,7 +871,7 @@ fn agent_prints_its_fluency_without_a_project() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("# Piton Fluency"), "{stdout}");
 
-    // A project gets its own FLUENCY_PROMPT.md.
+    // A project has its own FLUENCY_PROMPT.md.
     fixture.write("FLUENCY_PROMPT.md", "# Project Fluency\n\nlocal words\n");
     let (stdout, stderr, code) = fixture.run(&["agent", "--print-fluency"]);
     assert_eq!(code, 0, "{stderr}");
@@ -990,7 +990,7 @@ fn help_lists_every_documented_command() {
 }
 
 /// Two files. In them, a button reads and refers to a document. There is also
-/// an unrelated sibling property.
+/// an unrelated property at the same level.
 fn slice_project(name: &str) -> Fixture {
     let fixture = Fixture::new(name);
     fixture.write(
@@ -1126,7 +1126,7 @@ fn slice_with_an_adapter_cites_what_the_build_writes() {
     assert!(uses.contains("## Orphan\n\nAnchor with no compiled document of its own.\n"), "{uses}");
     assert!(!uses.contains(".pi"), "{uses}");
 
-    // The build really writes each cited location.
+    // The build writes each cited location.
     let (_, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(fixture.exists(".claude/skills/review-components/SKILL.md"));

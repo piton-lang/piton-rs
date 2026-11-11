@@ -30,7 +30,7 @@ impl Encoding {
 }
 
 /// The start of each line of a text. Thus a position needs only a binary
-/// search and a walk along one line, not a walk from the top of the file.
+/// search and a walk along one line. It does not need a walk from the top.
 #[derive(Debug, Clone)]
 pub struct LineIndex<'a> {
     text: &'a str,
@@ -103,9 +103,9 @@ impl<'a> LineIndex<'a> {
 
     /// Converts a position into a byte offset. It clamps input that is out of
     /// range. A line after the end becomes the end of the text. A column after
-    /// the end of its line becomes the end of that line. A column inside a
-    /// character (half a surrogate pair, a byte inside a UTF-8 sequence)
-    /// goes to the start of that character.
+    /// the end of its line becomes the end of that line. A column can be inside a
+    /// character, for example in a surrogate pair or a UTF-8 sequence. That
+    /// column goes to the start of that character.
     pub fn offset(&self, position: Position) -> usize {
         let Some(&start) = self.starts.get(position.line as usize) else {
             return self.text.len();

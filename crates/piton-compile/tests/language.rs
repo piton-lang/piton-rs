@@ -1049,7 +1049,7 @@ fn a_reference_renders_as_a_link_and_a_value_renders_inline() {
 
 #[test]
 fn quotes_are_just_characters() {
-    // Quotes have no special meaning, also around a full paragraph.
+    // Quotes have no special sense, also around a full paragraph.
     let source = r#"export anchor A:
     text:
         In one place we say "The Save Button is Blue" and elsewhere we say

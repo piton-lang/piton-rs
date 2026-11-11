@@ -158,11 +158,11 @@ impl ModuleGraph {
 /// that no module imports is not part of the program. An editor needs this,
 /// because the file is on the screen before a module imports it. A tool that
 /// suggests a path to import also needs it. Its purpose is to reach a file
-/// that the project does not reach yet.
+/// that the project does not reach at this time.
 ///
 /// This function has no limit. The format, check and index tools must give a
-/// result for each file. If the walk stops early, a tool can approve a tree
-/// from only the first files that the directory list gave.
+/// result for each file. The walk can stop early. Then a tool can approve
+/// a tree from only the first files that the directory list gave.
 pub fn sources(root: &Path) -> Vec<PathBuf> {
     sources_up_to(root, usize::MAX)
 }
@@ -254,7 +254,7 @@ impl<'a> ResolutionContext<'a> {
     }
 
     /// A context for a tree that is its own project. In it, a bare name can only
-    /// name a package that is installed below that same tree.
+    /// name a package that the tree holds below it.
     pub fn flat(from_directory: &'a Path, root: &'a Path) -> Self {
         ResolutionContext::new(from_directory, Roots::flat(root))
     }
@@ -307,7 +307,7 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
     }
 
     // `.` and `..`, alone or at the end of a path, always name a directory.
-    // Thus they mean its index. They never mean a sibling file with the same
+    // Thus they mean its index. They never mean a file in the same directory with the same
     // name as the directory.
     // A package name alone is its directory, for the same reason.
     let index = base.join("index.pi");
@@ -340,7 +340,7 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
 }
 
 /// True when a path can only name a directory. This is `.` or `..` alone, or a
-/// path whose last segment is one of them.
+/// path that has one of them as its last segment.
 fn names_directory(text: &str) -> bool {
     let trimmed = text.trim_end_matches('/');
     let last = trimmed.rsplit('/').next().unwrap_or(trimmed);
@@ -386,7 +386,7 @@ impl ResolveError {
 }
 
 /// Removes `.` and `..` components. It does not use the file system. Thus the
-/// paths are stable, whether or not the target exists.
+/// paths are stable, if the target exists or not.
 pub fn normalize(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
@@ -474,7 +474,7 @@ mod tests {
         let root = scratch("dots");
         std::fs::create_dir_all(root.join("a/b")).expect("dirs");
         std::fs::write(root.join("a/index.pi"), "x: 1\n").expect("write");
-        // A sibling with the same name as the directory. `..` must not select it.
+        // A file in the same directory with the same name as the directory. `..` must not select it.
         std::fs::write(root.join("a.pi"), "x: 2\n").expect("write");
         std::fs::write(root.join("a/b/index.pi"), "x: 3\n").expect("write");
         std::fs::write(root.join("a/b.pi"), "x: 4\n").expect("write");

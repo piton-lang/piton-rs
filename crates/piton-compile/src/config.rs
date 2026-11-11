@@ -1,6 +1,6 @@
 //! Project configuration.
 //!
-//! A `piton.config.pi` in the working directory configures a project. It
+//! A `piton.config.pi` in the current directory configures a project. It
 //! gives the source root, the entry point file and the enabled plugins. The
 //! configuration is also Piton. Thus the compiler compiles it as it compiles
 //! all other source.
@@ -25,7 +25,7 @@ pub const DEFAULT_OUTPUT: &str = "dist";
 /// The renderer that a build uses when the configuration does not give one.
 pub const DEFAULT_RENDERER: &str = "json";
 
-/// The renderers that a configuration can name, in their canonical spelling.
+/// The renderers that a configuration can name, in their canonical form.
 pub const RENDERERS: [&str; 3] = ["json", "yaml", "markdown"];
 
 /// The keyword that declares a configuration anchor.
@@ -35,7 +35,8 @@ pub const CONFIG_KEYWORD: &str = "piton-config";
 pub const PACKAGE_KEYWORD: &str = "piton-package";
 
 /// All keys that a `piton-config` anchor knows. A different key is almost
-/// always a typo. Without a warning, a typo makes a setting silently fail.
+/// always an incorrect name. Without a `Severity::Warning` diagnostic, an incorrect name makes an
+/// option fail, and the user does not know.
 pub const CONFIG_KEYS: [&str; 7] = [
     "root",
     "entry",
@@ -47,8 +48,8 @@ pub const CONFIG_KEYS: [&str; 7] = [
 ];
 
 /// Keys that a configuration had in the past. Each one causes an error. The
-/// error tells what to write in its place. The compiler does not silently
-/// ignore the setting.
+/// error tells what to write in its place. The compiler does not ignore
+/// the option.
 const REMOVED_KEYS: [(&str, &str); 1] = [(
     "frameworks",
     "a framework is a plugin now: move each item under `plugins`, like `plugins:` with `- {BelayConfiguration}` beneath it",
@@ -78,16 +79,16 @@ pub struct PluginEntry {
     pub spans: Vec<(String, Span)>,
     /// Each anchor that its properties name, with its properties as JSON. An
     /// example is the adapters in a belay-config list. Thus a plugin can read
-    /// the target of a setting.
+    /// the target of an option.
     pub anchors: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
     /// The declaration of each anchor in `anchors`, in the same order. Each
     /// item is the file and the span of the anchor name. Thus a plugin can
-    /// attach a diagnostic to the target of a setting.
+    /// attach a diagnostic to the target of an option.
     pub anchor_sites: Vec<(PathBuf, Span)>,
 }
 
 impl PluginEntry {
-    /// Whether `name` is in the chain of this entry. If the caller gives
+    /// Tells if `name` is in the chain of this entry. If the caller gives
     /// `module_root`, the module of `name` must have a path that starts with it.
     pub fn extends(&self, module_root: Option<&str>, name: &str) -> bool {
         self.chain.iter().any(|(module, anchor)| {
@@ -106,7 +107,7 @@ impl PluginEntry {
     }
 }
 
-/// The canonical spelling of a renderer name, or `None` if it is not a
+/// The canonical form of a renderer name, or `None` if it is not a
 /// renderer.
 pub fn canonical_renderer(text: &str) -> Option<&'static str> {
     match text.trim().to_ascii_lowercase().as_str() {
@@ -135,11 +136,11 @@ pub struct Project {
     /// `markdown`. This comes from `renderer` in the configuration. It is
     /// `json` if the configuration has no `renderer`.
     pub renderer: String,
-    /// Whether the configuration sets `output` or `renderer` to ask for the
+    /// Tells if the configuration sets `output` or `renderer` to ask for the
     /// renderer output. If the plugins of a project build output, the project
-    /// gets that output and not the renderer output. The configuration can
+    /// has that output and not the renderer output. The configuration can
     /// ask for the renderer output too. A project without such plugins always
-    /// gets the renderer output.
+    /// has the renderer output.
     pub renders: bool,
     pub config_path: Option<PathBuf>,
     /// The packages that this project publishes, in declaration order.
@@ -197,7 +198,7 @@ impl Project {
 
 /// Finds the configuration file in `start`. If `start` names a file, this
 /// uses the directory of `start`. The compiler reads a `piton.config.pi` in
-/// the current working directory. It does not search the directories above.
+/// the current directory. It does not search the directories above.
 pub fn find_config(start: &Path) -> Option<PathBuf> {
     let directory = if start.is_dir() {
         start.to_path_buf()
@@ -208,7 +209,7 @@ pub fn find_config(start: &Path) -> Option<PathBuf> {
     candidate.is_file().then_some(candidate)
 }
 
-/// Loads a project from an explicit configuration path. Without such a path,
+/// Loads a project from a given configuration path. Without such a path,
 /// it loads the configuration in `start`.
 pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) {
     let mut diagnostics = DiagnosticSink::new();
@@ -219,7 +220,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
     };
 
     let Some(config_path) = config_path else {
-        // Without a configuration, the working directory is the project.
+        // Without a configuration, the current directory is the project.
         let root = if start.is_dir() {
             start.to_path_buf()
         } else {
@@ -336,7 +337,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
     // The entry is optional. The default entry is the root. A root is a
     // directory. A directory is a module through its `index.pi`. An import of
     // a directory obeys the same rule. Thus a project and an import agree
-    // about the meaning of a directory.
+    // about the sense of a directory.
     let entry = module_entry(
         properties
             .get("entry")
@@ -476,7 +477,7 @@ fn plugin_entry(
 }
 
 /// The anchors that a set of properties names, at all depths. Each anchor
-/// occurs once, in order.
+/// occurs one time, in order.
 fn named_anchors(properties: Option<&piton_core::Properties>) -> Vec<AnchorId> {
     fn walk(value: &Value, out: &mut Vec<AnchorId>) {
         match value {

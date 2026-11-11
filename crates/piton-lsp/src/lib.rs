@@ -38,9 +38,9 @@ pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::NAMESPACE, // module paths
 ];
 
-/// Semantic token modifiers. The last three are specific to Piton. They mark a
-/// property with a value from a base, a declaration that other files can
-/// import, and a name that another file declares.
+/// Semantic token modifiers. The last three are specific to Piton. The first marks a
+/// property with a value from a base. The second marks a declaration that
+/// other files can import. The third marks a name that another file declares.
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DECLARATION,
     SemanticTokenModifier::ABSTRACT,
@@ -50,7 +50,7 @@ pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::new("imported"),
 ];
 
-/// The reason for a recompile. It decides whether the server must tell the
+/// The reason for a recompile. It decides if the server must tell the
 /// other open files to ask again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
@@ -61,12 +61,12 @@ pub enum Trigger {
     Elsewhere,
 }
 
-/// Whether a recompile for `trigger` must ask the client to refresh the
-/// semantic tokens, inlay hints and code lenses of all open files.
+/// Tells if a recompile for `trigger` must ask the client for a refresh of
+/// all open files. The refresh covers semantic tokens, inlay hints and code lenses.
 ///
 /// This does not occur after an edit. The client itself asks again for the
 /// buffer that the user edits. A refresh of all other files on each keystroke
-/// would make them flicker. Effects on other files show when the user saves.
+/// makes them flicker. Effects on other files show when the user saves.
 pub fn refreshes_after(trigger: Trigger) -> bool {
     trigger == Trigger::Elsewhere
 }
@@ -180,8 +180,8 @@ pub fn server_capabilities() -> ServerCapabilities {
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
-        // When the user presses enter after a line that ends in a colon, the
-        // cursor must go inside the block that the line opened. The grammar
+        // The user can press enter after a line that ends in a colon. Then
+        // the cursor must go inside the block that the line opened. The grammar
         // does not include indentation. Thus the server does this.
         document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
             first_trigger_character: "\n".into(),
@@ -242,10 +242,10 @@ const DEBOUNCE: Duration = Duration::from_millis(250);
 pub struct Backend {
     client: Client,
     world: Arc<RwLock<World>>,
-    /// Whether the client accepts a file watcher that the server registers
+    /// Tells if the client accepts a file watcher that the server registers
     /// after `initialize`.
     watching: AtomicBool,
-    /// Whether the client accepts a type hierarchy registration.
+    /// Tells if the client accepts a type hierarchy registration.
     hierarchy: AtomicBool,
     /// The server increases it on each edit. Thus a debounced recompile can
     /// know that a later keystroke came before it.
@@ -273,7 +273,7 @@ async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>,
                     .iter()
                     .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text, &text_of))
                     .collect::<Vec<_>>();
-                // The version of the buffer that these came from. Thus a
+                // The result holds the version of the buffer that these came from. Thus a
                 // client can discard them if the buffer changed after that.
                 Some((url, items, world.compiled_version(&path)))
             })
@@ -324,11 +324,12 @@ impl Backend {
     }
 
     /// Asks the client to tell the server when a `.pi` file appears, changes or
-    /// goes away on disk.
+    /// disappears from the disk.
     ///
     /// No other source gives this data. `didChange` fires only for buffers that
     /// are open in the editor. Thus the server does not see a file from
-    /// `piton tether`, a script that makes files, a branch switch or a second editor.
+    /// `piton tether` or from a script that makes files. It also does not see
+    /// a branch switch or a second editor.
     /// It sees the file only when a person types in an open buffer. A new file
     /// is exactly the file that has no open buffer.
     async fn watch_sources(&self) {
@@ -339,7 +340,8 @@ impl Backend {
         let options = DidChangeWatchedFilesRegistrationOptions {
             watchers: vec![FileSystemWatcher {
                 glob_pattern: GlobPattern::String(pattern),
-                // Created, changed and deleted. This is the default, but we state it.
+                // The watcher reports new, changed and deleted files. This is the
+                // default, but the code states it.
                 kind: Some(WatchKind::all()),
             }],
         };
@@ -366,7 +368,7 @@ impl Backend {
     /// The server registers it and does not declare it. The `ServerCapabilities`
     /// struct in this version of `lsp-types` has no `typeHierarchyProvider`
     /// field. Dynamic registration is the second method of the protocol to say
-    /// the same thing. A client without support never asks. The result is the
+    /// the same fact. A client without support never asks. The result is the
     /// same as when the server does not advertise the feature.
     async fn offer_type_hierarchy(&self) {
         if !self.hierarchy.load(Ordering::Relaxed) {
@@ -408,7 +410,7 @@ impl Backend {
     }
 
     /// The current buffer, for the requests that only need its syntax. These
-    /// are formatting, folding and selection. They never wait for a compile.
+    /// are format, fold and selection requests. They never wait for a compile.
     /// Thus they operate while the file is only partly written.
     async fn buffer(&self, uri: &Url) -> Option<(PathBuf, String)> {
         let path = convert::url_to_path(uri)?;
@@ -544,11 +546,11 @@ impl LanguageServer for Backend {
                 match change.typ {
                     FileChangeType::DELETED => {
                         // A deleted file has no text for the server to use.
-                        // A buffer for it would hide the deletion.
+                        // A buffer for it hides the deletion.
                         world.close_document(&path);
                         news = true;
                     }
-                    // The editor already reported a change to an open file
+                    // The editor reported a change to an open file before
                     // through `didChange`. Its buffer is correct in all cases.
                     // Thus this event repeats data that the server has.
                     FileChangeType::CHANGED if world.documents.contains_key(&path) => {}
@@ -834,7 +836,7 @@ fn request_failed(message: String) -> tower_lsp::jsonrpc::Error {
 }
 
 /// The version that the server reports to the editor. It is the version of the
-/// binary, which [`serve`] gets, not the version of this crate.
+/// binary, which [`serve`] takes, not the version of this crate.
 static VERSION: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
 /// Runs the language server over stdio. It reports `version` as its version.

@@ -19,7 +19,7 @@ use serde_json::{json, Value as Json};
 use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS};
 
-/// clap needs names that live as long as the program. A CLI parses only once.
+/// clap needs names that live as long as the program. A CLI parses only one time.
 /// Thus the simple method is to leak the few names that a plugin declares.
 fn leak(text: &str) -> &'static str {
     Box::leak(text.to_string().into_boxed_str())
@@ -90,8 +90,8 @@ fn clap_arg(spec: &ArgSpec) -> Arg {
     arg
 }
 
-/// The arguments that clap parsed, by name, in the form that the plugin gets.
-/// A flag is a boolean. A multiple argument is a list. An absent argument is
+/// The arguments that clap parsed, by name, in the form that goes to the plugin.
+/// A flag is a boolean. A multiple argument is a list. An argument that is not there is
 /// null.
 fn arguments(spec: &CommandSpec, matches: &ArgMatches) -> Json {
     let mut out = serde_json::Map::new();
@@ -280,8 +280,8 @@ impl piton_plugin::Services for CliServices {
 
 }
 
-/// The project in the working directory, and its plugins.
-/// The project is the one that contains the working directory. Thus a plugin
+/// The project in the current directory, and its plugins.
+/// The project is the one that contains the current directory. Thus a plugin
 /// command works from all directories of the project, as `piton slice` does.
 pub fn load() -> (Project, DiagnosticSink, Vec<Manifest>, Vec<piton_plugin::Problem>) {
     let (project, diagnostics) = project::enclosing();
@@ -340,8 +340,8 @@ pub fn withhold_builtins(
     }
 }
 
-/// Reports the problems with the plugins of the project. These are malformed
-/// declarations, and entries under `plugins` that no plugin reads.
+/// Reports the problems with the plugins of the project. These are declarations
+/// with a bad form, and entries under `plugins` that no plugin reads.
 pub fn report_problems(project: &Project, manifests: &[Manifest], problems: &[piton_plugin::Problem]) {
     for problem in problems {
         report::warn(format!("{}: {}", problem.file.display(), problem.message));

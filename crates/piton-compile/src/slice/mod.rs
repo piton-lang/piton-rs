@@ -1,13 +1,13 @@
 //! Semantic slices. A slice is one anchor, property, or variable, with all
 //! that a reader needs to understand it.
 //!
-//! A slice answers this question: "Which part of the specification does a
-//! person need to implement this one item?" A slice is not the files near the
+//! A slice answers this question. Which part of the specification does a
+//! person need for this one item? A slice is not the files near the
 //! item. It is also not the files that the item imports. It is the
 //! declarations that the item semantically depends on. These are the anchors
 //! that it extends and the declarations that its values read. They are also
 //! the targets of references and embeds, and the names in its types. The
-//! slice follows these transitively and includes each one once.
+//! slice follows these transitively and includes each one one time.
 //!
 //! The code makes a slice in three stages. You can use each stage alone:
 //!
@@ -143,7 +143,7 @@ impl Slice {
         self.edges.iter().filter(move |edge| edge.from == *from)
     }
 
-    /// Whether the slice holds `entity`, directly or in a whole anchor.
+    /// Tells if the slice holds `entity`, directly or in a whole anchor.
     pub fn contains(&self, entity: &Entity) -> bool {
         self.entries.iter().any(|entry| match (entry, entity) {
             (Entry::Anchor { anchor, whole, .. }, Entity::Anchor(other)) => {
@@ -420,12 +420,12 @@ fn display_path(path: &Path, root: &Path) -> String {
 /// types of its constraints. Then come the items that it reads. Last come the
 /// targets of references and embeds in its value. Each group keeps the
 /// written order. The same source always gives the same slice. The walk
-/// tracks entities by identity. Thus a cycle stops when it comes back to an
+/// tracks entities by identity. Thus a cycle stops when it returns to an
 /// entity. The slice still records the edge that closed the cycle.
 ///
 /// The chain comes after the dependencies. Each link is only that one
 /// property. Its other references are context that the target does not need.
-/// If the walk followed them from the entry, it would include everything.
+/// If the walk follows them from the entry, it includes all items.
 pub fn slice(compilation: &Compilation, target: Entity) -> Slice {
     let walker = Walker { compilation };
     let mut seen: HashSet<Entity> = HashSet::new();

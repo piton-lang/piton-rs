@@ -131,7 +131,7 @@ fn envelope(compilation: &Compilation, rendered: &str) -> String {
         .collect::<Vec<_>>()
         .join(",\n");
 
-    // The rendered output is already text in the format of the adapter. Thus
+    // The rendered output is text in the format of the adapter. Thus
     // it stays a string, and it does not go into the JSON as JSON. A Markdown
     // render is not JSON. A caller that needs the value parses it.
     format!(

@@ -149,7 +149,7 @@ piton-package DepPackage:
         "repo/spec/Anchors.pi",
         "export anchor Button as button:\n    label: Save\n",
     );
-    // A file outside the package root. The install must not copy it.
+    // This file is outside the package root. The install must not copy it.
     sandbox.write("repo/README.md", "not part of the package\n");
     sandbox.git(&sandbox.repo(), &["init", "-q", "."]);
     sandbox.commit("one");
@@ -611,7 +611,7 @@ export piton-config App:
         "the disagreement was not reported: {stderr}"
     );
 
-    // One copy, from the newest commit. That is `two` on the default branch,
+    // The install has one copy, from the newest commit. That is `two` on the default branch,
     // not the older tagged `one`.
     assert!(
         sandbox.read("app/tethers/shared/index.pi").contains("version: two"),
@@ -625,7 +625,7 @@ fn tethering_a_new_source_adds_it_to_the_configuration() {
     let Some(sandbox) = fixture("tether-adds") else {
         return;
     };
-    // A configuration that does not list the repository yet.
+    // A configuration that does not list the repository at this time.
     sandbox.write(
         "app/piton.config.pi",
         "use @piton/config

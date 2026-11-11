@@ -3,12 +3,12 @@
 //! The four constructs are not in Rust. The build embeds
 //! `plugins/belay/pi/*.pi` into the compiler. A virtual filesystem then serves
 //! these files. Thus the description of a skill in the specification is the
-//! skill that a project gets.
+//! skill that a project has.
 //!
 //! These tests keep that arrangement. One test compares the shape from the
 //! compiler with the shape that the file on disk declares. The other test
 //! checks that each construct comes through its keyword. A construct with no
-//! alias is not usable, whatever its shape.
+//! alias is not usable, for all shapes.
 
 use std::path::{Path, PathBuf};
 
@@ -235,7 +235,7 @@ fn every_construct_is_reachable_through_its_keyword() {
         .expect("the package is loaded");
 
     // A user writes the keyword of a construct to use it. Thus a construct
-    // with no alias is not usable, whatever its shape.
+    // with no alias is not usable, for all shapes.
     for (name, keyword) in [
         ("Instruction", "instruction"),
         ("Skill", "skill"),

@@ -74,8 +74,8 @@ fn number_json(number: f64) -> Json {
 
 /// One value, as JSON. This JSON keeps the data that [`value`] removes.
 /// Text tells which references it holds. A dictionary is different from a
-/// block with keys and other items. Keys keep their order, whatever their
-/// form. An anchor or a reference has its id.
+/// block with keys and other items. Keys keep their order, for all
+/// forms. An anchor or a reference has its id.
 ///
 /// Each value is an object with a `kind`. These are the kinds:
 /// - `null`, `boolean` and `number` have a `value`.

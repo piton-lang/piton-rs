@@ -2,8 +2,9 @@
 //!
 //! `vite-plugin-piton` and `astro-piton` are the only parts of this repository
 //! that are not Rust. A Rust test cannot run them. But each is a caller of the
-//! `piton` binary, and a caller can drift. If a flag gets a new name here, the
-//! plugin continues to use the old flag. Then it fails at build time in a
+//! `piton` binary, and a caller and the binary can become
+//! different. If a flag has a new name here, the plugin continues to use the
+//! old flag. Then it fails at build time in a
 //! different project, not in this suite.
 //!
 //! Thus this test reads the command line from the source of the plugin. It
@@ -142,14 +143,14 @@ fn the_specified_packages_exist() {
 
 #[test]
 fn the_plugin_covers_every_feature_the_specification_lists() {
-    // `spec/scope/tooling/vite/index.pi` names four. The plugin must really do
+    // `spec/scope/tooling/vite/index.pi` names four. The plugin must do
     // each one. A claim is not sufficient.
     let plugin = read("packages/vite-plugin-piton/src/index.ts");
     // imports .pi files
     assert!(plugin.contains(".pi"), "{plugin}");
     // HMR
     assert!(plugin.contains("handleHotUpdate"), "{plugin}");
-    // dependency tracking
+    // dependency watch
     assert!(plugin.contains("addWatchFile"), "{plugin}");
     // virtual modules
     assert!(plugin.contains("virtual:piton/"), "{plugin}");

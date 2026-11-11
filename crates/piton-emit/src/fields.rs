@@ -140,9 +140,9 @@ fn toml_value(value: &FieldValue) -> String {
 /// Encodes a TOML string. Text with newlines uses a multi-line basic string.
 /// Thus a full instruction body stays easy to read.
 ///
-/// Neither form allows raw control characters, other than tab and newline.
-/// Thus the encoder escapes them. It also escapes a quote that would otherwise
-/// join a closing delimiter.
+/// The two forms do not allow raw control characters, other than tab and newline.
+/// Thus the encoder escapes them. It also escapes a quote at the end.
+/// If not, that quote joins the last delimiter.
 pub fn toml_string(text: &str) -> String {
     let escape = |ch: char, out: &mut String| match ch {
         '\\' => out.push_str("\\\\"),
@@ -159,8 +159,8 @@ pub fn toml_string(text: &str) -> String {
         for (index, ch) in chars.iter().enumerate() {
             if *ch == '"' {
                 // Escape a quote that starts a run of three quotes. Also escape
-                // a quote at the end of the text. It would join the closing
-                // delimiter.
+                // a quote at the end of the text. It can join the delimiter
+                // at the end.
                 let next_two = chars.get(index + 1) == Some(&'"') && chars.get(index + 2) == Some(&'"');
                 if next_two || index + 1 == chars.len() {
                     out.push_str("\\\"");
@@ -186,11 +186,11 @@ pub fn toml_string(text: &str) -> String {
     out
 }
 
-/// Quotes a YAML scalar when a reader would not read the bare form as the same
+/// Quotes a YAML scalar when a reader does not read the bare form as the same
 /// string.
 ///
 /// Tools use both YAML 1.1 and 1.2 readers. Thus the function quotes all text
-/// that either reader resolves to a boolean, null, number or timestamp. The
+/// that one of the two readers resolves to a boolean, null, number or timestamp. The
 /// letter case has no effect.
 pub fn yaml_scalar(text: &str) -> String {
     if !yaml_needs_quotes(text) {

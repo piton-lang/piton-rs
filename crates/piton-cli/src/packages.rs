@@ -1,6 +1,6 @@
 //! Installs, moves, and removes vendored packages.
 //!
-//! A tethered package is plain files. A clone gets a repository. The code
+//! A tethered package is plain files. A clone gives a repository. The code
 //! removes all repository data from the clone. It copies the other files
 //! into `tethers/`, and the user commits them with the project. A source can
 //! also be a directory on disk. A git repository there clones like all other
@@ -8,7 +8,7 @@
 //! compile time. These are the operations of the four package commands.
 //!
 //! One rule controls all of them. A person can edit an installed package, and
-//! the code must never discard an edit silently. Thus each operation that can
+//! the code must never discard an edit without a message. Thus each operation that can
 //! overwrite or delete files first checks the lock file. It refuses when the
 //! files on disk are not the same as the installed files.
 
@@ -55,7 +55,7 @@ pub struct Placed {
     /// current install. The operation fills it only when it must give a diff.
     pub changes: Vec<FileChange>,
     /// The local edits that a forced replacement discarded, as text for a
-    /// warning. It has a value only when there were edits.
+    /// `Severity::Warning` diagnostic. It has a value only when there were edits.
     pub discarded: Option<String>,
 }
 
@@ -180,7 +180,7 @@ fn local_edits(
 }
 
 /// The changes in an installed package after its install. A forced
-/// replacement shows them in a warning.
+/// replacement shows them in a `Severity::Warning` diagnostic.
 fn local_changes(project_root: &Path, lock: &Lock, name: &str) -> String {
     let directory = packages::package_directory(project_root, name);
     let Some(recorded) = lock.get(name) else {
@@ -220,7 +220,7 @@ fn git(directory: &Path, args: &[&str]) -> Outcome<String> {
 pub struct Checkout {
     pub directory: PathBuf,
     pub commit: Option<String>,
-    /// The time of `commit`, in seconds since the epoch. This time decides
+    /// The time of `commit`, in seconds after the epoch. This time decides
     /// version conflicts. The newest commit wins.
     pub committed_at: Option<i64>,
     /// The directory on disk that the source named, if it named one. Relative
@@ -254,7 +254,7 @@ impl Drop for Checkout {
 /// The function clones a URL. A path is a directory on disk. A relative path
 /// starts at `base`. That is the directory of the configuration that named
 /// the path. For a repository from a URL, `base` is `None`. There, a relative
-/// path has no meaning. The function clones a git directory like a URL. Thus
+/// path has no sense. The function clones a git directory like a URL. Thus
 /// pins work, and the lock records the commit. It reads a different directory
 /// as it is. That directory has no versions. Thus it cannot have a pin.
 pub fn fetch(source: &str, pin: &Pin, base: Option<&Path>, scratch: &Path) -> Outcome<Checkout> {
@@ -315,11 +315,11 @@ fn uncommitted(directory: &Path) -> bool {
 /// The function fetches a branch or tag directly. Thus the clone stays
 /// shallow. A commit is different. A server does not always give a random
 /// revision to a shallow fetch. Thus the function clones the full repository
-/// and then checks out the commit.
+/// and then does a `git checkout` of the commit.
 pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     // Two checkouts can exist at the same time. A comparison of two versions
-    // of one repository needs both. Thus each checkout gets its own directory.
+    // of one repository needs both. Thus each checkout has its own directory.
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     std::fs::create_dir_all(scratch)
@@ -404,7 +404,7 @@ pub fn published(checkout: &Path, fallback: &str) -> Vec<PackageDecl> {
 
 /// Copies a tree. It does not copy the git repository data.
 ///
-/// "Un-gitting" is the main purpose of a tether. The result in `tethers/` is
+/// The main purpose of a tether is to remove the git data. The result in `tethers/` is
 /// a directory of files in the history of this project. It is not a nested
 /// checkout of a different project.
 pub fn copy_ungitted(from: &Path, to: &Path) -> Outcome<usize> {
@@ -452,7 +452,7 @@ pub fn copy_ungitted(from: &Path, to: &Path) -> Outcome<usize> {
 /// Refuses to change a package when its files do not match the lock file.
 ///
 /// This is the conflict rule. An edited installed package contains work. A
-/// replacement would destroy that work. An untether is the solution, because
+/// replacement destroys that work. An untether is the solution, because
 /// it makes the files part of the project.
 pub fn require_unmodified(project_root: &Path, lock: &Lock, name: &str) -> Outcome<()> {
     let directory = packages::package_directory(project_root, name);
@@ -553,9 +553,9 @@ pub fn install(
 
 /// Installs a set of dependencies, and all dependencies that they need.
 ///
-/// Dependencies are flat by design. The whole project gets one version of a
+/// Dependencies are flat by design. The whole project has one version of a
 /// repository. When the installer reaches a source two times, it fetches it
-/// once. Two declarations can ask for different versions. Then the installer
+/// one time. Two declarations can ask for different versions. Then the installer
 /// installs the version with the newest commit, and reports the conflict. A
 /// dependency version that nobody chose is worse than no version.
 pub struct Installer<'a> {
@@ -578,14 +578,14 @@ pub struct Installer<'a> {
     /// The names of the packages that this project offers. An installed
     /// package must not use these names.
     pub own: Vec<String>,
-    /// Sources already resolved.
+    /// Sources that the installer resolved before.
     seen: Vec<Seen>,
     /// The packages that `finish` will put in place, after all dependencies
     /// resolve.
     planned: Vec<Planned>,
 }
 
-/// A package that the installer resolved and checked, but not yet in `tethers/`.
+/// A package that the installer resolved and checked. It is not in `tethers/` at this time.
 struct Planned {
     package: PackageDecl,
     source: String,
@@ -596,7 +596,7 @@ struct Planned {
     _checkout: std::rc::Rc<Checkout>,
 }
 
-/// A source that the installer already put in place, and its version.
+/// A source that the installer put in place before, and its version.
 struct Seen {
     source: String,
     pin: Pin,
@@ -651,7 +651,7 @@ impl<'a> Installer<'a> {
                 Some(index) if self.seen[index].pin == dependency.pin => continue,
                 Some(index) => {
                     // A different declaration asks for a second version. The
-                    // installer examines the two. The project gets the newer
+                    // installer examines the two. The project uses the newer
                     // commit.
                     let checkout = fetch(&dependency.source, &dependency.pin, base.as_deref(), &self.scratch)?;
                     let taken = &self.seen[index];
@@ -797,7 +797,7 @@ impl<'a> Installer<'a> {
             // for the use of its packages.
             //
             // A relative path there starts at the directory of the repository.
-            // Thus the installer makes it absolute before it goes out.
+            // Thus the installer makes it absolute before it sends it.
             for required in published.iter().flat_map(|package| &package.dependencies) {
                 let mut required = required.clone();
                 if let Some(path) = checkout
@@ -816,10 +816,10 @@ impl<'a> Installer<'a> {
         Ok(())
     }
 
-    /// Refuses a package name that a different package already has.
+    /// Refuses a package name that a different package has.
     ///
     /// Two packages cannot use the same `tethers/<name>`. An install of one
-    /// over the other silently changes the meaning of each import of that name.
+    /// over the other changes the sense of each import of that name.
     fn check_name(&self, name: &str, source: &str) -> Outcome<()> {
         if self.own.iter().any(|own| own == name) {
             return Err(Failure::new(format!(
@@ -969,7 +969,7 @@ pub fn rewrite_imports(sites: &[ImportSite], name: &str, replacement: &str) -> O
         let mut source = std::fs::read_to_string(&file).map_err(|error| {
             Failure::new(format!("cannot read `{}`: {error}", file.display()))
         })?;
-        // From the end to the start. Thus an earlier edit does not move a
+        // The edits go from the end to the start. Thus an earlier edit does not move a
         // later span.
         sites.sort_by_key(|site| std::cmp::Reverse(site.start));
         for site in sites {

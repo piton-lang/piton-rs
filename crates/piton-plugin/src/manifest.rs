@@ -175,7 +175,7 @@ pub struct ArgSpec {
     /// values that look like options. The plugin gives them to a program.
     pub trailing: bool,
     /// For an option. True when the user can give it without a value. The
-    /// plugin then receives an empty string.
+    /// host then gives an empty string to the plugin.
     pub optional_value: bool,
 }
 
@@ -403,7 +403,7 @@ pub fn load_order<'a>(manifests: &'a [Manifest], main: &str) -> Result<Vec<&'a M
 /// The plugins that `piton build` runs. Each has a build, and the project
 /// turned it on. A plugin that the project declares is on. A bundled plugin
 /// is on when the project lists its settings. Thus a project that does not
-/// name a bundled plugin gets none of its output.
+/// name a bundled plugin has none of its output.
 pub fn builders<'a>(project: &Project, manifests: &'a [Manifest]) -> Vec<&'a Manifest> {
     manifests
         .iter()

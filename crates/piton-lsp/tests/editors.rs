@@ -125,7 +125,7 @@ fn the_vscode_extension_does_not_register_the_servers_commands() {
     }
 }
 
-/// The TextMate name that `editors/fixtures/scopes.toml` gives a highlighting class.
+/// The TextMate name that `editors/fixtures/scopes.toml` gives a highlight class.
 ///
 /// The table is small and flat (`[Class]` then `tm = "..."`). This crate has
 /// no TOML parser. Thus the test reads it line by line.
@@ -150,8 +150,8 @@ fn textmate_scope(class: &str) -> String {
 /// VS Code paints a semantic token with the TextMate scope that the extension
 /// maps it to. This paint goes over the paint of the grammar. When the two
 /// scopes are the same, a token changes nothing on the screen. The exception
-/// is when resolution adds data (a lowercase name that is an anchor, a key
-/// that is a variable, a bundled anchor). When the scopes are different, each
+/// is when resolution adds data. Examples are a lowercase name that is an
+/// anchor, a key that is a variable, and a bundled anchor. When the scopes are different, each
 /// name changes to a new colour when the server answers. Thus each type that
 /// the server sends maps to the scope that the grammar uses for the same
 /// class. The extension declares the custom modifiers so that VS Code

@@ -9,7 +9,7 @@ use piton_syntax::ast::{self, FromKind, Item};
 use crate::module::{self, ModuleGraph, ModuleId, ResolutionContext};
 use crate::store::{AnchorDef, Slot, Store, Symbol, VariableDef};
 
-/// The way a name goes out of a module.
+/// The way a module exports a name.
 #[derive(Debug, Clone)]
 enum ExportTarget {
     /// A declaration in this module.
@@ -18,7 +18,7 @@ enum ExportTarget {
     Forwarded { module: ModuleId, name: String },
 }
 
-/// One location from which a module exports. This is a declaration, an explicit
+/// One location from which a module exports. This is a declaration, a direct
 /// re-export, or an `export *`.
 #[derive(Debug, Clone)]
 struct ExportSite {
@@ -43,8 +43,8 @@ pub struct ModuleScope {
     exports: IndexMap<String, ExportTarget>,
     /// Modules from which this module re-exports all exports.
     export_globs: Vec<ModuleId>,
-    /// All the ways a name goes out of this module, in precedence order. Thus the
-    /// resolver can report two exports with one name. It does not silently lose one.
+    /// All the ways this module exports a name, in precedence order. Thus the
+    /// resolver can report two exports with one name. It does not lose one.
     export_sites: Vec<ExportSite>,
     /// Modules that `use` names. These modules give keywords.
     pub used: Vec<ModuleId>,
@@ -60,7 +60,7 @@ pub struct Resolution {
     pub store: Store,
     pub scopes: HashMap<ModuleId, ModuleScope>,
     pub entry: ModuleId,
-    /// False when the resolver could not load the entry. Then `entry` names no module
+    /// False when the resolver did not load the entry. Then `entry` names no module
     /// of its own. Only the workspace of the editor still resolves the files
     /// around it. Thus there is no start point for reachability.
     pub has_entry: bool,
@@ -177,7 +177,7 @@ pub fn resolve(entry: &std::path::Path, roots: module::Roots<'_>) -> Resolution 
     resolve_with(entry, roots, ModuleGraph::default())
 }
 
-/// Resolves from `entry`. The graph can already contain editor
+/// Resolves from `entry`. The graph can contain editor
 /// buffers.
 pub fn resolve_with(
     entry: &std::path::Path,
@@ -230,7 +230,7 @@ pub fn resolve_including(
         Some(entry_id) => resolve_from_roots(graph, entry_id, &seeds, roots, diagnostics),
         // The resolver reports an entry that is not there. But the open files must
         // still resolve. Without them, there are no completions, symbols, or
-        // diagnostics for the files that would fix the project.
+        // diagnostics for the files that will fix the project.
         None => match seeds.split_first() {
             Some((first, rest)) => {
                 let mut resolution = resolve_from_roots(graph, *first, rest, roots, diagnostics);
@@ -249,8 +249,8 @@ pub fn resolve_including(
     }
 }
 
-/// Resolves a graph that already contains its loaded entry module. The language
-/// server uses this function to use again the buffers that it already parsed.
+/// Resolves a graph that contains its loaded entry module. The language
+/// server uses this function to use again the buffers that it parsed before.
 pub fn resolve_from(
     graph: ModuleGraph,
     entry: ModuleId,
@@ -608,8 +608,8 @@ fn import_source_label(
 /// Reports a name that a module exports two times with two different meanings.
 ///
 /// Lookup keeps the first site in precedence order. This order is a declaration, then
-/// an explicit export, then the first `export *`. Thus the report is about each later
-/// site with a different meaning. Lookup dropped that site.
+/// a direct export, then the first `export *`. Thus the report is about each later
+/// site with a different sense. Lookup dropped that site.
 fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
     let mut diagnostics = Vec::new();
     for id in modules {
@@ -619,7 +619,7 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
         }
         let module_path = module.path.clone();
 
-        // All the (name, meaning, site) values that this module exports, in precedence order.
+        // All the (name, sense, site) values that this module exports, in precedence order.
         let mut candidates: Vec<(String, Symbol, &ExportSite)> = Vec::new();
         for site in &resolution.scope(*id).export_sites {
             match (&site.name, &site.target) {
@@ -860,7 +860,7 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
         resolution.store.anchor_mut(anchor).bases = bases;
     }
 
-    // Inheritance cycles would cause property resolution to not stop.
+    // Inheritance cycles cause property resolution to not stop.
     let count = resolution.store.anchors.len();
     let cycles: Vec<(AnchorId, Vec<AnchorId>)> = (0..count)
         .map(|index| AnchorId(index as u32))
@@ -1188,7 +1188,7 @@ fn build_slots_for(
     }
 
     // Report each item in an anchor body that is not a property. The parser parses it,
-    // but the compiler never emits it. To silently drop it would hide real mistakes.
+    // but the compiler never writes it. Without a report, the user does not see the mistake.
     for item in &decl.body.items {
         if matches!(item, ast::BlockItem::Property(_) | ast::BlockItem::Pass(_)) {
             continue;
@@ -1256,8 +1256,8 @@ fn build_slots_for(
     done.insert(anchor);
 }
 
-/// The key of a line in an anchor body that looks like a property but
-/// has characters that a key cannot have, for example `a.b: 1`.
+/// The key of a line in an anchor body. The line looks like a property, but
+/// the key has characters that a key cannot have, for example `a.b: 1`.
 fn invalid_key(item: &ast::BlockItem) -> Option<String> {
     let ast::BlockItem::Prose(paragraph) = item else {
         return None;

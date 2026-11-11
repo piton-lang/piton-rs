@@ -1,10 +1,10 @@
 //! Value evaluation.
 //!
-//! Piton has no runtime. Thus "evaluation" means to fold a declaration down to the
+//! Piton has no runtime. Thus "evaluation" means to reduce a declaration to the
 //! value that an adapter will serialize. The evaluator makes values only when a read
 //! needs them, and keeps each value for the next read. Anchors resolve by identity.
 //! Thus `${A}` inside `B` does not force the properties of `A`. For this reason,
-//! circular *references* are legal, but circular *values* stay an error.
+//! circular *references* are correct, but circular *values* stay an error.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,7 +26,7 @@ use crate::store::{Slot, Symbol, VariableId};
 #[derive(Debug, Clone, Copy)]
 struct Context {
     module: ModuleId,
-    /// The anchor whose body contains the expression. `this` binds here.
+    /// The anchor that has the body that contains the expression. `this` binds here.
     this: Option<AnchorId>,
     /// The most derived anchor in the chain. `self` binds here.
     derived: Option<AnchorId>,
@@ -49,7 +49,7 @@ impl Context {
 #[derive(Debug, Clone)]
 struct Evaluated {
     value: Value,
-    /// True for a string that is explicitly a string. This is a `"..."` inside an
+    /// True for a string that the source marks as a string. This is a `"..."` inside an
     /// expression, or the result of `${...}`. It never coerces to a different type.
     quoted: bool,
     /// The source text of a literal, if the evaluator inferred the value from one.
@@ -243,7 +243,7 @@ impl<'a> Evaluator<'a> {
             return Value::Null;
         };
         if !slot.has_value {
-            // The concrete anchor declaration already reports a read of an
+            // The concrete anchor declaration reports a read of an
             // abstract slot without an implementation. Do not add a type error to it.
             return Value::Null;
         }
@@ -386,7 +386,7 @@ impl<'a> Evaluator<'a> {
         let decl = decl.clone();
 
         if !decl.value.declared {
-            // `x:: number` with no value. Only an abstract anchor can have a
+            // This is `x:: number` with no value. Only an abstract anchor can have a
             // property without a value.
             self.error(
                 "missing-value",
@@ -548,8 +548,8 @@ impl<'a> Evaluator<'a> {
 
     /// Builds a block that has `+` or `++` lines in it.
     ///
-    /// The evaluator builds blocks from top to bottom. A line that starts with `+` or `++`
-    /// takes all the lines above it and combines them with the value of that line. This
+    /// The evaluator builds blocks from top to bottom. A line can start with `+` or `++`.
+    /// This line takes all the lines above it and combines them with its value. This
     /// is the same as the operator in an expression. Lines after it continue to add
     /// to the result. Thus `+ {super.items}` and then `- D` give
     /// the items of the base and then D.
@@ -715,7 +715,7 @@ impl<'a> Evaluator<'a> {
         let mut combined = Text::empty();
         for (index, paragraph) in paragraphs.into_iter().enumerate() {
             if index > 0 {
-                // A blank line in the source gives an explicit line break.
+                // A blank line in the source gives a hard line break.
                 // Thus paragraphs join with a newline, not with a
                 // space.
                 combined.push_literal("\n");
@@ -1213,7 +1213,7 @@ impl<'a> Evaluator<'a> {
                     items.extend(right.value.as_list_items());
                     Value::List(dedup_keep_last(items))
                 }
-                // A shallow merge. The result has the keys from both sides. The right side wins.
+                // This is a shallow merge. The result has the keys from both sides. The right side wins.
                 (Value::Dict(a), Value::Dict(b)) => {
                     let mut merged = a.clone();
                     for (key, value) in b {
@@ -1254,7 +1254,7 @@ impl<'a> Evaluator<'a> {
                     items.extend(right.value.as_list_items());
                     Value::List(items)
                 }
-                // A deep merge. Dictionaries under the same key also merge, at
+                // This is a deep merge. Dictionaries under the same key also merge, at
                 // all levels. In other cases, the right side wins.
                 (Value::Dict(a), Value::Dict(b)) => Value::Dict(deep_merge(a, b)),
                 // On strings, `++` joins the strings with a line break.
@@ -1331,8 +1331,8 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Applies type constraints from left to right. It uses the first type that the value
-    /// can validly represent.
+    /// Applies type constraints from left to right. It uses the first type that can hold
+    /// the value.
     fn constrain(
         &mut self,
         evaluated: Evaluated,
@@ -1515,7 +1515,7 @@ fn continue_block(accumulated: Option<Value>, next: Value) -> Value {
             items.extend(more);
             Value::List(items)
         }
-        // More text after a joined string continues the string, as a subsequent line does.
+        // More text after a joined string adds to the string, as a next line does.
         (Value::Str(mut text), Value::Str(more)) => {
             text.push_literal(" ");
             text.push_text(&more);
@@ -1706,7 +1706,8 @@ fn describe_constraint(constraint: &TypeConstraint) -> String {
     out
 }
 
-/// Public, so that the type checker can describe constraints in the same way.
+/// This function is public. Thus the type checker can describe constraints in
+/// the same way.
 pub fn constraint_label(constraint: &TypeConstraint) -> String {
     describe_constraint(constraint)
 }
@@ -1740,8 +1741,8 @@ pub struct Probe<'a> {
 }
 
 impl<'a> Probe<'a> {
-    /// A probe that starts with the values that `resolution` already stores.
-    /// `Compilation::from_resolution` fills in these values. Thus the probe evaluates no value two times.
+    /// A probe that starts with the values that `resolution` stores at this time.
+    /// `Compilation::from_resolution` supplies these values. Thus the probe evaluates no value two times.
     pub fn new(resolution: &'a Resolution) -> Probe<'a> {
         let mut evaluator = Evaluator {
             resolution,

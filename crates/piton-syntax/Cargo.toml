@@ -10,13 +10,13 @@ chumsky.workspace = true
 rowan.workspace = true
 
 [dev-dependencies]
-# Validates the block-opening regex the editor configurations carry: Zed
-# compiles it with this same crate.
+# Validates the regex in the editor configurations that opens a block. Zed
+# compiles it with this crate.
 regex = "1"
-# The highlighter corpus (`tests/highlight_corpus.rs`). `scopes.toml` and
-# `gaps.toml` are read with `toml`; the TextMate runner prints JSON; and the
-# Sublime definition is run through `syntect`, a pure-Rust engine for the same
-# format, so that one needs no editor installed at all.
+# The highlighter corpus (`tests/highlight_corpus.rs`). `toml` reads
+# `scopes.toml` and `gaps.toml`. The TextMate runner prints JSON. `syntect`
+# runs the Sublime definition. `syntect` is a pure-Rust engine for that
+# format. Thus that runner needs no installed editor.
 toml = "0.8"
 serde_json.workspace = true
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }

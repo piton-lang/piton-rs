@@ -6,7 +6,7 @@
 //! Thus the algorithm is in this file and not in a dependency.
 //!
 //! This is the standard form of FIPS 180-4. It operates on one 64-byte block
-//! at a time. Each block gets sixty-four rounds over eight working words.
+//! at a time. Each block has sixty-four rounds over eight work words.
 
 /// The first thirty-two bits of the fraction parts of the cube roots of the
 /// first sixty-four primes.
@@ -39,7 +39,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 fn sha256(bytes: &[u8]) -> [u32; 8] {
     let mut state = H0;
 
-    // The message with padding. First comes a one bit. Then zeroes come until
+    // This is the message with fill bits. First comes a one bit. Then zeroes come until
     // 56 bytes mod 64. Then the length in bits comes as a big-endian u64.
     let mut padded = bytes.to_vec();
     padded.push(0x80);
@@ -101,8 +101,8 @@ mod tests {
     use super::*;
 
     /// The published vectors from FIPS 180-4 and the NIST examples. They
-    /// include a length for each padding case. The cases are no padding,
-    /// padding in one block, and padding across a block boundary.
+    /// include a length for each fill case. The cases are no fill, fill in
+    /// one block, and fill across a block boundary.
     #[test]
     fn known_vectors() {
         assert_eq!(

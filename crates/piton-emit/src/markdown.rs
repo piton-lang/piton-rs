@@ -1,12 +1,12 @@
 //! Markdown serialization.
 //!
 //! This module applies the common content rules of Belay. Anchor names and
-//! property names with prose become word-separated titles. Heading levels
+//! property names with prose become word-separated titles. Header levels
 //! show the hierarchy. Structured data uses an indentation-based form.
 //!
 //! There are two render modes. The correct mode makes the output easy to read.
-//! At *document* level, a property becomes a heading. Its value becomes the
-//! section body. A list item or a fenced block cannot contain headings. Thus
+//! At *document* level, a property becomes a header. Its value becomes the
+//! section body. A list item or a fenced block cannot contain headers. Thus
 //! there the same value renders as indented `key: value` lines.
 
 use std::path::Path;
@@ -15,7 +15,7 @@ use piton_core::{
     format_number, title_case, AnchorId, AnchorView, Mixed, MixedItem, Properties, Ref, Text, Value,
 };
 
-/// Markdown allows six heading levels. After that, Belay uses a bold label.
+/// Markdown allows six header levels. After that, Belay uses a bold label.
 const MAX_HEADING_LEVEL: usize = 6;
 
 /// Resolves a reference to a link target relative to the output file.
@@ -36,8 +36,8 @@ impl LinkResolver for NoLinks {
 
 /// Links to the location of the rendered anchor. It applies when each source
 /// file compiles to a Markdown file next to it. `piton compile` does this. A
-/// reference to Button from a sibling file links to `./Button.md#button`. A
-/// reference to a property links to the heading of that property.
+/// reference to Button from a file in the same directory links to `./Button.md#button`. A
+/// reference to a property links to the header of that property.
 pub struct MirroredLinks<'a> {
     /// The directory of the output file.
     pub from_directory: &'a Path,
@@ -77,7 +77,7 @@ impl Context<'_> {
     }
 }
 
-/// Renders a whole anchor as a document. The document starts at heading
+/// Renders a whole anchor as a document. The document starts at header
 /// level 1.
 pub fn document(anchor: AnchorId, context: &Context<'_>) -> String {
     let mut out = String::new();
@@ -110,7 +110,7 @@ pub fn inline_text(text: &Text, context: &Context<'_>) -> String {
     context.render_text(text)
 }
 
-/// Renders a value as a standalone body. The body has no heading.
+/// Renders a value as a standalone body. The body has no header.
 pub fn body(value: &Value, level: usize, context: &Context<'_>) -> String {
     let mut out = String::new();
     render_value(value, level, context, &mut out);
@@ -179,9 +179,9 @@ fn render_value(value: &Value, level: usize, context: &Context<'_>, out: &mut St
 }
 
 /// An implicit mixed block keeps its source order. Prose stays prose. Nested
-/// lists stay lists. Dictionary keys become the next heading level.
+/// lists stay lists. Dictionary keys become the next header level.
 fn render_mixed(mixed: &Mixed, level: usize, context: &Context<'_>, out: &mut String) {
-    // A pure dictionary in mixed content has no heading for its key. Thus the
+    // A pure dictionary in mixed content has no header for its key. Thus the
     // key goes in a fenced structure with the dictionary. Consecutive pure
     // dictionaries share one fence.
     let mut fenced: Properties = Properties::new();

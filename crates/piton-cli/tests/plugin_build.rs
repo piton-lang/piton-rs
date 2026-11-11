@@ -183,8 +183,8 @@ fn a_plugin_build_is_planned_by_the_plugin_and_written_by_the_host() {
     let (stdout, stderr, code) = fixture.run(&["build"]);
     assert_eq!(code, 0, "{stdout}\n{stderr}");
 
-    // The link space of the host. It has headings, and a reference with a
-    // link to its target heading in the same file.
+    // This is the link space of the host. It has headings, and a reference with a
+    // link to its target header in the same file.
     let reference = fixture.read("out/ref/index.md");
     assert!(reference.starts_with("# Button\n"), "{reference}");
     assert!(reference.contains("[Panel](./index.md#panel)"), "{reference}");
@@ -221,7 +221,7 @@ fn a_later_build_removes_what_it_no_longer_writes() {
     let fixture = Fixture::new("stale");
     fixture.run(&["build"]);
     assert!(fixture.exists("out/where.txt"));
-    // The same project, with a smaller plan. Its root tells the build.
+    // This is the same project, with a smaller plan. Its root tells the build.
     let moved = fixture.dir.with_file_name(format!("piton-plugin-build-only-ref-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&moved);
     std::fs::rename(&fixture.dir, &moved).expect("move");

@@ -296,7 +296,7 @@ fn a_property_target_leaves_out_unrelated_properties() {
     assert!(!color.contains("Document"), "{color}");
     assert!(color.contains("Only the properties this slice needs are shown."));
 
-    // Its sibling depends on Document.save. Thus it also depends on SaveState.
+    // The item at the same level depends on Document.save. Thus it also depends on SaveState.
     let (compilation, slice) = sandbox.slice("ui.pi#SaveButton.click");
     assert_eq!(
         entries(&compilation, &slice),

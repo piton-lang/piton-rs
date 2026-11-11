@@ -1,10 +1,10 @@
 //! This module writes the output of a build.
 //!
 //! No part of a build writes files itself. The renderer and each plugin with
-//! a build return the files that they want to write. This module checks all
+//! a build return the files that they will write. This module checks all
 //! of these files together and writes them. It records the files that it
 //! wrote. It removes the files that an earlier build wrote and this build did
-//! not write. Thus each producer gets the same guarantees:
+//! not write. Thus each producer has the same guarantees:
 //! - Paths stay in the project and in the area that each producer can write.
 //! - Two producers never write the same file.
 //! - The build never overwrites or deletes a file that it did not write.
@@ -163,8 +163,8 @@ pub fn paths(plan: &BuildPlan) -> Vec<String> {
 
 /// Writes a checked plan and returns the written paths. This function does
 /// not touch a file with the same contents. Thus its timestamp keeps its
-/// meaning. This function writes each file to a staging file next to it.
-/// Then it renames the staging file to the final path. Thus a build that
+/// sense. This function writes each file to a temporary file next to it.
+/// Then it renames the temporary file to the final path. Thus a build that
 /// stops never leaves half a file.
 pub fn write(plan: &BuildPlan, root: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut written = Vec::new();

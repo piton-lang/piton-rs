@@ -456,7 +456,7 @@ fn shared_projects_write_one_reference_tree_and_one_agents_md() {
     assert!(built.has(".agents/skills/tidy/SKILL.md"));
     assert!(!built.has(".opencode/skills/tidy/SKILL.md"), "{:?}", built.paths());
 
-    // With separate deployment, each tool gets its own tree. The tools do not
+    // With separate deployment, each tool has its own tree. The tools do not
     // share AGENTS.md.
     sandbox.configure(&["CodexAdapter", "OpenCodeAdapter"], "    crossDiscovery: separate\n");
     let built = sandbox.plan();
@@ -476,7 +476,7 @@ fn a_skill_opencode_finds_twice_is_reported_once_per_skill() {
         );
     let built = sandbox.plan();
     built.assert_clean();
-    // OpenCode also finds the Belay fluency skill twice. Each skill gets one
+    // OpenCode also finds the Belay fluency skill two times. Each skill has one
     // `Severity::Warning` diagnostic.
     let warnings: Vec<&str> = built
         .plan
