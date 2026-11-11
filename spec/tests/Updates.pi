@@ -1,0 +1,8 @@
+use @piton/test
+
+export test Update:
+    expects:
+        You should be able to run `piton --update` and it'll self-update from
+        whatever the latest release is.
+
+    tags: [update]

@@ -13,6 +13,11 @@ What matters most stands out. On a terminal, outcomes are bold beside their mark
 
 piton --version, and the version the language server reports to an editor, is the version the edge build publishes the commit as. The major and minor come from Cargo.toml, and the patch is the number of commits up to the one being built, so a local build of a commit reports what its release does, like 0.1.57. A build that sets PITON_VERSION uses that instead. Without git, or outside a checkout, it is the version in Cargo.toml.
 
+## Self Update
+
+piton --update replaces the piton that runs with the latest release, from the same place install.sh installs from: the GitHub releases of piton-lang/piton-rs, or PITON_DOWNLOAD_BASE when it is set. It finds the latest version from the redirect of releases/latest, downloads the archive the edge build publishes for this platform and architecture, checks it against its sha256 file, and puts the binary in the archive where the running piton is. The new binary is written beside the old one and renamed over it, so a failed update leaves the old one working; on Windows the old one is moved aside first, and on macOS the quarantine flag is cleared. Its outcome names the old and new versions. When piton is already the latest release, or newer than it, nothing is replaced and the outcome says so. It downloads with curl or wget and unpacks with tar or unzip, as install.sh does, and fails with an error naming what is missing when none is installed.
+--update is a flag of piton itself, not a command, and takes no command with it. It is not [Update](./package-management/Update.md#update), which updates the project's packages and never the piton binary.
+
 ## Commands
 
 - [Build](./Build.md#build)

@@ -22,7 +22,7 @@ pub const EXIT_ERRORS: u8 = 1;
 
 /// The version `piton --version` reports: the one the edge workflow
 /// publishes this commit as, like `0.1.562`. `build.rs` works it out.
-const VERSION: &str = env!("PITON_BUILD_VERSION");
+pub const VERSION: &str = env!("PITON_BUILD_VERSION");
 
 #[derive(Parser)]
 #[command(
@@ -32,9 +32,15 @@ const VERSION: &str = env!("PITON_BUILD_VERSION");
     long_about = "The Piton compiler turns declarative Piton sources into JSON, YAML, or \
 Markdown, and compiles Belay projects into the artifacts agentic coding tools read."
 )]
+#[command(args_conflicts_with_subcommands = true, arg_required_else_help = true)]
 struct Cli {
+    /// Replace this piton with the latest release, and show the old and new
+    /// versions. Not `piton update`, which updates packages
+    #[arg(long)]
+    update: bool,
+
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -214,7 +220,7 @@ fn main() -> ExitCode {
     // Plugins that inspect projects look before the command runs, and offer
     // to update one written for an older Piton. Not before the language
     // server, whose stdout is the editor's protocol.
-    if matches.subcommand_name() != Some("lsp") {
+    if matches.subcommand_name() != Some("lsp") && !matches.get_flag("update") {
         let running = plugins::matched(&manifests, &matches).map(|(manifest, _, _)| manifest.name.clone());
         if let Some(code) = inspection::offer(&project, &manifests, running.as_deref()) {
             report::flush();
@@ -228,7 +234,13 @@ fn main() -> ExitCode {
         return ExitCode::from(code);
     }
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
-    let code = match cli.command {
+    let Some(command) = cli.command else {
+        // `arg_required_else_help` means the only way here is `--update`.
+        let code = commands::self_update::run();
+        report::flush();
+        return ExitCode::from(code);
+    };
+    let code = match command {
         Command::Build { config, dry_run } => commands::build::run(config.as_deref(), dry_run),
         Command::Check { paths } => commands::check::run(&paths),
         Command::Compile {
