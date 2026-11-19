@@ -20,7 +20,7 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 pub const EXIT_SUCCESS: u8 = 0;
 pub const EXIT_ERRORS: u8 = 1;
 
-/// The version that `piton --version` shows, for example `0.1.562`. The edge
+/// The version that `piton --version` shows, for example `0.2.562`. The edge
 /// workflow publishes this commit with this version. `build.rs` calculates it.
 pub const VERSION: &str = env!("PITON_BUILD_VERSION");
 

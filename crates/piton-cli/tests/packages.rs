@@ -27,13 +27,8 @@ fn read(relative: &str) -> String {
 }
 
 fn binary() -> PathBuf {
-    // The integration binary is next to the test binary.
-    let mut path = std::env::current_exe().expect("test binary");
-    path.pop();
-    if path.ends_with("deps") {
-        path.pop();
-    }
-    path.join("piton")
+    // Cargo builds the binary before the integration tests and names it here.
+    PathBuf::from(env!("CARGO_BIN_EXE_piton"))
 }
 
 #[test]

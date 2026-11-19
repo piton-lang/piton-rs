@@ -10,8 +10,10 @@ fn main() {
 ///
 /// The edge workflow in `.github/workflows/edge.yml` publishes the commit
 /// with the same version. The major and minor numbers come from `Cargo.toml`.
-/// The patch is the number of commits up to `HEAD`. Thus a local build of a
-/// commit shows the same version as the release of that commit. A release
+/// The patch is the number of commits after the commit that last changed the
+/// version in the workspace `Cargo.toml`. Thus that commit is X.Y.0, and the
+/// patch starts at zero again after each major or minor change. A local build
+/// of a commit shows the same version as the release of that commit. A release
 /// build sets `PITON_VERSION` to that version, and this script uses it as
 /// given. Without git, or outside a checkout, the crate version stays.
 fn version() {
@@ -19,7 +21,7 @@ fn version() {
     let crate_version = std::env::var("CARGO_PKG_VERSION").expect("crate version");
     let version = match std::env::var("PITON_VERSION") {
         Ok(version) if !version.trim().is_empty() => version.trim().to_string(),
-        _ => match git(&["rev-list", "--count", "HEAD"]) {
+        _ => match patch() {
             Some(count) => {
                 let major_minor = crate_version
                     .rsplit_once('.')
@@ -41,6 +43,14 @@ fn version() {
         },
     };
     println!("cargo:rustc-env=PITON_BUILD_VERSION={version}");
+}
+
+/// Counts the commits after the commit that last changed the version line of
+/// the workspace `Cargo.toml`. When git cannot find that commit, it returns
+/// nothing.
+fn patch() -> Option<String> {
+    let bump = git(&["log", "-1", "--format=%H", "-G^version = ", "--", ":/Cargo.toml"])?;
+    git(&["rev-list", "--count", &format!("{bump}..HEAD")])
 }
 
 /// Runs git in the directory of this crate. When git succeeds, it returns the

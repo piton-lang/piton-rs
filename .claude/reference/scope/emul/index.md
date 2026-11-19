@@ -34,6 +34,7 @@ In the module the hook gives, each exported design becomes a concrete anchor wit
 - kind component or composition.
 - file The path of the Emul file that declares the design, relative to the project root.
 - usage The instruction to the agent, from EmulDesign. Usage tells it.
+- uses A list of references to the designs that the design uses: the components that it extends and the designs that it instances, by the names that the file gives them. A design that uses a local design that the file does not export uses what that design uses. Names in text and in comments are not uses, and a name that the file imports but no design uses is not a use. A design that uses nothing has no uses property. Thus `piton reach` goes from a referenced composition to each component that draws it.
 
 The anchors are values like all others. They do not show in `piton compile` unless the compiled file exports them.
 

@@ -8,12 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn binary() -> PathBuf {
-    let mut path = std::env::current_exe().expect("test binary");
-    path.pop();
-    if path.ends_with("deps") {
-        path.pop();
-    }
-    path.join("piton")
+    PathBuf::from(env!("CARGO_BIN_EXE_piton"))
 }
 
 struct Fixture {

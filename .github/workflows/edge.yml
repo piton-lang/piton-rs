@@ -2,21 +2,23 @@
 # something is pushed to `main`.
 #
 # Versions: every build gets the next patch number. The major and minor come
-# from `Cargo.toml` (0.1 today) and the patch is the number of commits on
-# `main`, so builds go 0.1.1, 0.1.2, ... 0.1.562. It is worked out here rather
-# than committed back, so the same commit always gets the same version and a
-# failed build leaves no gap. To move to 0.2, change the version in
-# `Cargo.toml`; the patch keeps counting.
+# from `Cargo.toml` (0.2 today) and the patch is the number of commits on
+# `main` since the commit that last changed that version. The commit that
+# changes it is X.Y.0, so builds go 0.2.0, 0.2.1, 0.2.2, ... It is worked out
+# here rather than committed back, so the same commit always gets the same
+# version and a failed build leaves no gap. To move to 0.3, change the
+# version in `Cargo.toml` to 0.3.0; that commit publishes 0.3.0 and the patch
+# starts again from zero.
 #
-# Each build is its own release, `v0.1.N`, marked latest. It carries one
+# Each build is its own release, `v0.2.N`, marked latest. It carries one
 # archive per platform, named with the version, holding a binary called
 # `piton` (`piton.exe` on Windows):
 #
-#   piton-edge-linux-x86_64-0.1.N.tar.gz
-#   piton-edge-macos-aarch64-0.1.N.zip
-#   piton-edge-macos-x86_64-0.1.N.zip
-#   piton-edge-windows-x86_64-0.1.N.zip
-#   piton-edge-vscode-0.1.N.vsix          (the VS Code extension)
+#   piton-edge-linux-x86_64-0.2.N.tar.gz
+#   piton-edge-macos-aarch64-0.2.N.zip
+#   piton-edge-macos-x86_64-0.2.N.zip
+#   piton-edge-windows-x86_64-0.2.N.zip
+#   piton-edge-vscode-0.2.N.vsix          (the VS Code extension)
 #
 # `piton --version` prints the version it was released as. The tests run
 # first; nothing is published unless they pass.
@@ -59,7 +61,8 @@ jobs:
         run: |
           base=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
           major_minor="${base%.*}"
-          patch=$(git rev-list --count HEAD)
+          bump=$(git log -1 --format=%H -G'^version = ' -- Cargo.toml)
+          patch=$(git rev-list --count "${bump}..HEAD")
           echo "version=${major_minor}.${patch}" >> "$GITHUB_OUTPUT"
           echo "Building ${major_minor}.${patch}"
 

@@ -1484,7 +1484,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "piton-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "piton-compile"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "indexmap",
  "piton-core",
@@ -1514,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "piton-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "indexmap",
  "serde",
@@ -1522,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "piton-emit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "indexmap",
  "piton-core",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "piton-lsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "piton-compile",
  "piton-core",
@@ -1546,7 +1546,7 @@ dependencies = [
 
 [[package]]
 name = "piton-plugin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossterm",
  "globset",
@@ -1568,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "piton-syntax"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chumsky",
  "piton-core",
@@ -2563,7 +2563,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "yaml-rust"
