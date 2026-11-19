@@ -1,6 +1,6 @@
 use ../../cli
 
-from /scope/package-management/Dependencies import Dependencies
+from ../../../package-management/Dependencies import Dependencies
 
 export cli-command Tether:
     commandName: tether

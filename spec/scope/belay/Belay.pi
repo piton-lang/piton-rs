@@ -1,7 +1,3 @@
-from ../../../plugins/belay/pi/adapters/ClaudeCode import ClaudeCodeAdapter
-from ../../../plugins/belay/pi/adapters/Codex import CodexAdapter
-from ../../../plugins/belay/pi/adapters/Muse import MuseAdapter
-from ../../../plugins/belay/pi/adapters/OpenCode import OpenCodeAdapter
 from ./Compilation import Compilation
 from ./Decisions import
     BuildGuarantees,
@@ -22,6 +18,11 @@ from ./anchors/Agent import AgentBehavior
 from ./anchors/Command import CommandBehavior
 from ./anchors/Instruction import InstructionBehavior
 from ./anchors/Skill import SkillBehavior
+from @piton/belay import
+    ClaudeCodeAdapter,
+    CodexAdapter,
+    MuseAdapter,
+    OpenCodeAdapter
 
 export anchor Belay:
     description:
@@ -67,10 +68,10 @@ export anchor Belay:
         - @{AnchorReferences}
 
     adapters:
-        - @{ClaudeCodeAdapter}
-        - @{CodexAdapter}
-        - @{OpenCodeAdapter}
-        - @{MuseAdapter}
+        - {ClaudeCodeAdapter}
+        - {CodexAdapter}
+        - {OpenCodeAdapter}
+        - {MuseAdapter}
 
     guarantees:
         - @{BuildGuarantees}
