@@ -1,10 +1,6 @@
 {
   "generated": [
     ".claude/reference/index.md",
-    ".claude/reference/plugins/belay/pi/adapters/ClaudeCode.md",
-    ".claude/reference/plugins/belay/pi/adapters/Codex.md",
-    ".claude/reference/plugins/belay/pi/adapters/Muse.md",
-    ".claude/reference/plugins/belay/pi/adapters/OpenCode.md",
     ".claude/reference/scope/belay/AgentCommand.md",
     ".claude/reference/scope/belay/Belay.md",
     ".claude/reference/scope/belay/Compilation.md",

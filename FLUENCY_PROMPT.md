@@ -1052,7 +1052,7 @@ piton-plugin TestPlugin:
 ```typescript
 // In Belay:
 export default definePlugin({
-  exports: { agents: (ctx) => ({ list, launch, fluency }) },
+  exports: { agents: (ctx) => ({ list, launch, fluency, prompt }) },
 });
 
 // In the test plugin:
@@ -1120,7 +1120,8 @@ piton-plugin Hello:
 
 - To share a plugin, put it in a package. The project imports the
   declaration from the package and lists it under `plugins:`. Import the
-  Piton files of the plugin by the package name.
+  Piton files of the plugin by the package name. Piton installs the package
+  into `tethers/` as other packages.
 - Settings: an anchor that implements the settings abstract of the plugin.
   List it under `plugins:`. For bundled plugins it must come from the package
   of the plugin (`belay-config`, `test-config`).
@@ -1134,7 +1135,7 @@ piton-plugin Hello:
   `piton.config.pi`. This reads only Piton. Plugin commands work from all
   directories of the project.
 - The config must have no errors before a plugin command runs. Plugin
-  problems are warnings.
+  problems are warnings. A `standalone` command (11.1) is an exception.
 - Exception: the commands of a plugin with an inspect hook run also when the
   config has errors. Their work can be to repair the config.
 
@@ -1203,7 +1204,13 @@ A handler returns the exit code. If it returns nothing, the code is 0.
 | argument size | `spawn` and `exec` refuse an argument or env value that is too large for the OS (on Linux, 128 KiB or more) before the program starts. The error names the value and its size. Write more data to a temporary file. |
 | `applyEdits` | Write proposed edits (a project file and its full new contents) for a command that the user ran to make them. Each path must be in the `edits` capability. It returns the changed paths. |
 | `choose` | Show a menu and return the selected item, or nothing on cancel or without a terminal. Needs `interactive`. |
+| `chooseMany` | Show a checklist (some items checked at the start, a minimum count) and return the checked indexes, or nothing on cancel or without a terminal. Needs `interactive`. |
+| `ask` | Let the user type an answer and return it, or nothing on cancel or without a terminal. Needs `interactive`. |
 | `resource` | The text of a file in the directory of the plugin. It needs no capability. |
+| `resources` | Each file below a directory of the plugin, recursively, as sorted relative paths with forward slashes. It needs no capability. |
+| `format` | Piton source in the canonical format, as `piton format` writes it. |
+| `scaffold` | Write the files of a new project, never over a file (11.2). Needs `scaffold`. |
+| `tether` | Tether the dependencies of a new config. It returns none, installed or failed. With only a check, it returns pending if there are dependencies. Needs `scaffold`. |
 | `onPath` | Is a permitted program on PATH. |
 | `readFile` | The text of a file in the project. Needs `files: read`. |
 | `stat` | File, directory or other, size, execute bit, or null. It follows symlinks. Needs `files: read`. |
@@ -1392,6 +1399,108 @@ Migrations:
 - `--check` changes nothing. It fails when the project needs a migration,
   and names each migration. Use it in CI.
 - Exit code: 0 on success. With `--check`, 1 when a migration is necessary.
+- The edit applies to each config with a `frameworks` key. Either key can
+  hold its items as a block or as an inline list.
+
+### 11.13 Module hooks (`spec/scope/plugins/Modules.pi`)
+
+A plugin can give the Piton module of a file that is not Piton. Then a `.pi`
+file imports that file like a module. The compiler knows only the
+extensions. All knowledge of the file format is in the plugin.
+
+```piton
+export piton-plugin EmulPlugin:
+    name: emul
+    entry: ./src/index.ts
+    modules: [emul]
+```
+
+```typescript
+export default definePlugin({
+  module(ctx, file) {
+    return synthesize(file.text, file.path);
+  },
+});
+```
+
+- **Resolution.** An import path that ends in a listed extension names that
+  file only. Piton does not try `.pi` or an index. The path resolves as
+  other module paths do: relative, from the source root with `/`, or in an
+  installed package. A path that names no file is an error. Without the
+  extension, a path names a `.pi` module.
+- **Input.** The hook gets the path (relative to the project root if the file
+  is in the project, else absolute) and the text. In the editor, the text is
+  the unsaved buffer.
+- **Output.** Piton source, as a string or as `{source}`. Piton parses and
+  resolves it as other modules. A name that it does not export is an error.
+- **When.** The hook runs when the compiler loads such a file: in
+  `piton compile`, `check`, `build`, each other command that compiles, and
+  the LSP. Piton keeps the result by path and text. The hook runs again only
+  when the text changes.
+- The hook must be quick and change nothing. It can do only what the plugin
+  declares. It cannot compile a project that imports such a file.
+- **Conflicts.** One plugin owns each extension. The first plugin in the
+  plugin list that lists it wins.
+- **Failures.** A hook that throws or returns no source is an error on the
+  file that names the plugin. Piton does not load the module. The import
+  reports nothing more.
+- The LSP installs the hooks when it loads the project config. It runs a
+  hook when it loads such a file from disk or from a buffer.
+
+### 11.14 The Emul plugin (`spec/scope/emul/`)
+
+Emul is a small language for visual designs. Components and compositions
+compile to SVG, PNG and HTML. The bundled Emul plugin lets a spec point an
+agent at a design, not describe it in prose. The compiler holds no code for
+Emul. Its source is `plugins/emul`. Its Piton files are `@piton/emul`.
+
+```piton
+from ./designs/Landing.emul import Landing, PrimaryButton
+```
+
+- **Import.** The `.emul` extension is mandatory. A name that the Emul file
+  does not export is an error. A path that names no file is an error.
+- **Declarations.** The plugin does not compile Emul. Its module hook reads
+  only the declaration lines at the start of a line, and exports the same
+  names:
+  - `export component Name`, `export composition Name`.
+  - `component Name` or `composition Name`, then `export Name`.
+  - `from ./Other import Name`, then `export Name`.
+  - `from ./Other export Name`, `from ./Other export *`.
+- A path in an Emul file is relative to that file. Without an extension, it
+  names `Other.emul`, else `Other/index.emul`. `.` and `..` name the
+  `index.emul` of the directory. `emul check` finds the errors of Emul.
+- **Designs.** Each exported design becomes a concrete anchor with the name
+  of the design. It implements the abstract `EmulDesign` (keyword
+  `emul-design`). Its properties:
+
+| Property | Value |
+| --- | --- |
+| `name` | The name of the design in the Emul file. |
+| `kind` | `component` or `composition`. |
+| `file` | The path of the Emul file, relative to the project root. |
+| `usage` | The instruction to the agent, from `EmulDesign`. |
+
+- The anchors do not show in `piton compile` unless the compiled file
+  exports them.
+- **References.** `@{Landing}` refers to the anchor. The build writes it.
+  Belay writes it to the reference tree at the path of the Emul file, with
+  `.md`: `spec/designs/Landing.emul` →
+  `.claude/reference/designs/Landing.md`. `{Landing}` puts the properties in
+  place.
+- **Usage text.** The `emul` compiler is already installed. Piton and the
+  agent do not install it. The agent reads the Emul file, or compiles the
+  design to SVG, PNG or HTML with `emul build`. SVG and PNG show the look.
+  HTML shows the structure and the CSS. The source shows the exact values.
+  The agent writes compiled files to a temporary directory with `--out`, and
+  does not add them to the project. `emul build` renders only compositions
+  that the entry of an Emul project exports. Thus the agent gives
+  `--config`, or makes a temporary Emul project. A component shows only in a
+  composition.
+- **Capabilities.** `process: [emul]` and `files: read`. It writes nothing.
+- **`piton emul`** lists each Emul design that the project imports: name,
+  kind and file. Then it tells if `emul` is on PATH. Without Emul imports, it
+  reports that. Exit code 0, also when `emul` is not on PATH (a warning).
 
 ## 12. Belay
 
@@ -1414,6 +1523,7 @@ Belay plugin declaration (`plugins/belay/plugin.pi`):
 
 | Item | Value |
 | --- | --- |
+| `name`, `entry` | `belay`, `./src/index.ts`. Its build is this TypeScript. |
 | `settings` | `BelayConfig` (`belay-config`). |
 | `build` | `true`. |
 | `placeholders` | The five special imports (12.4). |
@@ -1424,14 +1534,31 @@ Belay plugin declaration (`plugins/belay/plugin.pi`):
   manifest.
 - The host Markdown renderer renders reference documents and construct
   Markdown in a link space of Belay. The host encoders write YAML and TOML.
-- Belay exports `agents` for other plugins: `list` (the known tools, each
-  with name, program and target), `fluency` (the prompt of `piton agent`)
-  and `launch` (program, args and env to start a tool interactively, with an
-  optional first message and an optional model). It also exports the models
-  of each tool and the options that select a model. The test plugin uses
-  them.
+- Belay exports `agents` for other plugins. The test plugin uses them:
+  - `list`: the known tools, each with name, program and target.
+  - `fluency`: the full fluency prompt of a tool.
+  - `prompt`: the prompt that a tool gets, as text. For a tool that reads it
+    from a file, also the temporary file.
+  - `launch`: program, args and env to start a tool interactively, with an
+    optional first message and an optional model.
+  - The models of each tool and the options that select a model.
 - The LSP shows Belay diagnostics and an output preview for each adapter
-  after each save.
+  after each save, from the plan that a build writes.
+- A project without a `belay-config` gets no Belay output. It can still use
+  the keywords and imports of Belay. Each file must `use` or import what it
+  needs.
+
+**The `piton-fluency` skill.** The build also writes the fluency reference
+as a skill named `piton-fluency` for each adapter, at the skill path of the
+adapter (`.claude/skills/piton-fluency/SKILL.md`).
+
+- The body is `FLUENCY_PROMPT.md` of the project, else the copy in Belay.
+- The description says that it is the Piton fluency reference, for when you
+  read or change `.pi` files or run `piton` commands.
+- It obeys the rules of each skill. An adapter whose tool finds the copy of
+  another adapter writes none. It counts for name collisions and
+  cross-target discovery.
+- A tool finds it through its own skill discovery, in all sessions.
 
 ### 12.1 `belay-config`
 
@@ -1473,9 +1600,11 @@ writes them as Markdown sections after the prompt.
   - An agent needs `role`, except a vendored agent.
 - Piton checks required fields on concrete constructs after inheritance.
 - Piton does not write a description or prompt that is not there. If a target
-  needs a description, the result is `missing-description`. These need one:
-  Claude Code agents; Codex skills, commands and agents; OpenCode skills and
-  agents; Muse skills and commands.
+  needs a description, the result is `missing-description`. The spec names
+  OpenCode skills (1–1024 characters) and Muse skills. The code
+  (`descriptionRequired`, section 19) also names Claude Code agents; Codex
+  skills, commands and agents; OpenCode agents; Muse commands.
+- Leave the selection and load of skills to the platform.
 - Piton writes the role and the skill description literally:
   - `role: careful reviewer` → `You are a careful reviewer`.
   - `Reviews code.` with `asked for a review` →
@@ -1570,8 +1699,8 @@ export skill Impeccable:
 - The file has a heading for each instruction (`# Button Shape`).
 - The fallback changes only the location. The shape reference tree keeps the
   original path.
-- Instructions outside `shapeRoot` are an open decision. The compiler gives
-  an error (`instruction-placement-unspecified`).
+- Instructions outside `shapeRoot` are an open decision (12.8). The Belay
+  code gives an error (`instruction-placement-unspecified`).
 - A location never makes sure that the tool loads the file at the start
   (12.6).
 
@@ -1642,7 +1771,7 @@ Each adapter extends the abstract `belay-agent-adapter`
 | Skill | `.claude/skills/<n>/SKILL.md`. Frontmatter `name`, `description`. The directory is the name. | `.agents/skills/<n>/SKILL.md`, the same. | `.opencode/skills/<n>/SKILL.md`. Name: 1–64 lowercase letters and digits, single hyphens, the same as the directory. Description: 1–1024 characters. | `.agents/skills/<n>/SKILL.md`. A description is always required. Never write `allowed-tools`. |
 | Command | `.claude/skills/x-<n>/SKILL.md` with `disable-model-invocation: true`. Call it with `/x-<n>`. Never also write `.claude/commands/`. | `.agents/skills/x-<n>/SKILL.md` and `agents/openai.yaml` with `policy: allow_implicit_invocation: false`. Call it with `$x-<n>`. | Native `.opencode/commands/x-<n>.md`. Call it with `/x-<n>`. | Translated: `.agents/skills/x-<n>/SKILL.md` with `disable-model-invocation: true`. Call it with `/x-<n>`. |
 | Agent | `.claude/agents/<n>.md`: `name`, `description`, optional `tools`, `model`. | `.codex/agents/<n>.toml`: `name`, `description`, `developer_instructions` (one TOML string: role, prompt, extras), optional `model`, `model_reasoning_effort`, `sandbox_mode`. | `.opencode/agents/<n>.md`: `description`, `mode` (`primary`, `subagent` or `all`; always explicit; default `subagent`), optional `model`, `permission`. The file name is the identity. It has no `name` field. | **Not supported.** No file. Warning `unsupported-construct`. Piton never changes it into a skill. |
-| Native options | Agent: `tools`, `model`. Skill and command: `allowed-tools`, `model`. | Agent only: `model`, `model_reasoning_effort`, `sandbox_mode`. | Agent: `mode`, `model`, `permission`. Command: `agent`, `model`. | None. Approval mode, sandbox and permission profiles belong to Muse. |
+| Native options | Agent: `tools`, `model`. Skill: `allowed-tools`, `model`. Command metadata: `name`, `description`, `disable-model-invocation`. | Agent only: `model`, `model_reasoning_effort`, `sandbox_mode`. | Agent: `mode`, `model`, `permission`. Command: `agent`, `model`. | None. Approval mode, sandbox and permission profiles belong to Muse. |
 | Load | Ancestor files at the start. Nested files when Claude reads that subtree. | The chain from the root to the current directory at the start. A same-directory `AGENTS.override.md` hides the file (`shadowed-instruction`). Byte limit (`instruction-over-budget`). | It searches up from the current directory. It prefers `AGENTS.md` to `CLAUDE.md`. Do not assume that it loads nested files (`unguaranteed-instruction-scope`). It also finds `.claude/skills` and `.agents/skills`. | Rules files from the current directory up to the workspace root, only in trusted workspaces. `AGENTS.md` wins against a same-directory `CLAUDE.md`, which it ignores with a warning. Descendant files are not sure to load. Skills come from `.agents/skills`, `.claude/skills`, `.codex/skills`, in that priority. It keeps one copy. It obeys the `disable-model-invocation` of Claude and the `openai.yaml` policy of Codex. |
 
 Rules for all adapters:
@@ -1680,7 +1809,7 @@ other:
   reference tree.
 - With one adapter, or with `separate`, each adapter owns its own tree.
 - The first adapter in the list writes a shared instruction path
-  (`AGENTS.md`) one time. Muse shares the `AGENTS.md` of Codex and OpenCode.
+  (`AGENTS.md`) one time. Codex, OpenCode and Muse all read `AGENTS.md`.
 - If a tool finds the skill directory of another enabled adapter, its adapter
   writes no copy of a skill that the other adapter writes there. It links to
   that skill. OpenCode and Muse do this for Claude Code and Codex skills.
@@ -1688,12 +1817,14 @@ other:
 - A construct that a target does not support (a Muse agent) links to the
   artifact of another adapter. If there is none, it links to its reference
   document.
-- OpenCode finds the `x-` command skills of other adapters. This gives
-  `cross-discovery-activation`. Two settings stop the error:
+- OpenCode finds the `x-` command skills of other adapters. It ignores
+  frontmatter that it does not know, such as `disable-model-invocation`, so
+  the model can start them. This gives `cross-discovery-activation`. Two
+  settings stop the error:
   - `opencode.json` or `opencode.jsonc` denies them:
     `"permission": {"skill": {"x-*": "deny"}}`. The last pattern that matches
     wins. This rule does not change the native `x-` commands of OpenCode.
-  - `crossDiscovery` is set.
+  - `crossDiscovery` is set (`allow`).
 - A tool that finds one skill in more than one directory gives a
   `cross-target-discovery` warning. This does not apply if the tool keeps
   only one copy (Muse).
@@ -1725,8 +1856,11 @@ Rules for each adapter:
   - The agent TOML must parse and have its three fields.
 - **OpenCode**:
   - Do not assume nested loads or chains.
-  - Give more guidance only through explicit `instructions` config, never
-    global config.
+  - Use explicit `instructions` config when the deployment needs more
+    files. Do not load all nested instructions globally only to make them
+    discoverable.
+  - The file name gives the identity of a command. Command frontmatter has
+    no `name`.
   - Shape scope that is required but that OpenCode cannot make sure of is an
     error.
   - Frontmatter that OpenCode does not know enforces nothing.
@@ -1901,7 +2035,19 @@ export test SaveButtonSaves:
 | --- | --- |
 | `expects:: string` | Required. The statement. |
 | `against` | Optional: `spec`, `code` or `both`. |
-| `description` | Optional. Context for the agent. It never changes the statement. |
+| `context` | Optional. A preamble that tells what the statement is about. It goes before the statement in the request and in each fix prompt. It never changes the statement. Put it on an abstract base to share it. |
+| `description` | Optional. Context for the agent, such as where to look. It never changes the statement. |
+
+```piton
+use @piton/test
+from @piton/test import Test
+
+abstract anchor EditorTest extends Test as editor-test:
+    context: The editor is the document view under src/editor.
+
+export editor-test SaveButtonSaves:
+    expects: The Save button saves the document
+```
 | `tags:: string[]` | Optional. Piton trims tags and drops empty tags. Tags only select tests. Piton never sends them to the agent. |
 
 Discovery:
@@ -1910,8 +2056,9 @@ Discovery:
   in its chain. The keyword or the chain is not important.
 - Piton compiles all `.pi` files below the source root. The entry does not
   have to reach the tests.
-- Piton skips tests without an export. Tests in `tethers/` do not belong to
-  the project.
+- Piton skips tests without an export. Remove the export to keep a test that
+  does not run. Tests in `tethers/` do not belong to the project.
+- Tests can be next to what they describe. The build does not write them.
 - The order is by file, then by name.
 - The reach hook of the plugin returns each test (11.11). Thus `piton reach`
   and the LSP never report a test as unreachable or unused.
@@ -1930,6 +2077,8 @@ Discovery:
   `invalid-jobs`.
 - A bad choice value (in settings, in a test or on the CLI) gives an error
   that names the correct choices. Nothing runs.
+- Example: `test-config Tests:` with `against: spec`, `agent: codex`,
+  `model: gpt-6.1-sol` and `jobs: 8`, listed as `- {Tests}` under `plugins:`.
 - Precedence:
   - `against`: CLI flag › test › settings › `both`.
   - `agent`, `model` and `jobs`: CLI flag › settings › `claude`, the default
@@ -1949,10 +2098,12 @@ Models:
   on stdout. It runs no tests and exits with 0. If the agent lists no
   models, the result is an error, and the exit code is 1.
 - A `--model` value that is a model of the agent is that model. Another value
-  is a search string, as for `piton agent` (15). Piton lists the matches, runs
-  no tests and exits with 0.
+  is a search string, as for `piton agent` (15). Piton lists the models that
+  contain it (case is not important). If none matches, it lists all models.
+  It runs no tests and exits with 0.
 - A model from the settings is never a search.
-- The model list is the list of `piton agent`.
+- The note, the `--model` list and the hand-off menu use the model list of
+  `piton agent`.
 
 Targets:
 
@@ -1989,7 +2140,8 @@ The order of checks:
    (empty `expects`, bad `against`) also stop all work. Piton reports each by
    name with its file.
 6. `--list` stops here.
-7. The tool must be on PATH. Else the error tells you to use `--agent`.
+7. The tool must be on PATH. Else the error names the tool, tells you to use
+   `--agent`, and nothing runs.
 
 What the agent reads:
 
@@ -2003,8 +2155,9 @@ The session:
 
 - Each test is one headless session in the project root, with an empty stdin.
   Piton asks for read-only access.
-- The request gives the statement, description, name, file, scope, and the
-  source root and code root relative to the project.
+- The request gives the context first, as a preamble. Then it gives the
+  statement, description, name, file, scope, and the source root and code
+  root relative to the project.
 - The agent must not change, create or delete files. It must judge on
   evidence. A statement fails when evidence contradicts it or when there is
   no evidence.
@@ -2062,15 +2215,18 @@ The fix:
 The fix prompt:
 
 - Each failed test gets a prompt that an agent with no other context can use.
-- It holds: what to fix (the spec, the code or both), the statement, the test
-  name and file, the scope, the reason, the per-side results for `both`, the
-  explanation, and "What to change" (the `fix`).
+- The first line names what to fix: the Piton specification, the code, or
+  both.
+- It holds: the context (a preamble before the statement), the statement, the
+  test name and file, the scope, the reason, the per-side results for `both`,
+  the explanation, and "What to change" (the `fix`).
 - Without a `fix`, the prompt tells the agent to find the problem and change
   it.
 - Its rules: change only the target scope (both sides must agree for `both`);
   never change the test; edit the spec only in `.pi` source, never in
   generated files; run `piton check` and `piton build` after a spec change;
-  run `piton test <name> --against <scope>` to examine the fix.
+  run `piton test <name> --against <scope>` to examine the fix. `--against`
+  makes the check agree with the failure, also when a flag gave the scope.
 - A test that Piton could not judge has no fix prompt.
 
 ```text
@@ -2094,8 +2250,9 @@ Rules:
 
 The hand-off:
 
-- After the fix prompts and the outcome, a terminal menu lists `claude`,
-  `codex`, `opencode`, `muse` and "No agent".
+- After the fix prompts and the outcome, a terminal menu lists the tools
+  that Belay knows (`claude`, `codex`, `opencode`, `muse`) and "No agent".
+  "No agent" ends the run.
 - The selected tool starts interactively in the project root. It gets the
   fluency prompt of `piton agent`, and the fix prompts as its first message.
 - One prompt goes as it is. Many prompts go together under numbered
@@ -2113,22 +2270,29 @@ The hand-off:
 Errors:
 
 - A nonzero exit or no verdict is an *error*. The test is not judged.
-- The error shows the exit code and the last three lines of stderr (or
-  stdout). It can also say that the session ended without a verdict line.
+- The error shows the exit code and the last three lines of stderr (of
+  stdout if stderr is empty). It can also say that the session ended without
+  a verdict line.
 
 How Piton starts each tool:
 
 | Tool | Command |
 | --- | --- |
-| Claude | `claude -p <request> --append-system-prompt <fluency> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose` |
-| Codex | `codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<TOML string> <request>` |
+| Claude | `claude -p <request> --append-system-prompt-file <fluency file> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose` |
+| Codex | `codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<short prompt as a TOML string> <request>` |
 | OpenCode | `opencode run --standalone <request>`, with `OPENCODE_CONFIG_CONTENT` that names a temporary fluency file and denies edit and bash |
-| Muse | `muse exec -c run.developer_prompt=<JSON string> <request>`, in the sandbox of Muse |
+| Muse | `muse exec -c run.developer_prompt=<short prompt as a JSON string> <request>` |
 
-With a model, each tool also gets its model option before the request, as
-`piton agent` gives it.
-
-Piton never claims more enforcement than the tool gives.
+- Claude and OpenCode read the full fluency prompt from a temporary file.
+  Piton removes it when the run ends.
+- Codex and Muse take instructions only as an argument, and the OS limits
+  its size. They get the short prompt of Belay (15), which tells them to read
+  the `piton-fluency` skill.
+- With a model, each tool also gets its model option before the request, as
+  `piton agent` gives it.
+- Enforcement: Claude can only read and search. Codex runs in its read-only
+  sandbox. OpenCode denies edits and the shell. Muse uses its own default
+  sandbox. Piton never claims more enforcement than the tool gives.
 
 Output:
 
@@ -2158,17 +2322,22 @@ Output:
          The Save button has no click handler.
 ```
 
-- The width is the terminal width of stdout, up to 100. When piped, it is 100.
+- The width is the terminal width of stdout, from 40 to 100. When piped, it
+  is 100.
 - If a test did not pass, a "Not passing" recap follows. It has one line for
-  each test: status, name and file. A failed `both` test also shows the
+  each failed or unjudged test: status, name and file. A failed `both` test also shows the
   sides, for example `(spec pass, code FAIL)`.
 - Then the heading "Fix prompts" follows. Each fix prompt is under a rule
-  with the test name, in list order. Piton does not wrap or indent it.
+  with the test name, in list order (not in the order that they ended).
+  Piton does not wrap or indent it.
 - The outcome goes to stderr: `✓ 9 tests passed in 4:12` or
   `✗ 9 tests: 7 passed, 1 failed, 1 could not be judged in 4:12`.
-- On a terminal, a status block shows a spinner, counts, and for each test
-  that runs, its time and last tool action. Results print above it. It
-  disappears at the end.
+- Before the first test, stderr shows a line that names the agent and the
+  model at once: `judging with claude, model opus` or
+  `judging with claude, default model`.
+- On a terminal, a dim status block shows a spinner, how many tests are done
+  and running, and one line for each test that runs: its name, time and last
+  tool action. Results print above it. It disappears at the end.
 - The last action of Claude reads like "reading `<path>`" or "searching
   `<dir>` for a pattern", with paths relative to the project. It also shows
   the first line of what Claude says. During its first turn, it shows
@@ -2179,6 +2348,13 @@ Output:
   each test: the name, `against` and tags (dimmed), and the wrapped
   statement. The outcome is `✓ 9 tests in 3 files`. It runs nothing and needs
   no tool.
+
+```text
+spec/tests/Editor.pi
+  SaveButtonSaves  against code · editor, save
+    The Save button saves the document
+```
+
 - Colour: green, red and yellow status, bold names, highlighted files, dim
   details and times. With `NO_COLOR` or a pipe, the text is plain.
 - Exit code: 0 on success, 1 on failures or errors.
@@ -2187,7 +2363,8 @@ Output:
 
 General rules for each command:
 
-- It shows the results first, then a bold ✓ or ✗ outcome line.
+- It shows the results first, then a bold outcome line: a green ✓ or a red
+  ✗.
 - Then it shows diagnostics, with help and notes.
 - Then it shows a count of errors and warnings. It does not show the count
   after a clean run, unless the command is a check.
@@ -2198,10 +2375,10 @@ General rules for each command:
 - With a pipe or `NO_COLOR`, the text is plain. Bare results go to stdout.
 - `piton --version`, and the version that the LSP reports, is major.minor
   from `Cargo.toml` with the commit count as the patch (for example
-  `0.1.57`). `PITON_VERSION` overrides it. Without git, it is the
-  `Cargo.toml` version.
-- Plugin commands show in `--help` next to the built-in commands. They cannot
-  replace built-in commands.
+  `0.1.57`). `PITON_VERSION` overrides it. Without git, or outside a
+  checkout, it is the `Cargo.toml` version.
+- Plugin commands show in `--help` next to the built-in commands. A plugin
+  command with the name of a built-in command is reported and left out.
 - `piton --update` replaces the running `piton` with the latest release.
   It is a flag of `piton`, not a command, and it takes no command. It is
   not `piton update`, which updates packages.
@@ -2229,7 +2406,7 @@ General rules for each command:
 | `format [path] [--check]` | built in | Writes the canonical format. |
 | `reach [targets...] [--no-unreachable] [--no-paths]` | built in | Shows what is reachable and what is not. |
 | `slice <target>` | built in | Shows the spec that one item needs, as one Markdown document. |
-| `init [dir] [--template group/name] [--adapter id...] [--list] [--no-tether]` | built in | Makes a new project from a template. |
+| `init [dir] [--template/-t group/name] [--adapter/-a id...] [--list] [--no-tether]` | init plugin | Makes a new project from a template. |
 | `loc [paths...]` | built in | Shows total, code, comment and blank lines for each file, and a summary. Exits with 0. |
 | `lsp` | built in | Starts the language server on stdio (16). |
 | `plugins` | built in | Section 11.9. |
@@ -2238,6 +2415,7 @@ General rules for each command:
 | `belay slice <target> --adapter <id>` | Belay | A slice that cites the compiled output of one adapter. |
 | `test` | test plugin | Section 14. |
 | `migrate [--check]` | migrate plugin | Section 11.12. |
+| `emul` | Emul plugin | Section 11.14. |
 
 **`build`**:
 
@@ -2280,7 +2458,9 @@ General rules for each command:
 - It starts from files, globs or anchor names. The default is the project
   (its entry).
 - It follows imports, references, inheritance and composition. This includes
-  variables that a value embeds and properties that a value reads.
+  variables that a value embeds and properties that a value reads. An
+  embedded top-level variable reaches its module, and all that the variable
+  embeds or reads.
 - It shows each reachable item with its depth and path. It also shows
   unreachable items. Results are in groups by source, with direct and
   indirect reach.
@@ -2319,7 +2499,8 @@ General rules for each command:
   `Specification.Tooling`, `Tooling.cli`, `Cli.commands`). Piton traces it
   from the entry also when the target is a file. Entry exports, variables
   and files that the build does not reach have no chain. The introduction
-  names the links of the chain.
+  names the links of the chain. Chain links do not follow other references,
+  because that would add the full specification.
 - Order: the target, then dependencies with the nearest first (source order
   for ties), then the chain with the outermost first.
 - Each declaration shows one time, with its name, file, bases, type and
@@ -2337,7 +2518,9 @@ General rules for each command:
 
 - `piton belay slice <target> --adapter <id>` (for example `claude-code`)
   cites the compiled output of one adapter, not the `.pi` files.
-- A bare name is looked up in what the build compiles.
+- The project is the project that holds the current directory. The target
+  forms are the forms of `piton slice`. A bare name is looked up in what the
+  build compiles.
 - Piton compiles the project from its entry as a build does. You do not have
   to run `piton build` first. The target must be an item that the build
   writes.
@@ -2355,52 +2538,72 @@ General rules for each command:
   build does not compile, an anchor that Piton never writes, and all
   `piton slice` errors. It exits with 1 on errors.
 
-**`init`**:
+**`init`** (init plugin, `spec/scope/init/`):
 
-- Templates are in the binary. `init` needs no network for them.
+- The compiler has no `init` command. The bundled init plugin
+  (`plugins/init`) gives it. The plugin has no Piton files.
+- The command is `standalone` (11.1). It runs outside a project and in a
+  project whose config has errors. It writes relative to the current
+  directory.
+- Capabilities: `interactive` and `scaffold`. It reads no project files and
+  runs no programs. The host writes the files through `scaffold`.
+- `--list` cannot go with the other arguments.
+- The adapters that it offers are the exports of `@piton/belay`, each with
+  its target id, anchor name and platform name. The plugin keeps that table
+  in its code.
+- The binary holds the templates, so `init` needs no network for them. A
+  release always writes the templates of that release.
 
-| Template | Content |
-| --- | --- |
-| `crux/project` | The preferred group. It is first in the list, marked "recommended". Belay, with https://github.com/piton-lang/crux.git declared. `init` tethers it, and the entry exports it again. |
-| `piton/minimal` | JSON in `dist/`. |
-| `piton/library` | A package that other projects install with `piton tether`. |
-| `belay/application` | A shape instruction in `src/`, a skill, an agent and a command. |
-| `belay/minimal` | The Belay config and one skill. |
+| Group | Template | Content |
+| --- | --- | --- |
+| `crux` (preferred) | `crux/project` | Guidance on the crux skills. Belay, with https://github.com/piton-lang/crux.git under `dependencies`. `init` tethers it. The entry exports all of the package again, so the first build writes each crux skill for each adapter. |
+| `piton` | `piton/minimal` | Plain Piton. JSON in `dist/`. |
+| `piton` | `piton/library` | A package that other projects install with `piton tether`. |
+| `belay` | `belay/application` | Agent guidance. A shape instruction in `src/`, a skill, an agent and a command. |
+| `belay` | `belay/minimal` | The Belay config and one skill. |
+| `testing` | `testing/project` | A specbase for `piton test`. A `test-config` under `plugins:` with `against: spec`, and one example test. The test judges the spec until the project has code. |
 
+- The preferred group comes first, marked "recommended". The other groups
+  stay in name order.
 - Piton makes the directory if it is not there.
 - Without a directory, it asks for the project name. An empty name or no
   terminal means the current directory.
 - It asks for the name before the template.
 - In an interactive run, it asks for the group, the template (lists that you
-  can filter) and the adapters. The defaults of the template are checked. You
-  must select one adapter or more. The checklist shows the platform and the
-  target id.
+  can filter) and the adapters. The preferred group is selected at the
+  start. The defaults of the template are checked. You must select one
+  adapter or more. The checklist shows the platform and the target id.
 - A group with one template does not ask. `--template belay` (only a group)
   asks for the template.
-- A non-interactive run needs a full template name. Without `--adapter`, it
-  keeps the defaults.
+- With `--adapter`, it does not ask for adapters. A non-interactive run needs
+  a full template name. Without `--adapter`, it keeps the defaults.
 - `--list` lists groups and templates with descriptions, and does nothing
   more.
 - `--adapter` can repeat or take commas. It works only for Belay templates.
   A Belay template is a template whose config lists adapters.
 - The selected adapters change the import and the `adapters` list of the
-  config (in the export order of `@piton/belay`, formatted).
+  config (each one time, in the export order of `@piton/belay`, formatted).
 - Piton writes `.adapters/<id>/` files only for selected adapters, for
   example the `opencode.json` of OpenCode.
 - After it writes files, `init` tethers the declared `dependencies`. This
   needs the network. If tethering fails, the files stay, Piton tells you to
   run `piton tether`, and it exits with 1.
 - `--no-tether` skips tethering. The next steps then include `piton tether`.
-- Templates are in `create-templates/<group>/<name>`. A template directory
-  holds exactly the files that a new project gets. `.template` files hold
-  descriptions and Piton does not copy them. `.preferred` marks a group. To
-  add a template, add a directory.
+- Templates are in `plugins/init/templates/<group>/<name>`. A template
+  directory holds exactly the files that a new project gets. Template files
+  are text. The group and each template have a `.template` file with a
+  description of one line. Piton does not copy it. A `.preferred` file marks
+  the preferred group.
+- The plugin lists the templates with `resources` and reads each file as a
+  resource. No code lists them. To add a template, add a directory with a
+  `.template` file.
 - Each template must check, format and build without errors for each
   adapter.
 - `init` never overwrites a file. It names the conflicts and writes nothing.
 - Esc or Ctrl+C cancels before Piton writes.
-- Paths and tether output go to stdout. stderr shows the template, adapters,
-  file count and next commands.
+- Paths and tether output go to stdout. On a terminal, each path has an
+  added mark and a dim directory. stderr shows the template, adapters, file
+  count and next commands.
 - Errors: an unknown template; a group or no template without a terminal; an
   unknown adapter; `--adapter` on a template that is not a Belay template;
   cancel; overwrite; tether failure.
@@ -2413,7 +2616,7 @@ General rules for each command:
   it. The prompt is a project primer and this fluency reference.
 - The reference is the `FLUENCY_PROMPT.md` of the project. Without it, Piton
   uses `plugins/belay/fluency.md`, the copy in the binary.
-- `--print-fluency` prints the full prompt and starts nothing.
+- `--print-fluency` prints the full prompt for each tool and starts nothing.
 - The primer gives the source root, the reference root and the instruction
   file:
   - If the project builds for the adapter of the tool, all three belong to
@@ -2422,15 +2625,29 @@ General rules for each command:
     unless Piton wrote the reference tree of the tool.
   - If the project does not build for the tool, all three belong to the
     first configured adapter.
+- **The short prompt.** The OS limits the size of one argument. Linux
+  accepts less than 128 KiB, and the fluency reference is near that size.
+  - A tool that takes instructions only as an argument (Codex, Muse) gets a
+    short prompt: the primer, then a line that tells it to read the fluency
+    reference in full before all work.
+  - That line names the `piton-fluency` skill (12). The tool looks for it
+    first in its own skill directory, then in the directories of the other
+    adapters. If no build wrote the skill, the line names a temporary file
+    that holds the reference.
+  - Claude and OpenCode read the full prompt from a temporary file.
 - Piton adds the text to the instructions of the tool. It never replaces
   them:
 
 | Tool | Method |
 | --- | --- |
-| `claude` | `--append-system-prompt` |
-| `codex` | `-c developer_instructions=<TOML string>` |
-| `opencode` | `--standalone`, with `OPENCODE_CONFIG_CONTENT` that lists a temporary file (private server). Piton removes the file when OpenCode exits. |
-| `muse` | `-c run.developer_prompt=<JSON string>` |
+| `claude` | `--append-system-prompt-file <file that holds the prompt>` |
+| `codex` | `-c developer_instructions=<short prompt as a TOML string>`. Codex has no option that adds developer instructions from a file. `model_instructions_file` replaces its base instructions, and Piton never does that. |
+| `opencode` | `--standalone`, with `OPENCODE_CONFIG_CONTENT` that lists a temporary file (private server). |
+| `muse` | `-c run.developer_prompt=<short prompt as a JSON string>`. Muse has no documented option that adds a developer prompt from a file. |
+
+- Piton removes each temporary file when the command ends.
+- Piton refuses an argument or env value that is too large for the OS before
+  the tool starts. The error names its size and the limit.
 
 - For `muse exec` and `opencode run`, the options go after the subcommand.
 - Subcommands that refuse the options (`muse resume`, `opencode models`) run
@@ -2493,7 +2710,13 @@ Models (`--model`, `-m`):
   folds, selection ranges.
 - Hierarchy and provenance views, override lenses.
 - A preview of compiled output: Markdown, JSON, or the plugin build output
-  (for example the files of each Belay target), from the last save.
+  (for example the files of each Belay target), from the last save. Plugin
+  output has the name of the group that the plugin gives it.
+- The server shows JSON, YAML or Markdown renderer output only when the build
+  writes it. In a Belay project without `output` or `renderer`, no hover,
+  lens or hint names a JSON file or shows a value as JSON. They name the
+  Belay target files. The compiled value in hover and the default preview
+  are then Markdown.
 - Source-to-output map. It shows in hover ("Compiled to") and in a code lens,
   never as document links.
 - Detection of unused and redundant items. "Used" means what `piton reach`
@@ -2539,6 +2762,10 @@ Models (`--model`, `-m`):
 - **It offers each item one time.** It offers a name that a module exports
   again one time, imported from the shortest path. It offers each different
   anchor with the same name, and names its module.
+- It ranks items by the word before the cursor, without case: the same name,
+  then a prefix, then a substring, then the rest. In each rank the earlier
+  order stays, so required properties stay first. Each item filters on its
+  own name.
 - In a body, it offers the properties that are not there (required first).
   It does not offer properties that are there. It offers `pass` only in an
   empty body.
@@ -2552,7 +2779,10 @@ Models (`--model`, `-m`):
 
 - It shows only on symbols, declared names and `+` or `++`. It never shows
   on prose, literals, language keywords, comments, escaped text or names
-  that do not resolve.
+  that do not resolve. A word in a string that names an anchor gets no
+  hover.
+- Only `+` or `++` explains a composition. A name in the composition
+  expression keeps its own hover.
 - It shows the type, the source (a link relative to the workspace),
   documentation, the inheritance chain, the export status and the compiled
   value.
@@ -2606,11 +2836,18 @@ An anchor goes to itself. Built-in types go nowhere.
 
 **Semantic tokens**:
 
-- They cover only resolved names: anchor = class, property or key =
-  property, variable, user keyword = keyword. A module path is a namespace.
+- They cover resolved names: anchor (abstract or not) = class, property or
+  key = property, variable, user keyword = keyword. A module path is a
+  namespace.
+- They also cover language keywords (`use`, `from`, `import`, `export`,
+  `anchor`, `abstract`, `extends`, `as`, `pass`), only where the parser reads
+  them as keywords, never in a string.
 - Names that do not resolve get no token. Prose gets no tokens. In a value,
   only expressions in `{...}` forms get tokens.
-- The syntax highlighter shows all lexical items, with scopes that agree.
+- The syntax highlighter shows comments, literals, operators, punctuation and
+  prose. A highlighter without context can leave keywords to the server.
+- The server gives each token the scope of the syntax highlighter. Thus a
+  token changes a colour only where resolution adds information.
 
 **Inlay hints**:
 
@@ -2650,14 +2887,19 @@ still folds.
 Editors must:
 
 - Indent one level after Enter on a colon that opens a block.
-- Remove one level of indent after Enter on a blank line in a block.
+- On the first blank line in a block, Enter keeps the same indent, so a
+  paragraph break stays in the block. On a second blank line in sequence,
+  Enter removes one level. Thus only the third Enter after text removes a
+  level.
 - Optionally format on save. This adds the space after `//` and changes
   nothing more in comments.
 
 Highlighters must:
 
-- Show prose in the plain text style. Imports and declarations are only at
-  column 0. An indented line such as `use the spec to decide` is prose.
+- Show prose in the plain text style. A word in prose is never a keyword,
+  constant, number or type. Imports and declarations are only at column 0.
+  An indented line such as `use the spec to decide` is prose.
+- In a value, highlight only the expressions in `{...}` forms.
 - Show `$`, `#`, `@`, backticks and brackets without a pair in prose as part
   of the string.
 - Show a value that is exactly a number, boolean or null as that type. With
@@ -2671,14 +2913,29 @@ Highlighters must:
 
 | Editor | Highlighter | LSP |
 | --- | --- | --- |
-| VS Code | TextMate | Full |
-| Emacs, Helix, Zed | tree-sitter | Full |
+| VS Code | TextMate, `lsp` | Full |
+| Emacs, Helix, Zed | tree-sitter, `lsp` | Full |
 | Neovim, Vim | vim syntax | Full |
 | JetBrains | `jetbrains` | Full |
 | Sublime | `sublime-syntax` | Full |
 | Kate | `KSyntaxHighlighting` | Full |
+| Rhun | `rhun-grammar`, `lsp` | Full, through a bridge |
 
 The editor files are below `editors/`.
+
+**Rhun** (https://github.com/vshvedov/rhun/):
+
+- A `.syn` grammar claims `.pi` files. It gives `//` to Toggle Comment and
+  indents the line after a colon.
+- The grammar has no context and lists no keywords, so `from` in prose is
+  plain. The server colours keywords at column 0 and in declaration headers,
+  and the colours that need resolution.
+- Each difference between the grammar and the parser is a listed gap.
+- Rhun uses its own protocol, not LSP. The extension is the first-party
+  `rhun-editor/lsp` bridge, changed to serve only Piton files and to start
+  `piton lsp`.
+- It gives problems, completion, hover, navigation, rename, format, folds,
+  semantic colours and inlay hints.
 
 ### 16.5 JavaScript
 
@@ -2705,7 +2962,7 @@ import spec from '../spec/app.pi';
 
 | Item | Purpose |
 | --- | --- |
-| `skill GenerateFluencyPrompt` | Makes this prompt from the full spec and writes it to `${FLUENCY_PROMPT_FILE}` (`${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md`). The prompt must be small but complete, in ASD-STE100 Simplified Technical English. |
+| `skill GenerateFluencyPrompt` | Makes this prompt from the full spec and writes it to `${FLUENCY_PROMPT_FILE}` (an exported constant: `${BELAY_PROJECT_ROOT}/FLUENCY_PROMPT.md`). The prompt documents each behaviour of the language and frameworks, so that an agent can work on a specbase. It must be as small as possible. It uses ASD-STE100 rules: approved words, one word for one meaning, technical names and examples as they are, one meaning and one topic in each sentence, 20 words or fewer for instructions, 25 or fewer for descriptions, active voice, simple tenses, commands for instructions, no -ing forms, contractions or phrasal verbs, articles, noun clusters of 3 words or fewer, tables and lists for facts with the same shape. |
 | `skill BuildTooling` | Reads the spec in `.claude/reference` and builds the tools. The stack is Rust, chumsky, rowan and tower-lsp. |
 | `skill InspectSpec` | Reads `spec/` and answers questions. Without more instructions, it summarizes the language and reports spec problems. It saves reports as standalone HTML in the current directory. Each problem names the files that cause it. |
 | `command CheckSpecForProblems` | Reads `${BELAY_PROJECT_ROOT}/spec`. It finds parts that are underdefined, overdefined, contradictory or badly organized. It shows the problems one at a time. The user selects the source of truth or adds a clarification. |
@@ -2727,15 +2984,32 @@ import spec from '../spec/app.pi';
   - If Claude fails, is not on PATH, or ends without a non-empty file, the
     result is an error. Piton copies nothing.
   - If the prompt did not change, Piton tells you, and it still copies it.
-  - `--copy-only` does not make the prompt. It only copies.
+  - `--copy-only` does not make the prompt. It only copies. Use it for a
+    prompt that you wrote by hand or with the skill in a session.
   - `--check` makes the prompt and copies nothing. It fails when the two
     copies are different and names the command that fixes it. Use it in CI.
 
-The config of this repository lists `BelayConfiguration` under `plugins:`
-(`codeRoot: ./crates`, `shapeRoot: ./spec/shape`, Claude Code). It offers the
-package `piton` (`root: ./spec`).
+The config of this repository (`piton-config PitonLanguageTest`) lists
+`BelayConfiguration` under `plugins:` (`codeRoot: ./crates`,
+`shapeRoot: ./spec/shape`, adapters Claude Code and OpenCode). It offers the
+package `piton` (`root: ./spec`). It depends on
+https://github.com/emul-lang/emul-rs.git.
 
-The spec also holds tests (`spec/tests/`). Examples:
+**The shape instruction** (`spec/shape/Comments.pi`). The entry exports
+`instruction CommentLanguage`:
+
+- Write all code comments and doc comments (Rust, TypeScript and all other
+  languages) in ASD-STE100.
+- The rules: 20 words or fewer in a sentence, approved words, one word for
+  one meaning, technical names as they are, one topic in each sentence,
+  active voice, simple present, past or future tense, no -ing forms,
+  contractions or phrasal verbs, articles, noun clusters of 3 words or fewer.
+- The rule applies to all comments, not only new or changed comments.
+  Write again each comment that does not obey it.
+
+The spec also holds tests (`spec/tests/`). Each group has a `lib/index.pi`
+with `abstract anchor MyTest extends Test as test:` and the tag of the group.
+The files of the group `use ./lib`. Examples:
 
 - `CommandsArePrefixed`: commands start with `x-`. On Claude Code they are
   skills with `disable-model-invocation: true`.
@@ -2744,6 +3018,11 @@ The spec also holds tests (`spec/tests/`). Examples:
 - `CheckWritesNothing`: `piton check` never writes a file.
 - `TestsWithoutAVerdictAreErrors`: a session without a verdict is an error,
   not a failure.
+- `Comments`: all comments under `crates` obey `CommentLanguage`.
+- `ExportFromModules`: two globs with one name give qualified exports.
+- `NewParagraph`: the editor keeps the indent on the first blank line.
+- `ListConcatenation`: `+ {super.tags}` then `- def` gives `[abc, def]`.
+- `EmulReference`, `InitAsAPlugin`, `TestingTemplate`, `RunningAgentAndModel`.
 
 ## 18. Work on a specbase
 
@@ -2752,11 +3031,12 @@ The spec also holds tests (`spec/tests/`). Examples:
      adapters, codeRoot, shapeRoot; test settings), packages, dependencies.
    - Read the entry, usually `spec/index.pi`. In this repository it exports
      `Specification` (FoundingThesis, Language, Tooling, Belay,
-     PackageManagement, Plugins, Migration, Testing) and the items of
-     `spec/agent/`.
+     PackageManagement, Plugins, Migration, Initialization, Testing, Emul),
+     the items of `spec/agent/` and the items of `spec/shape/`.
    - Read down through the `index.pi` files.
    - The Belay constructs and adapters are in `plugins/belay/pi/`. The test
-     anchors are in `plugins/test/pi/`.
+     anchors are in `plugins/test/pi/`. The Emul anchors are in
+     `plugins/emul/pi/`.
    - Compiled reference files give an overview. The source is the truth.
    - `piton slice` gives a focused view of one item.
 2. **Edit the `.pi` source.** Obey the local conventions:
@@ -2807,6 +3087,15 @@ The spec does not name these items. The compiler has them:
   adapter `.pi` files.
 - The `remove` rules (refuse if edited or imported) and the `dangling-pin`
   and `unknown-pin` codes.
+- These rules of sections 2, 3 and 13: the compiler reads `.5` as a string;
+  an escape does not change the inferred type (`\ false \` stays a boolean);
+  a single backslash (`\:`) is literal text; a repository that offers no
+  packages installs complete, below the name that its URL gives.
+- The Belay diagnostic codes, from `plugins/belay/src/`. The spec names only
+  `unsupported-construct`.
+- The API members `listFiles`, `placeholders`, `relativePath`, `encode`,
+  `linkSpace` and `temporaryFile(contents, extension)` in
+  `crates/piton-plugin/api/index.ts`.
 
 Differences and limits:
 
@@ -2826,5 +3115,15 @@ Differences and limits:
 
 Problems in the spec. Report them if your work touches them:
 
-- `spec/scope/tooling/index.pi` holds a placeholder property
-  `something: HAHA TOOLING`.
+- `spec/scope/tooling/index.pi` holds a placeholder property `something`
+  with the value `HAHA TOOLING`.
+- `spec/scope/tooling/project-config/index.pi` finds `piton.config.pi` in the
+  current directory. `spec/scope/plugins/Sources.pi` finds the nearest one in
+  the current directory or above it. This document follows `Sources.pi`.
+- `StructuralInheritance.pi` shows an override key at the position of the
+  last writer. `SelfReference.pi` keeps an override key at its first
+  position. The key order after inheritance is not clear.
+- `Adapter.pi` says `crossDiscovery: allow` stops
+  `cross-discovery-activation`. `OpenCode.pi` says that each value of
+  `crossDiscovery` stops it.
+- `Api.pi` does not list the `module` hook. `Modules.pi` describes it.
