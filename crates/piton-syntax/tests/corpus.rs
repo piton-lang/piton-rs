@@ -38,6 +38,27 @@ fn piton_files(root: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// The templates of the init plugin contain `{{name}}` placeholders. A template
+/// is not Piton until the plugin fills its placeholders. Thus this function
+/// changes each placeholder to its bare name.
+fn fill_placeholders(root: &Path, path: &Path, source: String) -> String {
+    if !path.starts_with(root.join("plugins/init/templates")) {
+        return source;
+    }
+    let mut filled = String::with_capacity(source.len());
+    let mut rest = source.as_str();
+    while let Some(start) = rest.find("{{") {
+        let Some(len) = rest[start + 2..].find("}}") else {
+            break;
+        };
+        filled.push_str(&rest[..start]);
+        filled.push_str(&rest[start + 2..start + 2 + len]);
+        rest = &rest[start + 4 + len..];
+    }
+    filled.push_str(rest);
+    filled
+}
+
 #[test]
 fn the_specification_parses_cleanly() {
     let root = repo_root();
@@ -46,7 +67,7 @@ fn the_specification_parses_cleanly() {
 
     let mut failures = Vec::new();
     for path in &files {
-        let source = std::fs::read_to_string(path).expect("readable");
+        let source = fill_placeholders(&root, path, std::fs::read_to_string(path).expect("readable"));
         let parse = piton_syntax::parser::parse(&source, path);
 
         if parse.syntax().text().to_string() != source {
@@ -79,7 +100,7 @@ fn names_in_the_specification_are_tokens() {
     let root = repo_root();
     let mut failures = Vec::new();
     for path in piton_files(&root) {
-        let source = std::fs::read_to_string(&path).expect("readable");
+        let source = fill_placeholders(&root, &path, std::fs::read_to_string(&path).expect("readable"));
         let parse = piton_syntax::parser::parse(&source, &path);
         let shown = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
         let tree = parse.syntax();
