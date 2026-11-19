@@ -2,6 +2,7 @@ from ./Config import Config
 from ./Errors import Errors
 from ./Formatting import Formatting
 from ./Init import Init
+from ./LayoutOutput import LayoutOutput
 from ./OutputSize import OutputSize
 from ./Preview import Preview
 
@@ -54,7 +55,8 @@ export anchor Cli:
             format Emul accepts.
         - format
             `--format <format>` renders only the given format. It may be
-            repeated, as in `--format svg --format png`.
+            repeated, as in `--format svg --format png`. The format can also
+            be `layout`, as described in @{LayoutOutput}.
         - svgFonts
             `--svg-fonts outline` or `--svg-fonts embed` sets how text is
             written into SVG.

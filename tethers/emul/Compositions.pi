@@ -113,8 +113,9 @@ export anchor Compositions:
 
     root:
         The body of the composition itself is the root of the tree. It holds
-        component instances only, with no text or attributes, and it has no
-        styling of its own.
+        component instances, and the composition's canvas entries described
+        under size and background. It holds no text and no other attributes,
+        and it has no styling of its own.
 
     reuse:
         A composition can be reused as a complex component. A composition
@@ -175,5 +176,51 @@ export anchor Compositions:
         everywhere". The `alt` value is quoted, so its comma needs no escape.
 
     size:
-        A composition's root fills the canvas, whose size is set in the config
-        and on the command line, as described in @{OutputSize}.
+        A composition's root fills the canvas. A composition can declare the
+        size of its own canvas with size entries in its root, written like
+        attributes: `width`, `height` and `scale`. They take the same values
+        as the matching settings in @{OutputSize}, and are usually written
+        before the instances.
+
+        ```emul
+        \\\
+        export composition SocialCard {
+            width: 1200
+            height: 630
+            scale: 2
+            background: #f4f4f5
+
+            Card {
+                Title { "Hello" }
+            }
+        }
+        \\\
+        ```
+
+        The config and the command line can still override these entries,
+        as described in @{OutputSize}, so a design can be rendered at another
+        size without editing it. A size entry that is not valid is an
+        `invalid-size` error. When a composition is reused in another
+        composition, its size entries have no effect: the composition that is
+        rendered decides the canvas.
+
+    background:
+        A composition can declare the background of its own canvas with the
+        entry `background` in its root. It takes a colour in any format
+        described in @{Values}, or `none`, which keeps the canvas transparent.
+        The order of precedence, from strongest to weakest, is:
+
+        - the flag `--background` on the command line
+        - the entry `background` in the composition's root
+        - the setting `background` in the config
+        - none, which leaves the canvas transparent
+
+        Thus `background: none` keeps one composition transparent when the
+        config gives the other compositions a background. A background that
+        is not a colour or `none` is an `invalid-background` error. Like the
+        size entries, the background of a reused composition has no effect.
+
+    rootEntries:
+        The size entries and the background are the canvas entries of the
+        composition. Each canvas entry can be set only once in a root. An
+        entry set twice is a `duplicate-root-entry` error.

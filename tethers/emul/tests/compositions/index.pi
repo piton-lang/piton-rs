@@ -12,3 +12,18 @@ export test ComposedComposition:
     expects:
         Should be able to export and declare a composition made of up individual
         components and reuse that as a "complex" component.
+
+export test CompositionDeclaresItsSize:
+    expects:
+        A composition can declare the size of its canvas with the entries
+        width, height and scale in its root. The config's per-composition
+        sizes and the command-line flags override them, and they override the
+        project-wide config values and the defaults.
+
+export test CompositionDeclaresItsBackground:
+    expects:
+        A composition can declare the background of its canvas with the entry
+        background in its root, as a colour or none. The flag --background
+        overrides it, and it overrides the background setting of the config.
+        A bad value is an invalid-background error, and a canvas entry set
+        twice is a duplicate-root-entry error.

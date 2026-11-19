@@ -103,6 +103,10 @@ Asks the user to type an answer on the terminal, and gives the answer, or nothin
 
 Asks the user to check any items of a list on the terminal, some checked to start with and at least a number of them, and gives the indexes checked, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
 
+### Confirm
+
+Asks the user a yes or no question on the terminal, answered with y or n, with enter taking the default it is given, and gives the answer, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
+
 ### Format
 
 Piton source in the canonical format, as `piton format` writes it.
@@ -110,6 +114,10 @@ Piton source in the canonical format, as `piton format` writes it.
 ### Scaffold
 
 Writes a new project's files into a directory named relative to where piton was run, never over a file, and prints each path written; when any file exists, writes none and gives the ones that exist. Needs the scaffold capability.
+
+### Directory Name
+
+The name of a directory, named relative to where piton was run, as its own last part once the path is made absolute, so `.` gives the name of the current directory. The directory need not exist. Needs the scaffold capability.
 
 ### Tether
 

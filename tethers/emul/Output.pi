@@ -1,7 +1,9 @@
 from ./Cli import Cli
+from ./Compositions import Compositions
 from ./Config import Config
 from ./Fonts import Fonts
 from ./HtmlOutput import HtmlOutput
+from ./LayoutOutput import LayoutOutput
 from ./OutputSize import OutputSize
 from ./PngOutput import PngOutput
 from ./SvgOutput import SvgOutput
@@ -51,12 +53,17 @@ export anchor Output:
         the canvas is clipped, in all three outputs.
 
         Behind the root is the canvas background. It is transparent unless a
-        background colour is set in @{Config} or on the command line.
+        background colour is set in the composition's root, as described in
+        @{Compositions}, in @{Config}, or on the command line.
 
     formats:
         - @{HtmlOutput}
         - @{SvgOutput}
         - @{PngOutput}
+
+    tools:
+        The @{LayoutOutput} is not a rendering. It gives the boxes of the
+        layout for tools. Emul writes it only on request.
 
     choosing:
         Which formats are written is set by the formats setting in @{Config},

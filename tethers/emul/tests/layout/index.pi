@@ -1,0 +1,25 @@
+from @piton/test import Test
+
+abstract anchor MyTest extends Test as test:
+    tags: [layout]
+
+export test LayoutOutputOnRequest:
+    expects:
+        `emul build --format layout` writes one `.layout.json` file for each
+        rendered composition. The default formats do not include `layout`.
+
+export test LayoutBoxesMatchTheSvg:
+    expects:
+        The boxes of the layout output come from the same layout as the SVG
+        output.
+
+export test LayoutBoxesNameTheirSource:
+    expects:
+        Each box of the layout output gives the id of its parent, its border
+        box, its component, and the file, line and column of its instance.
+
+export test LayoutBoxesNameReusedCompositions:
+    expects:
+        For an instance that comes from a reused composition, the box of the
+        layout output lists each composition instance that it comes through,
+        the outermost first.

@@ -1,0 +1,75 @@
+from ./Cli import Cli
+from ./Compositions import Compositions
+from ./Output import Output
+from ./SvgOutput import SvgOutput
+
+export anchor LayoutOutput:
+    description:
+        The layout output gives the box of each instance of a composition,
+        and the location in the source that made the box. It is for tools,
+        for example a visual editor that selects an instance when the user
+        clicks the canvas. It is not a rendering.
+
+    request:
+        Emul writes the layout output only on request. The format name is
+        `layout`. Give it with `--format layout` (@{Cli}), or add `layout` to
+        the formats setting. The default formats do not include it.
+
+    files:
+        Each rendered composition gives one JSON file in the output
+        directory. The name is the composition name, then `.layout.json`, for
+        example `MyComposition.layout.json`.
+
+    sameLayout:
+        The boxes come from the same layout as the @{SvgOutput}. Thus a box
+        is exactly where the SVG and the PNG draw the instance.
+
+    document:
+        The file holds one JSON object with these keys:
+
+        - composition
+            The name of the composition.
+        - width, height
+            The size of the canvas in px.
+        - boxes
+            A list with one entry for each instance that has a box. A parent
+            box comes before its child boxes.
+
+    box:
+        Each entry in `boxes` has these keys:
+
+        - id
+            The id of the instance, for example `MyButton-3`. It is the same
+            id that the SVG output uses.
+        - parent
+            The id of the parent box, or null at the root of the canvas.
+        - x, y, width, height
+            The border box in canvas coordinates, in px. The values have two
+            decimals or fewer.
+        - component
+            The declared name of the component of the instance.
+        - componentFile
+            The absolute path of the file that declares the component.
+        - file, line, column
+            The absolute path of the file that holds the instance, and the
+            position of the instance name. Line and column start at 1.
+        - via
+            A list of the composition instances that the instance comes
+            through, the outermost first. It is empty when the instance is in
+            the rendered composition itself.
+
+    via:
+        A composition can reuse a different composition (@{Compositions}).
+        Then the instances of the reused composition are in a different place
+        in the source. Each entry in `via` has the keys `composition`,
+        `file`, `line` and `column`. They give the name of the reused
+        composition, and the position of its instance.
+
+    texts:
+        The layout output gives no box for a text. The box of the instance
+        holds its texts.
+
+    stable:
+        The same source and settings always give the same file.
+
+    see: @{Output}

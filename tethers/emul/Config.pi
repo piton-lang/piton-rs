@@ -1,5 +1,7 @@
 from ./Cli import Cli
+from ./Compositions import Compositions
 from ./Fonts import Fonts
+from ./LayoutOutput import LayoutOutput
 from ./OutputSize import OutputSize
 from ./SvgOutput import SvgOutput
 from ./Values import Values
@@ -46,13 +48,16 @@ export anchor Config:
             inside the directory holding the config file.
         - formats
             Which outputs to render for each composition, any of `html`, `svg`
-            and `png`. Defaults to all three.
+            and `png`. Defaults to all three. It can also hold `layout`, as
+            described in @{LayoutOutput}.
         - width, height, scale and sizes
             The canvas size, project-wide and per composition, as described in
             @{OutputSize}.
         - background
             The canvas background colour, in any format described in
             @{Values}. Defaults to none, which leaves the canvas transparent.
+            A composition can declare its own background, which wins over
+            this setting, as described in @{Compositions}.
         - svgFonts
             Whether SVG output writes text as `outline` paths or as text with
             `embed`ded fonts, as described in @{SvgOutput}. Defaults to

@@ -32,11 +32,11 @@ The files in the project a plugin may propose to change, as glob patterns relati
 
 ## Interactive
 
-true lets the plugin ask the user on the terminal: to choose one item from a menu, to check any of a list of items, or to type an answer. The menu only ever shows when stdin and stdout are terminals; otherwise nothing is asked and nothing is chosen, so a plugin never waits on someone who isn't there.
+true lets the plugin ask the user on the terminal: to choose one item from a menu, to check any of a list of items, to answer yes or no, or to type an answer. The menu only ever shows when stdin and stdout are terminals; otherwise nothing is asked and nothing is chosen, so a plugin never waits on someone who isn't there.
 
 ## Scaffold
 
-true lets the plugin start a new project, like `piton init` does: it gives the host files, each a path and its contents, and a directory named relative to where piton was run, and the host writes them there and prints each path written. The host never overwrites a file: when any of them exists, it writes none and gives back the ones that exist. A path that leads out of the directory is refused. It also lets the plugin tether the dependencies the new project's configuration declares, as `piton tether` does there with no source.
+true lets the plugin start a new project, like `piton init` does: it gives the host files, each a path and its contents, and a directory named relative to where piton was run, and the host writes them there and prints each path written. The host never overwrites a file: when any of them exists, it writes none and gives back the ones that exist. A path that leads out of the directory is refused. It also lets the plugin tether the dependencies the new project's configuration declares, as `piton tether` does there with no source, and learn the name of the directory it writes into.
 
 ## Temporary Files
 

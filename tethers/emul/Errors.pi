@@ -164,8 +164,12 @@ export anchor Errors:
             An instance of a composition has text, attributes or children.
             The body of a composition instance must be empty.
         - content-in-root
-            The root of a composition holds text or attributes. The root holds
-            instances only.
+            The root of a composition holds text, or an attribute that is not
+            a canvas entry. The root holds instances and the canvas entries
+            `width`, `height`, `scale` and `background`.
+        - duplicate-root-entry
+            A composition sets the same canvas entry more than once in its
+            root.
         - content-in-void-element
             An instance whose component has a void htmlTag, such as `img`,
             has text or children.
@@ -216,9 +220,13 @@ export anchor Errors:
             when building offline for the first time.
 
     outputErrors:
+        - invalid-background
+            The entry `background` in the root of a composition is not a
+            colour or `none`.
         - invalid-size
-            A width or height, in the config or on the command line, is not a
-            whole number from 1 to 16384, or a scale is not a positive number.
+            A width or height, in the config, on the command line or in the
+            root of a composition, is not a whole number from 1 to 16384, or a
+            scale is not a positive number.
         - output-too-large
             A PNG would be over 16384 pixels on either side after scaling.
 

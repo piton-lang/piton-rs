@@ -1,11 +1,13 @@
 from ./Cli import Cli
+from ./Compositions import Compositions
 from ./Config import Config
 
 export anchor OutputSize:
     description:
         The output size is the width and height of the canvas a composition
-        is rendered onto. It is set in `emul.config.pi`, and can be
-        overridden by flags on the command line.
+        is rendered onto. A composition can declare it in its own root, as
+        described in @{Compositions}. It can also be set in `emul.config.pi`,
+        and overridden by flags on the command line.
 
     settings:
         - width
@@ -25,8 +27,15 @@ export anchor OutputSize:
         - a flag on the command line, as described in @{Cli}
         - an entry for that composition in the config's per-composition
             sizes
+        - a size entry in the composition's own root, as described in
+            @{Compositions}
         - the project-wide value in @{Config}
         - the default above
+
+        The composition's own size is the design's intent. The config's
+        per-composition sizes and the command line stay above it, so a
+        project can render a design at another size without editing the
+        design.
 
     perComposition:
         Different compositions often need different sizes, such as a page

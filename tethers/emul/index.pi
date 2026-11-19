@@ -19,6 +19,7 @@ from ./Formatting export *
 from ./HtmlOutput export *
 from ./Init export *
 from ./Layout export *
+from ./LayoutOutput export *
 from ./Modules export *
 from ./Output export *
 from ./OutputSize export *
