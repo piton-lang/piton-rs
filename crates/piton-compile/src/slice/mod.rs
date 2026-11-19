@@ -1,8 +1,8 @@
 //! Semantic slices. A slice is one anchor, property, or variable, with all
-//! that a reader needs to understand it.
+//! that is necessary for a reader to understand it.
 //!
-//! A slice answers this question. Which part of the specification does a
-//! person need for this one item? A slice is not the files near the
+//! A slice answers this question. Which part of the specification is
+//! necessary for this one item? A slice is not the files near the
 //! item. It is also not the files that the item imports. It is the
 //! declarations that the item semantically depends on. These are the anchors
 //! that it extends and the declarations that its values read. They are also
@@ -109,16 +109,16 @@ pub struct Edge {
 pub enum Entry {
     Anchor {
         anchor: AnchorId,
-        /// True when the slice needs the whole anchor, and not only some of
+        /// True when the slice must have the whole anchor, and not only some of
         /// its properties.
         whole: bool,
-        /// The properties that the slice needs, in the order of the anchor.
+        /// The properties that are necessary for the slice, in the order of the anchor.
         properties: Vec<String>,
     },
     Variable(VariableId),
 }
 
-/// A target and the dependency closure that it needs. It does not depend on
+/// A target and the dependency closure that is necessary for it. It does not depend on
 /// the output format.
 #[derive(Debug, Clone)]
 pub struct Slice {
@@ -248,11 +248,11 @@ pub fn resolve_in(
 }
 
 /// Resolves a target without a file. It finds the name in the full
-/// compilation. A name in more than one file is ambiguous. The target must
-/// then give the file.
+/// compilation. A name in more than one file has more than one meaning. The
+/// target must then give the file.
 ///
 /// The search includes bundled packages only when no project name matches.
-/// Thus a `Button` in the project is never ambiguous with a `Button` in a
+/// Thus a `Button` in the project is never in conflict with a `Button` in a
 /// package.
 pub fn find(compilation: &Compilation, target: &Target) -> Result<Entity, Diagnostic> {
     let store = compilation.store();
@@ -424,7 +424,7 @@ fn display_path(path: &Path, root: &Path) -> String {
 /// entity. The slice still records the edge that closed the cycle.
 ///
 /// The chain comes after the dependencies. Each link is only that one
-/// property. Its other references are context that the target does not need.
+/// property. Its other references are context that is not necessary for the target.
 /// If the walk follows them from the entry, it includes all items.
 pub fn slice(compilation: &Compilation, target: Entity) -> Slice {
     let walker = Walker { compilation };
@@ -521,7 +521,7 @@ struct Walker<'a> {
 }
 
 impl Walker<'_> {
-    /// The needs of an entity. Each one has the relation that makes it a
+    /// The items that are necessary for an entity. Each one has the relation that makes it a
     /// dependency. `None` marks structure, which is the properties of a
     /// whole anchor.
     fn dependencies(&self, entity: &Entity) -> Vec<(Entity, Option<Relation>)> {
@@ -670,9 +670,9 @@ impl Walker<'_> {
         }
     }
 
-    /// A reference to a property needs that property. A reference to an
-    /// anchor needs the full anchor. A path that goes below one property
-    /// needs only its first property.
+    /// A reference to a property must have that property. A reference to an
+    /// anchor must have the full anchor. A path that goes below one property
+    /// must have only its first property.
     fn referenced(&self, target: &Ref) -> Entity {
         match target.path.first() {
             Some(name)

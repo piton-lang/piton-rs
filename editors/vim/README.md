@@ -4,8 +4,10 @@ Copy `syntax/`, `ftdetect/`, `ftplugin/` and `indent/` into `~/.vim/`, or point
 a plugin manager at this directory.
 
 Enter on a colon line (a declaration, or a dictionary or anchor property with
-nothing after its colon) lands one level in; Enter on a blank line inside a
-dictionary or anchor lands one level back. `indent/piton.vim` writes both rules
+nothing after its colon) lands one level in; Enter on the first blank line inside a
+dictionary or anchor keeps the level, so a paragraph break stays in the block;
+Enter on a second blank line in sequence lands one level back, so only the
+third Enter after text moves the line back. `indent/piton.vim` writes both rules
 out, mirroring `on_type_formatting` in the language server, and runs on Enter
 and on `o`/`O` (`indentkeys=o,O`). A list item or a merge line never opens a
 block, even when it ends in a colon (`- Settings:` is just a string), and

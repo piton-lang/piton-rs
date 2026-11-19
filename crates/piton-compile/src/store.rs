@@ -1,7 +1,7 @@
 //! Stores declarations.
 //!
 //! The store records each anchor and variable one time. Other code then uses
-//! its id. Thus the resolver can make graphs over them. It does not need access
+//! its id. Thus the resolver can make graphs over them. It can work without access
 //! to their syntax trees, and so it has no conflict with the borrow checker.
 
 use indexmap::IndexMap;

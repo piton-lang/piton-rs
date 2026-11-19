@@ -11,7 +11,7 @@
 ; item or a merge line: a list item is never a key, even with a colon at the
 ; end.
 ;
-; The blank-line dedent (Enter on a blank line inside a dictionary or anchor
+; The blank-line dedent (Enter on a second blank line in sequence inside a block
 ; comes back one level) cannot be expressed as a query. Editors that need it
 ; take it from the Vim indent file or the language server's on-type
 ; formatting.

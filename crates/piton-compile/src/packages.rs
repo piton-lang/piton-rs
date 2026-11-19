@@ -1,13 +1,13 @@
 //! Packages, dependencies, and the tethers directory.
 //!
 //! Piton uses managed vendored dependencies. An installed package is an
-//! ordinary part of the project. It is a set of plain files under `tethers/`.
+//! usual part of the project. It is a set of plain files under `tethers/`.
 //! The project commits these files to version control. The install removes
 //! all traces of the source git repository. The compiler fetches no files
 //! at compile time. No name resolves through a registry. The files
 //! on disk *are* the dependency.
 //!
-//! The rest of this module protects that choice. The files are ordinary, thus
+//! The rest of this module protects that choice. The files are usual files, thus
 //! a user can edit them. An update must not overwrite an edited
 //! package. Thus the lock file records a digest of each installed file.
 //! [`Installed::compare`] answers the one question that the package commands
@@ -93,7 +93,7 @@ pub struct Dependency {
     pub source: String,
     pub pin: Pin,
     /// The packages to take from the repository. Use this when the repository
-    /// has many packages and you need only some. `None` takes all of them.
+    /// has many packages and only some are necessary. `None` takes all of them.
     pub packages: Option<Vec<String>>,
 }
 
@@ -277,7 +277,7 @@ impl Lock {
     /// Reads the lock file. A lock file that is not there, or that the code cannot read, is empty.
     ///
     /// A lock file that is not there is not an error. A project can commit a package
-    /// without a lock file. Each command that needs the lock file gives its
+    /// without a lock file. Each command that must have the lock file gives its
     /// own message about the requested package.
     pub fn load(project_root: &Path) -> Lock {
         let Ok(text) = std::fs::read_to_string(project_root.join(LOCK_FILE)) else {
@@ -298,7 +298,7 @@ impl Lock {
     ///
     /// This code writes the JSON by hand and does not use a serializer. The
     /// shape is small and fixed. Also, the order must be stable. A project
-    /// commits the lock file. Thus a new order of keys gives an unwanted diff.
+    /// commits the lock file. Thus a new order of keys gives an unnecessary diff.
     pub fn to_json(&self) -> String {
         if self.packages.is_empty() {
             return "{\n  \"version\": 1,\n  \"packages\": []\n}\n".to_string();
@@ -358,9 +358,9 @@ fn null() -> String {
 
 /// Parses the lock file.
 ///
-/// This parser is tolerant on purpose. It ignores an entry that it cannot
-/// read. It does not fail on the full file. If it failed, the project can
-/// not run a package command. Then a person must repair a generated file by
+/// This parser accepts errors on purpose. It ignores an entry that it cannot
+/// read. It does not fail on the full file. If it failed, a package command
+/// could not run. Then a person must repair a generated file by
 /// hand.
 fn parse_lock(text: &str) -> Option<Lock> {
     let value = json::parse(text)?;
@@ -599,9 +599,9 @@ fn unquote(text: &str) -> &str {
 /// dictionary attaches to the dependency before it. A dictionary with no
 /// dependency before it is a pin for a dependency without a name.
 ///
-/// More than one specifier for one URL is an error. The specifiers can only
-/// disagree. A silent choice between them installs a version that nobody
-/// chose.
+/// More than one specifier for one URL is an error. The specifiers do not
+/// agree. If the function selects one without a report, it installs a version
+/// that the user did not select.
 pub fn read_dependencies(
     value: &Value,
     literals: &[PinLiteral],

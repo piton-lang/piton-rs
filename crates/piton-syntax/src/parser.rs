@@ -372,7 +372,7 @@ impl<'a> Parser<'a> {
         // The tree keeps the line as an error. It also keeps the body below the
         // line. An anchor with an incomplete header still has properties. An
         // editor can fold, select and complete them. Only the tree keeps them.
-        // The program does not keep them. Thus, the error does not cascade.
+        // The program does not keep them. Thus, the error does not cause more errors.
         self.enter(SyntaxKind::ERROR, line.start);
         if self.more_below(line.indent) {
             let reported = self.diagnostics.len();
@@ -1361,7 +1361,7 @@ pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<Property
     let rest = &text[cursor..];
     if let Some(after) = rest.strip_prefix(':') {
         if !after.is_empty() && !after.starts_with(' ') {
-            // `key:value` is not a property; the space is part of the syntax.
+            // `key:value` is not a property. The space is part of the syntax.
             return None;
         }
         return Some(PropertyHeader {

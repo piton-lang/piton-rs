@@ -2,8 +2,9 @@
 //!
 //! The report shows the reachable parts, the unreachable parts, the depth of
 //! each reachable anchor, and the path to it. `--no-paths` and
-//! `--no-unreachable` remove those parts. The traversal follows imports,
-//! references, inheritance, and composition.
+//! `--no-unreachable` remove those parts. By default, the report does not
+//! include the packages below `tethers/`. `--include-tethers` adds them. The
+//! traversal follows imports, references, inheritance, and composition.
 
 use std::path::{Path, PathBuf};
 
@@ -41,7 +42,12 @@ fn classify(target: &str) -> Result<Target, String> {
     Ok(Target::Anchor(target.to_string()))
 }
 
-pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
+pub fn run(
+    targets: &[String],
+    show_unreachable: bool,
+    show_paths: bool,
+    include_tethers: bool,
+) -> u8 {
     let (mut project, _) = project::current();
 
     let mut files: Vec<PathBuf> = Vec::new();
@@ -133,6 +139,18 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         }
         reach::from_roots_with_imports(&compilation, &roots, &modules)
     };
+    // The installed packages below tethers/ are the work of other people. By
+    // default, the report does not include them. `--include-tethers` keeps
+    // them, and also lists the tether files that no module imports.
+    let reachability = if include_tethers {
+        if targets.is_empty() {
+            reachability.with_unloaded_tethers(&compilation)
+        } else {
+            reachability
+        }
+    } else {
+        reachability.without_tethers(&compilation)
+    };
 
     // The groups are by the source that declares each anchor.
     let mut by_source: std::collections::BTreeMap<String, Vec<&reach::Reached>> =
@@ -174,7 +192,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
         }
 
         // The groups are by source, the same as the reachable half. Thus a
-        // file with only dead anchors shows as one entry. It does not show as
+        // file with only unreachable anchors shows as one entry. It does not show as
         // a list of names and then again as the file at the bottom.
         let dead_files: std::collections::BTreeSet<String> = reachability
             .unreachable_modules
@@ -192,7 +210,7 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
                 .push(def.name.clone());
         }
         // A file can have no reachable parts and also no declarations. An
-        // example is an index with only dead exports. The report must name
+        // example is an index with only unreachable exports. The report must name
         // that file.
         for file in &dead_files {
             by_source.entry(file.clone()).or_default();
@@ -230,10 +248,11 @@ pub fn run(targets: &[String], show_unreachable: bool, show_paths: bool) -> u8 {
     }
 
     // This code counts each line above one time. Anchors and modules have
-    // separate counts because they are different questions. A dead anchor is
-    // a declaration to delete. A dead module is a file to delete. The compiler
-    // never read a file that no file imports. Its anchors still count as unreachable.
-    // Thus the headline cannot show "clean" when the list shows dead files.
+    // separate counts because they are different questions. An unreachable
+    // anchor is a declaration to delete. An unreachable module is a file to
+    // delete. The compiler never read a file that no file imports. Its anchors
+    // still count as unreachable. Thus the headline cannot show "clean" when
+    // the list shows unreachable files.
     let mut anchors = format!(
         "{} {} reachable, {} unreachable",
         reachability.reached.len(),
@@ -279,7 +298,8 @@ fn declared_anchors(compilation: &Compilation, module: ModuleId) -> Vec<piton_co
 }
 
 /// The anchors that the plugins of the project reach, by file and name. When
-/// a plugin cannot tell, a `Severity::Warning` diagnostic reports it. The other plugins still count.
+/// a plugin cannot tell, a `Severity::Warning` diagnostic reports it. The
+/// other plugins still count.
 fn plugin_roots(project: &piton_compile::Project) -> Vec<(PathBuf, String)> {
     let (manifests, _) = piton_plugin::discover(project);
     let (roots, failures) = piton_plugin::reach::roots(project, &manifests, || {

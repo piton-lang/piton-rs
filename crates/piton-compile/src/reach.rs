@@ -42,8 +42,8 @@ pub struct Reached {
     pub depth: usize,
     /// The shortest path of anchor names from a root.
     pub path: Vec<String>,
-    /// The edge that arrived here. `None` for a root, because no edge reached
-    /// it.
+    /// The edge that went to this anchor. `None` for a root, because no edge
+    /// went to it.
     pub via: Option<EdgeKind>,
 }
 
@@ -52,8 +52,8 @@ pub struct Reached {
 pub struct Unloaded {
     pub path: PathBuf,
     /// The number of anchors that the file declares. The code parses the file
-    /// for this, but does not compile it. Thus these anchors have no id and count as
-    /// unreachable.
+    /// for this, but does not compile it. Thus these anchors have no id and
+    /// count as unreachable.
     pub anchors: usize,
 }
 
@@ -88,6 +88,65 @@ impl Reachability {
     pub fn unreachable_anchors(&self) -> usize {
         self.unreachable.len() + self.unloaded_anchors()
     }
+
+    /// Removes each item below `tethers/` from the result. The anchors, the
+    /// modules and the counts then describe only the source of the project.
+    /// `piton reach` does this when the user does not give `--include-tethers`.
+    pub fn without_tethers(mut self, compilation: &Compilation) -> Self {
+        let tethers = Tethers::of(compilation);
+        let graph = &compilation.resolution.graph;
+        let store = &compilation.resolution.store;
+        let tethered = |anchor: AnchorId| tethers.contains(&graph.get(store.anchor(anchor).module).path);
+        self.reached.retain(|entry| !tethered(entry.anchor));
+        self.unreachable.retain(|anchor| !tethered(*anchor));
+        self.modules.retain(|module| !tethers.contains(&graph.get(*module).path));
+        self.unreachable_modules.retain(|path| !tethers.contains(path));
+        self.unloaded_modules.retain(|module| !tethers.contains(&module.path));
+        let removed = graph
+            .iter()
+            .filter(|module| !module.is_package() && tethers.contains(&module.path))
+            .count();
+        self.loaded -= removed.min(self.loaded);
+        self
+    }
+
+    /// Adds the files below `tethers/` that no module imports. The usual walk
+    /// of the source root skips `tethers/`. `piton reach --include-tethers`
+    /// calls this.
+    pub fn with_unloaded_tethers(mut self, compilation: &Compilation) -> Self {
+        let directory = compilation.project.root.join(crate::packages::TETHERS);
+        for path in crate::module::sources(&directory) {
+            if compilation.graph().id_for(&path).is_some()
+                || self.unloaded_modules.iter().any(|module| module.path == path)
+            {
+                continue;
+            }
+            let anchors = declared_anchor_count(&path);
+            self.unloaded_modules.push(Unloaded { path, anchors });
+        }
+        self.unloaded_modules.sort_by(|a, b| a.path.cmp(&b.path));
+        self
+    }
+}
+
+/// The `tethers/` directory of a project, as written and in canonical form.
+struct Tethers {
+    written: PathBuf,
+    canonical: Option<PathBuf>,
+}
+
+impl Tethers {
+    fn of(compilation: &Compilation) -> Self {
+        let written = compilation.project.root.join(crate::packages::TETHERS);
+        let canonical = std::fs::canonicalize(&written).ok();
+        Tethers { written, canonical }
+    }
+
+    /// True when the path is below `tethers/`.
+    fn contains(&self, path: &std::path::Path) -> bool {
+        path.starts_with(&self.written)
+            || self.canonical.as_ref().is_some_and(|canonical| path.starts_with(canonical))
+    }
 }
 
 /// Computes reachability from a set of root anchors. It follows references,
@@ -106,8 +165,8 @@ pub fn from_roots(compilation: &Compilation, roots: &[AnchorId]) -> Reachability
 /// the specbase a start point can see. A module sees each anchor that it
 /// imports, if an item uses it or not. Thus a root module reaches each
 /// anchor that it imports or exports again. It is one edge from the module,
-/// through imports. The report shows such an anchor through imports only when no other
-/// edge reaches it. Thus the more specific edge wins, if there is one.
+/// through imports. The report shows such an anchor through imports only when
+/// no other edge reaches it. Thus the more specific edge wins, if there is one.
 pub fn from_roots_with_imports(
     compilation: &Compilation,
     roots: &[AnchorId],
@@ -320,7 +379,7 @@ fn finish(
     // A module is necessary when it declares an item that the roots reach. It
     // is also necessary when it exports that item again. Most of a specbase
     // connects through an index that only exports again. Such an index declares
-    // no anchor. If the report calls it unreachable, it calls the connections dead.
+    // no anchor. If the report calls it unreachable, it calls the connections unused.
     let reached: HashSet<AnchorId> = seen.keys().copied().collect();
     for module in compilation.resolution.graph.iter() {
         if module.is_package() {
@@ -366,9 +425,9 @@ fn forwards_reached(
 /// `prelude` compiles some files of the specification into the binary with
 /// `include_str!`. A project can also have them on disk. Then it holds each of
 /// them two times. One copy is the file. One copy is the package module. All
-/// modules import the package copy. Thus the file seems dead. But it is not
-/// dead. It is the framework. A report that tells a person to delete it is
-/// worse than no report.
+/// modules import the package copy. Thus the file looks unused. But the
+/// compiler uses it. It is the framework. A report that tells a person to
+/// delete it is worse than no report.
 fn embedded_modules(compilation: &Compilation) -> HashSet<ModuleId> {
     let packaged: HashSet<&str> = compilation
         .resolution
@@ -448,7 +507,7 @@ fn unloaded(compilation: &Compilation) -> Vec<Unloaded> {
 }
 
 /// The number of anchors that a file declares, from its syntax only. When the
-/// file does not read, the count is zero.
+/// code cannot read the file, the count is zero.
 fn declared_anchor_count(path: &std::path::Path) -> usize {
     let Ok(source) = std::fs::read_to_string(path) else {
         return 0;
@@ -465,7 +524,7 @@ fn declared_anchor_count(path: &std::path::Path) -> usize {
 ///
 /// A module that no module imports never goes into the graph. Thus it cannot
 /// show as "loaded but unreached". Only a search of the file system finds it.
-/// When a user asks what is unreachable, this is usually the answer they need.
+/// When a user asks what is unreachable, this is usually the necessary answer.
 pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
     let config = compilation
         .project
@@ -476,7 +535,7 @@ pub fn unloaded_sources(compilation: &Compilation) -> Vec<PathBuf> {
         .into_iter()
         .filter(|path| compilation.graph().id_for(path).is_none())
         // The compiler reads the configuration, but no module imports it. It is
-        // never part of the graph of the specbase, and it is never dead.
+        // never part of the graph of the specbase, and it is never unused.
         .filter(|path| {
             config.as_ref().is_none_or(|config| {
                 std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()) != *config

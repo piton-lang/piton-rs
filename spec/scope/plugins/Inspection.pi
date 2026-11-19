@@ -27,10 +27,21 @@ export anchor PluginInspection:
 
     when:
         Before every command, in a project with a piton.config.pi, the host
-        runs each inspect hook. Not before `piton lsp`, whose output is the
-        editor's protocol, nor before `piton --help` or `--version`, nor
-        before the command of the plugin that inspects, which deals with its
-        findings itself.
+        runs each inspect hook, so any command that would fail on an older
+        form offers the migration first. Not before `piton --help` or
+        `--version`, nor before the command of the plugin that inspects, which
+        deals with its findings itself.
+
+        Not before `piton lsp` either, whose output is the editor's protocol.
+        The language server asks the hooks itself when a file is saved, and
+        offers each finding as a quick fix on the configuration diagnostic it
+        resolves, `frameworks-removed` say. Accepting the quick fix applies
+        the finding's edits.
+
+        `piton check` never writes a file of its own. Before it, the host
+        offers the findings as before every command, but the check runs on
+        the project as it is: if the user says yes, the edits are applied
+        only after the check ends, and the check is not run again.
 
         A hook runs before the project has to compile, so it can help a
         project that no longer does. It reads what it needs as files, and has
@@ -52,12 +63,14 @@ export anchor PluginInspection:
         Yes applies the edits, each file written whole through a staging
         file, reports each path changed, and runs the command that was asked
         for again, against the updated project, so it behaves as if the
-        project had always been up to date. No leaves the project as it is,
-        and the command runs as asked.
+        project had always been up to date. Before `piton check`, yes applies
+        the edits after the check instead, as `when` says. No leaves the
+        project as it is, and the command runs as asked.
 
         Anywhere else, nobody is there to answer, so nothing is asked and
-        nothing changes: each finding is printed as a warning naming the
-        command that fixes it, and the command runs as asked.
+        nothing changes: each finding is printed as a warning offering the
+        command that applies the migration automatically, `piton migrate`
+        say, and the command runs as asked.
 
     failures:
         A hook that fails is reported as a warning, and the command runs as

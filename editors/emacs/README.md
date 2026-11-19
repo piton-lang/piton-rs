@@ -37,10 +37,13 @@ grammar.
 - **Enter on a colon line** — a declaration, or a dictionary or anchor
   property with nothing after its colon (`frameworks:`, `config:: dictionary:`)
   — indents the new line one level.
-- **Enter on a blank line** inside a dictionary or anchor dedents the new line
-  one level. `electric-indent-mode` strips the whitespace from the blank line
-  as Enter leaves it, so a blank line with no indentation is measured from the
-  line before the run of blanks, one level less for each blank in the run.
+- **Enter on a blank line** inside a dictionary or anchor keeps the level on
+  the first blank line, so a paragraph break stays in the block. On a second
+  blank line in sequence it dedents the new line one level. Thus only the third
+  Enter after text dedents. `electric-indent-mode` strips the whitespace from
+  the blank line as Enter leaves it, so a blank line with no indentation is
+  measured from the line before the run of blanks: the second blank keeps the
+  level of the first, and each blank after that is one level less.
 - A list item or a merge line never opens a block, even when it ends in a
   colon (`- Settings:` is just the string `Settings:`), and neither does a
   comment or a line of prose with spaces in it (`For example:`). A line of

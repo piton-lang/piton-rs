@@ -10,6 +10,7 @@ Unless specifically constrained to a type, a variable or property can hold any t
 | `true story`            | `string`                                                           |
 | `42`                    | `number`                                                           |
 | `-42`                   | `number`                                                           |
+| `1e3`                   | `string` (no exponent notation)                                    |
 | `42 things`             | `string`                                                           |
 | `A + B`                 | `string` (no braces, so it's just text)                             |
 | `{A + B}`               | Depends on what A and B are; see ConcatenationOperators            |

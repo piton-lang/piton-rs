@@ -20,3 +20,8 @@ export test NewParagraph:
 export test KeywordsInStrings:
     expects:
         Keywords like `from` in a string body shouldn't highlight as keywords.
+
+export test Plugins:
+    expects:
+        The LSP should be extensible via whatever plugins are configured and
+        installed.

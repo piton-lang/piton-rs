@@ -1,4 +1,4 @@
-//! Tests that make sure the editor features give exact answers.
+//! Tests that verify that the editor features give exact answers.
 //!
 //! Each test writes a small workspace and puts the cursor at a position with
 //! `$0`. It then checks the full answer (the tokens, the hover text, the

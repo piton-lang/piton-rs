@@ -1,12 +1,12 @@
 //! Compares generated artifacts with the `.claude` tree in the repository.
 //!
 //! At first, that tree was the output of an earlier implementation. Thus it
-//! was an independent description of the correct Belay output. The constants
+//! was a separate description of the correct Belay output. The constants
 //! below record where this compiler did not agree with it, by intention.
 //!
-//! The tree is not independent now. `piton build` generates it again. Thus the
+//! The tree is not separate now. `piton build` generates it again. Thus the
 //! tree on disk is the most recent output of this compiler. The test is a
-//! snapshot check. It finds an unintended change in generated output between
+//! snapshot check. It finds a change in the generated output between two
 //! builds. It is not a conformance check against a different implementation.
 //! A failure means "the output changed. Did you intend this change?". It does
 //! not mean "the output is wrong".
@@ -59,7 +59,7 @@ fn is_stale(golden_path: &Path, generated: &Generated) -> bool {
 
 /// True when the specbase does not compile.
 ///
-/// A snapshot of generated output has no value while its source is broken.
+/// A snapshot of generated output has no value while its source has errors.
 /// Thus the test does not do the comparison. `piton check` reports the real
 /// problem.
 fn specbase_is_broken() -> Option<String> {
@@ -85,8 +85,9 @@ fn generated() -> (BTreeMap<String, String>, PathBuf) {
         .files
         .iter()
         .filter(|file| file.target == GOLDEN_TARGET)
-        // The golden tree is only `.claude`. Instruction files, like
-        // `crates/CLAUDE.md`, are outside it, so the test does not compare them.
+        // The golden tree is only `.claude`. Instruction files, for example
+        // `crates/CLAUDE.md`, are outside it. Thus the test does not compare
+        // them.
         .filter(|file| file.path.starts_with(".claude"))
         .map(|file| {
             (
@@ -115,7 +116,7 @@ fn golden(root: &Path) -> BTreeMap<String, String> {
             let path = entry.path();
             if path.is_dir() {
                 // Git worktrees in `.claude/worktrees` are full checkouts of
-                // the project. They are not generated output.
+                // the project. The build did not write them.
                 if path == root.join(".claude").join("worktrees") {
                     continue;
                 }
@@ -243,7 +244,7 @@ fn sources(compilation: &Compilation, origin: &str) -> Vec<PathBuf> {
     sources
 }
 
-/// Generated files by path, with the provenance of their source.
+/// Generated files by path, with the origin of their source.
 fn generated_with_sources() -> (BTreeMap<String, Generated>, PathBuf) {
     let root = repo_root();
     let (project, _) = config::load(&root, None);

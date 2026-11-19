@@ -116,6 +116,7 @@ export abstract anchor TestConfig as test-config:
     agent:: string:: null: null
     model:: string:: null: null
     jobs:: number:: null: null
+    codeRoot:: string:: null: null
 ```
 
 ## Against
@@ -134,10 +135,14 @@ The model that judges the tests, as the tool names it. The tool's own default wh
 
 How many tests run at once, a whole number of at least 1. One runs them one after another. Four when left out.
 
+## Code Root
+
+The directory whose files are the code a test is judged against, relative to the config file. Belay's codeRoot when left out, and the project root when the project has no Belay either. A project whose code is in more than one directory, its crates and its plugins say, sets it to `.`; the project root then leaves out the source root, tethers/, the build output and the generated agent directories, as it does without Belay. A value that is not a path is an error, invalid-test-code-root.
+
 ## Precedence
 
 A flag on the command line wins over the test, and the test wins over the configuration, so a single run can be pointed at the code without editing anything, and a test that only makes sense against the specification can say so.
 
 ## Errors
 
-A value that isn't one of the choices is an error that names the choices, whether it is in the settings, in a test, or on the command line, and nothing is run. In the settings it is reported where it is written, with the source it points at: invalid-test-scope for against, unknown-test-agent for agent, invalid-test-model for a model that is not a name, and invalid-jobs for jobs.
+A value that isn't one of the choices is an error that names the choices, whether it is in the settings, in a test, or on the command line, and nothing is run. In the settings it is reported where it is written, with the source it points at: invalid-test-scope for against, unknown-test-agent for agent, invalid-test-model for a model that is not a name, invalid-jobs for jobs, and invalid-test-code-root for codeRoot.

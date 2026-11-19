@@ -4,8 +4,8 @@
 //! references. A reference must stay in the text until serialization. The
 //! Markdown adapter changes it into a link relative to the output file. A
 //! structured adapter must show the identity in a different way. If evaluation
-//! changes the reference into a name, the text loses the identity. Thus a string keeps
-//! its segments.
+//! changes the reference into a name, the text loses the identity. Thus a
+//! string keeps its segments.
 
 use std::fmt;
 

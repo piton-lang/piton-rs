@@ -41,8 +41,10 @@ The specification's rules for every editor (`Editor` in
   is never a key, even with a colon at the end (`- Settings:` is just a
   string), so a list line or a merge line (`+ ...`, `++ ...`) never opens a
   block; nor does a comment.
-- **Enter on a blank line** inside a dictionary or anchor puts the new line one
-  level back.
+- **Enter on a blank line** inside a dictionary or anchor keeps the level on
+  the first blank line, so a paragraph break stays in the block. On a second
+  blank line in sequence it puts the new line one level back. Thus only the
+  third Enter after text moves the line back.
 - **Autoformat on save** is an option, off by default. The formatter adds the
   space after `//` and touches nothing else that is commented.
 

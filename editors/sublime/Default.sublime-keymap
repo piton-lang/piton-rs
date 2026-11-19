@@ -1,7 +1,11 @@
 [
-    // Enter on a blank line inside a dictionary or anchor leaves the block:
-    // the new line comes back one level. Sublime copies the blank line's
-    // indentation to the new line; the macro then unindents it once.
+    // Enter on a blank line inside a dictionary or anchor. After one blank
+    // line, Enter keeps the level as usual, so a paragraph break stays in the
+    // block. After two blank lines in sequence, the new line comes back one
+    // level. Thus only the third Enter after text moves the line back.
+    // Sublime copies the blank line's indentation to the new line; the macro
+    // then unindents it once. `piton_enter.py` gives the context that tells
+    // if the line above the blank line is blank too.
     //
     // The rule reads the whitespace on the blank line, which Sublime leaves
     // there while you type. A blank line with no whitespace at all has no
@@ -14,6 +18,7 @@
             { "key": "selector", "operator": "equal", "operand": "source.piton", "match_all": true },
             { "key": "preceding_text", "operator": "regex_match", "operand": "^[ \t]+$", "match_all": true },
             { "key": "following_text", "operator": "regex_match", "operand": "^[ \t]*$", "match_all": true },
+            { "key": "piton_line_above_is_blank", "operator": "equal", "operand": true, "match_all": true },
             { "key": "auto_complete_visible", "operator": "equal", "operand": false }
         ]
     }

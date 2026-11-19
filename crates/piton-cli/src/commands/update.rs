@@ -2,8 +2,8 @@
 //! configuration.
 //!
 //! The update reads `piton.config.pi`, not the tethers directory. The
-//! dependency list tells what the project needs. An installed package that
-//! the project does not need now is for `piton remove`, not for this command.
+//! dependency list tells which packages the project uses. An installed package
+//! that the project does not use now is for `piton remove`, not for this command.
 //!
 //! Before it replaces a package, the command checks that the files on disk
 //! are the same as the installed files. An edited package contains work.

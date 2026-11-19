@@ -1,5 +1,5 @@
 //! Line-by-line diffs of the files that a command changed. The compiler
-//! calculates them. Thus the user does not need a diff program.
+//! calculates them. Thus a diff program is not necessary.
 //!
 //! Each changed region shows its old and new line numbers next to each line.
 //! A code review shows them in the same way:

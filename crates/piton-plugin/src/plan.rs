@@ -29,8 +29,8 @@ fn text<'a>(value: &'a Json, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Json::as_str)
 }
 
-/// Reads a plan. A malformed plan is an error that names the problem. The
-/// host then uses no part of the plan.
+/// Reads a plan. A plan with an incorrect form is an error that names the
+/// problem. The host then uses no part of the plan.
 pub fn read(manifest: &Manifest, plan: &Json, root: &Path) -> Result<PluginPlan, String> {
     let owner = &manifest.name;
     let mut out = PluginPlan::default();

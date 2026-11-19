@@ -228,7 +228,7 @@ pub fn relative_file(from_directory: &Path, target: &Path) -> String {
 
 /// Builds a relative Markdown link from one directory to a target path.
 ///
-/// A link has a `./` or `../` prefix only when it needs one. A link to
+/// A link has a `./` or `../` prefix only when it is necessary. A link to
 /// a file in the same directory is a bare name. The reference tree uses this form.
 pub fn relative_link(from_directory: &Path, target: &Path) -> String {
     let from: Vec<_> = from_directory

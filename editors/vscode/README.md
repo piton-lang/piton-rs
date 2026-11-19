@@ -61,18 +61,21 @@ Set `piton.server.path` if the binary is not on `PATH`, or
 adds the space after `//` and touches nothing else that is commented.
 
 Enter on a colon line (a declaration, or a dictionary or anchor property with
-nothing after its colon) lands one level in; Enter on a blank line inside a
-dictionary or anchor lands one level back. Both are `onEnterRules` in
-`language-configuration.json`. A list item or a merge line never opens a block,
-even when it ends in a colon (`- Settings:` is just a string), and Enter does
-not continue a list by itself. The language server answers the same two moves
-through on-type formatting if you turn on `editor.formatOnType`.
+nothing after its colon) lands one level in. Enter on the first blank line
+inside a dictionary or anchor keeps the level, so a paragraph break stays in
+the block. Enter on a second blank line in sequence lands one level back. Thus
+only the third Enter after text moves the line back. Both are `onEnterRules` in
+`language-configuration.json`; the blank-line rule uses `previousLineText` to
+see whether the line above the blank line is blank too. A list item or a merge
+line never opens a block, even when it ends in a colon (`- Settings:` is just
+a string), and Enter does not continue a list by itself. The language server
+answers the same moves through on-type formatting if you turn on
+`editor.formatOnType`.
 
 The blank-line rule reads the whitespace VS Code leaves on the line it just
 indented, so it applies while you are typing. A blank line with no whitespace
-at all (one already in the file, or after `editor.trimAutoWhitespace` removed
-it) gives the rule nothing to measure; `editor.formatOnType` covers that case
-through the server.
+at all (one already in the file) gives the rule nothing to measure;
+`editor.formatOnType` covers that case through the server.
 
 ## Commands
 

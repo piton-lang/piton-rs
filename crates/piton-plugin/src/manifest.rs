@@ -3,9 +3,9 @@
 //! The declaration of a plugin is a `piton-plugin` anchor. Thus Piton holds
 //! all the data that the CLI can know without a run of the plugin. This data
 //! is the name, the commands and their arguments, and the permissions on the
-//! machine. It also includes the location of the code. The CLI makes its help and parses
-//! arguments from the declaration only. It runs JavaScript only when the user
-//! runs a command of the plugin.
+//! machine. It also includes the location of the code. The CLI makes its help
+//! and parses arguments from the declaration only. It runs JavaScript only
+//! when the user runs a command of the plugin.
 
 use std::path::{Path, PathBuf};
 
@@ -124,8 +124,8 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
-    /// The outputs as a matcher. `*` stays in one directory. `**` goes across
-    /// directories. A plugin with no outputs can write nothing.
+    /// The outputs as a matcher. `*` stays in one directory. `**` can include
+    /// more than one directory. A plugin with no outputs can write nothing.
     pub fn output_globs(&self) -> globset::GlobSet {
         globs(&self.outputs)
     }
@@ -172,7 +172,7 @@ pub struct ArgSpec {
     /// The value of the argument when the user does not give it.
     pub default: Option<String>,
     /// For the last positional argument. It takes all values after it, also
-    /// values that look like options. The plugin gives them to a program.
+    /// values that have the form of options. The plugin gives them to a program.
     pub trailing: bool,
     /// For an option. True when the user can give it without a value. The
     /// host then gives an empty string to the plugin.
@@ -405,9 +405,9 @@ pub fn load_order<'a>(manifests: &'a [Manifest], main: &str) -> Result<Vec<&'a M
 }
 
 /// The plugins that `piton build` runs. Each has a build, and the project
-/// turned it on. A plugin that the project declares is on. A bundled plugin
-/// is on when the project lists its settings. Thus a project that does not
-/// name a bundled plugin has none of its output.
+/// selects it. The project selects each plugin that it declares. It selects a
+/// bundled plugin when it lists the settings of that plugin. Thus a project
+/// that does not name a bundled plugin has none of its output.
 pub fn builders<'a>(project: &Project, manifests: &'a [Manifest]) -> Vec<&'a Manifest> {
     manifests
         .iter()

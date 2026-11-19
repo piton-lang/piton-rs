@@ -10,7 +10,7 @@
 //! exactly one backslash gives no text. It toggles literal mode. It also removes
 //! one space on the inner side of the delimiter. In literal mode, interpolation
 //! sigils are usual characters. Thus `\ {1 + 2 + 3} \` becomes
-//! `{1 + 2 + 3}`, and `\\ \ {1 + 2 + 3} \ \\` becomes `\ {1 + 2 + 3} \`.
+//! `{1 + 2 + 3}`. Also, `\\ \ {1 + 2 + 3} \ \\` becomes `\ {1 + 2 + 3} \`.
 //!
 //! Literal mode stops at a line break.
 

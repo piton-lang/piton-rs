@@ -95,8 +95,8 @@ pub fn fail(message: impl std::fmt::Display) {
     defer(format!("{} {message}\n", paint(style::ERROR, "error:")));
 }
 
-/// A `Severity::Warning` diagnostic without a source location. It prints with the other problems when
-/// the command ends.
+/// A `Severity::Warning` diagnostic without a source location. It prints with
+/// the other problems when the command ends.
 pub fn warn(message: impl std::fmt::Display) {
     defer(format!("{} {message}\n", paint(style::WARNING, "warning:")));
 }

@@ -2,8 +2,8 @@
 //!
 //! The editor support is not in this crate. It includes a TextMate grammar, a
 //! Vim syntax file, a tree-sitter grammar and more. Each of these must know the
-//! same list of keywords. This module keeps that list. Tests compare the shipped
-//! grammars with this module. A person can add a keyword to the compiler.
+//! same list of keywords. This module keeps that list. Tests compare the
+//! grammars of the repository with this module. A person can add a keyword to the compiler.
 //! Thus the tests make sure that the grammars also contain the keyword.
 
 /// The file extension of Piton source files.
@@ -44,7 +44,7 @@ pub const COMMENT_PREFIX: &str = "//";
 
 /// All the words that an editor must colour as keywords.
 ///
-/// A syntax definition needs this list. It is the union of all the words that
+/// A syntax definition must have this list. It is the union of all the words that
 /// have a sense, in all contexts.
 pub fn highlight_keywords() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = DECLARATION_KEYWORDS

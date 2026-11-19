@@ -1,6 +1,7 @@
 use @piton/packaging
 use @piton/config
 use @piton/belay
+use @piton/test
 
 from @piton/belay import ClaudeCodeAdapter, OpenCodeAdapter
 
@@ -10,6 +11,7 @@ export piton-config PitonLanguageTest:
 
     plugins:
         - {BelayConfiguration}
+        - {Tests}
 
     packages:
         - {Piton}
@@ -24,6 +26,11 @@ belay-config BelayConfiguration:
     adapters:
         - {ClaudeCodeAdapter}
         - {OpenCodeAdapter}
+
+// The code of this project is in crates and in plugins. The tests judge
+// both, so the code root of the tests is the project root.
+test-config Tests:
+    codeRoot: .
 
 piton-package Piton:
     name: piton

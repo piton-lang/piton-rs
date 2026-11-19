@@ -14,8 +14,8 @@
 ; item or a merge line: a list item is never a key, even with a colon at the
 ; end.
 ;
-; Helix cannot express the blank-line dedent (Enter on a blank line inside a
-; dictionary or anchor comes back one level), and it does not use the language
+; Helix cannot express the blank-line dedent (Enter on a second blank line in a
+; block comes back one level), and it does not use the language
 ; server's on-type formatting. See editors/helix/README.md.
 
 (anchor_declaration) @indent @extend

@@ -1,10 +1,10 @@
 //! `piton remove` — delete an installed package.
 //!
 //! The removal deletes files. Thus it does two checks first. The package must
-//! be the same as the installed package. No file must import it. If a check
-//! fails, the removal causes a loss. In the first case, the user loses edits. In the
-//! second case, the build stops. Thus the command reports these problems, and
-//! does not ignore them.
+//! be the same as the installed package. No file can import it. If a check
+//! fails, the removal causes a loss. In the first case, the user loses edits.
+//! In the second case, the build stops. Thus the command reports these
+//! problems, and does not ignore them.
 
 use piton_compile::packages::{self, Lock};
 

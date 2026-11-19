@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 /// How serious a diagnostic is.
 ///
 /// `check` exits non-zero when a phase reported a [`Severity::Error`]. Warnings
-/// give information only. A `Severity::Warning` diagnostic
-/// alone does not stop a build.
+/// give information only. A `Severity::Warning` diagnostic alone does not stop
+/// a build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
     Error,

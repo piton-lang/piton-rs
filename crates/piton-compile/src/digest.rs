@@ -2,7 +2,7 @@
 //!
 //! The package lock file stores a digest of each installed file. Thus an update
 //! can tell an unchanged package from an edited package. The compiler makes no
-//! other hash. The workspace keeps a short and deliberate list of dependencies.
+//! other hash. The workspace keeps a short list of dependencies on purpose.
 //! Thus the algorithm is in this file and not in a dependency.
 //!
 //! This is the standard form of FIPS 180-4. It operates on one 64-byte block
@@ -101,8 +101,8 @@ mod tests {
     use super::*;
 
     /// The published vectors from FIPS 180-4 and the NIST examples. They
-    /// include a length for each fill case. The cases are no fill, fill in
-    /// one block, and fill across a block boundary.
+    /// include a length for each fill case. The cases are no fill, fill that
+    /// stays in one block, and fill that goes past the end of a block.
     #[test]
     fn known_vectors() {
         assert_eq!(

@@ -1,0 +1,6 @@
+use ./lib
+
+export test DefaultNoReachOnTethers:
+    expects:
+        By default, reach is not checked on tethers.  There is an
+        --include-tethers option on the reach command that will check it.

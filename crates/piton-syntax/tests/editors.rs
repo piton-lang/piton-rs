@@ -1,4 +1,4 @@
-//! Checks the editor definitions that this repository ships against the language.
+//! Checks the editor definitions in this repository against the language.
 //!
 //! The `editors/` directory has nine syntax definitions. Each one has a
 //! different format. Each one repeats the keyword list of the language. Thus
@@ -35,7 +35,7 @@ const QUERY_FILES: &[&str] = &[
 ///
 /// Zed matches these names and ignores all other names without a message.
 /// Thus a `zed/languages/piton/indents.scm` in the vocabulary of Neovim stayed
-/// in this directory and did nothing. It used `@indent.begin`, but Zed needs
+/// in this directory and did nothing. It used `@indent.begin`, but Zed reads only
 /// `@indent`. A wrong capture name is not an error in any place. The result is
 /// only an editor that does not do the task.
 const ZED_CAPTURES: &[(&str, &[&str])] = &[
@@ -85,7 +85,7 @@ fn missing<'a>(text: &str, words: impl IntoIterator<Item = &'a &'a str>) -> Vec<
 
 /// The syntax definitions that have their own rules. Emacs is not one of
 /// them. It reads `highlights.scm` from the tree-sitter grammar.
-/// `emacs_highlights_match_the_grammars_own` holds Emacs to that file.
+/// `emacs_highlights_match_the_grammars_own` makes sure that Emacs uses that file.
 const DEFINITIONS: &[&str] = &[
     "vscode/syntaxes/piton.tmLanguage.json",
     "tree-sitter-piton/grammar.js",
@@ -249,7 +249,7 @@ fn every_definition_indents_after_a_colon() {
 /// compile there. VS Code can accept a pattern that Rust rejects. If that happens,
 /// Zed uses its own old rule for indentation. Also, the pattern must find the
 /// same boundary as the server. This is the boundary between the colon of a
-/// key and the colon of a value. If not, the two will disagree on each newline.
+/// key and the colon of a value. Else the two will not agree on each newline.
 #[test]
 fn the_block_opens_pattern_agrees_with_the_server() {
     let pattern = regex::Regex::new(BLOCK_OPENS).expect(
@@ -285,9 +285,9 @@ fn the_block_opens_pattern_agrees_with_the_server() {
 /// `DEFINITIONS`. It cannot give colour to a type name only after `::`.
 /// Thus it does not list a type name that is also a usual key, for example
 /// `list`. It lists the literals and the expression keywords. It lists no
-/// declaration keyword, because a word list would also colour `from` in a
-/// string body. The language server colours those keywords where the parser
-/// reads them.
+/// declaration keyword, because a word list also gives a colour to
+/// `from` in a string body. The language server gives a colour to those
+/// keywords where the parser reads them.
 #[test]
 fn the_rhun_grammar_lists_the_words() {
     let text = read("rhun/syntax/piton.syn");
@@ -405,7 +405,7 @@ fn the_grammar_uses_only_regex_features_tree_sitter_has() {
 fn every_query_matches_a_node_the_grammar_defines() {
     // If a query names a node that does not exist, the query does not compile
     // against the grammar. An editor reports this failure in the same way as a
-    // broken grammar. The repository ships the queries two times. One copy is
+    // broken grammar. The repository contains the queries two times. One copy is
     // in the grammar directory and one copy is in the Zed extension. Thus the
     // test checks both copies.
     let grammar = read("tree-sitter-piton/grammar.js");
@@ -688,9 +688,9 @@ fn every_canonical_name_appears_in_its_definition() {
 
 /// No pattern in the highlights query has a predicate.
 ///
-/// Capitalisation is a separate token in the grammar. Thus no pattern needs
-/// `#match?`. Also, Emacs, Neovim, Helix and Zed all read a query without
-/// predicates in the same way.
+/// Capitalisation is a separate token in the grammar. Thus `#match?` is not
+/// necessary in a pattern. Also, Emacs, Neovim, Helix and Zed all read a query
+/// without predicates in the same way.
 #[test]
 fn highlights_have_no_predicates() {
     let query = read("tree-sitter-piton/queries/highlights.scm");
@@ -723,7 +723,7 @@ fn emacs_highlights_match_the_grammars_own() {
 }
 
 /// Each capture that the query uses has a face in `piton-ts-capture-faces`.
-/// It is the face that `scopes.toml` names. The mode drops a capture that has
+/// It is the face that `scopes.toml` names. The mode ignores a capture that has
 /// no entry. Then the text has colour in all other editors, but no colour in
 /// Emacs.
 #[test]
@@ -780,11 +780,11 @@ fn emacs_maps_every_capture() {
 // Zed
 // ---------------------------------------------------------------------------
 
-/// The Zed extension must ship the code that starts the server.
+/// The Zed extension must contain the code that starts the server.
 ///
 /// `extension.toml` can declare that Piton has a language server. But it cannot
 /// tell which program to run. Only a compiled `language_server_command` can tell
-/// Zed that. An extension can declare a server and ship no WebAssembly. Then Zed
+/// Zed that. An extension can declare a server and contain no WebAssembly. Then Zed
 /// cannot start the server. Zed shows this problem only when the user opens a
 /// `.pi` file.
 #[test]
@@ -869,9 +869,9 @@ fn zed_queries_use_captures_zed_reads() {
 /// Indentation in Zed is a line pattern, and it must stay a line pattern.
 ///
 /// The `@indent` of Zed measures a node that spans the lines that it indents.
-/// The grammar has no such node. Indentation is intentionally not in the
-/// grammar. Thus the header of an anchor is a line, and the body is not part of
-/// the header. Thus the rule can be only in `config.toml`.
+/// The grammar has no such node. The grammar does not show indentation, and
+/// this is the intent. Thus the header of an anchor is a line, and the body is
+/// not part of the header. Thus the rule can be only in `config.toml`.
 #[test]
 fn zed_indentation_is_a_line_rule() {
     let config = read("zed/languages/piton/config.toml");

@@ -3,10 +3,10 @@
 //! An editor asks questions of a resolved program. Examples are import
 //! cleanup, unused declarations and redundant overrides. Other examples are
 //! conflicts of inheritance and composition, and the map from source to
-//! compiled output. They are not
-//! part of `piton check`. A file can be a valid description and still have an
-//! import that no file reads. The language server publishes them next to the
-//! compiler diagnostics. It also answers the queries that the features use.
+//! compiled output. They are not part of `piton check`. A file can be a valid
+//! description and still have an import that no file reads. The language
+//! server publishes them next to the compiler diagnostics. It also answers the
+//! queries that the features use.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -710,7 +710,7 @@ fn unused(
         if path.to_string_lossy().starts_with('@') || is_config_module(compilation, def.module) {
             continue;
         }
-        // A keyword that some file uses is not dead. This is also true when the
+        // A keyword that a file uses is not unused. This is also true when the
         // reachability walk did not find the alias itself.
         if def.alias.as_ref().is_some_and(|alias| {
             index
@@ -1889,7 +1889,7 @@ pub(crate) fn anchor_for_output(compilation: &Compilation, origin: &str) -> Opti
         .map(|def| def.id)
 }
 
-/// Plan diagnostics go on the configuration. The editor does not look at that
+/// Plan diagnostics go on the configuration. The editor does not examine that
 /// construct. When the plan names an origin, the diagnostic goes on that anchor.
 fn place_belay(compilation: &Compilation, mut diagnostic: Diagnostic) -> Diagnostic {
     let Some(origin) = diagnostic.origin.clone() else {

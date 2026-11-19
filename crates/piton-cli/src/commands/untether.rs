@@ -97,7 +97,7 @@ pub fn run(name: &str, rename: Option<&str>, no_rewrite: bool) -> u8 {
 
     // The command writes a root-absolute path. It resolves from the source
     // root in all files. A relative path must change for each importer. Also,
-    // it breaks again when a file moves.
+    // it becomes incorrect again when a file moves.
     let replacement = format!(
         "/{}",
         module::relative_path(&configured.source_root, &to)

@@ -16,3 +16,16 @@ export test EmulReference:
         will generate either an SVG, a PNG, HTML, or look at the Emul file
         directly -- whatever it decides is most useful for what's currently
         being worked on.
+
+export test LspSupport:
+    expects:
+        The LSP should adapt to the Emul plugin such that it understands what an
+        emul import and reference are.
+
+export test ReachFollowsEmulUses:
+    expects:
+        An emul-design anchor references the designs that the design extends
+        or instances, also through local designs that the file does not
+        export, so piton reach reaches the components of a referenced
+        composition. Names in text and imports that no design uses are not
+        reached.

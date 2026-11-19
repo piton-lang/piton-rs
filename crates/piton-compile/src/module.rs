@@ -169,10 +169,10 @@ impl ModuleGraph {
 
 /// All Piton source files below a directory.
 ///
-/// The compiler does not need this. It follows imports from the entry. A file
-/// that no module imports is not part of the program. An editor needs this,
+/// This is not necessary for the compiler. It follows imports from the entry. A file
+/// that no module imports is not part of the program. An editor must have this,
 /// because the file is on the screen before a module imports it. A tool that
-/// suggests a path to import also needs it. Its purpose is to reach a file
+/// suggests a path to import must also have it. Its purpose is to reach a file
 /// that the project does not reach at this time.
 ///
 /// This function has no limit. The format, check and index tools must give a
@@ -224,12 +224,12 @@ pub fn sources_up_to(root: &Path, limit: usize) -> Vec<PathBuf> {
     found
 }
 
-/// The two roots that module resolution needs.
+/// The two roots that are necessary for module resolution.
 ///
 /// The two roots are different. Absolute imports start at the configured source
 /// root. But `tethers/` is next to `piton.config.pi` at the project root. This
-/// type keeps the two roots together. Thus a caller does not need to know which
-/// root each search needs.
+/// type keeps the two roots together. Thus it is not necessary for a caller to
+/// know the root for each search.
 #[derive(Debug, Clone, Copy)]
 pub struct Roots<'a> {
     pub source_root: &'a Path,
@@ -282,8 +282,8 @@ pub trait ModuleProvider: Send + Sync {
     /// True when the provider gives the module of a file with `extension`.
     /// The extension has no dot.
     fn provides(&self, extension: &str) -> bool;
-    /// The Piton source of the module of the file at `path` with the text
-    /// `text`, or a message that tells why it failed.
+    /// The Piton source of the module for the file at `path` with the text
+    /// `text`. If this fails, a message that tells why.
     fn module(&self, path: &Path, text: &str) -> Result<String, String>;
 }
 
@@ -308,7 +308,7 @@ pub fn provides(extension: &str) -> bool {
     extension != "pi" && current_provider().is_some_and(|provider| provider.provides(extension))
 }
 
-/// The module that a plugin gives for the file at `path`, or None when no
+/// The module that a plugin gives for the file at `path`. None when no
 /// plugin gives modules for its extension.
 fn provided(path: &Path, text: &str) -> Option<Result<String, String>> {
     let extension = path.extension()?.to_str()?;
@@ -336,7 +336,7 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
     }
 
     // An installed package takes the place of its install directory. The
-    // remainder of the path then resolves as all other paths do.
+    // other part of the path then resolves as all other paths do.
     let installed = packages::is_bare_path(text)
         .then(|| packages::resolve_prefix(context.project_root, text))
         .flatten();
@@ -380,8 +380,8 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         });
     }
 
-    // A path whose extension a plugin gives modules for names that file. Only
-    // that file can match.
+    // A plugin can give modules for the extension of a path. Then the path
+    // names that file. Only that file can match.
     if base.extension().and_then(|e| e.to_str()).is_some_and(provides) {
         if base.is_file() {
             return Ok(base);

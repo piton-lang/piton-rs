@@ -32,7 +32,7 @@ pub struct OutputSettings {
     /// Tells if `piton build` writes the renderer output. It does when no
     /// plugin builds output, or when the configuration sets `output` or
     /// `renderer`. When it is false, the server shows no renderer output: no
-    /// mapping to a JSON, YAML or Markdown file and no value in that format.
+    /// map to a JSON, YAML or Markdown file and no value in that format.
     pub written: bool,
 }
 
@@ -103,7 +103,9 @@ pub struct ClientCaps {
 }
 
 pub struct World {
-    /// The workspace folder of the server. The server uses it to read the
+    /// The directory of the project of the server. It is the directory of the
+    /// nearest `piton.config.pi` in the workspace folder or above it. Without
+    /// such a file, it is the workspace folder. The server uses it to read the
     /// configuration again when the configuration changes.
     pub root: PathBuf,
     pub project: Project,
@@ -138,6 +140,9 @@ pub struct World {
     pub plugin_plans: Vec<piton_plugin::plan::PluginPlan>,
     /// The items that each plugin reached at the last save, by file and name.
     pub plugin_reached: Vec<(PathBuf, String)>,
+    /// The findings of the inspect hooks at the last save. Each finding has
+    /// edits. The server offers them as code actions.
+    pub plugin_findings: Vec<piton_plugin::inspection::Finding>,
     /// The server sets it when a save or the configuration makes new plans
     /// necessary. A keystroke never sets it.
     plans_stale: bool,
@@ -146,9 +151,20 @@ pub struct World {
     focus: Option<PathBuf>,
 }
 
+/// The directory of the nearest `piton.config.pi` in `start` or in a
+/// directory above it.
+fn project_directory(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find_map(config::find_config)
+        .and_then(|found| found.parent().map(Path::to_path_buf))
+}
+
 impl World {
-    pub fn new(root: &Path) -> World {
+    pub fn new(folder: &Path) -> World {
         piton_plugin::bundled::register();
+        let root = project_directory(folder).unwrap_or_else(|| folder.to_path_buf());
+        let root = root.as_path();
         let (project, diagnostics) = config::load(root, None);
         crate::plugins::install_modules(&project);
         let output = output_settings(&project);
@@ -170,6 +186,7 @@ impl World {
             stale: true,
             plugin_plans: Vec::new(),
             plugin_reached: Vec::new(),
+            plugin_findings: Vec::new(),
             plans_stale: true,
             focus: None,
         }
@@ -196,6 +213,27 @@ impl World {
         self.stale = true;
     }
 
+    /// Moves the server to the project of `path`. That project is at the
+    /// nearest `piton.config.pi` above the file. An example is a workspace
+    /// folder that holds many projects and has no configuration. Without the
+    /// project of the file, the server has no plugins, no source root and no
+    /// packages. Then all imports of `.emul` files, rooted paths and packages
+    /// fail. An installed package in `tethers/` stays in the current project.
+    fn follow(&mut self, path: &Path) {
+        let Some(directory) = path.parent().and_then(project_directory) else {
+            return;
+        };
+        if directory == self.root {
+            return;
+        }
+        let tethers = self.project.root.join(piton_compile::packages::TETHERS);
+        if self.project.config_path.is_some() && directory.starts_with(&tethers) {
+            return;
+        }
+        self.root = directory;
+        self.reload_project();
+    }
+
     pub fn set_document(&mut self, path: PathBuf, text: String) {
         self.focus = Some(path.clone());
         self.documents.insert(path, text);
@@ -203,6 +241,7 @@ impl World {
 
     /// An open buffer, at the version number that the client gave it.
     pub fn open_document(&mut self, path: PathBuf, text: String, version: i32) {
+        self.follow(&path);
         self.versions.insert(path.clone(), version);
         self.set_document(path, text);
     }
@@ -269,7 +308,7 @@ impl World {
     /// sources that the entry point reaches. `piton reach` answers questions
     /// about reachability. Reachability does not decide which files exist. A
     /// file that no file imports at this time is a file that a person writes now. It
-    /// needs diagnostics, symbols, and jump targets, as all files do.
+    /// must have diagnostics, symbols, and jump targets, as all files do.
     pub fn recompile(&mut self, focus: Option<&Path>) {
         if let Some(path) = focus {
             self.focus = Some(path.to_path_buf());
@@ -279,8 +318,8 @@ impl World {
             // When there is no configuration, there is no project. Thus the
             // file that the user edits is the full project. When the user
             // edits no file, there is nothing to compile. A compile of the
-            // workspace directory as an entry point only makes noise.
-            // It also races the first `didOpen`.
+            // workspace directory as an entry point has no value. It can
+            // also occur at the same time as the first `didOpen`.
             let focus = self
                 .focus
                 .clone()
@@ -306,6 +345,7 @@ impl World {
         if self.plans_stale {
             self.plugin_plans = crate::plugins::plan(&self.project);
             self.plugin_reached = crate::plugins::reached(&self.project);
+            self.plugin_findings = crate::plugins::findings(&self.project);
             self.plans_stale = false;
         }
         self.index = Index::build(&compilation);
@@ -326,8 +366,8 @@ impl World {
     /// Diagnostics, in groups by the file that they belong to.
     pub fn diagnostics_by_file(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let mut out: HashMap<PathBuf, Vec<Diagnostic>> = HashMap::new();
-        // Each open buffer has an entry. Thus when a problem stops, its
-        // diagnostic also goes away.
+        // Each open buffer has an entry. Thus when a problem stops, the
+        // server also removes its diagnostic.
         for path in self.documents.keys() {
             out.entry(path.clone()).or_default();
         }
@@ -357,6 +397,12 @@ impl World {
             .chain(&self.config_diagnostics);
         for diagnostic in extra {
             if diagnostic.file.to_string_lossy().starts_with('@') {
+                continue;
+            }
+            // A plugin gives the module of a file that is not Piton, for
+            // example an `.emul` file. The user did not write that Piton
+            // source. Thus the checks of the editor do not apply to it.
+            if diagnostic.file.extension().is_some_and(|e| e != language::EXTENSION) {
                 continue;
             }
             let list = out.entry(diagnostic.file.clone()).or_default();

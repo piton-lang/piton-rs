@@ -1,5 +1,6 @@
-//! The colours of the CLI. Output goes through `anstream`. It keeps the colours
-//! only for a terminal that allows colour. Output to a pipe stays plain text.
+//! The colours of the CLI. The CLI writes output with `anstream`. It keeps
+//! the colours only for a terminal that shows colour. Output to a pipe stays
+//! plain text.
 //! Output from a run with `NO_COLOR` also stays plain text.
 
 use anstyle::{AnsiColor, Style};

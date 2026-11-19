@@ -23,6 +23,7 @@ The plugin does not compile Emul. Its module hook reads only the declaration lin
 - from ./Other import Name, then export Name Export again a design of another Emul file.
 - from ./Other export Name, and from ./Other export * Export again the designs of another Emul file.
 
+An import or an export can continue on indented lines, with one name on each line and no comma, as `emul format` writes a long list. Each such line is one more item of the list.
 A path in an Emul file is relative to that file. Without an extension, it names Other.emul, or Other/index.emul when that file is not there. A path of . or .. names the index.emul of that directory. In the module the hook gives, each such path ends in .emul, so it names the Emul file in turn. Emul's own errors stay for `emul check` to find.
 
 ## Designs

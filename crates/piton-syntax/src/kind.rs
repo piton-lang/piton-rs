@@ -140,7 +140,7 @@ impl From<SyntaxKind> for rowan::SyntaxKind {
 
 /// Reserved words. A property name cannot be a reserved word. Thus a line such
 /// as `null: The absence of a value` is prose, not a property. For this reason,
-/// such lines do not show as headings in the compiled output.
+/// the compiled output does not show such lines as headings.
 pub const RESERVED_WORDS: &[&str] = &[
     "use", "from", "import", "export", "anchor", "abstract", "as", "extends", "pass", "null",
     "true", "false", "this", "self", "super",

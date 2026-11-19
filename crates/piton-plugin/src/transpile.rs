@@ -1,8 +1,8 @@
 //! This module changes TypeScript to JavaScript in the same process.
 //!
-//! Plugins use TypeScript. A user of `piton` must not need Node or `tsc` to
-//! use a plugin. oxc removes the types. The parser reads the TypeScript.
-//! Semantic analysis gives the transformer the scopes that it needs. The
+//! Plugins use TypeScript. A user of `piton` must not have to install Node or
+//! `tsc` to use a plugin. oxc removes the types. The parser reads the TypeScript.
+//! Semantic analysis gives the transformer the scopes that it must have. The
 //! transformer removes all code that is only types. The code generator prints
 //! the JavaScript that QuickJS runs. This module does not change the
 //! JavaScript to an older version. QuickJS runs modern JavaScript as it is.

@@ -15,15 +15,16 @@ If both modules export an anchor called Roles, the module does not export the pl
 cruxible.Roles and strataglyph.Roles. The name of a source
 
 module is its file name without .pi, or the name of its directory when it is an index.pi. A name that only one glob exports, or that all the globs export with the same meaning, stays a plain export.
+Two source modules can have the same name, for example when two packages each have a module called roles. Then the compiler adds the name of the parent directory to each of those qualifiers, and does this again until each qualifier is unique. The parent directory of an installed package module is the package name. Thus `from ./pkg-a/roles export *` and `from ./pkg-b/roles export *` export pkg-a.roles.Roles and pkg-b.roles.Roles. Only the qualifiers that collide get longer. As a last way to tell an index.pi apart from a file with the name of its directory, its qualifier gets index.
 The compiled output follows the same names. Here the module compiles to an object with the keys cruxible.Roles and strataglyph.Roles, next to the keys of its plain exports, in the order of the export lines.
 An import selects an overlapping export by its qualified name. Without an alias, the import binds the last part of the name.
 ```piton fragment
 from ./index import cruxible.Roles, strataglyph.Roles GlyphRoles
 ```
-This brings in Roles from cruxible and GlyphRoles from strataglyph. An import of the plain name Roles from that index is an error, because the index does not export it. The error names each qualified name that the import can use instead. A `from ./index export *` line in another module hands on the qualified names as they are.
+This brings in Roles from cruxible and GlyphRoles from strataglyph. A longer qualifier works the same way: the import uses the full name, for example `from ./index import pkg-a.roles.Roles`. An import of the plain name Roles from that index is an error, because the index does not export it. The error names each qualified name that the import can use instead. A `from ./index export *` line in another module hands on the qualified names as they are.
 An explicit export hides the same name from a glob, and that is not an error either. If the module declares or names its own Roles, it exports that Roles, and the Roles of each glob stays out.
 Exporting the same thing twice under one name isn't a collision. Two `export *` lines that both end up at the same anchor (say, because both modules re-export it from a shared file) export one thing, and that's fine.
-Only two cases are a compile error, `duplicate-export`. The first is two explicit exports of one name with two different meanings. The second is two globs that give a name two meanings from source modules that have the same name (./a/roles and ./b/roles both qualify it as roles.Roles), because the qualified names collide too. The error names the clashing name and both modules it comes from. To fix it, export one of them under an alias, or replace `export *` with an explicit list that leaves one out or renames it.
+Only one case is a compile error, `duplicate-export`: two explicit exports of one name with two different meanings. Overlapping globs are never this error, because their qualifiers are always unique. The error names the clashing name and both modules it comes from. To fix it, export one of them under an alias.
 ```piton fragment
 from ./a export Roles
 from ./b export Roles BRoles

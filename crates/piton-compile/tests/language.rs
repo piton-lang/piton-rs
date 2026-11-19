@@ -877,7 +877,8 @@ fn two_globs_exporting_one_name_export_both_under_their_module_names() {
     assert!(!compilation.has_errors(), "{:#?}", compilation.diagnostics);
     assert!(duplicate_exports(&compilation).is_empty());
 
-    // The plain name is not exported. Each meaning is, under its module name.
+    // The module does not export the plain name. It exports each meaning
+    // under its module name.
     let entry = compilation.resolution.entry;
     let names = compilation.resolution.exported_names(entry);
     assert_eq!(names, ["cruxible.Roles", "strataglyph.Roles", "Only"], "{names:?}");
@@ -908,7 +909,7 @@ fn an_import_selects_an_overlapping_export_by_its_module_name() {
     assert!(text.contains("\"a\": \"cruxible\""), "{text}");
     assert!(text.contains("\"b\": \"strataglyph\""), "{text}");
 
-    // The plain name is ambiguous. The error names each qualified name.
+    // The plain name has more than one meaning. The error names each qualified name.
     let sandbox = Sandbox::new("overlapping-plain-import");
     sandbox
         .file("lib/cruxible.pi", "export anchor Roles:\n    v: 1\n")
@@ -926,18 +927,39 @@ fn an_import_selects_an_overlapping_export_by_its_module_name() {
 }
 
 #[test]
-fn overlapping_globs_with_one_module_name_are_a_duplicate_export() {
+fn overlapping_globs_with_one_module_name_get_longer_qualifiers() {
     let sandbox = Sandbox::new("overlapping-same-qualifier");
     sandbox
-        .file("a/roles.pi", "export anchor Roles:\n    v: 1\n")
-        .file("b/roles.pi", "export anchor Roles:\n    v: 2\n")
-        .file("main.pi", "from ./a/roles export *\nfrom ./b/roles export *\n");
+        .file("pkg-a/roles.pi", "export anchor Roles:\n    v: 1\n")
+        .file("pkg-b/roles.pi", "export anchor Roles:\n    v: 2\n")
+        .file("main.pi", "from ./pkg-a/roles export *\nfrom ./pkg-b/roles export *\n");
     let compilation = sandbox.compile("main.pi");
-    let found = duplicate_exports(&compilation);
-    assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
-    assert!(found[0].message.contains("`roles.Roles`"), "{}", found[0].message);
-    let source = std::fs::read_to_string(sandbox.dir.join("main.pi")).unwrap();
-    assert_eq!(&source[found[0].span.start..found[0].span.end], "./b/roles");
+    assert!(duplicate_exports(&compilation).is_empty(), "{:#?}", compilation.diagnostics);
+    assert!(!compilation.has_errors(), "{:#?}", compilation.diagnostics);
+    let entry = compilation.resolution.entry;
+    let names = compilation.resolution.exported_names(entry);
+    assert_eq!(names, ["pkg-a.roles.Roles", "pkg-b.roles.Roles"], "{names:?}");
+    let surface = compilation.compiled_surface(entry);
+    let value = |name: &str| json::value(surface.get(name).unwrap(), &compilation);
+    assert!(value("pkg-a.roles.Roles").contains('1'));
+    assert!(value("pkg-b.roles.Roles").contains('2'));
+
+    // An import selects each one by its full qualified name.
+    let sandbox = Sandbox::new("overlapping-same-qualifier-import");
+    sandbox
+        .file("lib/pkg-a/roles.pi", "export anchor Roles:\n    v: a\n")
+        .file("lib/pkg-b/roles.pi", "export anchor Roles:\n    v: b\n")
+        .file("lib/index.pi", "from ./pkg-a/roles export *\nfrom ./pkg-b/roles export *\n")
+        .file(
+            "main.pi",
+            "from ./lib import pkg-a.roles.Roles, pkg-b.roles.Roles BRoles\n\nexport anchor A:\n    a: {Roles.v}\n    b: {BRoles.v}\n",
+        );
+    let compilation = sandbox.compile("main.pi");
+    assert!(!compilation.has_errors(), "{:#?}", compilation.diagnostics);
+    let a = compilation.entry_exports()[0];
+    let text = json::value(&Value::Anchor(a), &compilation);
+    assert!(text.contains("\"a\": \"a\""), "{text}");
+    assert!(text.contains("\"b\": \"b\""), "{text}");
 }
 
 #[test]
@@ -1274,7 +1296,7 @@ fn an_abstract_anchor_the_entry_exports_has_no_value_to_compile() {
     assert!(!rendered.contains("\"Shape\""), "{rendered}");
 }
 
-// -- rules clarified in the specification ---------------------------------
+// -- rules that the specification makes clear ----------------------------
 
 fn error_codes(source: &str) -> Vec<String> {
     let sandbox = Sandbox::new("codes");

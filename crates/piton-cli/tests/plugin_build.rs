@@ -1,9 +1,9 @@
-//! Plugins that build, render, and build on each other, end to end.
+//! Plugins that build, that render, and that use other plugins, end to end.
 //!
 //! These extensions make Belay a plugin. Thus this file tests each extension
 //! separately, with small installed plugins. The extensions are a build plan
 //! that the host writes, and the Markdown link spaces and encoders of the
-//! host. They are also placeholders, a plugin that needs a different plugin,
+//! host. They are also placeholders, a plugin that requires a different plugin,
 //! and command groups under a word.
 
 #![cfg(unix)]

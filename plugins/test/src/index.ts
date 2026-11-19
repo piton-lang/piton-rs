@@ -29,13 +29,14 @@ interface Settings {
   agent: string | null;
   model: string | null;
   jobs: number | null;
+  codeRoot: string | null;
 }
 
 /** Reads the settings of the project for this plugin. Makes sure that each
  * value is correct. If a value is not correct, it reports the error at that
  * value and gives null. */
 function readSettings(ctx: Context): Settings | null {
-  const settings: Settings = { against: null, agent: null, model: null, jobs: null };
+  const settings: Settings = { against: null, agent: null, model: null, jobs: null, codeRoot: null };
   const anchor = ctx.settings();
   if (anchor === null) return settings;
   let ok = true;
@@ -79,7 +80,34 @@ function readSettings(ctx: Context): Settings | null {
       ok = false;
     }
   }
+  const codeRoot = anchor.properties.codeRoot;
+  if (codeRoot !== null && codeRoot !== undefined) {
+    if (typeof codeRoot === "string" && codeRoot.trim().length > 0) {
+      settings.codeRoot = codeRoot.trim();
+    } else {
+      ctx.report.error("`codeRoot` has to name a directory", {
+        code: "invalid-test-code-root",
+        location: anchor.location("codeRoot"),
+        help: "leave `codeRoot` out to judge the code under the codeRoot of Belay",
+      });
+      ok = false;
+    }
+  }
   return ok ? settings : null;
+}
+
+/** Resolves a path from the settings. The path is relative to the directory
+ * of the configuration file. `.` is that directory. */
+function resolveSetting(path: string, configPath: string | null, root: string): string {
+  if (path.startsWith("/")) return path.replace(/\/+$/, "") || "/";
+  const slash = configPath === null ? -1 : configPath.lastIndexOf("/");
+  let base = slash < 0 ? root : configPath!.slice(0, slash);
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") base = base.slice(0, Math.max(base.lastIndexOf("/"), 0)) || "/";
+    else base = `${base}/${part}`;
+  }
+  return base;
 }
 
 /** Gives the plain text of a property, without spaces at the two ends. If
@@ -229,9 +257,16 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
   }
   compilation.reportDiagnostics();
 
-  // Belay knows the code root, when the project configures Belay.
+  // The test settings can give the code root. If they do not, Belay knows
+  // the code root, when the project configures Belay. A code root that is
+  // the project root is the same as no code root. Then the agent leaves out
+  // the specification, tethers/ and the generated files.
   const roots = ctx.require("belay").roots as { codeRoot: string | null };
-  const project = { ...ctx.project(), codeRoot: roots.codeRoot };
+  const base = ctx.project();
+  let codeRoot =
+    settings.codeRoot === null ? roots.codeRoot : resolveSetting(settings.codeRoot, base.configPath, base.root);
+  if (codeRoot === base.root) codeRoot = null;
+  const project = { ...base, codeRoot };
   const flagScope = args.against as string | null;
   const fallback = flagScope ?? settings.against ?? DEFAULT_SCOPE;
   const anchors = compilation.anchors({

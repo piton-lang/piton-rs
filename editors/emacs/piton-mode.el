@@ -23,8 +23,9 @@
 ;;
 ;; - Enter on a colon line (a declaration, or a dictionary or anchor property
 ;;   with nothing after its colon) indents the new line one level.
-;; - Enter on a blank line inside a dictionary or anchor dedents the new line
-;;   one level.
+;; - Enter on the first blank line inside a dictionary or anchor keeps the
+;;   level.  Enter on a second blank line in sequence dedents the new line one
+;;   level.  Thus only the third Enter after text dedents.
 ;; - Autoformat on save is an option (`piton-format-on-save').
 
 ;;; Code:
@@ -170,39 +171,53 @@ treated as one."
     (beginning-of-line)
     (looking-at-p "[ \t]*$")))
 
+(defun piton--blank-position ()
+  "The position of the blank line at point in its run of blank lines.
+The first blank line after a line with text is 1."
+  (let ((position 1))
+    (save-excursion
+      (while (and (zerop (forward-line -1)) (piton--blank-line-p))
+        (setq position (1+ position))))
+    position))
+
 (defun piton--blank-depth ()
   "The depth of the blank line at point, as the Enter rules left it.
 
-A blank line carries its depth as its indentation when it has any.  Emacs
-usually strips it: `electric-indent-mode' deletes the whitespace left on a
-line when Enter moves off it.  A blank with no indentation is then
-measured by what precedes it.  The first blank after a line sits where
-that line's next line would (one level in if it opens a block), and each
-further blank in the run was dedented one more level by the blank-line
-rule, so the run length recovers the depth."
+A blank line keeps its depth as its indentation when it has any.  Emacs
+usually removes it: `electric-indent-mode' deletes the whitespace on a
+line when Enter leaves it.  A blank with no indentation then gets its
+depth from the lines above: the start of the run (a line with text, or a
+blank with indentation) and the count of blanks after it.  The first
+blank after a line is where the next line of that line goes (one level
+in if it opens a block).  The second blank keeps that level.  Each
+blank after that is one level back."
   (if (> (current-indentation) 0)
       (current-indentation)
-    ;; BLANKS counts the stripped blanks in the run, this one included; BASE
-    ;; is the depth the first of them had.
-    (let ((blanks 1)
-          (base 0)
-          (found nil))
+    ;; STEPS counts the lines from this blank up to the start of the run.
+    ;; START is the position of that line in the run, 0 for a line with text.
+    (let* ((position (piton--blank-position))
+           (steps 1)
+           (depth 0)
+           (start nil))
       (save-excursion
-        (while (and (not found) (zerop (forward-line -1)))
+        (while (and (not start) (zerop (forward-line -1)))
           (cond
            ((not (piton--blank-line-p))
-            (setq found t
-                  base (+ (current-indentation)
-                          (if (piton--opens-block-p (piton--line-string))
-                              piton--indent-width
-                            0))))
+            (setq start 0
+                  depth (+ (current-indentation)
+                           (if (piton--opens-block-p (piton--line-string))
+                               piton--indent-width
+                             0))))
            ((> (current-indentation) 0)
-            ;; An indented blank further up kept its depth; the blank after
-            ;; it was one level back.
-            (setq found t
-                  base (- (current-indentation) piton--indent-width)))
-           (t (setq blanks (1+ blanks))))))
-      (max 0 (- base (* piton--indent-width (1- blanks)))))))
+            (setq start (- position steps)
+                  depth (current-indentation)))
+           (t (setq steps (1+ steps))))))
+      (if (not start)
+          0
+        ;; The step from position I to I + 1 moves one level back only when
+        ;; I is 2 or more.
+        (max 0 (- depth (* piton--indent-width
+                           (max 0 (- position (max start 2))))))))))
 
 (defun piton--wanted-indent ()
   "The indentation the current line should have."
@@ -215,10 +230,14 @@ rule, so the run length recovers the depth."
        (blank
         (forward-line -1)
         (cond
-         ;; Enter on a blank line inside a dictionary or anchor leaves the
-         ;; block: one level back, bottoming at the margin.
+         ;; Enter on a blank line inside a dictionary or anchor.  After one
+         ;; blank line, the new line keeps the level, so a paragraph break
+         ;; stays in the block.  After two or more, it moves one level back,
+         ;; and stops at the margin.
          ((piton--blank-line-p)
-          (max 0 (- (piton--blank-depth) piton--indent-width)))
+          (if (>= (piton--blank-position) 2)
+              (max 0 (- (piton--blank-depth) piton--indent-width))
+            (piton--blank-depth)))
          ;; Enter on a colon line lands one level in.
          ((piton--opens-block-p (piton--line-string))
           (+ (current-indentation) piton--indent-width))

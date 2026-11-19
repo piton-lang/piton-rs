@@ -37,8 +37,9 @@ Or fill the fields in by hand:
 ## Editor behaviour
 
 - **Enter on a colon line** (a new dictionary or anchor property) should land
-  one level in, and **Enter on a blank line** inside a dictionary or anchor
-  one level back. The IDE has no Piton indent rules of its own; the language
+  one level in, and **Enter on a second blank line in sequence** inside a
+  dictionary or anchor one level back (the first blank line keeps the level,
+  so only the third Enter after text moves back). The IDE has no Piton indent rules of its own; the language
   server answers both through `textDocument/onTypeFormatting`, which LSP4IJ
   forwards on Enter in the versions that support it (check **Language
   Servers → Piton → Debug** traces if nothing happens). A list item or a

@@ -1,6 +1,7 @@
 use ../cli
 from ../../language/operators/access/PropertyAccessOperator import
     PropertyAccessOperator
+from ../../plugins/Inspection import PluginInspection
 from ../../plugins/Reach import PluginReach
 
 export cli-command Lsp:
@@ -243,6 +244,14 @@ export cli-command Lsp:
             offered when the editor asks for that kind of action, and
             organizing imports also when the cursor is on an import.
 
+            A configuration diagnostic at the cursor, like `frameworks-removed`,
+            offers each finding of the inspect hooks, described in
+            @{PluginInspection}, that edits that file: a quick fix that
+            applies the finding's edits, so the editor offers the same
+            migration the command line does. The server asks the hooks when a
+            file is saved, as it plans plugin builds, never while the user
+            types, and applies nothing itself.
+
         importOrganization:
             Detect unused, duplicate, invalid, or unnecessarily broad imports
             and provide an action to clean and normalize them.
@@ -401,6 +410,23 @@ export cli-command Lsp:
             the files that would fix the project keep their diagnostics,
             symbols, and completion. Without an entry nothing is reachable, so
             nothing is reported as unused.
+
+            The project is the one that holds the nearest piton.config.pi in
+            the workspace folder or a folder above it, as for piton slice. The
+            editor can open a folder that holds no configuration, such as a
+            folder of many projects. So when a file opens, the server moves to
+            the project of the nearest piton.config.pi above that file, if
+            that is a different project. Without it the server has no
+            plugins, source root, or packages, and every import of an .emul
+            file, rooted path, and package fails. A configuration inside the
+            tethers directory of the current project is an installed package,
+            not a project, so a file there keeps the current project.
+
+            A module that a plugin's module hook gives for a file that isn't
+            Piton, such as an .emul file, gets no editor checks: no unused
+            imports or anchors, no redundant definitions. The user didn't
+            write that Piton source and can't fix it. Compile errors on such a
+            file, such as a hook that fails, still show on it.
 
         editorSelectionRanges:
             Understand Piton's semantic structure so expanding selection moves

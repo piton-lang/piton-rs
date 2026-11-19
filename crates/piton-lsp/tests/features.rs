@@ -391,7 +391,7 @@ fn a_clean_specbase_reports_nothing() {
 ///
 /// The text holds the cursor as `<|>`. The test replaces a file that the
 /// project reaches at this time. It does not make a new file. Thus the full module
-/// graph stays in use. Questions about imports and inheritance need this.
+/// graph stays in use. Questions about imports and inheritance must have this.
 struct Buffer {
     world: World,
     uri: Url,
@@ -765,7 +765,7 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
 #[test]
 fn completion_ranks_items_that_complete_the_typed_word_first() {
     // `wha` is the start of `what-is-a-type`. Thus that item goes above
-    // `description`, also when `description` is required.
+    // `description`, also when the anchor must have `description`.
     let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    wha<|>\n");
     let items = buffer.items();
     let first = items

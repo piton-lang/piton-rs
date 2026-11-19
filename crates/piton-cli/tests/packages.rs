@@ -2,10 +2,9 @@
 //!
 //! `vite-plugin-piton` and `astro-piton` are the only parts of this repository
 //! that are not Rust. A Rust test cannot run them. But each is a caller of the
-//! `piton` binary, and a caller and the binary can become
-//! different. If a flag has a new name here, the plugin continues to use the
-//! old flag. Then it fails at build time in a
-//! different project, not in this suite.
+//! `piton` binary, and a caller and the binary can become different. If a
+//! flag has a new name here, the plugin continues to use the old flag. Then it
+//! fails at build time in a different project, not in this suite.
 //!
 //! Thus this test reads the command line from the source of the plugin. It
 //! checks that command line against the compiler that must accept it.

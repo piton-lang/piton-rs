@@ -30,7 +30,7 @@ pub enum Class {
     /// A capitalised name in other locations. Examples are a base, an import
     /// and a constraint type.
     TypeRef,
-    /// A name that is not capitalised. Examples are a variable and an import
+    /// A name that starts with a lowercase letter. Examples are a variable and an import
     /// of a variable.
     Variable,
     /// A property name, or a member after `.`.

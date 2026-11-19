@@ -2,8 +2,8 @@
 //!
 //! An editor that styles semantic tokens must name the token types of the
 //! server. Only a string connects the two. When a type goes into the legend
-//! without a style, nobody sees the error. The token arrives, the editor has
-//! no rule for it, and the text keeps the colour from the grammar.
+//! without a style, the user does not see the error. The token comes to the editor, and
+//! the editor has no rule for it. Thus the text keeps the colour from the grammar.
 
 use std::path::{Path, PathBuf};
 
@@ -151,8 +151,8 @@ fn textmate_scope(class: &str) -> String {
 /// maps it to. This paint goes over the paint of the grammar. When the two
 /// scopes are the same, a token changes nothing on the screen. The exception
 /// is when resolution adds data. Examples are a lowercase name that is an
-/// anchor, a key that is a variable, and a bundled anchor. When the scopes are different, each
-/// name changes to a new colour when the server answers. Thus each type that
+/// anchor, a key that is a variable, and a bundled anchor. When the scopes are
+/// different, each name changes to a new colour when the server answers. Thus each type that
 /// the server sends maps to the scope that the grammar uses for the same
 /// class. The extension declares the custom modifiers so that VS Code
 /// accepts them.

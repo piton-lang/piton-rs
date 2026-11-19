@@ -449,24 +449,24 @@ export interface Context {
   /** Asks the user to choose one of `options` on the terminal. Returns the
    * chosen index. It returns null when the user cancels. It also returns null
    * when no person can answer, because stdin or stdout is not a terminal.
-   * Needs capabilities.interactive. */
+   * The plugin must have capabilities.interactive. */
   choose(message: string, options: string[]): number | null;
   /** Asks the user to type an answer on the terminal. Returns the answer, or
-   * null when the user cancels or no terminal is available. Needs
-   * capabilities.interactive. */
+   * null when the user cancels or no terminal is available. The plugin
+   * must have capabilities.interactive. */
   ask(message: string, options?: { help?: string }): string | null;
   /** Asks the user to select items of `options` on the terminal. At the
    * start, `defaults` gives the selected items. The user must select
    * `minimum` items or more. Returns the selected indexes, or null when the
-   * user cancels or no terminal is available. Needs
+   * user cancels or no terminal is available. The plugin must have
    * capabilities.interactive. */
   chooseMany(message: string, options: string[], settings?: { defaults?: number[]; minimum?: number }): number[] | null;
   /** The text of a file in the directory of the plugin, for example a prompt
-   * of the plugin. Needs no capability, because the plugin owns the files. */
+   * of the plugin. It uses no capability, because the plugin owns the files. */
   resource(path: string): string;
   /** Returns each file below a directory of the plugin, at all depths, in
    * sorted order. Each path is relative to the directory and uses forward
-   * slashes. Needs no capability. */
+   * slashes. It uses no capability. */
   resources(path: string): string[];
   /** Piton source in the canonical format, as `piton format` writes it. */
   format(source: string, path?: string): string;
@@ -474,27 +474,30 @@ export interface Context {
    * each written path. Each file is a path relative to `directory` and its
    * contents. `directory` is relative to the directory where piton started.
    * It never overwrites a file. If a file exists, it writes nothing and
-   * returns the files that exist. Needs capabilities.scaffold. */
+   * returns the files that exist. The plugin must have
+   * capabilities.scaffold. */
   scaffold(directory: string, files: Edit[]): { existing: string[] };
   /** Tethers the dependencies of the new project in `directory`, as
    * `piton tether` without a source does. Returns `none` when the project
    * has no dependencies, else `installed` or `failed`. With `check`, it
-   * tethers nothing and returns `pending` when dependencies exist. Needs
-   * capabilities.scaffold. */
+   * tethers nothing and returns `pending` when dependencies exist. The plugin
+   * must have capabilities.scaffold. */
   tether(directory: string, options?: { check?: boolean }): "none" | "pending" | "installed" | "failed";
   /** True if PATH contains a program that the plugin declares. */
   onPath(program: string): boolean;
-  /** Reads a file in the project. Needs capabilities.files: read. */
-  readFile(path: string): string;
-  /** All files below a directory in the project, at all depths. Needs
+  /** Reads a file in the project. The plugin must have
    * capabilities.files: read. */
+  readFile(path: string): string;
+  /** All files below a directory in the project, at all depths. The plugin
+   * must have capabilities.files: read. */
   listFiles(path: string): ListedFile[];
   /** The file or directory at a path in the project. It follows symbolic
-   * links. It is null when the path does not exist. Needs
-   * capabilities.files: read. */
+   * links. It is null when the path does not exist. The plugin
+   * must have capabilities.files: read. */
   stat(path: string): FileStatus | null;
   /** Writes a temporary file and returns its path. The host removes the file
-   * when the command ends. Needs capabilities.temporaryFiles. */
+   * when the command ends. The plugin must have
+   * capabilities.temporaryFiles. */
   temporaryFile(contents: string, extension?: string): string;
   /** Resolves after `ms` milliseconds. */
   sleep(ms: number): Promise<void>;

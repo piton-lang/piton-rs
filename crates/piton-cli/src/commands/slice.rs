@@ -1,4 +1,4 @@
-//! `piton slice` — print the part of the specification that one item needs.
+//! `piton slice` — print the part of the specification that one item uses.
 //!
 //! The target is `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name.
 //! The command finds a bare name in the project. The result is one Markdown
@@ -8,8 +8,8 @@
 //! example is `piton belay slice --adapter` of Belay. The plugin gives
 //! [`cite`] the compiled location of each anchor. This module finds and prints
 //! the slice in the same way. Then the slice never cites the source. Each
-//! part that the slice reaches has a location in the compiled output. That location can
-//! be only the documents of the anchors that extend or read it.
+//! part that the slice reaches has a location in the compiled output. That
+//! location can be only the documents of the anchors that extend or read it.
 
 use piton_compile::slice::{self, Target};
 use piton_compile::Compilation;
@@ -54,7 +54,7 @@ pub fn run(target: &str) -> u8 {
             let mut project = configured;
             if !project.entry.is_file() {
                 // Without a configuration, there is no entry. The compilation
-                // of the workspace needs only one entry to start.
+                // of the workspace must have only one entry to start.
                 match piton_compile::module::sources(&project.source_root).first() {
                     Some(first) => project = project.with_entry(first),
                     None => {

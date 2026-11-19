@@ -2,7 +2,7 @@
 //!
 //! Expressions are the only context-free part of Piton. Thus, this module uses
 //! chumsky. The text outside `{...}` is sensitive to layout, and the line parser
-//! reads it. The text inside `{...}` is an ordinary precedence grammar.
+//! reads it. The text inside `{...}` is a usual precedence grammar.
 
 use chumsky::prelude::*;
 use piton_core::{Diagnostic, Span};
@@ -221,7 +221,7 @@ fn binary_of(kind: ExprTokenKind) -> BinaryOp {
     }
 }
 
-/// Parses a number literal. The language allows underscores as digit
+/// Parses a number literal. The language permits underscores as digit
 /// separators, to make numbers easier to read. This function accepts them.
 pub fn parse_number(text: &str) -> Option<f64> {
     let cleaned: String = text.chars().filter(|c| *c != '_').collect();

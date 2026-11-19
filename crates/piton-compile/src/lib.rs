@@ -44,9 +44,9 @@ impl Compilation {
     }
 
     /// Compiles all sources under the project root, not only the sources that
-    /// the entry reaches. The given buffers replace the files that they shadow.
+    /// the entry reaches. The given buffers replace the files at their paths.
     ///
-    /// An editor needs this, but a build does not. A file that no module
+    /// An editor must have this, but a build does not. A file that no module
     /// imports is not part of the program. Thus `build` correctly omits it.
     /// But the file is open on the screen. Without this function, it has no
     /// diagnostics, no symbols and no jump targets until a person imports it.

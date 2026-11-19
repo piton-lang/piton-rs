@@ -3,7 +3,7 @@
 //! Piton has no runtime. Compilation makes values, and adapters serialize
 //! those values. Thus the model must describe only what the language can
 //! *describe*. The model must also keep sufficient structure. The Markdown
-//! adapter uses this structure to know prose from data.
+//! adapter uses this structure to tell which values are prose and which are data.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -75,7 +75,7 @@ pub enum MixedItem {
     Text(Text),
     /// A literal list in the block.
     List(Vec<Value>),
-    /// A `key: value` pair declared directly in the block.
+    /// A `key: value` pair that the block declares directly.
     Entry(String, Value),
     /// A different value in the block. An example is the copy of an anchor that
     /// `{Foo}` puts in the middle of some text.
@@ -313,7 +313,7 @@ impl AnchorView for EmptyAnchors {
 }
 
 /// Formats a number as Piton prints it. Integral values lose the `.0` at the
-/// end. Thus `42` round-trips as `42`.
+/// end. Thus `42` stays `42` after a parse and a print.
 pub fn format_number(n: f64) -> String {
     if n.is_nan() {
         return "null".into();

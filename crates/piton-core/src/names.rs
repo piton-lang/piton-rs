@@ -1,13 +1,13 @@
 //! Name normalization.
 //!
 //! Belay renders "anchor names and property names with prose as
-//! word-separated titles". Belay also derives skill, command and agent
+//! word-separated titles". Belay also makes skill, command and agent
 //! identities from anchor names. The two operations use one rule to split
 //! words. Thus a name always splits into the same words, in each direction.
 //!
 //! A split happens only where an uppercase letter follows a lowercase letter or
 //! a digit. A split also happens at literal `-` and `_` separators. Runs of
-//! uppercase letters do *not* split, and this is intentional. `whatIsAType`
+//! uppercase letters do *not* split, and this is on purpose. `whatIsAType`
 //! renders as `What Is AType`, as in the reference output. A split for acronyms
 //! gives `What Is A Type`, which is a different document.
 

@@ -16,8 +16,8 @@ Helix reads a different one and ships its own `indents.scm` in the Piton
 repository under `editors/helix/queries/`; Zed indents from a line pattern.
 
 The indent query covers Enter on a colon line (a declaration, or a property
-with nothing after its colon). The other Enter rule — a blank line inside a
-block dedents the next line — is not something a query over this
+with nothing after its colon). The other Enter rule — a second blank line in
+sequence inside a block dedents the next line — is not something a query over this
 line-oriented grammar can express.
 
 A code fence protects nothing in Piton — the lines inside it are parsed like

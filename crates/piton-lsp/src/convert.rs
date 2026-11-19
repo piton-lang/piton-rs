@@ -29,8 +29,8 @@ impl Encoding {
     }
 }
 
-/// The start of each line of a text. Thus a position needs only a binary
-/// search and a walk along one line. It does not need a walk from the top.
+/// The start of each line of a text. Thus a position uses only a binary
+/// search and a walk along one line. It does not walk from the top.
 #[derive(Debug, Clone)]
 pub struct LineIndex<'a> {
     text: &'a str,

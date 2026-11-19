@@ -3,7 +3,7 @@
 //! The compiler follows imports from the entry point. A file that no file
 //! imports is not part of the program. An editor cannot operate like that. The
 //! file is open on the screen. Usually no file imports a file that a person
-//! writes now. These tests make sure that the server knows each source in
+//! writes now. These tests verify that the server knows each source in
 //! the project, reached or not.
 
 use std::path::{Path, PathBuf};
@@ -123,7 +123,7 @@ fn a_file_nothing_imports_still_gets_diagnostics() {
 
 #[test]
 fn opening_an_unimported_file_does_not_hide_the_project() {
-    // The old fallback compiled such a file as its own entry point. This
+    // Before, the server compiled such a file as its own entry point. This
     // replaced all of the compilation of the project. While the file was
     // open, the editor did not see the rest of the specbase.
     let fixture = Fixture::new("orphan-open");
@@ -210,8 +210,8 @@ fn an_unsaved_buffer_wins_over_the_file_on_disk() {
 #[test]
 fn a_file_written_behind_the_editors_back_is_picked_up() {
     // The editor does not know about a file that a branch switch or a script
-    // wrote. `didChange` fires only for buffers that are open in the editor.
-    // The file watcher that the server registers tells the server. The answer
+    // wrote. The editor sends `didChange` only for buffers that are open in
+    // the editor. The file watcher that the server registers tells the server. The answer
     // is a new compile from disk. Thus a new source must also be in the
     // new build.
     let fixture = Fixture::new("appeared");
@@ -296,7 +296,7 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
         "{diagnostics:?}"
     );
     // ...and all other files still load. The server does not report them
-    // as unused because there is no entry to reach them from.
+    // as unused. Without an entry, no file can reach them.
     let home = fixture.path("spec/Home.pi");
     assert!(loaded(&world, &home));
     assert!(loaded(&world, &fixture.path("spec/Reached.pi")));
@@ -320,4 +320,108 @@ fn a_missing_entry_still_leaves_the_workspace_to_edit() {
     // time. The list offers the keys that the page does not have at this time.
     assert!(labels.contains(&"path".to_string()), "{labels:?}");
     assert!(!labels.contains(&"title".to_string()), "{labels:?}");
+}
+
+/// A configuration with the removed `frameworks` key has a quick fix on the
+/// `frameworks-removed` diagnostic. The fix applies the edits of the migrate
+/// plugin, and moves the items to `plugins`.
+#[test]
+fn frameworks_removed_offers_the_migration() {
+    let fixture = Fixture::new("frameworks-migration");
+    let config = "use @piton/belay\nuse @piton/config\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n    frameworks:\n        - {Belay}\n\nbelay-config Belay:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeCodeAdapter}\n";
+    fixture.write("piton.config.pi", config);
+    let world = fixture.world();
+    let diagnostic = world
+        .config_diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "frameworks-removed")
+        .expect("frameworks-removed");
+    let at = offset_to_position(config, diagnostic.span.start);
+    let uri = path_to_url(&fixture.path("piton.config.pi")).expect("url");
+    let actions = features::code_actions(&world, &uri, Range::new(at, at)).unwrap_or_default();
+    let fix = actions
+        .iter()
+        .find_map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) if action.title.starts_with("Switch it over") => Some(action),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no migration in {actions:?}"));
+    let edit = fix.edit.as_ref().expect("edit");
+    let changes = edit.changes.as_ref().expect("changes");
+    let texts: Vec<&String> = changes.values().flatten().map(|edit| &edit.new_text).collect();
+    assert_eq!(texts.len(), 1, "{texts:?}");
+    assert!(texts[0].contains("plugins:") && !texts[0].contains("frameworks"), "{}", texts[0]);
+
+    // A position away from the diagnostic offers no migration.
+    let away = offset_to_position(config, 0);
+    let actions = features::code_actions(&world, &uri, Range::new(away, away)).unwrap_or_default();
+    assert!(actions.iter().all(|action| !matches!(action, CodeActionOrCommand::CodeAction(action) if action.title.starts_with("Switch it over"))));
+}
+
+/// A project that imports an Emul design. The workspace folder of the editor
+/// is `folder`, relative to the fixture. The fixture has a configuration of
+/// its own. The folder `outer` between them has none.
+fn emul_world(fixture: &Fixture, folder: &str) -> (World, PathBuf) {
+    fixture.write(
+        "outer/project/piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n",
+    );
+    fixture.write(
+        "outer/project/spec/index.pi",
+        "from /designs/Landing.emul import Landing\n\nexport anchor Page:\n    see: @{Landing}\n",
+    );
+    fixture.write(
+        "outer/project/spec/designs/Landing.emul",
+        "component Unused\n\nexport component Landing\n",
+    );
+    let path = fixture.path("outer/project/spec/index.pi");
+    let text = std::fs::read_to_string(&path).expect("readable");
+    let mut world = World::new(&fixture.path(folder));
+    world.open_document(path.clone(), text, 1);
+    world.recompile(Some(&path));
+    (world, path)
+}
+
+#[test]
+fn a_workspace_folder_above_the_project_finds_the_project_of_the_open_file() {
+    // The editor opens a folder that holds many projects. The configuration
+    // is not in the folder. The server must use the project of the open file.
+    // Else the Emul plugin gives no modules and rooted imports fail.
+    let fixture = Fixture::new("emul-above");
+    let (world, path) = emul_world(&fixture, "outer");
+    assert_eq!(world.root, fixture.path("outer/project"));
+    let problems = world.diagnostics_by_file();
+    assert!(
+        problems.get(&path).is_none_or(Vec::is_empty),
+        "{:?}",
+        problems.get(&path)
+    );
+}
+
+#[test]
+fn a_workspace_folder_below_the_project_finds_the_configuration_above() {
+    let fixture = Fixture::new("emul-below");
+    let (world, path) = emul_world(&fixture, "outer/project/spec");
+    assert_eq!(world.root, fixture.path("outer/project"));
+    let problems = world.diagnostics_by_file();
+    assert!(
+        problems.get(&path).is_none_or(Vec::is_empty),
+        "{:?}",
+        problems.get(&path)
+    );
+}
+
+#[test]
+fn the_editor_checks_do_not_apply_to_the_module_of_an_emul_file() {
+    // The plugin writes the Piton module of an Emul file. An unused anchor
+    // or an unused import in it is not a problem that the user can fix.
+    let fixture = Fixture::new("emul-module");
+    let (world, _) = emul_world(&fixture, "outer/project");
+    let problems = world.diagnostics_by_file();
+    let emul = fixture.path("outer/project/spec/designs/Landing.emul");
+    assert!(
+        problems.get(&emul).is_none_or(Vec::is_empty),
+        "{:?}",
+        problems.get(&emul)
+    );
 }

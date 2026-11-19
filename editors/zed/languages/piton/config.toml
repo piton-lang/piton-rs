@@ -27,8 +27,8 @@ increase_indent_pattern = "^[^-+/\\s][^:]*:\\s*$|^\\s*[^-+:/\\s][^:/\\s]*(::\\s*
 # There is deliberately no `decrease_indent_pattern`. Zed tests that pattern
 # against the line being indented, and the line Enter has just made is empty:
 # `^\s*$` would match every new line, outdenting after every ordinary
-# property and cancelling the colon rule above. Enter on a blank line inside a
-# dictionary or anchor (back one level) comes from the language server's
+# property and cancelling the colon rule above. Enter on a second blank line in
+# sequence inside a block (back one level) comes from the language server's
 # on-type formatting, which Zed requests while `use_on_type_format` is on (the
 # default).
 

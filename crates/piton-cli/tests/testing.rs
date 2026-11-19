@@ -428,3 +428,31 @@ export editor-test SaveWorks:
         "{prompt}"
     );
 }
+
+#[test]
+fn without_a_terminal_the_fix_prompts_go_to_no_agent() {
+    // The run has failures, so it has fix prompts. But stdin is not a
+    // terminal. Thus the run shows no menu of agents and starts no agent.
+    let fixture = project("no-hand-off", "", TESTS);
+    let (stdout, stderr, code) = fixture.run(&["test"]);
+    assert_eq!(code, 1, "{stdout}\n{stderr}");
+    assert!(stdout.contains("Fix prompts\n"), "{stdout}");
+    assert!(!stdout.contains("to an agent?") && !stderr.contains("to an agent?"), "{stdout}\n{stderr}");
+    assert!(!stdout.contains("No agent") && !stderr.contains("No agent"), "{stdout}\n{stderr}");
+    // There is one call for each test, and no call that gives the fix
+    // prompts to the agent.
+    assert_eq!(fixture.calls().len(), 2);
+}
+
+#[test]
+fn the_settings_can_give_the_code_root() {
+    let fixture = project(
+        "code-root",
+        "    plugins:\n        - {Tests}\n\ntest-config Tests:\n    codeRoot: ./src\n",
+        "use @piton/test\n\nexport test SaveWorks:\n    expects: The Save button saves the document\n    against: code\n",
+    );
+    let (stdout, stderr, _) = fixture.run(&["test"]);
+    let calls = fixture.calls();
+    let request = request_of(&calls, "saves the document").join("\n");
+    assert!(request.contains("the files under `src`"), "{request}\n{stdout}\n{stderr}");
+}

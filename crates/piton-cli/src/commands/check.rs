@@ -1,4 +1,4 @@
-//! `piton check` — validate and write nothing.
+//! `piton check` — examine the project and write nothing.
 //!
 //! The check examines syntax, imports, references, types, inheritance,
 //! composition, exports, and circular dependencies. It emits no artifacts.

@@ -30,31 +30,18 @@ endif
 function! PitonIndent() abort
   let l:above = v:lnum - 1
 
-  " Enter on a blank line inside a dictionary or anchor leaves the block: the
-  " new line is one shiftwidth back from the blank line it follows, bottoming
-  " out at the margin. The server answers the same move in `on_type_formatting`
-  " for the editors that ask it to format as you type; here the rule is
-  " written out beside the one above it.
-  "
-  " A blank line carries its depth as its indent, which is used directly when
-  " it has one. Reindenting a file (`gg=G`) strips blank lines before asking,
-  " so a blank left at nothing is measured by what precedes it instead: the
-  " last line before the run of blanks, one shiftwidth in if that line opens
-  " a block -- the level this function would have given the blank itself.
+  " Enter on a blank line inside a dictionary or anchor. After one blank
+  " line, the new line keeps the depth of that blank line, so a paragraph
+  " break stays in the block. After two or more blank lines, the new line
+  " moves one shiftwidth back, and stops at the margin. Thus only the third
+  " Enter after text moves the line back. The server answers the same moves
+  " in `on_type_formatting` for the editors that ask it to format as you type.
   if l:above > 0 && getline(l:above) =~# '^\s*$'
-    let l:depth = indent(l:above)
-    if l:depth == 0
-      let l:before = prevnonblank(l:above)
-      if l:before > 0
-        let l:depth = indent(l:before)
-        if s:opens_block(getline(l:before))
-          let l:depth += shiftwidth()
-        endif
-      endif
-    endif
-    if l:depth > 0
+    let [l:depth, l:position] = s:blank_depth(l:above)
+    if l:position >= 2
       return max([0, l:depth - shiftwidth()])
     endif
+    return l:depth
   endif
 
   let l:previous = prevnonblank(l:above)
@@ -69,6 +56,55 @@ function! PitonIndent() abort
   endif
 
   return indent(l:previous)
+endfunction
+
+" The depth of the blank line `lnum` and its position in its run of blank
+" lines (1 for the first blank line after text).
+"
+" A blank line keeps its depth as its indent, and this function uses that
+" indent when it is there. Vim removes the indent from a blank line when Enter
+" leaves it, and `gg=G` also removes it. Then the depth comes from the lines
+" above: the start of the run (a line with text, or a blank line with an
+" indent) and the count of blank lines after it. The step from position `i` to
+" position `i + 1` moves one shiftwidth back only when `i` is 2 or more.
+function! s:blank_depth(lnum) abort
+  let l:position = 1
+  let l:line = a:lnum - 1
+  while l:line > 0 && getline(l:line) =~# '^\s*$'
+    let l:position += 1
+    let l:line -= 1
+  endwhile
+
+  if indent(a:lnum) > 0
+    return [indent(a:lnum), l:position]
+  endif
+
+  " Find the start of the run: the nearest line above with text or an indent.
+  " `l:start` is the position of that line (0 for a line with text).
+  let l:line = a:lnum - 1
+  let l:steps = 1
+  while l:line > 0 && getline(l:line) =~# '^\s*$' && indent(l:line) == 0
+    let l:steps += 1
+    let l:line -= 1
+  endwhile
+  if l:line == 0
+    return [0, l:position]
+  endif
+
+  if getline(l:line) =~# '^\s*$'
+    let l:depth = indent(l:line)
+    let l:start = l:position - l:steps
+  else
+    let l:depth = indent(l:line)
+    if s:opens_block(getline(l:line))
+      let l:depth += shiftwidth()
+    endif
+    let l:start = 0
+  endif
+
+  " Count the steps from position `l:start` to `l:position` that move back.
+  let l:back = max([0, l:position - max([l:start, 2])])
+  return [max([0, l:depth - l:back * shiftwidth()]), l:position]
 endfunction
 
 " Whether the line ends by opening a block for the lines beneath it.

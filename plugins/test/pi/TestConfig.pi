@@ -6,3 +6,4 @@ export abstract anchor TestConfig as test-config:
     agent:: string:: null: null
     model:: string:: null: null
     jobs:: number:: null: null
+    codeRoot:: string:: null: null

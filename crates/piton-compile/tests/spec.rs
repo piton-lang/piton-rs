@@ -91,7 +91,7 @@ fn the_framework_source_is_not_reported_dead() {
     // `include_str!`. Thus this project holds each of those files two times.
     // One copy is on disk. One copy is the `@piton/belay` module. All modules
     // import the package copy. Thus no module reaches the file on disk.
-    // But the file is not dead. It is the framework. A report that calls it
+    // But the compiler uses the file. It is the framework. A report that calls it
     // unreachable tells a person to delete the vocabulary of the compiler.
     let compilation = compile_spec();
     let reachability = piton_compile::reach::from_entry(&compilation);

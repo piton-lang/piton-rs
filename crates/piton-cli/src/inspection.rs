@@ -4,7 +4,8 @@
 //! They examine the project before each command. They tell which parts are
 //! out of date, and give the edits that correct them. Only the user can apply
 //! a change. On a terminal, the CLI shows the edits and asks the user one time.
-//! In other places, it only reports them with the command that applies them.
+//! This includes `piton check`. In other places, it only reports them with the
+//! command that applies them.
 
 use std::io::IsTerminal;
 use std::rc::Rc;
@@ -22,13 +23,26 @@ use crate::{diff, report};
 /// project. Thus the second run does not inspect and ask again.
 const RERUN: &str = "PITON_INSPECTED";
 
-/// Runs all inspections, and offers their findings. When the command ran
-/// again on an updated project, it returns the exit code. It returns None when
-/// the command must run as the user asked. `skip` is the plugin that
-/// owns the command that runs now. That plugin uses its own findings.
-pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> Option<u8> {
+/// The result of an offer.
+pub enum Offer {
+    /// The command runs as the user asked.
+    Run,
+    /// The command ran again on the updated project, with this exit code.
+    Ran(u8),
+    /// The user agreed to the findings before a command that writes no file,
+    /// for example `piton check`. The command runs on the project as it is.
+    /// Then the CLI applies these findings with [`apply`].
+    After(Vec<Finding>),
+}
+
+/// Runs all inspections, and offers their findings. `skip` is the plugin that
+/// owns the command that runs now. That plugin uses its own findings. When
+/// `read_only` is true, the command writes no file, for example `piton check`.
+/// The CLI still asks the user. But if the user agrees, the command first runs
+/// on the project as it is. The CLI applies the edits after the command ends.
+pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>, read_only: bool) -> Offer {
     if project.config_path.is_none() || std::env::var_os(RERUN).is_some() {
-        return None;
+        return Offer::Run;
     }
     let mut found: Vec<(&Manifest, Finding)> = Vec::new();
     for manifest in manifests.iter().filter(|manifest| manifest.inspect && Some(manifest.name.as_str()) != skip) {
@@ -42,7 +56,7 @@ pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> O
         }
     }
     if found.is_empty() {
-        return None;
+        return Offer::Run;
     }
 
     let fixable = found.iter().any(|(_, finding)| !finding.edits.is_empty());
@@ -56,7 +70,7 @@ pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> O
                 _ => {}
             }
         }
-        return None;
+        return Offer::Run;
     }
 
     anstream::eprintln!("{}", paint(style::HEADING, "This project was written for an older Piton:"));
@@ -79,12 +93,38 @@ pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> O
         .prompt()
         .unwrap_or(false);
     if !agreed {
-        return None;
+        return Offer::Run;
     }
+    let findings: Vec<Finding> = found.into_iter().map(|(_, finding)| finding).collect();
+    if read_only {
+        return Offer::After(findings);
+    }
+    if !apply(project, &findings) {
+        return Offer::Ran(crate::EXIT_ERRORS);
+    }
+    report::done("updated the project; running the command again");
+    report::flush();
 
-    let root = &project.root;
-    for (_, finding) in &found {
-        match inspection::apply(&finding.edits, root) {
+    // The command runs again from the start. Thus it reads the updated project
+    // for all data, and it reads the configuration first.
+    let Ok(program) = std::env::current_exe() else {
+        return Offer::Run;
+    };
+    match std::process::Command::new(program)
+        .args(std::env::args_os().skip(1))
+        .env(RERUN, "1")
+        .status()
+    {
+        Ok(status) => Offer::Ran(status.code().unwrap_or(1).clamp(0, 255) as u8),
+        Err(_) => Offer::Run,
+    }
+}
+
+/// Writes the edits of each finding, and reports each changed path. It
+/// returns false when a write failed.
+pub fn apply(project: &Project, findings: &[Finding]) -> bool {
+    for finding in findings {
+        match inspection::apply(&finding.edits, &project.root) {
             Ok(paths) => {
                 for path in paths {
                     anstream::eprintln!("{}", report::added(path.display()));
@@ -92,20 +132,9 @@ pub fn offer(project: &Project, manifests: &[Manifest], skip: Option<&str>) -> O
             }
             Err(error) => {
                 report::fail(format!("cannot write the update: {error}"));
-                return Some(crate::EXIT_ERRORS);
+                return false;
             }
         }
     }
-    report::done("updated the project; running the command again");
-    report::flush();
-
-    // The command runs again from the start. Thus it reads the updated project
-    // for all data, and it reads the configuration first.
-    let program = std::env::current_exe().ok()?;
-    let status = std::process::Command::new(program)
-        .args(std::env::args_os().skip(1))
-        .env(RERUN, "1")
-        .status()
-        .ok()?;
-    Some(status.code().unwrap_or(1).clamp(0, 255) as u8)
+    true
 }

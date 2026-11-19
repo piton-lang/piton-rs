@@ -35,8 +35,8 @@ pub const CONFIG_KEYWORD: &str = "piton-config";
 pub const PACKAGE_KEYWORD: &str = "piton-package";
 
 /// All keys that a `piton-config` anchor knows. A different key is almost
-/// always an incorrect name. Without a `Severity::Warning` diagnostic, an incorrect name makes an
-/// option fail, and the user does not know.
+/// always an incorrect name. Without a `Severity::Warning` diagnostic, an
+/// incorrect name makes an option fail, and the user does not know.
 pub const CONFIG_KEYS: [&str; 7] = [
     "root",
     "entry",
@@ -58,9 +58,10 @@ const REMOVED_KEYS: [(&str, &str); 1] = [(
 /// One anchor in the `plugins` list of the configuration.
 ///
 /// The configuration does not know which plugins exist. The plugin host
-/// knows this. The compiler does not bundle all plugins. A user installs some. Thus the entry
-/// records plain data. With this data, the host can classify the entry later. It
-/// holds each anchor in the inheritance chain and the module of each anchor.
+/// knows this. The compiler does not contain all plugins. A user installs
+/// some. Thus the entry records plain data. With this data, the host can
+/// classify the entry later. It holds each anchor in the inheritance chain and
+/// the module of each anchor.
 /// With this data, the host can tell a `piton-plugin` declaration from the
 /// settings anchor of a plugin.
 #[derive(Debug, Clone, PartialEq)]
@@ -176,7 +177,7 @@ impl Project {
 
     /// The same project, compiled from a different file.
     ///
-    /// A command for one file still needs the roots, plugins and packages of
+    /// A command for one file still must have the roots, plugins and packages of
     /// the project. The file is part of that project. Without them, import
     /// resolution gives an answer that is different from the build.
     pub fn with_entry(&self, entry: &Path) -> Project {
@@ -186,7 +187,7 @@ impl Project {
         }
     }
 
-    /// The roots that module resolution needs. These are the target of
+    /// The roots that are necessary for module resolution. These are the target of
     /// absolute imports and the location of installed packages.
     pub fn roots(&self) -> module::Roots<'_> {
         module::Roots {

@@ -107,7 +107,8 @@ level in. A key with a value on the same line does not, and neither does a
 comment, a list item or a merge line: a list item is never a key, so
 `- Settings:` is just a string.
 
-Enter on a blank line inside a dictionary or anchor comes back one level. Zed
+Enter on the first blank line inside a dictionary or anchor keeps the level;
+Enter on a second blank line in sequence comes back one level. Zed
 cannot say that with a line pattern: its `decrease_indent_pattern` is tested
 against the new line itself, which is always empty after Enter, so a
 blank-line pattern would outdent every new line. The rule comes from the

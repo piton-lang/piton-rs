@@ -283,7 +283,7 @@ fn every_adapter_emits_its_own_native_form() {
         "adapters",
         "        - {ClaudeCodeAdapter}\n        - {CodexAdapter}\n        - {OpenCodeAdapter}\n\n    crossDiscovery: allow",
     );
-    // OpenCode needs a provider-qualified model. It loads a nested AGENTS.md
+    // OpenCode must have a provider-qualified model. It loads a nested AGENTS.md
     // only when its configuration lists it.
     let constructs = fixture.read("spec/Constructs.pi").replace("model: fast", "model: anthropic/fast");
     fixture.write("spec/Constructs.pi", &constructs);
@@ -491,7 +491,7 @@ fn reach_separates_reachable_from_unreachable() {
 fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
     // A module with only re-exports declares no anchor. A reachability walk
     // that counts only declarations finds no anchor in it. Thus that walk
-    // calls it unreachable. But the full import chain goes through it.
+    // calls it unreachable. But the full import chain includes it.
     let fixture = full_project("reach-index", "        - {ClaudeCodeAdapter}");
     fixture.write(
         "spec/index.pi",
@@ -518,7 +518,7 @@ fn reach_does_not_call_an_index_dead_for_declaring_nothing() {
 fn reach_follows_variables_and_property_reads() {
     // The evaluation puts `{PURPOSE}` and `${Names.title}` into the value. A
     // walk over only values loses their source modules. Thus that walk calls
-    // the modules dead. But the entry contains their values.
+    // the modules unused. But the entry contains their values.
     let fixture = Fixture::new("reach-reads");
     fixture.write(
         "piton.config.pi",
@@ -546,8 +546,8 @@ fn reach_follows_variables_and_property_reads() {
 fn reach_counts_every_line_it_prints() {
     let fixture = full_project("reach-counts", "        - {ClaudeCodeAdapter}");
     // The loader loads it, because an unreachable file imports it. No
-    // reachable part uses its declarations. Thus it is a dead anchor in a
-    // file that no reachable part needs.
+    // reachable part uses its declarations. Thus it is an unused anchor in a
+    // file that no reachable part uses.
     fixture.write(
         "spec/Dead.pi",
         "export anchor NothingUsesThis:\n    value: 1\n",
@@ -614,8 +614,8 @@ fn reach_counts_what_plugins_reach_as_roots() {
 #[test]
 fn reach_counts_the_anchors_of_never_imported_files() {
     // The list shows a file without imports as unreachable. Thus a headline
-    // with "0 unreachable" is incorrect. It tells that there are no dead parts.
-    // But the list shows a dead part.
+    // with "0 unreachable" is incorrect. It tells that there are no unreachable
+    // parts. But the list shows an unreachable part.
     let fixture = Fixture::new("reach-never-imported");
     fixture.write(
         "piton.config.pi",
@@ -695,7 +695,7 @@ fn reach_follows_imports_and_reports_paths_by_default() {
         stdout.contains("OnlyImported  depth 1  via imports  [index.pi -> OnlyImported]"),
         "{stdout}"
     );
-    // Paths and the unreachable half show by default.
+    // The output shows paths and the unreachable half by default.
     assert!(stdout.contains(" -> "), "{stdout}");
     assert!(stdout.contains("\nunreachable"), "{stdout}");
 
@@ -1347,7 +1347,7 @@ fn init_starts_a_specbase_for_piton_test() {
     assert_eq!(code, 0, "{stdout}{stderr}");
     assert!(!stderr.contains("warning"), "{stderr}");
 
-    // The list needs no agent. It shows the example test of the template.
+    // The list does not use an agent. It shows the example test of the template.
     let (stdout, stderr, code) = fixture.run_in("specbase", &["test", "--list"]);
     assert_eq!(code, 0, "{stdout}{stderr}");
     assert!(stdout.contains("GoalsAreStated"), "{stdout}");
@@ -1367,7 +1367,7 @@ fn stub_crux(fixture: &Fixture) {
     );
 }
 
-/// When the template in `name` needs crux, this function changes it to use
+/// When the template in `name` requires crux, this function changes it to use
 /// the stand-in crux. Then it tethers it.
 fn tether_stub_crux(fixture: &Fixture, name: &str) {
     let config = format!("{name}/piton.config.pi");
@@ -1672,4 +1672,40 @@ fn the_language_server_accepts_the_stdio_flag() {
     // links over full anchor bodies. Thus an editor underlined the body as a
     // link. Also, each hover showed one tooltip for each adapter.
     assert!(!response.contains("documentLinkProvider"), "{response}");
+}
+
+#[test]
+fn reach_leaves_out_tethers_unless_asked() {
+    let fixture = Fixture::new("reach-tethers");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "from kit import Used\n\nexport anchor Main:\n    value: {Used}\n",
+    );
+    fixture.write(
+        "tethers/kit/index.pi",
+        "export anchor Used:\n    value: 1\n\nexport anchor Spare:\n    value: 2\n",
+    );
+    fixture.write("tethers/kit/Loose.pi", "export anchor LooseThing:\n    value: 3\n");
+
+    let (stdout, stderr, code) = fixture.run(&["reach", "--no-paths"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Main"), "{stdout}");
+    assert!(!stdout.contains("tethers"), "{stdout}");
+    assert!(!stdout.contains("Spare"), "{stdout}");
+    assert!(stdout.contains("1 anchor reachable, 0 unreachable"), "{stdout}");
+    assert!(stdout.contains("1 module loaded"), "{stdout}");
+
+    let (stdout, stderr, code) = fixture.run(&["reach", "--no-paths", "--include-tethers"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("Used"), "{stdout}");
+    assert!(stdout.contains("Spare"), "{stdout}");
+    assert!(stdout.contains("Loose.pi"), "{stdout}");
+    assert!(
+        stdout.contains("2 anchors reachable, 2 unreachable (1 in 1 never-imported file)"),
+        "{stdout}"
+    );
 }

@@ -24,7 +24,7 @@ use piton_lsp::world::{ClientCaps, World};
 use piton_lsp::{TOKEN_MODIFIERS, TOKEN_TYPES};
 use tower_lsp::lsp_types::*;
 
-/// The configuration that most workspaces need. The sources are below `spec/`,
+/// The configuration that most workspaces use. The sources are below `spec/`,
 /// and the entry is `spec/index.pi`.
 pub const CONFIG: &str = "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n";
 

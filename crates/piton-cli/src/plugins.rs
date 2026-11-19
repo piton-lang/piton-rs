@@ -19,7 +19,7 @@ use serde_json::{json, Value as Json};
 use crate::style::{self, paint};
 use crate::{project, report, EXIT_ERRORS};
 
-/// clap needs names that live as long as the program. A CLI parses only one time.
+/// clap must have names that live as long as the program. A CLI parses only one time.
 /// Thus the simple method is to leak the few names that a plugin declares.
 fn leak(text: &str) -> &'static str {
     Box::leak(text.to_string().into_boxed_str())

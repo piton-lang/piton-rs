@@ -1,8 +1,8 @@
 //! The Piton language server.
 //!
 //! Each feature here answers a question about the *resolved* program, not
-//! about raw syntax. A hover on a user keyword finds the anchor that it
-//! aliases. Go-to-definition on an inherited property goes to the base that
+//! about raw syntax. A hover on a user keyword finds the anchor of the
+//! keyword. Go-to-definition on an inherited property goes to the base that
 //! declares it. A rename of a symbol also changes the imports that carry it.
 
 mod plugins;
@@ -27,11 +27,11 @@ use world::World;
 
 /// Semantic token types, in the order that the server gives them to the client.
 ///
-/// The server colours the data that only the resolved program knows: the kind
-/// of a name. It also colours each language keyword where the parser reads
-/// it as a keyword, because a grammar without context cannot tell a keyword
-/// from the same word in prose. The syntax definition colours comments,
-/// literals, operators and prose. Thus they have no type here.
+/// The server gives a colour to the data that only the resolved program knows:
+/// the kind of a name. It also gives a colour to each language keyword where
+/// the parser reads it as a keyword. A grammar without context cannot tell a keyword
+/// from the same word in prose. The syntax definition gives a colour to
+/// comments, literals, operators and prose. Thus they have no type here.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::CLASS,     // anchors
     SemanticTokenType::PROPERTY,  // properties and dictionary keys
@@ -68,7 +68,7 @@ pub enum Trigger {
 ///
 /// This does not happen after an edit. The client itself asks again for the
 /// buffer that the user edits. A refresh of all other files on each keystroke
-/// makes them flicker. Effects on other files show when the user saves.
+/// makes them flicker. The user sees the effects on other files after a save.
 pub fn refreshes_after(trigger: Trigger) -> bool {
     trigger == Trigger::Elsewhere
 }
@@ -328,8 +328,8 @@ impl Backend {
     /// Asks the client to tell the server when a `.pi` file appears, changes or
     /// disappears from the disk.
     ///
-    /// No other source gives this data. `didChange` fires only for buffers that
-    /// are open in the editor. Thus the server does not see a file from
+    /// No other source gives this data. The editor sends `didChange` only for
+    /// buffers that are open in the editor. Thus the server does not see a file from
     /// `piton tether` or from a script that makes files. It also does not see
     /// a branch switch or a second editor.
     /// It sees the file only when a person types in an open buffer. A new file
@@ -371,7 +371,7 @@ impl Backend {
     /// struct in this version of `lsp-types` has no `typeHierarchyProvider`
     /// field. Dynamic registration is the second method of the protocol to say
     /// the same fact. A client without support never asks. The result is the
-    /// same as when the server does not advertise the feature.
+    /// same as when the server does not declare the feature.
     async fn offer_type_hierarchy(&self) {
         if !self.hierarchy.load(Ordering::Relaxed) {
             return;
@@ -411,7 +411,7 @@ impl Backend {
         publish(&self.client, &self.world, focus, trigger).await;
     }
 
-    /// The current buffer, for the requests that only need its syntax. These
+    /// The current buffer, for the requests that use only its syntax. These
     /// are format, fold and selection requests. They never wait for a compile.
     /// Thus they operate while the file is only partly written.
     async fn buffer(&self, uri: &Url) -> Option<(PathBuf, String)> {

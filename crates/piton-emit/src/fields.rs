@@ -140,7 +140,7 @@ fn toml_value(value: &FieldValue) -> String {
 /// Encodes a TOML string. Text with newlines uses a multi-line basic string.
 /// Thus a full instruction body stays easy to read.
 ///
-/// The two forms do not allow raw control characters, other than tab and newline.
+/// The two forms do not permit raw control characters, other than tab and newline.
 /// Thus the encoder escapes them. It also escapes a quote at the end.
 /// If not, that quote joins the last delimiter.
 pub fn toml_string(text: &str) -> String {

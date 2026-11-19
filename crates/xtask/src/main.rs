@@ -307,8 +307,8 @@ const EMBEDDED_FLUENCY: &str = "plugins/belay/fluency.md";
 /// An agent writes the prompt, not code. The GenerateFluencyPrompt skill reads
 /// the full specification and makes it shorter. Thus this task runs Claude
 /// Code headless on that skill. Then it copies the result to the copy that
-/// `piton agent` uses when there is no other prompt. If not, that copy
-/// becomes old.
+/// `piton agent` uses when there is no other prompt. Without this step, that
+/// copy becomes old.
 ///
 /// `--copy-only` does not generate the prompt. Use it for a prompt that a
 /// person wrote, or for a prompt from an interactive run of the skill.
@@ -549,7 +549,7 @@ const GRAMMAR_REMOTE: &str = "git@github.com:piton-lang/tree-sitter-piton.git";
 ///
 /// The project develops the grammar here, next to the compiler. Only here can
 /// a test compare the grammar with the language. The keyword list of `piton-syntax`
-/// is the source of truth. A test reads the grammar to make sure that the two
+/// is the reference. A test reads the grammar to make sure that the two
 /// agree. Editors that use tree-sitter grammars expect one repository for each
 /// grammar. Thus the task publishes a copy. The project does not develop the
 /// grammar in that repository.
@@ -756,7 +756,7 @@ fn git_output(directory: &Path, args: &[&str]) -> Result<String, Error> {
 /// Checks that git knows the identity of the committer.
 ///
 /// The git error for this problem is many paragraphs long. It also comes
-/// after the work ends. That is a bad time to learn about the problem.
+/// after the work ends. At that time, it is too late to correct the problem.
 fn identity(workspace: &Path) -> Result<(), Error> {
     for key in ["user.name", "user.email"] {
         let set = Command::new("git")
@@ -894,7 +894,7 @@ fn generate_parser(checkout: &Path, dry_run: bool) -> bool {
     checkout.join("src/parser.c").is_file()
 }
 
-/// All the files from `tree-sitter generate` that a consumer needs.
+/// All the files from `tree-sitter generate` that a consumer uses.
 ///
 /// The `.gitignore` of the grammar excludes these files. In this repository,
 /// they are build output that the build makes again from `grammar.js`. The
@@ -1015,8 +1015,8 @@ mod publish_tests {
         assert!(staged.contains(&"src/parser.c"), "{staged:?}");
         assert!(staged.contains(&"src/tree_sitter/parser.h"), "{staged:?}");
         assert!(staged.contains(&"grammar.js"), "{staged:?}");
-        // When the task forces the generated parser in, it must not also add
-        // the toolchain.
+        // When the task adds the generated parser by force, it must not also
+        // add the toolchain.
         assert!(
             !staged.iter().any(|path| path.starts_with("node_modules/")),
             "{staged:?}"
@@ -1045,7 +1045,7 @@ mod publish_tests {
 
     #[test]
     fn the_grammar_directory_is_where_the_grammar_is() {
-        // The task copies a path from a constant. If someone moves the
+        // The task copies a path from a constant. If a person moves the
         // grammar, the task publishes an empty repository. This test prevents
         // that.
         let source = workspace_root().expect("workspace").join(GRAMMAR_DIRECTORY);
@@ -1071,8 +1071,8 @@ const OTHER_GRAMMAR_PINS: [&str; 2] = ["editors/helix/languages.toml", "editors/
 fn pin_zed_grammar(workspace: &Path, commit: &str) -> Result<(), Error> {
     let path = workspace.join(ZED_EXTENSION);
     let Ok(text) = fs::read_to_string(&path) else {
-        // The extension is optional. The publish of the grammar does not need
-        // it.
+        // The extension is optional. The publish of the grammar does not
+        // use it.
         return Ok(());
     };
 

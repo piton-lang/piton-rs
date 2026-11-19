@@ -14,7 +14,7 @@ use crate::store::{AnchorDef, Slot, Store, Symbol, VariableDef};
 enum ExportTarget {
     /// A declaration in this module.
     Local(Symbol),
-    /// A name from a different module, possibly with a new name.
+    /// A name from a different module. The name can have a new name here.
     Forwarded { module: ModuleId, name: String },
 }
 
@@ -48,7 +48,8 @@ pub struct ModuleScope {
     export_sites: Vec<ExportSite>,
     /// Modules that `use` names. These modules give keywords.
     pub used: Vec<ModuleId>,
-    /// Keywords that this module can use. Each maps keyword text to the anchor that it aliases.
+    /// Keywords that this module can use. The key is the keyword text. The value is
+    /// the anchor of the keyword.
     pub keywords: IndexMap<String, AnchorId>,
     /// Modules from which this module imports, for reachability reports.
     pub dependencies: Vec<ModuleId>,
@@ -89,9 +90,9 @@ impl Resolution {
 
     /// Resolves an exported name. It follows re-exports.
     ///
-    /// A name that two `export *` lines give with different meanings is not
-    /// exported under its plain name. The module exports each meaning under
-    /// the name of its source module instead, as `cruxible.Roles`.
+    /// When two `export *` lines give a name different meanings, the module
+    /// does not export the plain name. It exports each meaning under a
+    /// qualifier from its source module instead, as `cruxible.Roles`.
     pub fn lookup_export(
         &self,
         module: ModuleId,
@@ -115,7 +116,7 @@ impl Resolution {
                     if let Some(symbol) = self.lookup_export(*glob, name, visiting) {
                         match found {
                             None => found = Some(symbol),
-                            // Two meanings: the plain name is not exported.
+                            // Two meanings: the module does not export the plain name.
                             Some(first) if first != symbol => return None,
                             Some(_) => {}
                         }
@@ -124,21 +125,21 @@ impl Resolution {
                 if found.is_some() {
                     return found;
                 }
-                let (qualifier, rest) = name.split_once('.')?;
-                if !self.glob_overlaps(module, rest) {
-                    return None;
-                }
-                scope
-                    .export_globs
-                    .iter()
-                    .filter(|glob| self.export_qualifier(**glob) == qualifier)
-                    .find_map(|glob| self.lookup_export(*glob, rest, visiting))
+                let qualifiers = self.export_qualifiers(module);
+                scope.export_globs.iter().find_map(|glob| {
+                    let qualifier = qualifiers.get(glob)?;
+                    let rest = name.strip_prefix(qualifier.as_str())?.strip_prefix('.')?;
+                    if !self.glob_overlaps(module, rest) {
+                        return None;
+                    }
+                    self.lookup_export(*glob, rest, visiting)
+                })
             }
         }
     }
 
     /// The different meanings that the `export *` lines of `module` give to
-    /// `name`, each with the first glob module that gives it.
+    /// `name`. Each meaning has the first glob module that gives it.
     fn glob_meanings(&self, module: ModuleId, name: &str) -> Vec<(ModuleId, Symbol)> {
         let mut meanings: Vec<(ModuleId, Symbol)> = Vec::new();
         for glob in &self.scope(module).export_globs {
@@ -161,27 +162,91 @@ impl Resolution {
             .any(|(_, symbol)| *symbol != meanings[0].1)
     }
 
-    /// The name that qualifies an overlapping export from `module`. This is the
-    /// name of the module: the file stem, or the directory name for an
-    /// `index.pi`.
-    pub fn export_qualifier(&self, module: ModuleId) -> String {
+    /// The names that qualify the exports with two meanings from the
+    /// `export *` lines of `module`. There is one name for each glob module.
+    ///
+    /// A qualifier starts as the name of the glob module: the file stem, or
+    /// the directory name for an `index.pi`. When two glob modules have the
+    /// same qualifier, the compiler adds the parent directory name to each
+    /// of them. It does this again until each qualifier is unique. Thus
+    /// `pkg-a/roles.pi` and `pkg-b/roles.pi` give `pkg-a.roles` and
+    /// `pkg-b.roles`.
+    pub fn export_qualifiers(&self, module: ModuleId) -> HashMap<ModuleId, String> {
+        let mut globs: Vec<ModuleId> = Vec::new();
+        for glob in &self.scope(module).export_globs {
+            if !globs.contains(glob) {
+                globs.push(*glob);
+            }
+        }
+        let segments: Vec<Vec<String>> = globs.iter().map(|glob| self.qualifier_segments(*glob)).collect();
+        let mut depths: Vec<usize> = vec![1; globs.len()];
+        let qualifier = |index: usize, depth: usize| -> String {
+            let parts = &segments[index];
+            let depth = depth.min(parts.len());
+            let mut used: Vec<&str> = parts[..depth].iter().map(String::as_str).collect();
+            used.reverse();
+            used.join(".")
+        };
+        loop {
+            let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+            for index in 0..globs.len() {
+                groups.entry(qualifier(index, depths[index])).or_default().push(index);
+            }
+            let mut grown = false;
+            for members in groups.values().filter(|members| members.len() > 1) {
+                for index in members {
+                    if depths[*index] < segments[*index].len() {
+                        depths[*index] += 1;
+                        grown = true;
+                    }
+                }
+            }
+            if !grown {
+                break;
+            }
+        }
+        globs
+            .iter()
+            .enumerate()
+            .map(|(index, glob)| (*glob, qualifier(index, depths[index])))
+            .collect()
+    }
+
+    /// The names that can qualify an export from `module`, from the innermost
+    /// name to the outermost directory. The first name is the file stem, or
+    /// the directory name for an `index.pi`. An `index.pi` adds `index` as its
+    /// last name. Thus `x/roles.pi` and `x/roles/index.pi` have different
+    /// qualifiers, but only after all the directories.
+    fn qualifier_segments(&self, module: ModuleId) -> Vec<String> {
         let path = &self.graph.get(module).path;
         let stem = path
             .file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if stem == "index" {
-            if let Some(dir) = path.parent().and_then(|dir| dir.file_name()) {
-                return dir.to_string_lossy().into_owned();
+        let mut segments: Vec<String> = Vec::new();
+        let index = stem == "index";
+        if !index {
+            segments.push(stem);
+        }
+        for dir in path.parent().into_iter().flat_map(|dir| dir.ancestors()) {
+            match dir.file_name() {
+                Some(name) => segments.push(name.to_string_lossy().into_owned()),
+                None => break,
             }
         }
-        stem
+        if index {
+            // `index` is the outermost name. Thus it comes into a qualifier
+            // only after all the directories, as the last way to identify
+            // each of two modules.
+            segments.push("index".to_string());
+        }
+        segments
     }
 
     /// All the names that a module can write unqualified. First its own declarations,
     /// then the names it imported.
     ///
-    /// `lookup` gives one name at a time. A reference needs this. Completion needs the
+    /// `lookup` gives one name at a time. A reference must have this. Completion must have the
     /// other direction, which is all the names in scope. The imports that completion
     /// must include are private to the scope. Thus this function builds the list. It
     /// does not guess the list from the syntax.
@@ -204,11 +269,11 @@ impl Resolution {
         out
     }
 
-    /// All the names that a module exports, also the names that come through globs.
+    /// All the names that a module exports, which include the names from globs.
     ///
-    /// A name that two `export *` lines give with different meanings shows once
-    /// for each source module, qualified by the name of that module
-    /// (`cruxible.Roles`, `strataglyph.Roles`).
+    /// A name can have different meanings from two `export *` lines. Then the list
+    /// has it one time for each source module, with the name of that module as its
+    /// qualifier (`cruxible.Roles`, `strataglyph.Roles`).
     pub fn exported_names(&self, module: ModuleId) -> Vec<String> {
         self.collect_exports(module, &mut HashSet::new())
     }
@@ -245,8 +310,9 @@ impl Resolution {
                 }
                 continue;
             }
+            let qualifiers = self.export_qualifiers(module);
             for (glob, _) in &meanings {
-                let qualified = format!("{}.{name}", self.export_qualifier(*glob));
+                let qualified = format!("{}.{name}", qualifiers[glob]);
                 if seen.insert(qualified.clone()) {
                     out.push(qualified);
                 }
@@ -478,8 +544,8 @@ pub fn resolve_from_roots(
         let items: Vec<Item> = graph.get(*id).ast().items.clone();
         let mut edge_cursor = 0usize;
         let mut scope = scopes.remove(id).unwrap_or_default();
-        // `export *` comes after all named exports in precedence, on whichever
-        // line it is.
+        // `export *` comes after all named exports in precedence, on all
+        // lines.
         let mut globs: Vec<ExportSite> = Vec::new();
 
         for item in &items {
@@ -669,7 +735,7 @@ fn export(scope: &mut ModuleScope, name: &str, target: ExportTarget, span: Span,
 }
 
 /// The text for `export Name` when `Name` came from an import. This is the module
-/// path on the import that brought it in.
+/// path on the import that added it.
 fn import_source_label(
     items: &[Item],
     source: ModuleId,
@@ -697,9 +763,8 @@ fn import_source_label(
 ///
 /// An explicit export hides the same name from an `export *` line without an
 /// error. Two `export *` lines that give one name two meanings are not an
-/// error either: the module exports each meaning under the name of its source
-/// module. That fails only when two of those source modules have the same
-/// name, because the qualified names would then collide too.
+/// error either: the module exports each meaning under a qualifier from its
+/// source module. `Resolution::export_qualifiers` makes each qualifier unique.
 fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
     let mut diagnostics = Vec::new();
     for id in modules {
@@ -760,63 +825,6 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
                 ))
                 .with_help(format!("export one of them under an alias (`{name} {alias}`)")),
             );
-        }
-
-        // Overlaps between `export *` lines whose qualified names collide.
-        let mut names: Vec<String> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
-        for (glob, _) in &glob_sites {
-            for name in resolution.exported_names(*glob) {
-                if !scope.exports.contains_key(&name) && seen.insert(name.clone()) {
-                    names.push(name);
-                }
-            }
-        }
-        for name in names {
-            let meanings = resolution.glob_meanings(*id, &name);
-            if meanings.iter().all(|(_, symbol)| *symbol == meanings[0].1) {
-                continue;
-            }
-            let mut by_qualifier: HashMap<String, (Symbol, ModuleId)> = HashMap::new();
-            for (glob, symbol) in &meanings {
-                let qualifier = resolution.export_qualifier(*glob);
-                let Some((first_symbol, first_glob)) = by_qualifier.get(&qualifier) else {
-                    by_qualifier.insert(qualifier, (*symbol, *glob));
-                    continue;
-                };
-                if first_symbol == symbol {
-                    continue;
-                }
-                let site_of = |module: ModuleId| {
-                    glob_sites
-                        .iter()
-                        .find(|(glob, _)| *glob == module)
-                        .map(|(_, site)| *site)
-                };
-                let (Some(first_site), Some(site)) = (site_of(*first_glob), site_of(*glob)) else {
-                    continue;
-                };
-                diagnostics.push(
-                    Diagnostic::error(
-                        "duplicate-export",
-                        format!(
-                            "`{name}` is exported from both {} and {}, and both qualify it as `{qualifier}.{name}`",
-                            first_site.source, site.source
-                        ),
-                        &module_path,
-                        site.span,
-                    )
-                    .with_label(Label::new(
-                        module_path.clone(),
-                        first_site.span,
-                        format!("`{qualifier}.{name}` from {} is the one exported", first_site.source),
-                    ))
-                    .with_help(format!(
-                        "list what {} exports instead of `export *`, leaving `{name}` out or aliasing it",
-                        site.source
-                    )),
-                );
-            }
         }
     }
     resolution.diagnostics.extend(diagnostics);
@@ -904,7 +912,7 @@ fn check_imports_resolve(resolution: &mut Resolution, modules: &[ModuleId]) {
 
 /// Fills the keyword table of each module from the modules that it `use`s.
 ///
-/// `use` brings in keywords only. Thus a file must still
+/// `use` adds only keywords. Thus a file must still
 /// import the symbols that it references.
 fn populate_keywords(resolution: &mut Resolution, modules: &[ModuleId]) {
     for id in modules {
@@ -1434,8 +1442,8 @@ fn invalid_key(item: &ast::BlockItem) -> Option<String> {
 /// Explains why one line of an anchor body is not a property.
 ///
 /// The causes are very different. Thus one shared message does not help. A
-/// stray list item needs a property above it. A line of prose needs
-/// a key.
+/// list item must have a property above it. A line of prose must
+/// have a key.
 fn describe_non_property(item: &ast::BlockItem, anchor: &str) -> (String, String) {
     match item {
         ast::BlockItem::ListItem(_) | ast::BlockItem::Merge(_) => (

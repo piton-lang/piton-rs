@@ -65,7 +65,7 @@ enum Command {
     /// Compile Piton
     ///
     /// For a single file, the compiled result goes to stdout. A glob path
-    /// needs --write. Many results cannot use the same stream.
+    /// must have --write. Many results cannot use the same stream.
     Compile {
         /// File or glob
         path: String,
@@ -121,6 +121,10 @@ enum Command {
         /// Do not show the path to each reachable anchor
         #[arg(long = "no-paths")]
         no_paths: bool,
+        /// Also examine the installed packages below tethers/. By default,
+        /// reach does not examine them
+        #[arg(long = "include-tethers")]
+        include_tethers: bool,
     },
 
     /// List the plugins of the project, their commands, and their permissions
@@ -132,12 +136,12 @@ enum Command {
         package: String,
     },
 
-    /// Print the part of the specification that one anchor or property needs.
+    /// Print the part of the specification that one anchor or property uses.
     ///
     /// Follows the anchors that the target extends, reads, refers to, and
     /// embeds. Also follows the names in its types. It follows them
     /// transitively. It prints the result as one Markdown document. This
-    /// document is the context that an agent needs to implement the target.
+    /// document is the context that is necessary to implement the target.
     Slice {
         /// `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name to
         /// find in the project
@@ -199,11 +203,20 @@ fn main() -> ExitCode {
     // Plugins that inspect projects examine the project before the command
     // runs. They offer to update a project for an older Piton. They do not
     // run before the language server. Its stdout is the protocol of the editor.
+    let mut deferred = None;
     if matches.subcommand_name() != Some("lsp") && !matches.get_flag("update") {
         let running = plugins::matched(&manifests, &matches).map(|(manifest, _, _)| manifest.name.clone());
-        if let Some(code) = inspection::offer(&project, &manifests, running.as_deref()) {
-            report::flush();
-            return ExitCode::from(code);
+        // The check itself never writes a file. Thus it examines the project
+        // as it is. The CLI applies an update that the user accepted after
+        // the check ends.
+        let read_only = matches.subcommand_name() == Some("check");
+        match inspection::offer(&project, &manifests, running.as_deref(), read_only) {
+            inspection::Offer::Run => {}
+            inspection::Offer::Ran(code) => {
+                report::flush();
+                return ExitCode::from(code);
+            }
+            inspection::Offer::After(findings) => deferred = Some(findings),
         }
     }
 
@@ -235,7 +248,8 @@ fn main() -> ExitCode {
             targets,
             no_unreachable,
             no_paths,
-        } => commands::reach::run(&targets, !no_unreachable, !no_paths),
+            include_tethers,
+        } => commands::reach::run(&targets, !no_unreachable, !no_paths, include_tethers),
         Command::Plugins => commands::plugins::run(),
         Command::Remove { package } => commands::remove::run(&package),
         Command::Slice { target } => commands::slice::run(&target),
@@ -255,5 +269,15 @@ fn main() -> ExitCode {
     };
     // Problems always print last, after all other output of the command.
     report::flush();
+    // The user accepted an update before a check. The check examined the
+    // project as it was. Now the CLI applies the update.
+    if let Some(findings) = deferred {
+        if !inspection::apply(&project, &findings) {
+            report::flush();
+            return ExitCode::from(EXIT_ERRORS);
+        }
+        report::done("updated the project after the check; run the check again to examine the update");
+        report::flush();
+    }
     ExitCode::from(code)
 }

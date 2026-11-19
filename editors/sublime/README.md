@@ -8,7 +8,7 @@ The package name matters: the Enter key binding runs a macro by its
 | --- | --- |
 | `Piton.sublime-syntax` | highlighting (`syntaxHighlighter: sublime-syntax`) |
 | `Piton.tmPreferences` | the colon indent rule, and `// ` for Toggle Comment |
-| `Default.sublime-keymap`, `Enter on Blank Line.sublime-macro` | the blank-line dedent |
+| `Default.sublime-keymap`, `Enter on Blank Line.sublime-macro`, `piton_enter.py` | the blank-line dedent |
 | `Piton.sublime-settings` | four spaces, not tabs |
 
 ## Editor behaviour
@@ -18,13 +18,16 @@ The package name matters: the Enter key binding runs a macro by its
   `increaseIndentPattern` in `Piton.tmPreferences`. A list item or a merge line
   never opens a block, even when it ends in a colon (`- Settings:` is just a
   string), and neither does a comment.
-- **Enter on a blank line** inside a dictionary or anchor lands one level
-  back. Sublime has no indentation setting for this (its
-  `decreaseIndentPattern` is tested against the new, empty line, so it would
-  outdent every line), so it is a key binding scoped to `source.piton`: Enter
-  on a whitespace-only line inserts the newline and unindents it once. A blank
-  line with no whitespace on it has no depth to measure and gets a plain
-  Enter.
+- **Enter on a blank line** inside a dictionary or anchor keeps the level
+  on the first blank line, so a paragraph break stays in the block. On a
+  second blank line in sequence it lands one level back, so only the third
+  Enter after text moves the line back. Sublime has no indentation setting for
+  this (its `decreaseIndentPattern` is tested against the new, empty line, so
+  it would outdent every line), so it is a key binding scoped to
+  `source.piton`: Enter on a whitespace-only line whose line above is also
+  blank inserts the newline and unindents it once. `piton_enter.py` gives the
+  key binding its `piton_line_above_is_blank` context. A blank line with no
+  whitespace on it has no depth to measure and gets a plain Enter.
 
 Autoformat on save is the LSP package's `lsp_format_on_save` setting — the
 `autoFormatOnSave` option — and it is `false` unless you turn it on. The

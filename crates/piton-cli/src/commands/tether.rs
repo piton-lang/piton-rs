@@ -46,7 +46,7 @@ pub fn run(source: Option<&str>, rename: Option<&str>) -> u8 {
     let source = source.as_str();
 
     // A repository that `dependencies` names keeps its pin. Thus the
-    // tether and the build agree about the version that the project needs.
+    // tether and the build agree about the version that the project uses.
     let declared = configured
         .dependencies
         .iter()
@@ -159,7 +159,7 @@ pub fn install_all(configured: &Project) -> u8 {
 
 /// Installs all `dependencies`, or none of them. With `guard_owners`, it
 /// refuses a package that a different source tethered before. It does not
-/// replace that package. A new source needs this behaviour.
+/// replace that package. A new source must have this behaviour.
 fn install(
     configured: &Project,
     dependencies: &[Dependency],
@@ -213,8 +213,8 @@ fn install(
 ///
 /// A package command obeys the configuration. Thus a configuration with a
 /// read problem must stop the command. An example is two pins on one
-/// dependency. If not, the command can install a package that nobody asked
-/// for.
+/// dependency. If the command does not stop, it can install a package that
+/// the user did not request.
 pub fn report_config_errors(
     configured: &Project,
     diagnostics: &piton_core::DiagnosticSink,

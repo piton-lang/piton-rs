@@ -32,7 +32,8 @@ The `piton` binary must be on `PATH` (`cargo xtask install`), or pass
 
 - **Enter on a colon line** (a new dictionary or anchor property, or a
   declaration) lands one level in. **Enter on a blank line** inside a
-  dictionary or anchor lands one level back. Both rules are written out in
+  dictionary or anchor keeps the level on the first blank line, and lands one
+  level back on a second blank line in sequence (the third Enter after text). Both rules are written out in
   `indent/piton.vim`. A list item (`- Settings:`) or a merge line (`+ ...`,
   `++ ...`) never opens a block, because a list item is never a key.
 - On Neovim 0.12+, `setup()` also enables LSP on-type formatting

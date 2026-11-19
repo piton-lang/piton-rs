@@ -28,8 +28,9 @@ same commit the Zed extension pins.
   with nothing after its colon) lands one level in, from `queries/indents.scm`.
   A property with a value on its line opens nothing, and neither does a list
   item or a merge line (`- Settings:` is just a string).
-- **Enter on a blank line** inside a dictionary or anchor should come back one
-  level. Helix cannot do this. Its indentation comes only from tree-sitter
+- **Enter on a second blank line in sequence** inside a dictionary or anchor
+  should come back one level (Enter on the first blank line keeps the level,
+  so only the third Enter after text comes back). Helix cannot do this. Its indentation comes only from tree-sitter
   queries, the grammar is line-oriented, so no node spans a block for a query
   to measure, and Helix does not ask the language server for on-type
   formatting (the server's answer to this rule). A new line after a blank line

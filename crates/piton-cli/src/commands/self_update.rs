@@ -1,8 +1,8 @@
 //! `piton --update` — replace this binary with the latest release.
 //!
-//! Uses the same release source as `install.sh`. This is the GitHub releases
+//! It uses the same release source as `install.sh`. This is the GitHub releases
 //! of piton-lang/piton-rs, or `PITON_DOWNLOAD_BASE`. The latest version comes
-//! from the redirect of `/releases/latest`. This redirect needs no API and has
+//! from the redirect of `/releases/latest`. This redirect uses no API and has
 //! no rate limit. Downloads use curl or wget. Tar or unzip unpacks the archives,
 //! as in the install script. Thus the binary has no HTTP or TLS stack. The
 //! command checks the download with its `.sha256` file before it replaces a
@@ -207,7 +207,7 @@ fn unpack(archive: &Path, into: &Path, extension: &str) -> Result<(), String> {
     }
 }
 
-/// Put `fresh` at the location of `current`. The function copies the new
+/// Puts `fresh` at the location of `current`. The function copies the new
 /// binary next to the old one. Then it renames the copy to the old name. Thus
 /// a piton that runs is never half written. Windows does not replace an
 /// executable that runs, but it renames one. Thus on Windows, the function
@@ -270,7 +270,7 @@ fn null_device() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
-/// A temporary directory. The drop removes it.
+/// A temporary directory. Its `Drop` implementation removes it.
 struct Work {
     path: PathBuf,
 }

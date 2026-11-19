@@ -339,7 +339,7 @@ fn piton_agent_launches_each_tool_with_fluency_through_belay() {
     assert_eq!(args, ["--standalone"]);
     assert!(env.contains("\"instructions\":[") && env.contains("piton-belay-"), "{env}");
 
-    // The output names a tool that is not installed, and tells the
+    // The output names a tool that the system does not have, and tells the
     // alternative.
     std::fs::remove_file(fixture.dir.join("bin/codex")).expect("remove");
     let output = Command::new(binary())
@@ -355,6 +355,26 @@ fn piton_agent_launches_each_tool_with_fluency_through_belay() {
         stderr.contains("`codex` is not on PATH; install it or print the prompt with `piton agent codex --print-fluency`"),
         "{stderr}"
     );
+}
+
+#[test]
+fn reach_goes_from_an_emul_design_to_the_designs_it_uses() {
+    let fixture = Fixture::new("emul-reach");
+    fixture.write("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n");
+    fixture.write("spec/designs/Buttons.emul", "export component Button:\n    padding: 2px\n\nexport component Unused:\n    padding: 2px\n");
+    fixture.write("spec/designs/forms/index.emul", "export component Field:\n    padding: 2px\n");
+    // Page uses Button by an alias, and Field through a local design that the file does not export.
+    fixture.write(
+        "spec/designs/Page.emul",
+        "from ./Buttons import\n    Button Primary\n    Unused\nfrom ./forms import Field\n\ncomponent Local extends Field:\n    margin: 1px\n\nexport composition Page {\n    Primary { \"Unused\" }\n    Local {}\n}\n",
+    );
+    fixture.write("spec/index.pi", "from ./designs/Page.emul import Page\n\nexport anchor Root:\n    design: @{Page}\n");
+    let (stdout, stderr, code) = fixture.run(&["reach", "--no-paths"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    let reached = stdout.split("nreachable").next().unwrap_or_default();
+    assert!(reached.contains("Button") && reached.contains("Field"), "{stdout}");
+    // A name in text, and an import that no design uses, are not uses.
+    assert!(!reached.contains("Unused"), "{stdout}");
 }
 
 #[test]
@@ -377,6 +397,16 @@ fn the_emul_plugin_gives_the_modules_of_emul_files() {
     assert!(stdout.contains("\"file\": \"spec/designs/Buttons.emul\""), "{stdout}");
     assert!(stdout.contains("\"file\": \"spec/designs/forms/index.emul\""), "{stdout}");
     assert!(stdout.contains("\"kind\": \"component\""), "{stdout}");
+
+    // `emul format` writes a long import with one name on each line and no comma.
+    fixture.write(
+        "spec/designs/Long.emul",
+        "from ./Buttons import\n    Button\n    Button Primary\nfrom ./forms import\n    Field\n\nexport composition Long {\n    Primary {}\n    Field {}\n}\n\nexport Primary\n",
+    );
+    fixture.write("spec/index.pi", "from ./designs/Long.emul import Long, Primary\n\nexport anchor Page:\n    design: @{Long}\n    button: {Primary}\n");
+    let (stdout, stderr, code) = fixture.run(&["compile", "spec/index.pi"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(stdout.contains("\"design\": \"./designs/Long.json:Long\""), "{stdout}");
 
     // A design that the Emul file does not export is not a name of the module.
     fixture.write("spec/index.pi", "from ./designs/Landing.emul import Hidden\n");

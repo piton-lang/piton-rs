@@ -2,7 +2,7 @@
 //!
 //! `piton compile` and `piton build` both change the compiled surface of a
 //! module into renderer output. The call to `piton_emit::render` is only here.
-//! Thus a change to the render setup happens in one place. An example is the
+//! Thus a change to the render configuration occurs in one place. An example is the
 //! context that the code gives to a renderer.
 
 use std::path::Path;
@@ -23,8 +23,8 @@ pub fn parse_renderer(name: &str) -> Result<Adapter, String> {
 /// build puts the file there. For stdout, it is the directory of the source
 /// file. The links that a renderer writes are relative to this directory.
 /// `output_root` is the start of the output tree. It applies when the tree is
-/// not next to the sources, as with a build. Thus a reference goes to the output of the
-/// other file.
+/// not next to the sources, as with a build. Thus a reference goes to the
+/// output of the other file.
 pub fn render_module(
     compilation: &Compilation,
     module: ModuleId,
@@ -49,7 +49,7 @@ pub fn render_module(
 /// Gives values to the special imports of Belay for plain renderer output.
 ///
 /// They are paths relative to the file that contains them. The project, code,
-/// and shape roots need no adapter. The agent directory and its
+/// and shape roots do not require an adapter. The agent directory and its
 /// compiled shape exist only for an adapter. Thus, without an adapter, the
 /// output shows their names, not the internal markers of the compiler.
 fn resolve_locations(compilation: &Compilation, text: &str, output_directory: &Path) -> String {

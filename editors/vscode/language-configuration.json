@@ -21,6 +21,7 @@
     },
     {
       "beforeText": "^\\s{4,}$",
+      "previousLineText": "^\\s*$",
       "action": { "indent": "outdent" }
     }
   ],

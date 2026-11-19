@@ -5,8 +5,8 @@
 //! that a fake cannot replace. That part is the clone, the un-git, the lock
 //! file of the install, and the refusal to overwrite edited files.
 //!
-//! When the machine does not have git, the tests do not run. Without git, there is no
-//! package source.
+//! When the machine does not have git, the tests do not run. Without git,
+//! there is no package source.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -483,7 +483,7 @@ fn a_package_dependency_is_installed_flat_and_project_dependencies_are_not() {
     sandbox.git(&base, &["init", "-q", "."]);
     commit_at(&base, "one", "2026-01-01T00:00:00Z");
 
-    // The dependencies for work on the repository. Its users do not need them.
+    // The dependencies for work on the repository. Its users do not use them.
     let tooling = sandbox.dir.join("tooling");
     sandbox.write("tooling/index.pi", "export anchor Tooling:\n    depth: 1\n");
     sandbox.git(&tooling, &["init", "-q", "."]);
@@ -611,8 +611,8 @@ export piton-config App:
         "the disagreement was not reported: {stderr}"
     );
 
-    // The install has one copy, from the newest commit. That is `two` on the default branch,
-    // not the older tagged `one`.
+    // The install has one copy, from the newest commit. That is `two` on the
+    // default branch, not the older tagged `one`.
     assert!(
         sandbox.read("app/tethers/shared/index.pi").contains("version: two"),
         "the older commit won: {}",
@@ -893,7 +893,7 @@ export piton-config App:
 }
 
 /// A second repository at `name`. It publishes one package with the name
-/// `package`. That package needs `requires`, if the caller gives it.
+/// `package`. That package requires `requires`, if the caller gives it.
 fn other_repository(sandbox: &Sandbox, name: &str, package: &str, requires: Option<&str>) -> String {
     let dependencies = requires
         .map(|source| format!("    dependencies:\n        - {source}\n"))

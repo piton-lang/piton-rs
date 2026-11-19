@@ -36,8 +36,8 @@ pub fn format(source: &str, path: &Path) -> String {
 /// This function normalizes the structure. It adds a space after `//`, as
 /// `piton format` does. It does not change other comment text. A comment that
 /// fills a line keeps its original indentation. Each comment keeps its text after
-/// the marker byte-for-byte. The function formats the code on a line that only
-/// *carries* a comment.
+/// the marker byte-for-byte. The function formats the code on a line that also
+/// has a comment at its end.
 pub fn autoformat(source: &str, path: &Path) -> String {
     format_impl(source, path, true)
 }

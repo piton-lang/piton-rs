@@ -16,7 +16,9 @@ target: Optional file, glob, or anchor. Defaults to the project.
 
 ## Named Arguments
 
-null
+```
+include-tethers: Also examine the installed packages under tethers/. Without it, reach leaves them out.
+```
 
 ## Emit
 
@@ -36,6 +38,11 @@ Composition covers everything a value is built from, including what evaluation f
 ## Plugins
 
 Without targets, the roots are the entry's exports and the anchors that plugins reach themselves, like the tests the test plugin runs, described in [PluginReach](../../plugins/Reach.md#plugin-reach). So an anchor a plugin uses is not reported as unreachable, and whatever it reaches is reachable through it. A file that nothing imports but that holds such an anchor is compiled with the project. With targets, plugins add nothing: the question is what those targets see.
+
+## Tethers
+
+By default, reach does not examine the installed packages under `tethers/`. A package is the work of another project, so its dead anchors are not this project's to delete. The anchors and modules in `tethers/` are left out of the reachable list, the unreachable list and the never-imported files, and the summary lines do not count them. The walk still follows imports and references through a package, so a project anchor that is reached only through a package stays reachable.
+With `--include-tethers`, reach examines them like any other source. Their anchors and modules are listed as reachable or unreachable and counted in the summary. Files under `tethers/` that nothing imports are listed as never imported, with their anchor counts.
 
 ## Configuration
 

@@ -7,7 +7,12 @@ export cli-command Check:
         path: Optional file or glob. Defaults to the project.
 
     description:
-        Checks specific files or the project and reports errors
+        Checks specific files or the project and reports errors.
+
+        The check itself never writes a file. Before it, the host offers the
+        findings of inspect hooks as before every command, but the check runs
+        on the project as it is. A migration the user accepts is applied by
+        the host after the check ends, not by the check.
 
     emit: false
 

@@ -1,6 +1,6 @@
 //! A map for each module from source offsets to the items that they name.
 //!
-//! Almost all editor features ask the same question from a different angle.
+//! Almost all editor features ask the same question.
 //! The question is: what is at this position, and where else is it?
 //! One index gives the answer to both. It uses the resolved program, not the
 //! raw syntax. Thus a hover on a keyword finds the anchor that the keyword

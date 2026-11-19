@@ -4,7 +4,8 @@
 //! property names with prose become word-separated titles. Header levels
 //! show the hierarchy. Structured data uses an indentation-based form.
 //!
-//! There are two render modes. The correct mode makes the output easy to read.
+//! There are two render modes. The renderer selects the mode that makes the
+//! output easy to read.
 //! At *document* level, a property becomes a header. Its value becomes the
 //! section body. A list item or a fenced block cannot contain headers. Thus
 //! there the same value renders as indented `key: value` lines.
@@ -15,7 +16,7 @@ use piton_core::{
     format_number, title_case, AnchorId, AnchorView, Mixed, MixedItem, Properties, Ref, Text, Value,
 };
 
-/// Markdown allows six header levels. After that, Belay uses a bold label.
+/// Markdown permits six header levels. After that, Belay uses a bold label.
 const MAX_HEADING_LEVEL: usize = 6;
 
 /// Resolves a reference to a link target relative to the output file.
@@ -53,7 +54,7 @@ impl LinkResolver for MirroredLinks<'_> {
     }
 }
 
-/// All the data that the renderer needs in addition to the value.
+/// All the data, other than the value, that is necessary for the renderer.
 pub struct Context<'a> {
     pub anchors: &'a dyn AnchorView,
     pub links: &'a dyn LinkResolver,
@@ -182,8 +183,8 @@ fn render_value(value: &Value, level: usize, context: &Context<'_>, out: &mut St
 /// lists stay lists. Dictionary keys become the next header level.
 fn render_mixed(mixed: &Mixed, level: usize, context: &Context<'_>, out: &mut String) {
     // A pure dictionary in mixed content has no header for its key. Thus the
-    // key goes in a fenced structure with the dictionary. Consecutive pure
-    // dictionaries share one fence.
+    // key goes in a fenced structure with the dictionary. Pure dictionaries
+    // that come one after the other share one fence.
     let mut fenced: Properties = Properties::new();
 
     macro_rules! flush_fenced {

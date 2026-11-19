@@ -43,7 +43,7 @@ pub enum Stream {
 }
 
 /// The services that the CLI gives and the plugin host cannot decide itself.
-/// They are the look of output, the report of problems, and the print of a
+/// They are the appearance of output, the report of problems, and the print of a
 /// slice. The host owns all other behaviour.
 pub trait Services {
     fn project(&self) -> &Project;
@@ -359,8 +359,8 @@ fn event_loop(
         match receiver.recv_timeout(timeout) {
             Ok(event) => {
                 host.accept(event);
-                // Take all other events that wait. Thus a burst of output
-                // arrives in one pass.
+                // Take all other events that wait. Thus the host takes a
+                // large quantity of output in one pass.
                 while let Ok(event) = receiver.try_recv() {
                     host.accept(event);
                 }
@@ -742,7 +742,7 @@ impl Host {
                     .as_array()
                     .map(|items| items.iter().map(|item| item.as_str().unwrap_or("").to_string()).collect())
                     .unwrap_or_default();
-                // A menu needs a person at a terminal to answer it.
+                // Only a person at a terminal can answer a menu.
                 if options.is_empty() || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
                     Json::Null
                 } else {

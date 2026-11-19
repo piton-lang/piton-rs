@@ -2,8 +2,8 @@
 //!
 //! The editor plans the build of a plugin when the user saves a file. It never
 //! plans a build while the user types. Thus a keystroke does not run plugin code.
-//! The editor keeps the plans until the next save. Their diagnostics show
-//! next to the compiler diagnostics. The editor preview and the source map
+//! The editor keeps the plans until the next save. The editor shows their
+//! diagnostics next to the compiler diagnostics. The editor preview and the source map
 //! show the files that the plans will write.
 
 use std::rc::Rc;
@@ -85,8 +85,31 @@ pub fn reached(project: &Project) -> Vec<(std::path::PathBuf, String)> {
     roots.into_iter().map(|root| (root.file, root.name)).collect()
 }
 
+/// The findings of the inspect hooks of the project. An example is a
+/// `frameworks` key that the migrate plugin moves to `plugins`. The editor
+/// asks for them when the user saves a file, as for the build plans. The
+/// editor offers the edits of each finding as a code action. It never applies
+/// them without the user. A plugin that fails gives no findings.
+pub fn findings(project: &Project) -> Vec<piton_plugin::inspection::Finding> {
+    if project.config_path.is_none() {
+        return Vec::new();
+    }
+    let (manifests, _) = piton_plugin::discover(project);
+    let mut found = Vec::new();
+    for manifest in manifests.iter().filter(|manifest| manifest.inspect) {
+        let services = Rc::new(Quiet { project: project.clone() });
+        let Ok(result) = piton_plugin::run_inspect(&manifests, &manifest.name, services) else {
+            continue;
+        };
+        if let Ok(findings) = piton_plugin::inspection::read(manifest, &result, &project.root) {
+            found.extend(findings.into_iter().filter(|finding| !finding.edits.is_empty()));
+        }
+    }
+    found
+}
+
 /// Makes the module hooks of the plugins of the project give the modules of
-/// files that are not Piton, for example `.emul` files. A hook runs when the
+/// files that are not Piton. An example is an `.emul` file. A hook runs when the
 /// compiler first loads such a file, and again only when its text changes.
 pub fn install_modules(project: &Project) {
     let (manifests, _) = piton_plugin::discover(project);

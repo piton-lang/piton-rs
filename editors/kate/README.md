@@ -38,8 +38,9 @@ With it on:
 
 - **Enter on a colon line** — a declaration, or a dictionary or anchor
   property with nothing after its colon — lands one level in.
-- **Enter on a blank line** inside a dictionary or anchor lands one level
-  back.
+- **Enter on a blank line** inside a dictionary or anchor keeps the level on
+  the first blank line, and lands one level back on a second blank line in
+  sequence. Thus only the third Enter after text moves the line back.
 
 A list item or a merge line never opens a block, even when it ends in a colon
 (`- Settings:` is just a string).

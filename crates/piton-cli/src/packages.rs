@@ -3,13 +3,14 @@
 //! A tethered package is plain files. A clone gives a repository. The code
 //! removes all repository data from the clone. It copies the other files
 //! into `tethers/`, and the user commits them with the project. A source can
-//! also be a directory on disk. A git repository there clones like all other
-//! repositories. A plain directory copies as it is. No code here runs at
+//! also be a directory on disk. The code clones a git repository in that
+//! directory as it clones all other repositories. The code copies a plain
+//! directory as it is. No code here runs at
 //! compile time. These are the operations of the four package commands.
 //!
 //! One rule controls all of them. A person can edit an installed package, and
-//! the code must never discard an edit without a message. Thus each operation that can
-//! overwrite or delete files first checks the lock file. It refuses when the
+//! the code must never discard an edit without a message. Thus each operation
+//! that can overwrite or delete files first checks the lock file. It refuses when the
 //! files on disk are not the same as the installed files.
 
 use std::path::{Path, PathBuf};
@@ -216,7 +217,7 @@ fn git(directory: &Path, args: &[&str]) -> Outcome<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// A checkout that deletes itself when the program drops it.
+/// A checkout that deletes its directory when its `Drop` implementation runs.
 pub struct Checkout {
     pub directory: PathBuf,
     pub commit: Option<String>,
@@ -319,7 +320,7 @@ fn uncommitted(directory: &Path) -> bool {
 pub fn clone(source: &str, pin: &Pin, scratch: &Path) -> Outcome<Checkout> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     // Two checkouts can exist at the same time. A comparison of two versions
-    // of one repository needs both. Thus each checkout has its own directory.
+    // of one repository must have both. Thus each checkout has its own directory.
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     std::fs::create_dir_all(scratch)
@@ -404,8 +405,8 @@ pub fn published(checkout: &Path, fallback: &str) -> Vec<PackageDecl> {
 
 /// Copies a tree. It does not copy the git repository data.
 ///
-/// The main purpose of a tether is to remove the git data. The result in `tethers/` is
-/// a directory of files in the history of this project. It is not a nested
+/// The main purpose of a tether is to remove the git data. The result in
+/// `tethers/` is a directory of files in the history of this project. It is not a nested
 /// checkout of a different project.
 pub fn copy_ungitted(from: &Path, to: &Path) -> Outcome<usize> {
     const GIT_ARTEFACTS: [&str; 6] = [
@@ -551,13 +552,13 @@ pub fn install(
     })
 }
 
-/// Installs a set of dependencies, and all dependencies that they need.
+/// Installs a set of dependencies, and all dependencies that they require.
 ///
 /// Dependencies are flat by design. The whole project has one version of a
 /// repository. When the installer reaches a source two times, it fetches it
 /// one time. Two declarations can ask for different versions. Then the installer
 /// installs the version with the newest commit, and reports the conflict. A
-/// dependency version that nobody chose is worse than no version.
+/// dependency version that the user did not select is worse than no version.
 pub struct Installer<'a> {
     pub project_root: &'a Path,
     pub scratch: PathBuf,
@@ -585,7 +586,8 @@ pub struct Installer<'a> {
     planned: Vec<Planned>,
 }
 
-/// A package that the installer resolved and checked. It is not in `tethers/` at this time.
+/// A package that the installer resolved and checked. It is not in
+/// `tethers/` at this time.
 struct Planned {
     package: PackageDecl,
     source: String,
@@ -629,7 +631,7 @@ impl<'a> Installer<'a> {
     /// change the project.
     ///
     /// `rename` names the single package that a repository publishes.
-    /// `piton tether --as` needs this. A repository that publishes many
+    /// `piton tether --as` uses this. A repository that publishes many
     /// packages names them.
     pub fn add(&mut self, dependency: &Dependency, rename: Option<&str>) -> Outcome<()> {
         // Each dependency has the start directory for its relative path. For
@@ -880,7 +882,7 @@ impl<'a> Installer<'a> {
                 }
             }
         }
-        // The checkouts drop before the scratch directory that contains them.
+        // `Drop` runs on the checkouts before the scratch directory that contains them.
         drop(planned);
         let _ = std::fs::remove_dir_all(&self.scratch);
         outcome.map(|()| (self.lock, self.placed, self.warnings))

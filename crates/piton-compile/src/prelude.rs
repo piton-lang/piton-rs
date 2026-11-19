@@ -71,7 +71,7 @@ pub const BELAY_SHAPE_ROOT_TOKEN: &str = "\u{e000}BELAY_SHAPE_ROOT\u{e001}";
 pub const BELAY_CODE_ROOT_TOKEN: &str = "\u{e000}BELAY_CODE_ROOT\u{e001}";
 
 /// Each location export, with the marker that it evaluates to. Thus a consumer
-/// can iterate over the set. It does not need to repeat the five names.
+/// can iterate over the set. It does not repeat the five names.
 pub const BELAY_LOCATION_MARKERS: [(&str, &str); 5] = [
     (BELAY_SHAPE, BELAY_SHAPE_TOKEN),
     (BELAY_AGENT_ROOT, BELAY_AGENT_ROOT_TOKEN),
@@ -105,7 +105,7 @@ export abstract anchor PitonConfig as piton-config:
 /// `@piton/packaging`. It holds the anchor that declares a package to publish.
 ///
 /// A package declaration tells which part of this project to publish. It also
-/// tells what that part needs. It is abstract for the same reason as the
+/// tells what is necessary for that part. It is abstract for the same reason as the
 /// configuration anchors. The specification uses the form
 /// `piton-package MyThing:`. A keyword has this form only when its anchor is a
 /// shape and not a value.
@@ -125,8 +125,8 @@ export abstract anchor PitonPackage as piton-package:
 "#;
 
 // The definitions of the framework. They come from the specification that
-// describes them. If one of these files moves, the build fails clearly. That is
-// the purpose. The compiler and the specification cannot have different skills.
+// describes them. If one of these files moves, the build fails with a clear error.
+// That is the purpose. The compiler and the specification cannot have different skills.
 const BELAY_CONSTRUCT: &str = include_str!("../../../plugins/belay/pi/Construct.pi");
 const BELAY_INSTRUCTION: &str = include_str!("../../../plugins/belay/pi/Instruction.pi");
 const BELAY_SKILL: &str = include_str!("../../../plugins/belay/pi/Skill.pi");
@@ -259,7 +259,7 @@ pub fn is_package(path: &str) -> bool {
 }
 
 /// True when `path` is in a bundled package, if it names a module or not.
-/// Callers use it to keep package internals out of reports for users.
+/// Callers use it to remove package internals from reports for users.
 pub fn is_package_path(path: &str) -> bool {
     path.starts_with('@')
 }

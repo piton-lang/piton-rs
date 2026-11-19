@@ -3,7 +3,7 @@
 //! The parser makes this tree together with a lossless rowan tree. The editor
 //! walks the rowan tree. The compiler lowers this tree. The two trees are
 //! separate. Thus each tree can have its best design. The CST keeps each byte.
-//! The AST keeps the shape that the resolver needs.
+//! The AST keeps the shape that is necessary for the resolver.
 
 use piton_core::Span;
 
@@ -355,7 +355,7 @@ pub struct ProseLine {
 impl ProseLine {
     /// The single interpolation of this line, if the line holds only that.
     ///
-    /// A value that is exactly one `{...}` keeps its intrinsic type. All other
+    /// A value that is exactly one `{...}` keeps its own type. All other
     /// values are strings.
     pub fn sole_interpolation(&self) -> Option<&Interpolation> {
         let mut found = None;
@@ -389,7 +389,7 @@ pub enum ProseSegment {
 /// The conversion that an interpolation requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sigil {
-    /// `{...}`. It gives the intrinsic value.
+    /// `{...}`. It gives the value with its own type.
     Standard,
     /// `${...}`. It converts the value to a string.
     Stringify,

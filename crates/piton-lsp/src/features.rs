@@ -82,7 +82,7 @@ pub fn to_lsp_diagnostic(
     }
 }
 
-/// All the data that a feature needs about the file below the cursor.
+/// All the data that a feature must have about the file below the cursor.
 struct Cursor<'a> {
     compilation: &'a Compilation,
     module: piton_compile::ModuleId,
@@ -134,7 +134,7 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
         range = Some(span);
     }
     // The hover explains a composition on its operator. The `+` is not a
-    // named occurrence, but it gets a hover. Plain text has no hover: a string is a string.
+    // named occurrence, but it has a hover. Plain text has no hover. A string is only a string.
     let compositions = world.analysis.compositions_at(cursor.module, cursor.offset);
     let mut seen = HashSet::new();
     for composition in &compositions {
@@ -259,8 +259,8 @@ fn mapping_note(
 }
 
 /// A value as the configured renderer of the project writes it, fenced for a hover.
-/// When the build writes no renderer output, because a plugin builds the
-/// output, the value is Markdown, as the plugin output is. It is never JSON.
+/// A plugin can build the output. Then the build writes no renderer output,
+/// and the value is Markdown, as the plugin output is. It is never JSON.
 fn rendered(compilation: &Compilation, output: &OutputSettings, value: &piton_core::Value) -> String {
     let adapter = if output.written { output.renderer } else { Adapter::Markdown };
     let (language, text) = match adapter {
@@ -538,7 +538,7 @@ fn definition_location(world: &World, target: &Target) -> Option<Location> {
 }
 
 /// The location of a nested key. It is in the anchor that supplies the
-/// property that holds it. The search descends the dictionaries by name.
+/// property that holds it. The search goes into the dictionaries by name.
 fn key_declaration(
     compilation: &Compilation,
     anchor: AnchorId,
@@ -780,7 +780,7 @@ pub fn references(
 
 /// Builds a predicate for all occurrences that are references to `target`.
 ///
-/// A user keyword is sugar for `extends`. Thus `type Strings:` references the
+/// A user keyword is a short form of `extends`. Thus `type Strings:` references the
 /// `Type` anchor in the same way as `extends Type`. A property that overrides
 /// an inherited property is a reference to the same idea. Thus the predicate
 /// also includes its family.
@@ -1068,9 +1068,10 @@ fn versioned(world: &World, edit: WorkspaceEdit) -> WorkspaceEdit {
 ///
 /// Each `use` and `from` path that resolves into a moved file or folder changes
 /// to its new location. The function also changes the relative paths in a
-/// moved file. Thus they still point to the same items. A path keeps its style. A rooted path
-/// stays rooted, and a relative path stays relative. `.pi` stays or stays
-/// not there. A path to the index of a folder stays a path to the folder.
+/// moved file. Thus they still point to the same items. A path keeps its style.
+/// A rooted path stays rooted, and a relative path stays relative. A path with
+/// `.pi` keeps it, and a path without `.pi` does not receive it. A path to the
+/// index of a folder stays a path to the folder.
 /// Package paths never change.
 pub fn will_rename_files(world: &World, files: &[FileRename]) -> Option<WorkspaceEdit> {
     let compilation = world.compilation.as_ref()?;
@@ -1433,7 +1434,7 @@ pub fn workspace_symbols(world: &World, query: &str) -> Option<Vec<SymbolInforma
 /// unindented line are not the words after `extends`. The two sets are not correct
 /// inside `@{...}`. There, only a target of a reference can be. Thus the
 /// server first classifies the line, then makes the list. This prevents one
-/// long chain of special cases. It also prevents suggestions in locations
+/// long chain of special cases. It also prevents proposals in locations
 /// where the text is not Piton.
 #[derive(Debug, PartialEq, Eq)]
 enum Context<'a> {
@@ -1918,7 +1919,7 @@ fn declaration_heads(
     words.push("anchor");
     let mut items = keywords(&words);
 
-    // A user keyword is sugar for `extends`. Thus it opens a declaration at
+    // A user keyword is a short form of `extends`. Thus it opens a declaration at
     // the same location as `anchor`.
     for (keyword, anchor) in &compilation.resolution.scope(cursor.module).keywords {
         let def = compilation.store().anchor(*anchor);
@@ -1937,7 +1938,7 @@ fn declaration_heads(
 ///
 /// `inheriting` limits the list to the anchors that a constraint accepts.
 /// `wrap` writes the interpolation around the name when the cursor location
-/// needs one.
+/// must have one.
 fn anchors_in_scope(
     cursor: &Cursor<'_>,
     inheriting: Option<AnchorId>,
@@ -1995,7 +1996,7 @@ impl Only {
 /// the file of each symbol. Without the editor, a person must find that file
 /// manually.
 fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
-    // All names in the project make a list that nobody reads. The editor
+    // All names in the project make a list that is too long for a person to read. The editor
     // offered each name that is in scope before.
     const LIMIT: usize = 400;
 
@@ -2276,8 +2277,8 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
     let Some((anchor, slot)) = declared.filter(|(_, slot)| !slot.constraints.is_empty()) else {
         // No constraint tells what belongs here. Thus there is no proposal. A
         // value in Piton is prose by default. A list of all anchors in the
-        // project below `property: ` is a guess at a sentence. The
-        // editor cannot guess that sentence.
+        // project below `property: ` does not help. The editor cannot know
+        // that sentence.
         return Vec::new();
     };
 
@@ -2295,7 +2296,8 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
                 match constraint_type(cursor, anchor, &slot, name) {
                     Some(base) => items.extend(anchors(cursor, Some(base), "{")),
                     // A constraint that names an unresolved item accepts
-                    // nothing. An offer of all items makes an answer.
+                    // nothing. An offer of all items gives an answer that is not
+                    // true.
                     None => {}
                 }
             }
@@ -2303,7 +2305,7 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
             // name the permitted values. `any`, `simple` and `complex` mean
             // "a value". The user writes a string, a number, a list or a
             // dictionary. The user does not select it. A list of all anchors
-            // in the project is a guess at prose.
+            // in the project has no relation to that prose.
             _ => {}
         }
     }
@@ -2313,8 +2315,8 @@ fn values(cursor: &Cursor<'_>, key: Option<&str>) -> Vec<CompletionItem> {
 /// The anchor that the type name of a constraint refers to.
 ///
 /// The type name is at the location of the constraint. That is not always
-/// here. A property carries its constraints down the inheritance chain. The
-/// names in them resolved against the imports of the file that contains them.
+/// here. The constraints of a property go to each child in the inheritance
+/// chain. The names in them resolved against the imports of the file that contains them.
 /// The slot records the anchor that supplied the *value*. It does not record
 /// the anchor that supplied the constraint. Thus the lookup tries each file
 /// in the chain.
@@ -2347,7 +2349,7 @@ fn constraint_type(
 ///
 /// A property can have a constraint to an anchor. Then the offered name is
 /// probably in a file that this file never mentioned. Thus the list also
-/// includes the anchors that need an import, with the import attached.
+/// includes the anchors that must have an import. Each of these items has the import.
 fn anchors(cursor: &Cursor<'_>, inheriting: Option<AnchorId>, sigil: &str) -> Vec<CompletionItem> {
     let mut items = anchors_in_scope(cursor, inheriting, Some(sigil));
     items.extend(importable(
@@ -2553,13 +2555,13 @@ fn line_edits(old: &str, new: &str) -> Vec<TextEdit> {
 /// The indentation of a new line, after the newline that opened it.
 ///
 /// A declaration or a key that ends in a colon opens a block. The block is
-/// the indented lines below it. Thus enter at that line must go one level in,
-/// not back to the margin. All other lines keep their current indentation.
+/// the indented lines below it. Thus a new line after that line must add one
+/// level of indentation. All other lines keep their current indentation.
 ///
-/// The language server does this, not the editor, because the grammar cannot
-/// express it. Indentation is intentionally outside the grammar. Thus no node
-/// spans a body, so a tree-sitter indent query has nothing to measure. Also,
-/// editors without tree-sitter have no other data.
+/// The language server does this, not the editor. The grammar cannot show
+/// this rule. The grammar does not show indentation, and that is its function.
+/// Thus no node contains a body. A tree-sitter indent query has nothing to
+/// measure. Editors without tree-sitter have no other data.
 pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option<Vec<TextEdit>> {
     // Only the newline is important. A client can send other characters if it
     // asks for them. No other character changes the indentation of a line.
@@ -2624,8 +2626,8 @@ pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option
 /// line. It looks like it is at the margin. Thus the server measures an
 /// empty line from the last line above with content. It takes the depth that
 /// that line opens. The first empty line keeps that depth. Each empty line
-/// after the first removes one level. That is the depth of the blank lines if
-/// they had kept their indentation.
+/// after the first removes one level. That is the depth of the blank lines
+/// when they keep their indentation.
 fn indent_after_emptied_lines(text: &str, line_start: usize) -> String {
     let mut end = line_start - 1;
     let mut blank = 0usize;
@@ -2654,7 +2656,7 @@ fn previous_line(text: &str, line_start: usize) -> &str {
 
 /// The indentation of the line after `previous`.
 ///
-/// Two rules apply. The line that the cursor leaves decides which rule fires.
+/// Two rules apply. The line that the cursor leaves selects the rule that applies.
 /// A declaration or key that ends in a colon opens a block. Thus the line
 /// after it goes one level in. A blank line is the opposite case. Enter on
 /// the first blank line keeps the depth, so a paragraph break stays in the
@@ -2997,10 +2999,13 @@ pub fn code_actions_for(
     range: Range,
     only: Option<&[CodeActionKind]>,
 ) -> Option<CodeActionResponse> {
-    let cursor = cursor(world, uri, range.start)?;
+    let migrations = migration_actions(world, uri, range);
+    let Some(cursor) = cursor(world, uri, range.start) else {
+        return (!migrations.is_empty()).then_some(migrations);
+    };
     let compilation = cursor.compilation;
     let index = world.index.get(cursor.module)?;
-    let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+    let mut actions: Vec<CodeActionOrCommand> = migrations;
 
     let start = position_to_offset(&cursor.text, range.start);
     let end = position_to_offset(&cursor.text, range.end);
@@ -3151,6 +3156,69 @@ pub fn code_actions_for(
     Some(actions)
 }
 
+/// The findings of the inspect hooks, as quick fixes. An example is the
+/// migration of a `frameworks` key to `plugins`. The server offers a finding
+/// on a configuration diagnostic in the range, for example
+/// `frameworks-removed`. The finding must edit that file. Each edit replaces
+/// the full file. The server applies nothing itself.
+fn migration_actions(world: &World, uri: &Url, range: Range) -> Vec<CodeActionOrCommand> {
+    let Some(path) = url_to_path(uri) else {
+        return Vec::new();
+    };
+    let text_of = |path: &Path| {
+        world
+            .documents
+            .get(path)
+            .cloned()
+            .or_else(|| std::fs::read_to_string(path).ok())
+    };
+    let Some(text) = text_of(&path) else {
+        return Vec::new();
+    };
+    let start = position_to_offset(&text, range.start);
+    let end = position_to_offset(&text, range.end);
+    let on_diagnostic = world
+        .config_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.file == path && diagnostic.span.start <= end && diagnostic.span.end >= start);
+    if !on_diagnostic {
+        return Vec::new();
+    }
+    let mut actions = Vec::new();
+    for finding in &world.plugin_findings {
+        let edits_here = finding
+            .edits
+            .iter()
+            .any(|edit| world.project.root.join(&edit.path) == path);
+        if !edits_here {
+            continue;
+        }
+        let mut changes: HashMap<PathBuf, Vec<TextEdit>> = HashMap::new();
+        for edit in &finding.edits {
+            let target = world.project.root.join(&edit.path);
+            let current = text_of(&target).unwrap_or_default();
+            changes.insert(
+                target,
+                vec![TextEdit {
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: offset_to_position(&current, current.len()),
+                    },
+                    new_text: String::from_utf8_lossy(&edit.after).into_owned(),
+                }],
+            );
+        }
+        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+            title: format!("Switch it over: {}", finding.message),
+            kind: Some(CodeActionKind::QUICKFIX),
+            is_preferred: Some(true),
+            edit: Some(workspace_edit(world, changes)),
+            ..Default::default()
+        }));
+    }
+    actions
+}
+
 fn edit_action(title: String, kind: CodeActionKind, uri: &Url, edits: Vec<TextEdit>) -> CodeActionOrCommand {
     CodeActionOrCommand::CodeAction(CodeAction {
         title,
@@ -3191,7 +3259,8 @@ fn qualified_alias(path: &str, name: &str) -> String {
 }
 
 /// "Qualify an ambiguous reference". This gives an alias to one of the imports
-/// of an ambiguous name. It then names that import at the reference.
+/// of a name with more than one meaning. It then names that import at the
+/// reference.
 fn qualify_actions(
     world: &World,
     cursor: &Cursor<'_>,
@@ -3816,10 +3885,10 @@ mod modifier {
 
 /// The semantic tokens of a file: one for each resolved name and module path.
 ///
-/// The syntax definition colours all other text: comments, keywords, literals,
-/// operators, prose. The server gives no tokens for it. Thus the two layers
-/// cannot disagree. A token can only add the result of resolution to a name.
-/// It never changes the colour of text that the grammar coloured before.
+/// The syntax definition gives a colour to all other text: comments, keywords,
+/// literals, operators, prose. The server gives no tokens for it. Thus the two
+/// layers always agree. A token can only add the result of resolution to a
+/// name. It never changes the colour that the grammar gave to text before.
 pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult> {
     let cursor = file_context(world, uri)?;
     let index = world.index.get(cursor.module)?;
@@ -3907,8 +3976,8 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
 
     // A language keyword is a keyword only where the parser reads it as one.
     // A grammar without context (rhun) cannot tell `from` in an import from
-    // `from` in prose. Thus the server colours each keyword that the parser
-    // reads, and the grammar colours none.
+    // `from` in prose. Thus the server gives a colour to each keyword that
+    // the parser reads, and the grammar gives a colour to none.
     let parse = piton_syntax::parser::parse(&cursor.text, &cursor.path);
     for (span, class) in piton_syntax::highlight::classify(&parse) {
         if class == piton_syntax::highlight::Class::Keyword {
@@ -4197,8 +4266,8 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
 // resolves to the flat merge of the full chain above it. Two navigations come
 // from this, and they answer opposite questions.
 //
-// `implementation` descends one step: from a base to all anchors that extend
-// it. Go-to-definition ascends. Without `implementation`, the user can
+// `implementation` goes one step lower: from a base to all anchors that extend
+// it. Go-to-definition goes one step higher. Without `implementation`, the user can
 // move along the relation in only one direction. That is the wrong direction
 // for the question "which anchors use this shape?".
 //

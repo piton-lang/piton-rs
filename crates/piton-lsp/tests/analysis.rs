@@ -759,7 +759,7 @@ fn a_merge_line_is_redundant_only_when_it_changes_nothing() {
         .filter(|item| item.code == "redundant-definition")
         .collect();
     // `+` keeps the last of each duplicate. Thus when the line adds A, B, C again,
-    // they move after D. That line changes the order and is not redundant.
+    // they move after D. That line changes the order. Thus it has an effect.
     assert_eq!(redundant.len(), 1, "{reported:#?}");
     let text = std::fs::read_to_string(fixture.path("spec/index.pi")).expect("readable");
     assert_eq!(

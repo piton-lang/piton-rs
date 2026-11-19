@@ -11,7 +11,7 @@ use piton_core::Diagnostic;
 use piton_plugin::output::BuildPlan;
 use piton_plugin::{Services, Stream};
 
-/// The parts of a CLI that the plugin host needs. It prints nothing.
+/// The parts of a CLI that the plugin host uses. It prints nothing.
 struct Quiet {
     project: Project,
 }

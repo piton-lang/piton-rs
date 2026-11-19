@@ -37,7 +37,7 @@ pub fn run(path: &str, renderer: &str, write: bool, dependencies: bool) -> u8 {
     }
     if is_glob && !write {
         // Many results in one stdout stream are not usable. Thus the glob form
-        // needs a destination.
+        // must have a destination.
         report::fail("a glob needs --write, because several results cannot share stdout");
         return EXIT_ERRORS;
     }
@@ -109,7 +109,8 @@ fn render(compilation: &Compilation, file: &Path, renderer: Adapter) -> String {
 /// A build tool that imports a `.pi` file must know the other files to watch.
 /// Only the compilation knows them. Imports resolve through the module graph.
 /// A package can put a file in a location that the import text does not name.
-/// Thus the compiler gives the list. The build tool does not guess.
+/// Thus the compiler gives the list. The build tool does not have to calculate
+/// the list.
 ///
 /// The list does not include bundled package files. They are in the binary,
 /// not on disk. Thus no tool can watch them. Their contents change only when
@@ -133,7 +134,7 @@ fn envelope(compilation: &Compilation, rendered: &str) -> String {
 
     // The rendered output is text in the format of the adapter. Thus
     // it stays a string, and it does not go into the JSON as JSON. A Markdown
-    // render is not JSON. A caller that needs the value parses it.
+    // render is not JSON. A caller that must have the value parses it.
     format!(
         "{{\n  \"value\": {},\n  \"dependencies\": [\n{list}\n  ]\n}}\n",
         json_string(rendered.trim_end())

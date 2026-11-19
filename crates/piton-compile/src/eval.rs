@@ -2,7 +2,7 @@
 //!
 //! Piton has no runtime. Thus "evaluation" means to reduce a declaration to the
 //! value that an adapter will serialize. The evaluator makes values only when a read
-//! needs them, and keeps each value for the next read. Anchors resolve by identity.
+//! must have them, and keeps each value for the next read. Anchors resolve by identity.
 //! Thus `${A}` inside `B` does not force the properties of `A`. For this reason,
 //! circular *references* are correct, but circular *values* stay an error.
 
@@ -262,8 +262,8 @@ impl<'a> Evaluator<'a> {
     /// `derived`.
     ///
     /// Usually this is the slot to which `derived` resolved. But `super.x`
-    /// reads the declaration of `x` in a base, while `self` still means the start
-    /// anchor of the lookup. The reason is that `self` goes through inheritance.
+    /// reads the declaration of `x` in a base. Then `self` still means the start
+    /// anchor of the lookup. The reason is that `self` continues across inheritance.
     fn slot_value(&mut self, derived: AnchorId, slot: &Slot, name: &str) -> Value {
         let owner = self.resolution.store.anchor(slot.owner);
         let owner_module = owner.module;
@@ -645,7 +645,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn prose_value(&mut self, pieces: &[Piece], context: &Context) -> Evaluated {
-        // A value that is exactly one interpolation keeps its intrinsic type.
+        // A value that is exactly one interpolation keeps its own type.
         if let [Piece::Prose(lines)] = pieces {
             if lines.len() == 1 {
                 if let Some(interpolation) = lines[0].sole_interpolation() {
@@ -895,7 +895,7 @@ impl<'a> Evaluator<'a> {
                 };
                 self.muted.pop();
                 match value {
-                    // A property that holds an anchor points to that anchor.
+                    // A property that holds an anchor refers to that anchor.
                     Value::Anchor(anchor) => Some(Ref::anchor(anchor)),
                     Value::Reference(inner) => Some(inner),
                     _ => {
@@ -1017,8 +1017,8 @@ impl<'a> Evaluator<'a> {
                 Evaluated::plain(result)
             }
             ExprKind::Ternary(condition, consequent, alternative) => {
-                // The evaluator evaluates only the selected branch. Piton has no truthiness.
-                // Thus the condition must be a boolean.
+                // The evaluator evaluates only the selected branch. Piton does not change
+                // other values into booleans. Thus the condition must be a boolean.
                 match self.expr(condition, context).value {
                     Value::Bool(true) => self.expr(consequent, context),
                     Value::Bool(false) => self.expr(alternative, context),
@@ -1555,7 +1555,7 @@ fn push_mixed(items: &mut Vec<MixedItem>, value: Value) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// One piece of a prose value: text, or a value `{x}` dropped into it.
+/// One piece of a prose value: text, or a value `{x}` put into it.
 enum Part {
     Text(Text),
     Value(Value),
@@ -1614,8 +1614,8 @@ fn deep_merge(left: &Properties, right: &Properties) -> Properties {
 
 /// Applies literal inference to text that has no type constraint.
 ///
-/// Quotes are ordinary characters. Thus `"false"` is the string `"false"`,
-/// with the quotes.
+/// The evaluator reads quotes as usual characters. Thus the evaluator reads
+/// `"false"` as the string `"false"`, with the quotes.
 fn infer(text: Text, single_line: bool) -> Evaluated {
     let Some(plain) = text.as_plain() else {
         return Evaluated::plain(Value::Str(text));
@@ -1642,7 +1642,7 @@ fn infer(text: Text, single_line: bool) -> Evaluated {
 }
 
 /// Parses a number only when the full string is a number. It accepts the underscore
-/// separators that the language allows.
+/// separators that the language permits.
 ///
 /// Decimals must start with a 0. Thus `.5` is not a number. There is
 /// no exponent notation.
