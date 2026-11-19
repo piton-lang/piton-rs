@@ -1,7 +1,7 @@
 //! A map for each module from source offsets to the items that they name.
 //!
 //! Almost all editor features ask the same question from a different angle.
-//! The question is: what is at this position, and where else does it occur?
+//! The question is: what is at this position, and where else is it?
 //! One index gives the answer to both. It uses the resolved program, not the
 //! raw syntax. Thus a hover on a keyword finds the anchor that the keyword
 //! aliases.
@@ -401,7 +401,7 @@ impl Builder<'_> {
     ///
     /// `this.a` is `(this, [a])`, `Card.config.size` is `(Card, [config,
     /// size])`. A property that holds an anchor starts a new chain at that
-    /// anchor. The lookup of the next name occurs in that anchor.
+    /// anchor. The lookup of the next name happens in that anchor.
     fn field_target(&self, expr: &Expr, owner: Option<AnchorId>) -> Option<(AnchorId, Vec<String>)> {
         let ExprKind::Field(base, field) = &expr.kind else {
             return None;

@@ -1,0 +1,22 @@
+use ./lib
+
+export test UseInvalid:
+    expects:
+        When you try to use something that can't resolve, it should report as an
+        error.
+
+export test Completion:
+    expects:
+        Completion order should match what you've already typed as higher-ranked
+        such that it won't try to replace what you've already written, but
+        rather complete it.
+
+export test NewParagraph:
+    expects:
+        When you create a new line and then create another new line, it should
+        maintain that indent level.  It's only when you hit return a third time
+        that it'll dedent rather than create a new line.
+
+export test KeywordsInStrings:
+    expects:
+        Keywords like `from` in a string body shouldn't highlight as keywords.

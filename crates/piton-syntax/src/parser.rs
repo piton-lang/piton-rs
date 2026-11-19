@@ -825,7 +825,7 @@ impl<'a> Parser<'a> {
                 );
             }
 
-            // Anything else is prose.
+            // All other text is prose.
             self.pos += 1;
             let (prose_line, mut diagnostics) =
                 prose::scan_line(&line.code[leading_len(&line.code)..], code_start, &self.file);
@@ -1147,7 +1147,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// The sigil, every token of the expression, and the brace at the end.
+    /// The sigil, each token of the expression, and the brace at the end.
     fn emit_interpolation(&mut self, interpolation: &Interpolation) {
         let span = interpolation.span;
         let open = interpolation.sigil.prefix().len();
@@ -2066,7 +2066,7 @@ mod tests {
         assert_eq!(ops, vec![MergeOp::Merge, MergeOp::Concat]);
     }
 
-    /// The kind and text of every token that is not whitespace.
+    /// The kind and text of each token that is not whitespace.
     fn tokens(source: &str) -> Vec<(SyntaxKind, String)> {
         parse_str(source)
             .syntax()

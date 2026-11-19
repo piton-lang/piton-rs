@@ -1,8 +1,8 @@
 //! Editor feature implementations.
 //!
 //! All of them use the same two inputs: the resolved compilation and the
-//! occurrence index. Answers from the resolved program let an editor show the
-//! true origin of an inherited value.
+//! occurrence index. With answers from the resolved program, an editor can show
+//! the true origin of an inherited value.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -133,8 +133,8 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
         parts.push(markdown);
         range = Some(span);
     }
-    // The hover explains a composition on its operator, although `+` is not
-    // a named occurrence. Plain text has no hover: a string is a string.
+    // The hover explains a composition on its operator. The `+` is not a
+    // named occurrence, but it gets a hover. Plain text has no hover: a string is a string.
     let compositions = world.analysis.compositions_at(cursor.module, cursor.offset);
     let mut seen = HashSet::new();
     for composition in &compositions {
@@ -259,8 +259,11 @@ fn mapping_note(
 }
 
 /// A value as the configured renderer of the project writes it, fenced for a hover.
+/// When the build writes no renderer output, because a plugin builds the
+/// output, the value is Markdown, as the plugin output is. It is never JSON.
 fn rendered(compilation: &Compilation, output: &OutputSettings, value: &piton_core::Value) -> String {
-    let (language, text) = match output.renderer {
+    let adapter = if output.written { output.renderer } else { Adapter::Markdown };
+    let (language, text) = match adapter {
         Adapter::Json => ("json", piton_emit::json::value(value, compilation)),
         Adapter::Yaml => ("yaml", piton_emit::yaml::value(value, compilation)),
         Adapter::Markdown => {
@@ -273,7 +276,7 @@ fn rendered(compilation: &Compilation, output: &OutputSettings, value: &piton_co
     };
     format!(
         "Resolves to ({}):\n\n```{language}\n{}\n```",
-        output.renderer,
+        adapter,
         truncate(&text, 2000)
     )
 }
@@ -1061,7 +1064,7 @@ fn versioned(world: &World, edit: WorkspaceEdit) -> WorkspaceEdit {
     workspace_edit(world, by_path)
 }
 
-/// Rewrites the module paths that a file move breaks, before the move occurs.
+/// Rewrites the module paths that a file move breaks, before the move happens.
 ///
 /// Each `use` and `from` path that resolves into a moved file or folder changes
 /// to its new location. The function also changes the relative paths in a
@@ -1428,7 +1431,7 @@ pub fn workspace_symbols(world: &World, query: &str) -> Option<Vec<SymbolInforma
 ///
 /// All that Piton offers depends on context. The words at the head of an
 /// unindented line are not the words after `extends`. The two sets are not correct
-/// inside `@{...}`. There, only a target of a reference can occur. Thus the
+/// inside `@{...}`. There, only a target of a reference can be. Thus the
 /// server first classifies the line, then makes the list. This prevents one
 /// long chain of special cases. It also prevents suggestions in locations
 /// where the text is not Piton.
@@ -1555,10 +1558,23 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         _ => {}
     }
 
+    // The typed word ranks the items. An item that completes the word goes
+    // above an item that replaces it with a different word. A partial sigil
+    // (`@`, `#`) is not part of the name.
+    let typed = &cursor.text[start..cursor.offset];
+    let sigil = &typed[..typed.len() - typed.trim_start_matches(['@', '#']).len()];
+    let typed = typed[sigil.len()..].to_lowercase();
+
     let generation = world.generation;
     let items: Vec<CompletionItem> = items
         .into_iter()
         .map(|mut item| {
+            let rank = match_rank(&typed, &item.label);
+            let order = item.sort_text.take().unwrap_or_else(|| item.label.clone());
+            item.sort_text = Some(format!("{rank}{order}"));
+            // The client filters with this text against the typed word. The
+            // typed word holds the partial sigil, so the filter text holds it too.
+            item.filter_text = Some(format!("{sigil}{}", item.label));
             // The edit tells what the editor writes. `insert_text` tells the
             // same text where the two are different. A key of a body has its
             // colon, and a wrapped reference has its braces. Only an edit also
@@ -1589,6 +1605,27 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         .collect();
 
     Some(CompletionResponse::Array(items))
+}
+
+/// The rank of a label against the typed word. A lower rank sorts first.
+///
+/// The rank ignores case. An exact match is 0. A label that starts with the
+/// word is 1. A label that contains the word is 2. All other labels are 3.
+/// An empty word gives all labels the same rank.
+fn match_rank(typed: &str, label: &str) -> char {
+    if typed.is_empty() {
+        return '0';
+    }
+    let label = label.to_lowercase();
+    if label == typed {
+        '0'
+    } else if label.starts_with(typed) {
+        '1'
+    } else if label.contains(typed) {
+        '2'
+    } else {
+        '3'
+    }
 }
 
 /// The start of the text that the user completes.
@@ -1754,7 +1791,7 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         });
     };
 
-    for package in piton_compile::prelude::PACKAGE_ROOTS {
+    for package in piton_compile::prelude::package_roots() {
         offer(
             package.to_string(),
             Some("bundled package".into()),
@@ -2464,9 +2501,9 @@ fn returns_to_column_zero(text: &str, from: usize, to: usize) -> bool {
 // ---------------------------------------------------------------------------
 
 pub fn formatting(text: &str, path: &Path) -> Vec<TextEdit> {
-    // The format path of the editor is autoformat. It normalizes structure,
-    // but it never rewrites commented content. A format on save must not do
-    // that. Only the `piton format` command normalizes comments.
+    // The editor formats through `autoformat`. It normalizes the structure.
+    // It adds the space after `//` and does not change other comment text.
+    // A format on save must not move the comments of a user.
     let formatted = format::autoformat(text, path);
     line_edits(text, &formatted)
 }
@@ -2550,7 +2587,12 @@ pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option
     let indent = if previous.is_empty() {
         indent_after_emptied_lines(text, line_start)
     } else {
-        wanted_indent(previous)
+        // The line above `previous` tells if this blank line is the first in a sequence.
+        let before = text[..line_start - 1]
+            .rfind('\n')
+            .map(|index| previous_line(text, index + 1));
+        let after_blank = before.is_some_and(|line| line.trim().is_empty());
+        wanted_indent(previous, after_blank)
     };
 
     // The line can have indentation at this time. Some editors copy the indentation
@@ -2581,8 +2623,9 @@ pub fn on_type_formatting(text: &str, position: Position, typed: &str) -> Option
 /// Enter leaves it. Thus an indented blank line comes to the server as an empty
 /// line. It looks like it is at the margin. Thus the server measures an
 /// empty line from the last line above with content. It takes the depth that
-/// that line opens, less one level for each empty line after it. That is the
-/// depth of the blank lines if they had kept their indentation.
+/// that line opens. The first empty line keeps that depth. Each empty line
+/// after the first removes one level. That is the depth of the blank lines if
+/// they had kept their indentation.
 fn indent_after_emptied_lines(text: &str, line_start: usize) -> String {
     let mut end = line_start - 1;
     let mut blank = 0usize;
@@ -2590,8 +2633,9 @@ fn indent_after_emptied_lines(text: &str, line_start: usize) -> String {
         let start = text[..end].rfind('\n').map(|index| index + 1).unwrap_or(0);
         let line = text[start..end].trim_end_matches('\r');
         if !line.trim().is_empty() {
-            let base = wanted_indent(line).len();
-            return " ".repeat(base.saturating_sub(blank * format::INDENT));
+            let base = wanted_indent(line, false).len();
+            let levels = blank.saturating_sub(1);
+            return " ".repeat(base.saturating_sub(levels * format::INDENT));
         }
         blank += 1;
         if start == 0 {
@@ -2612,21 +2656,23 @@ fn previous_line(text: &str, line_start: usize) -> &str {
 ///
 /// Two rules apply. The line that the cursor leaves decides which rule fires.
 /// A declaration or key that ends in a colon opens a block. Thus the line
-/// after it goes one level in. A blank line is the opposite case. Enter on a
-/// blank line inside an indented block moves the new line *out* one level.
-/// Thus a walk down through blank lines leaves the nested levels. It
-/// does not stay at the start depth.
-fn wanted_indent(previous: &str) -> String {
+/// after it goes one level in. A blank line is the opposite case. Enter on
+/// the first blank line keeps the depth, so a paragraph break stays in the
+/// block. Enter on a second blank line in sequence moves the new line *out*
+/// one level. `after_blank` tells if the line above `previous` is blank.
+fn wanted_indent(previous: &str, after_blank: bool) -> String {
     let width = previous
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .count();
 
-    // The cursor leaves a blank, indented line. Thus the new line moves
-    // one level to the left. A blank line at the margin has no level to leave. Thus
-    // the next rule applies and the line does not move.
+    // The cursor leaves a blank, indented line. After one blank line, the
+    // new line keeps its depth. After a sequence of blank lines, the new line
+    // moves one level to the left. A blank line at the margin has no level to
+    // leave. Thus the next rule applies and the line does not move.
     if previous.trim().is_empty() && width > 0 {
-        return " ".repeat(width.saturating_sub(format::INDENT));
+        let levels = if after_blank { format::INDENT } else { 0 };
+        return " ".repeat(width.saturating_sub(levels));
     }
 
     let width = if opens_a_block(previous) {
@@ -3859,6 +3905,17 @@ pub fn semantic_tokens(world: &World, uri: &Url) -> Option<SemanticTokensResult>
         raw.push((occurrence.span, kind, modifiers));
     }
 
+    // A language keyword is a keyword only where the parser reads it as one.
+    // A grammar without context (rhun) cannot tell `from` in an import from
+    // `from` in prose. Thus the server colours each keyword that the parser
+    // reads, and the grammar colours none.
+    let parse = piton_syntax::parser::parse(&cursor.text, &cursor.path);
+    for (span, class) in piton_syntax::highlight::classify(&parse) {
+        if class == piton_syntax::highlight::Class::Keyword {
+            raw.push((span, token::KEYWORD, 0));
+        }
+    }
+
     // Where two occurrences overlap, the innermost occurrence names the text.
     raw.sort_by_key(|(span, _, _)| (span.start, span.len()));
     let mut kept: Vec<(Span, u32, u32)> = Vec::new();
@@ -4293,7 +4350,7 @@ fn hierarchy_anchor(world: &World, item: &TypeHierarchyItem) -> Option<AnchorId>
         .and_then(serde_json::Value::as_u64)
         .map(|id| AnchorId(id as u32))
         .filter(|id| (id.0 as usize) < compilation.store().anchors.len());
-    // An old id, from an item made before a recompilation, uses the name
+    // An old id, from an item made before a new compilation, uses the name
     // instead. The name is what the editor shows.
     id.filter(|id| compilation.store().anchor(*id).name == item.name)
         .or_else(|| compilation.find_anchor(&item.name))
@@ -4357,7 +4414,9 @@ pub fn type_hierarchy_subtypes(
 /// Parameters: `uri`, an optional `position` (`{line, character}`) that names
 /// an anchor to preview alone, and an optional `renderer`. The renderer is
 /// `json`, `yaml`, `markdown`, or a Belay target id such as `claude`. The
-/// default is the configured renderer of the project. The answer holds the
+/// default is the configured renderer of the project. When the build writes
+/// no renderer output, because a plugin builds the output, the default is
+/// Markdown, never JSON. The answer holds the
 /// renderer, the output file, and the text.
 pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
     let failure = |message: &str| serde_json::json!({ "error": message });
@@ -4379,7 +4438,8 @@ pub fn preview(world: &World, params: &serde_json::Value) -> serde_json::Value {
     let requested = params.get("renderer").and_then(|value| value.as_str());
 
     let adapter = match requested {
-        None => Some(world.output.renderer),
+        None if world.output.written => Some(world.output.renderer),
+        None => Some(Adapter::Markdown),
         Some(name) => name.parse::<Adapter>().ok(),
     };
     if let Some(adapter) = adapter {

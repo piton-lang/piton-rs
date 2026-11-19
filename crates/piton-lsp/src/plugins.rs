@@ -84,3 +84,11 @@ pub fn reached(project: &Project) -> Vec<(std::path::PathBuf, String)> {
     let (roots, _) = piton_plugin::reach::roots(project, &manifests, || Rc::new(Quiet { project: project.clone() }));
     roots.into_iter().map(|root| (root.file, root.name)).collect()
 }
+
+/// Makes the module hooks of the plugins of the project give the modules of
+/// files that are not Piton, for example `.emul` files. A hook runs when the
+/// compiler first loads such a file, and again only when its text changes.
+pub fn install_modules(project: &Project) {
+    let (manifests, _) = piton_plugin::discover(project);
+    piton_plugin::modules::install(project, &manifests);
+}

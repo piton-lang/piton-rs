@@ -88,6 +88,10 @@ impl Resolution {
     }
 
     /// Resolves an exported name. It follows re-exports.
+    ///
+    /// A name that two `export *` lines give with different meanings is not
+    /// exported under its plain name. The module exports each meaning under
+    /// the name of its source module instead, as `cruxible.Roles`.
     pub fn lookup_export(
         &self,
         module: ModuleId,
@@ -106,14 +110,72 @@ impl Resolution {
                 name: original,
             }) => self.lookup_export(*source, original, visiting),
             None => {
+                let mut found: Option<Symbol> = None;
                 for glob in &scope.export_globs {
                     if let Some(symbol) = self.lookup_export(*glob, name, visiting) {
-                        return Some(symbol);
+                        match found {
+                            None => found = Some(symbol),
+                            // Two meanings: the plain name is not exported.
+                            Some(first) if first != symbol => return None,
+                            Some(_) => {}
+                        }
                     }
                 }
-                None
+                if found.is_some() {
+                    return found;
+                }
+                let (qualifier, rest) = name.split_once('.')?;
+                if !self.glob_overlaps(module, rest) {
+                    return None;
+                }
+                scope
+                    .export_globs
+                    .iter()
+                    .filter(|glob| self.export_qualifier(**glob) == qualifier)
+                    .find_map(|glob| self.lookup_export(*glob, rest, visiting))
             }
         }
+    }
+
+    /// The different meanings that the `export *` lines of `module` give to
+    /// `name`, each with the first glob module that gives it.
+    fn glob_meanings(&self, module: ModuleId, name: &str) -> Vec<(ModuleId, Symbol)> {
+        let mut meanings: Vec<(ModuleId, Symbol)> = Vec::new();
+        for glob in &self.scope(module).export_globs {
+            if let Some(symbol) = self.lookup_export(*glob, name, &mut HashSet::new()) {
+                meanings.push((*glob, symbol));
+            }
+        }
+        meanings
+    }
+
+    /// True when two `export *` lines of `module` give `name` two meanings, and
+    /// no named export of `module` hides them.
+    fn glob_overlaps(&self, module: ModuleId, name: &str) -> bool {
+        if self.scope(module).exports.contains_key(name) {
+            return false;
+        }
+        let meanings = self.glob_meanings(module, name);
+        meanings
+            .iter()
+            .any(|(_, symbol)| *symbol != meanings[0].1)
+    }
+
+    /// The name that qualifies an overlapping export from `module`. This is the
+    /// name of the module: the file stem, or the directory name for an
+    /// `index.pi`.
+    pub fn export_qualifier(&self, module: ModuleId) -> String {
+        let path = &self.graph.get(module).path;
+        let stem = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if stem == "index" {
+            if let Some(dir) = path.parent().and_then(|dir| dir.file_name()) {
+                return dir.to_string_lossy().into_owned();
+            }
+        }
+        stem
     }
 
     /// All the names that a module can write unqualified. First its own declarations,
@@ -143,32 +205,54 @@ impl Resolution {
     }
 
     /// All the names that a module exports, also the names that come through globs.
+    ///
+    /// A name that two `export *` lines give with different meanings shows once
+    /// for each source module, qualified by the name of that module
+    /// (`cruxible.Roles`, `strataglyph.Roles`).
     pub fn exported_names(&self, module: ModuleId) -> Vec<String> {
-        let mut names = Vec::new();
-        let mut seen = HashSet::new();
-        self.collect_exports(module, &mut names, &mut seen, &mut HashSet::new());
-        names
+        self.collect_exports(module, &mut HashSet::new())
     }
 
-    fn collect_exports(
-        &self,
-        module: ModuleId,
-        out: &mut Vec<String>,
-        seen: &mut HashSet<String>,
-        visiting: &mut HashSet<ModuleId>,
-    ) {
+    fn collect_exports(&self, module: ModuleId, visiting: &mut HashSet<ModuleId>) -> Vec<String> {
         if !visiting.insert(module) {
-            return;
+            return Vec::new();
         }
         let scope = self.scope(module);
+        let mut out: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
         for name in scope.exports.keys() {
             if seen.insert(name.clone()) {
                 out.push(name.clone());
             }
         }
+        let mut candidates: Vec<String> = Vec::new();
+        let mut candidate_seen: HashSet<String> = HashSet::new();
         for glob in &scope.export_globs {
-            self.collect_exports(*glob, out, seen, visiting);
+            for name in self.collect_exports(*glob, visiting) {
+                if !seen.contains(&name) && candidate_seen.insert(name.clone()) {
+                    candidates.push(name);
+                }
+            }
         }
+        for name in candidates {
+            let meanings = self.glob_meanings(module, &name);
+            let Some((_, first)) = meanings.first() else {
+                continue;
+            };
+            if meanings.iter().all(|(_, symbol)| symbol == first) {
+                if seen.insert(name.clone()) {
+                    out.push(name);
+                }
+                continue;
+            }
+            for (glob, _) in &meanings {
+                let qualified = format!("{}.{name}", self.export_qualifier(*glob));
+                if seen.insert(qualified.clone()) {
+                    out.push(qualified);
+                }
+            }
+        }
+        out
     }
 }
 
@@ -607,9 +691,15 @@ fn import_source_label(
 
 /// Reports a name that a module exports two times with two different meanings.
 ///
-/// Lookup keeps the first site in precedence order. This order is a declaration, then
-/// a direct export, then the first `export *`. Thus the report is about each later
-/// site with a different sense. Lookup dropped that site.
+/// Only explicit exports collide: a declaration marked export, `export Name`
+/// and `from ./X export Name`. Lookup keeps the first of them, so the report is
+/// about each later site with a different sense.
+///
+/// An explicit export hides the same name from an `export *` line without an
+/// error. Two `export *` lines that give one name two meanings are not an
+/// error either: the module exports each meaning under the name of its source
+/// module. That fails only when two of those source modules have the same
+/// name, because the qualified names would then collide too.
 fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
     let mut diagnostics = Vec::new();
     for id in modules {
@@ -618,10 +708,12 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
             continue;
         }
         let module_path = module.path.clone();
+        let scope = resolution.scope(*id);
 
-        // All the (name, sense, site) values that this module exports, in precedence order.
+        // The explicit (name, sense, site) values, in precedence order.
         let mut candidates: Vec<(String, Symbol, &ExportSite)> = Vec::new();
-        for site in &resolution.scope(*id).export_sites {
+        let mut glob_sites: Vec<(ModuleId, &ExportSite)> = Vec::new();
+        for site in &scope.export_sites {
             match (&site.name, &site.target) {
                 (Some(name), ExportTarget::Local(symbol)) => {
                     candidates.push((name.clone(), *symbol, site));
@@ -635,13 +727,7 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
                     }
                 }
                 (None, ExportTarget::Forwarded { module, .. }) => {
-                    for name in resolution.exported_names(*module) {
-                        if let Some(symbol) =
-                            resolution.lookup_export(*module, &name, &mut HashSet::new())
-                        {
-                            candidates.push((name, symbol, site));
-                        }
-                    }
+                    glob_sites.push((*module, site));
                 }
                 (None, ExportTarget::Local(_)) => {}
             }
@@ -657,14 +743,6 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
                 continue;
             }
             let alias = format!("{}{name}", alias_prefix(&site.source));
-            let help = if site.name.is_none() {
-                format!(
-                    "list what {} exports instead of `export *`, leaving `{name}` out or aliasing it (`{name} {alias}`)",
-                    site.source
-                )
-            } else {
-                format!("export one of them under an alias (`{name} {alias}`)")
-            };
             diagnostics.push(
                 Diagnostic::error(
                     "duplicate-export",
@@ -680,8 +758,65 @@ fn check_duplicate_exports(resolution: &mut Resolution, modules: &[ModuleId]) {
                     first_site.span,
                     format!("`{name}` from {} is the one exported", first_site.source),
                 ))
-                .with_help(help),
+                .with_help(format!("export one of them under an alias (`{name} {alias}`)")),
             );
+        }
+
+        // Overlaps between `export *` lines whose qualified names collide.
+        let mut names: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for (glob, _) in &glob_sites {
+            for name in resolution.exported_names(*glob) {
+                if !scope.exports.contains_key(&name) && seen.insert(name.clone()) {
+                    names.push(name);
+                }
+            }
+        }
+        for name in names {
+            let meanings = resolution.glob_meanings(*id, &name);
+            if meanings.iter().all(|(_, symbol)| *symbol == meanings[0].1) {
+                continue;
+            }
+            let mut by_qualifier: HashMap<String, (Symbol, ModuleId)> = HashMap::new();
+            for (glob, symbol) in &meanings {
+                let qualifier = resolution.export_qualifier(*glob);
+                let Some((first_symbol, first_glob)) = by_qualifier.get(&qualifier) else {
+                    by_qualifier.insert(qualifier, (*symbol, *glob));
+                    continue;
+                };
+                if first_symbol == symbol {
+                    continue;
+                }
+                let site_of = |module: ModuleId| {
+                    glob_sites
+                        .iter()
+                        .find(|(glob, _)| *glob == module)
+                        .map(|(_, site)| *site)
+                };
+                let (Some(first_site), Some(site)) = (site_of(*first_glob), site_of(*glob)) else {
+                    continue;
+                };
+                diagnostics.push(
+                    Diagnostic::error(
+                        "duplicate-export",
+                        format!(
+                            "`{name}` is exported from both {} and {}, and both qualify it as `{qualifier}.{name}`",
+                            first_site.source, site.source
+                        ),
+                        &module_path,
+                        site.span,
+                    )
+                    .with_label(Label::new(
+                        module_path.clone(),
+                        first_site.span,
+                        format!("`{qualifier}.{name}` from {} is the one exported", first_site.source),
+                    ))
+                    .with_help(format!(
+                        "list what {} exports instead of `export *`, leaving `{name}` out or aliasing it",
+                        site.source
+                    )),
+                );
+            }
         }
     }
     resolution.diagnostics.extend(diagnostics);
@@ -735,7 +870,24 @@ fn check_imports_resolve(resolution: &mut Resolution, modules: &[ModuleId]) {
                     &module_path,
                     span,
                 );
-                if let Some(suggestion) = closest(&name, &available) {
+                let suffix = format!(".{name}");
+                let qualified: Vec<String> = available
+                    .iter()
+                    .filter(|candidate| candidate.ends_with(&suffix))
+                    .map(|candidate| format!("`{candidate}`"))
+                    .collect();
+                if qualified.len() > 1 {
+                    diagnostic = Diagnostic::error(
+                        "unresolved-import",
+                        format!(
+                            "`{name}` is exported by more than one `export *` of `{}`",
+                            source_path.display()
+                        ),
+                        &module_path,
+                        span,
+                    )
+                    .with_help(format!("import one of {}", qualified.join(", ")));
+                } else if let Some(suggestion) = closest(&name, &available) {
                     diagnostic = diagnostic
                         .with_help(format!("did you mean `{suggestion}`?"));
                 } else if available.is_empty() {

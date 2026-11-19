@@ -223,7 +223,7 @@ impl<'a> Lines<'a> {
         }
     }
 
-    /// The line after the block that starts at `line`. All subsequent lines
+    /// The line after the block that starts at `line`. All lines after it
     /// with more indentation are part of the block. Blank lines between them
     /// are also part of the block.
     fn extent(&self, line: usize) -> usize {

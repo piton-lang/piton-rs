@@ -648,8 +648,8 @@ fn publish_grammar(args: &[String]) -> Result<(), Error> {
             "dry run: not pushing. The commit is prepared in {}",
             checkout.display()
         );
-        // The task keeps the directory. The purpose of a dry run is to let you
-        // examine it.
+        // The task keeps the directory. With a dry run, you can examine
+        // it.
         std::mem::forget(_cleanup);
         return Ok(());
     }

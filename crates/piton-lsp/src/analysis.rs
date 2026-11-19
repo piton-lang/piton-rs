@@ -321,7 +321,7 @@ fn imports(compilation: &Compilation, index: &Index, out: &mut Vec<Diagnostic>) 
                         seen_name.insert(local.to_string(), entry.name_span);
                         if compilation.resolution.lookup(module.id, local).is_none() {
                             // The compiler reports unresolved imports.
-                            // A second record gives a second squiggle on
+                            // A second record gives a second diagnostic on
                             // the same name. The organize action still removes it.
                             continue;
                         }
@@ -1519,6 +1519,11 @@ fn composition_edges(compilation: &Compilation, analysis: &mut Analysis) {
 /// Maps each compiled module to the file that `piton compile` writes for it.
 /// This uses the configured output directory and renderer.
 fn map_outputs(compilation: &Compilation, output: &OutputSettings, mappings: &mut Vec<Mapping>) {
+    // A plugin build replaces the renderer output. Then the build writes no
+    // JSON, YAML or Markdown file for a module, so the map names none.
+    if !output.written {
+        return;
+    }
     for module in compilation.graph().iter() {
         if module.is_package() || is_config_module(compilation, module.id) {
             continue;
@@ -1885,7 +1890,7 @@ pub(crate) fn anchor_for_output(compilation: &Compilation, origin: &str) -> Opti
 }
 
 /// Plan diagnostics go on the configuration. The editor does not look at that
-/// construct. When the plan names an origin, the squiggle goes on that anchor.
+/// construct. When the plan names an origin, the diagnostic goes on that anchor.
 fn place_belay(compilation: &Compilation, mut diagnostic: Diagnostic) -> Diagnostic {
     let Some(origin) = diagnostic.origin.clone() else {
         return diagnostic;

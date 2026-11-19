@@ -75,6 +75,9 @@ export interface TestCase {
   /** An absolute path. */
   file: string;
   expects: string;
+  /** A preamble that tells what the statement is about. It goes before the
+   * statement in the request and in the fix prompt. */
+  context: string | null;
   description: string | null;
   against: string;
   tags: string[];
@@ -124,9 +127,13 @@ export function request(project: Project, test: TestCase): string {
       `both the specification (the \`.pi\` files under \`${spec}\`) and the code (the files under \`${code}\`, ${excluded}). ` +
       "Judge the specification and the code separately. The test passes only if the statement is true in each.";
   }
+  const context = test.context === null ? "" : `What the statement is about:\n\n${test.context}\n\n`;
   const description = test.description === null ? "" : `\nContext from the test's author:\n\n${test.description}\n`;
   return (
-    "You are judging one test of this Piton project. Decide whether this statement is true:\n" +
+    "You are judging one test of this Piton project.\n" +
+    "\n" +
+    context +
+    "Decide whether this statement is true:\n" +
     "\n" +
     `${test.expects}\n` +
     `${description}\n` +
@@ -412,7 +419,9 @@ export function fixPrompt(
       : test.against === "code"
         ? "Fix the code so that this statement is true:"
         : "Fix the Piton specification and the code so that this statement is true in both:";
-  const lines = [title, "", test.expects, ""];
+  const lines = [title, ""];
+  if (test.context !== null) lines.push(`Context: ${test.context}`, "");
+  lines.push(test.expects, "");
   lines.push(
     `The test \`${test.name}\` in \`${relative(test.file, project.root)}\` examines the statement in ${what}. It failed.`,
     `Reason: ${outcome.reason || "The agent gave no reason."}`,

@@ -397,6 +397,18 @@ export interface Reach {
   anchors: ReachedAnchor[];
 }
 
+/** A file that a module hook gives the Piton module of. */
+export interface ModuleFile {
+  /** The path of the file, relative to the project root when the file is in
+   * the project. Else it is absolute. It uses forward slashes. */
+  path: string;
+  /** The text of the file. In the editor, it is the text of the buffer. */
+  text: string;
+}
+
+/** The result of a module hook: the Piton source of the module. */
+export type ModuleSource = string | { source: string };
+
 /** All that a plugin can do. The host checks each method that has access
  * to the machine against the capabilities that the plugin declares. */
 export interface Context {
@@ -535,6 +547,11 @@ export interface Plugin {
    * together with the entry. Thus they are not unreachable and not
    * unused. */
   reach?: (ctx: Context) => Reach | Promise<Reach>;
+  /** Gives the Piton module of a file that is not Piton. It is for a plugin
+   * that lists the extensions of these files in `modules` in its
+   * declaration. The compiler calls it when it loads such a file. The
+   * compiler then treats the result as all other modules. */
+  module?: (ctx: Context, file: ModuleFile) => ModuleSource | Promise<ModuleSource>;
   /** The exports for plugins that require this plugin. Each export is a
    * factory. It takes the context of this plugin. Thus it runs with the
    * capabilities of this plugin. */
@@ -679,6 +696,13 @@ export function __setup() {
         throw new Error("the plugin's declaration says reach: true, but it has no reach");
       }
       return (await reach(context(name))) ?? { anchors: [] };
+    },
+    async module(name: string, path: string, text: string): Promise<ModuleSource> {
+      const module = plugins.get(name)?.module;
+      if (typeof module !== "function") {
+        throw new Error("the plugin's declaration lists modules, but it has no module hook");
+      }
+      return await module(context(name), { path, text });
     },
     async build(name: string): Promise<Plan> {
       const build = plugins.get(name)?.build;

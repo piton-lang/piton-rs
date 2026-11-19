@@ -1,0 +1,78 @@
+use ../../tooling/cli
+
+from .. import Testing
+from ./Colour import TestColour
+from ./Concurrency import TestConcurrency
+from ./Discovery import TestDiscovery
+from ./Errors import TestErrors
+from ./Explanation import TestExplanation
+from ./Fix import TestFix
+from ./FixPrompt import TestFixPrompt
+from ./Handoff import TestHandoff
+from ./Launch import TestLaunch
+from ./Listing import TestListing
+from ./Models import TestModels
+from ./Order import TestOrder
+from ./Output import TestOutput
+from ./Progress import TestProgress
+from ./Reading import TestReading
+from ./Recap import TestRecap
+from ./Running import TestRunning
+from ./Selection import TestSelection
+from ./Settings import TestSettings
+from ./TagExpressions import TestTagExpressions
+from ./Verdict import TestVerdict
+
+export cli-command TestCommand:
+    commandName: test
+
+    plugin:
+        Added by the test plugin, bundled with the compiler. Its arguments,
+        below, are its declaration's, and everything it does is the plugin's
+        TypeScript, in the compiler's source at plugins/test/src.
+
+    positionalArguments:
+        targets:
+            Optional. Which tests to run: a test's name, or a file or directory
+            holding tests. Every test in the project when none are given.
+
+    namedArguments:
+        agent: Which tool judges the tests [ claude | codex | opencode | muse ]
+        model: The model that judges the tests, `-m` for short, given to the tool as `piton agent --model` gives it; given with no model, it lists the models of the agent and runs nothing; given a value that is not one of the models, it lists the models that contain it, else all of them, and runs nothing
+        against: What every test is judged against [ spec | code | both ]
+        jobs: How many tests run at once
+        serial: Run one test at a time, the same as `--jobs 1`
+        list: Print the tests that would run, grouped by file, without running them
+        tags: Only run tests whose tags match an expression, like `--tags "((save and editor) not slow) or smoke"`
+
+    description:
+        Runs the project's tests, described in @{Testing}. Each test is one
+        statement an agent judges true or false against the specification, the
+        code, or both.
+
+    discovery: @{TestDiscovery}
+    selection: @{TestSelection}
+    tagExpressions: @{TestTagExpressions}
+    order: @{TestOrder}
+    settings: @{TestSettings}
+    models: @{TestModels}
+    whatTheAgentReads: @{TestReading}
+    running: @{TestRunning}
+    explanation: @{TestExplanation}
+    fix: @{TestFix}
+    fixPrompt: @{TestFixPrompt}
+    handoff: @{TestHandoff}
+    launch: @{TestLaunch}
+    verdict: @{TestVerdict}
+    concurrency: @{TestConcurrency}
+    progress: @{TestProgress}
+    output: @{TestOutput}
+    recap: @{TestRecap}
+    list: @{TestListing}
+    colour: @{TestColour}
+    errors: @{TestErrors}
+
+    exitCode:
+        success: 0
+        failures: 1
+        errors: 1

@@ -79,10 +79,10 @@ fn hover_on_an_anchor_shows_its_inheritance_chain() {
         panic!("expected markup")
     };
     assert!(markup.value.contains("Inherits: Type"), "{}", markup.value);
-    // The compiled interpretation shows in the renderer of the project (JSON
-    // by default).
-    assert!(markup.value.contains("Resolves to (json):"), "{}", markup.value);
-    assert!(markup.value.contains("```json"), "{}", markup.value);
+    // The project builds with Belay and sets no `output` or `renderer`, so the
+    // build writes no JSON. The compiled interpretation shows as Markdown.
+    assert!(markup.value.contains("Resolves to (markdown):"), "{}", markup.value);
+    assert!(!markup.value.contains("```json"), "{}", markup.value);
 }
 
 #[test]
@@ -294,8 +294,8 @@ fn formatting_reports_no_change_for_canonical_files() {
 #[test]
 fn formatting_leaves_comments_alone() {
     // An editor calls the LSP `formatting` handler on save. Thus it is the
-    // autoformat of the spec. The spec tells autoformat to add the space after
-    // `//`. Autoformat must not change other comment text.
+    // `autoformat` of the spec. The spec tells `autoformat` to add the space
+    // after `//`. `autoformat` must not change other comment text.
     let mut fixture = Fixture::new();
     let path = fixture.root.join("spec/scope/language/types/Strings.pi");
     let original = std::fs::read_to_string(&path).expect("readable");
@@ -747,30 +747,46 @@ fn a_body_puts_the_properties_it_has_to_define_first() {
 
     // `description:: simple:: complex` has no value on `Type`. Thus an anchor
     // that extends it must write one. These go above the other items.
-    let required = items
-        .iter()
-        .find(|item| item.label == "description")
-        .expect("description");
+    let key = |label: &str| {
+        items
+            .iter()
+            .find(|item| item.label == label)
+            .and_then(|item| item.sort_text.clone())
+            .unwrap_or_else(|| panic!("{label}"))
+    };
     assert!(
-        required
-            .sort_text
-            .as_deref()
-            .is_some_and(|key| key.starts_with('0')),
-        "{:?}",
-        required.sort_text
+        key("description") < key("what-is-a-type"),
+        "{} vs {}",
+        key("description"),
+        key("what-is-a-type")
     );
-    let optional = items
+}
+
+#[test]
+fn completion_ranks_items_that_complete_the_typed_word_first() {
+    // `wha` is the start of `what-is-a-type`. Thus that item goes above
+    // `description`, also when `description` is required.
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    wha<|>\n");
+    let items = buffer.items();
+    let first = items
         .iter()
-        .find(|item| item.label == "what-is-a-type")
-        .expect("what-is-a-type");
-    assert!(
-        optional
-            .sort_text
-            .as_deref()
-            .is_some_and(|key| key.starts_with('1')),
-        "{:?}",
-        optional.sort_text
-    );
+        .min_by_key(|item| item.sort_text.clone().unwrap_or_default())
+        .expect("items");
+    assert_eq!(first.label, "what-is-a-type", "{items:#?}");
+    assert_eq!(first.filter_text.as_deref(), Some("what-is-a-type"));
+
+    // Case does not change the rank. A label that contains the word goes above
+    // a label that does not.
+    let buffer = Buffer::over(NULL, "use ./lib/Type\n\nexport type N:\n    TYPE<|>\n");
+    let items = buffer.items();
+    let key = |label: &str| {
+        items
+            .iter()
+            .find(|item| item.label == label)
+            .and_then(|item| item.sort_text.clone())
+            .unwrap_or_else(|| panic!("{label}"))
+    };
+    assert!(key("what-is-a-type") < key("description"));
 }
 
 #[test]
@@ -940,50 +956,64 @@ fn enter_inside_an_escape_block_changes_nothing() {
 }
 
 #[test]
-fn enter_on_a_blank_line_dedents_one_level() {
-    // The spec has this rule. On a blank line inside a dictionary or anchor,
-    // enter must insert a new line. The new line goes 1 level left. The cursor leaves a blank,
-    // indented line (`    `). Thus the new line moves one level left, to the
-    // margin. It does not stay at the depth of the body.
+fn enter_on_the_first_blank_line_keeps_the_level() {
+    // The spec has this rule. Enter on the first blank line keeps the depth.
+    // Thus a paragraph break stays inside the block.
     let text = after_enter("export type N:\n    key: value\n    \n<|>");
     assert!(
-        text.ends_with("    key: value\n    \n"),
+        text.ends_with("    key: value\n    \n    "),
+        "expected the new line to keep the depth of the body: {text:?}"
+    );
+}
+
+#[test]
+fn enter_on_a_second_blank_line_dedents_one_level() {
+    // Enter on a second blank line in sequence moves the new line one level left.
+    let text = after_enter("export type N:\n    key: value\n    \n    \n<|>");
+    assert!(
+        text.ends_with("    key: value\n    \n    \n"),
         "expected the new line to dedent to the margin: {text:?}"
     );
 }
 
 #[test]
-fn enter_on_a_nested_blank_line_dedents_by_exactly_one_level() {
+fn enter_on_a_second_nested_blank_line_dedents_by_exactly_one_level() {
     // Deeper levels: from level 2 (8 spaces) back to level 1 (4 spaces), not
     // back to the margin.
-    let text = after_enter("export type N:\n    outer:\n        inner: 1\n        \n<|>");
+    let text = after_enter(
+        "export type N:\n    outer:\n        inner: 1\n        \n        \n<|>",
+    );
     assert!(
-        text.ends_with("        inner: 1\n        \n    "),
+        text.ends_with("        inner: 1\n        \n        \n    "),
         "expected one level out, not two: {text:?}"
     );
 }
 
 #[test]
-fn enter_on_a_blank_line_the_editor_emptied_dedents_by_one_level() {
+fn enter_on_blank_lines_the_editor_emptied_keeps_then_dedents() {
     // Zed removes the whitespace from a blank line when Enter leaves it. Thus
-    // the blank line comes empty. It still moves one level left, not to the
-    // margin.
+    // the blank line comes empty. The first emptied line keeps the depth.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n<|>");
     assert!(
-        text.ends_with("        inner: 1\n\n    "),
-        "expected one level out, not all the way: {text:?}"
+        text.ends_with("        inner: 1\n\n        "),
+        "expected the depth of the block: {text:?}"
     );
-    // A second Enter on a different emptied blank line moves one more level left.
+    // The second emptied line moves one level left.
     let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n\n<|>");
-    assert!(text.ends_with("        inner: 1\n\n\n"), "{text:?}");
+    assert!(text.ends_with("        inner: 1\n\n\n    "), "{text:?}");
+    // The third emptied line moves one more level left.
+    let text = after_enter("export type N:\n    outer:\n        inner: 1\n\n\n\n<|>");
+    assert!(text.ends_with("        inner: 1\n\n\n\n"), "{text:?}");
 }
 
 #[test]
 fn enter_on_a_blank_line_at_the_margin_stays_there() {
     // A blank line at the margin has no level to leave. Thus nothing
-    // changes. The depth does not become negative. Here the line above the
-    // cursor is also blank and at column zero.
-    let buffer = Buffer::over(NULL, "anchor A:\n\n<|>");
+    // changes. The depth does not become negative.
+    let buffer = Buffer::over(NULL, "x: 1\n\n<|>");
+    let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
+    assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
+    let buffer = Buffer::over(NULL, "anchor A:\n\n\n<|>");
     let edits = features::on_type_formatting(&buffer.text, buffer.position, "\n");
     assert!(edits.as_deref().unwrap_or_default().is_empty(), "{edits:?}");
 }
@@ -1119,7 +1149,7 @@ fn a_hierarchy_item_survives_a_lost_identity() {
         .remove(0);
     assert_eq!(item.name, "Strings");
 
-    // An item from before a recompilation has an id that can be invalid now.
+    // An item from before a new compilation has an id that can be invalid now.
     // The name is still valid.
     item.data = None;
     let supertypes =

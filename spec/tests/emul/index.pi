@@ -1,0 +1,18 @@
+use ./lib
+
+from emul import Emul
+
+export test EmulPlugin:
+    expects:
+        There should be an @{Emul} plugin that supports importing and
+        referencing Emul.
+
+        All emul integration must be implemented via a plugin.
+
+export test EmulReference:
+    expects:
+        When importing and referencing an @{Emul} file, it should be expected
+        that the emul compiler is already installed on the system, and the agent
+        will generate either an SVG, a PNG, HTML, or look at the Emul file
+        directly -- whatever it decides is most useful for what's currently
+        being worked on.

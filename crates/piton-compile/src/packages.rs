@@ -3,8 +3,8 @@
 //! Piton uses managed vendored dependencies. An installed package is an
 //! ordinary part of the project. It is a set of plain files under `tethers/`.
 //! The project commits these files to version control. The install removes
-//! all traces of the source git repository. The compiler does not fetch
-//! anything at compile time. No name resolves through a registry. The files
+//! all traces of the source git repository. The compiler fetches no files
+//! at compile time. No name resolves through a registry. The files
 //! on disk *are* the dependency.
 //!
 //! The rest of this module protects that choice. The files are ordinary, thus

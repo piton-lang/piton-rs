@@ -1,4 +1,4 @@
-//! Runs every syntax highlighter over one corpus and compares it with the parser.
+//! Runs each syntax highlighter over one corpus and compares it with the parser.
 //!
 //! `editors/` ships a tree-sitter grammar, a TextMate grammar, a Sublime
 //! syntax, a Kate definition and a Vim syntax file. Each one approximates the
@@ -22,8 +22,8 @@
 //! `PITON_REQUIRE_EDITOR_TOOLS=1`. CI sets that value.
 //!
 //! `PITON_BLESS=1 cargo test -p piton-syntax --test highlight_corpus`
-//! writes the `.expected` files again from the parser. The review occurs on
-//! the diff.
+//! writes the `.expected` files again from the parser. A person then
+//! reviews the diff.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -94,7 +94,7 @@ fn fixtures() -> Vec<Fixture> {
         .collect()
 }
 
-/// The canonical name of every class in one format, from `scopes.toml`.
+/// The canonical name of each class in one format, from `scopes.toml`.
 ///
 /// The table uses the class as the key. A runner needs the opposite direction,
 /// from the name that a tool printed to the class of that name.
@@ -110,7 +110,7 @@ fn reverse_map(format: &str) -> HashMap<String, Class> {
     out
 }
 
-/// `(class, name)` for every row of `scopes.toml`, from the column of one format.
+/// `(class, name)` for each row of `scopes.toml`, from the column of one format.
 fn scope_table(format: &str) -> Vec<(Class, String)> {
     let text = std::fs::read_to_string(fixtures_dir().join("scopes.toml")).expect("scopes.toml");
     let table: toml::Table = text.parse().expect("scopes.toml is TOML");
@@ -447,11 +447,12 @@ fn spec_files(dir: &Path) -> Vec<PathBuf> {
 /// Emacs all read them.
 ///
 /// The test generates and compiles the grammar in a scratch copy, because
-/// `editors/tree-sitter-piton/src` is generated output. The repository does not
-/// keep that output. The CLI runs the query. A capture paints its node. A node
-/// in a different captured node paints over that node. Every editor does this
-/// with nested captures. Two captures on one node are a failure. The reason is
-/// that Neovim and tree-sitter-highlight select different winners.
+/// `editors/tree-sitter-piton/src` holds generated output. The repository does
+/// not keep that output. The CLI runs the query. A capture paints its node. A
+/// capture on a node in a different captured node replaces the color of that
+/// node. All editors do this with nested captures. Two captures on one node
+/// are a failure, because Neovim and tree-sitter-highlight select different
+/// winners.
 #[test]
 fn tree_sitter() {
     if !have("tree-sitter", "--version") {
@@ -763,6 +764,110 @@ fn kate() {
     }
     compare("kate", &paintings);
 }
+
+/// The rhun grammar, through rhun itself.
+///
+/// rhun has no command-line highlighter. A headless run of rhun takes a script.
+/// The script command `print-syntax N` prints line N. Then it prints one digit
+/// for each byte. The digit is the class of the byte, in base 36.
+/// `RHUN_CLASSES` gives the order of the classes. The test puts the grammar in
+/// the user grammar folder of a scratch configuration. Thus the run does not
+/// see the grammars, settings or extensions of the machine.
+#[test]
+fn rhun() {
+    if !have("rhun", "--version") {
+        return;
+    }
+    let dir = scratch("rhun");
+    let config = dir.join("config/rhun");
+    std::fs::create_dir_all(config.join("syntax")).expect("syntax directory");
+    std::fs::copy(
+        editors().join("rhun/syntax/piton.syn"),
+        config.join("syntax/piton.syn"),
+    )
+    .expect("copy");
+    std::fs::write(
+        config.join("config"),
+        "[files]\nrestore_session = false\nrestore_project = false\n[updates]\ncheck = false\n\
+         [git]\nenabled = false\n",
+    )
+    .expect("config");
+
+    let names = reverse_map("rhun");
+    let all = fixtures();
+    let mut paintings = Vec::new();
+    for fixture in &all {
+        let lines: Vec<&str> = fixture.source.split('\n').collect();
+        let mut script = format!("open {}\n", fixture.path.display());
+        for line in 1..=lines.len() {
+            script.push_str(&format!("echo @@ {line}\nprint-syntax {line}\n"));
+        }
+        script.push_str("quit\n");
+        let script_path = dir.join(format!("{}.rsc", fixture.name));
+        std::fs::write(&script_path, script).expect("script");
+        let output = run(Command::new("rhun")
+            .args(["--empty", "--headless", "800x600", "--script"])
+            .arg(&script_path)
+            .current_dir(&dir)
+            .env("HOME", &dir)
+            .env("XDG_CONFIG_HOME", dir.join("config"))
+            .env("XDG_STATE_HOME", dir.join("state"))
+            .env("XDG_DATA_HOME", dir.join("data")));
+
+        let starts = line_starts(&fixture.source);
+        let mut painting: Painting = vec![None; fixture.source.len()];
+        let rows: Vec<&str> = output.lines().collect();
+        for (index, row) in rows.iter().enumerate() {
+            let Some(number) = row.strip_prefix("@@ ") else {
+                continue;
+            };
+            let line: usize = number.trim().parse().expect("a line number");
+            let text = lines[line - 1];
+            assert_eq!(rows.get(index + 1).copied(), Some(text), "rhun printed another line");
+            let digits = rows.get(index + 2).copied().unwrap_or("");
+            assert_eq!(
+                digits.len(),
+                text.len(),
+                "rhun gave {} classes for line {line} of {}",
+                digits.len(),
+                fixture.name
+            );
+            for (offset, digit) in digits.chars().enumerate() {
+                let class = digit
+                    .to_digit(36)
+                    .and_then(|index| RHUN_CLASSES.get(index as usize))
+                    .unwrap_or_else(|| panic!("rhun printed the class `{digit}`"));
+                painting[starts[line - 1] + offset] = names.get(*class).copied();
+            }
+        }
+        paintings.push((fixture, painting));
+    }
+    compare("rhun", &paintings);
+}
+
+/// The classes of rhun's tokenizer, in the order of their digits.
+const RHUN_CLASSES: &[&str] = &[
+    "text",
+    "keyword",
+    "type",
+    "function",
+    "string",
+    "number",
+    "comment",
+    "constant",
+    "operator",
+    "punctuation",
+    "preproc",
+    "variable",
+    "builtin",
+    "attribute",
+    "tag",
+    "heading",
+    "inserted",
+    "deleted",
+    "escape",
+    "link",
+];
 
 fn strip_ansi(text: &str) -> String {
     let mut out = String::new();

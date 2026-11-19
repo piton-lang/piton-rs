@@ -13,6 +13,7 @@ Every editor the specification names, and what each one needs.
 | Sublime Text | sublime-syntax | LSP package | [`sublime`](sublime) |
 | Kate | KSyntaxHighlighting | LSP Client | [`kate`](kate) |
 | JetBrains | TextMate bundle (the spec asks for a native one; see its README) | LSP4IJ | [`jetbrains`](jetbrains) |
+| rhun | rhun grammar (`.syn`) | patched `rhun-editor/lsp` bridge | [`rhun`](rhun) |
 
 The grammar shared by Zed, Helix, Emacs and Neovim lives in
 [`tree-sitter-piton`](tree-sitter-piton). Zed keeps its own copy of the queries,
@@ -58,6 +59,7 @@ Where each editor gets them:
 | Sublime Text | `Piton.tmPreferences` | key binding + macro | LSP `lsp_format_on_save` |
 | Kate | server on-type formatting | server on-type formatting | LSP Client "Format on save" |
 | JetBrains | server on-type formatting (LSP4IJ) | server on-type formatting (LSP4IJ) | Actions on Save → Reformat code |
+| rhun | `colon_indent` in the grammar | not possible (see its README) | save actions through the server |
 
 Zed is also the one editor here that needs code: `extension.toml` can declare
 that Piton has a language server but has nowhere to name the program, so
@@ -114,7 +116,7 @@ file is, and the definitions are tested against that.
   definition over the fixtures with the tool that runs it — the tree-sitter CLI
   on the grammar and `highlights.scm`; VS Code's own `vscode-textmate` engine
   (`vscode/scripts/tokenize.mjs`, after `npm ci` in `vscode/`); syntect for
-  the Sublime syntax; `vim`; `ksyntaxhighlighter6` — and compares the class of
+  the Sublime syntax; `vim`; `ksyntaxhighlighter6`; a headless `rhun` and its `print-syntax` — and compares the class of
   every non-blank byte with the parser's. A runner whose tool is not installed
   says so and passes, unless `PITON_REQUIRE_EDITOR_TOOLS=1`.
 - **The exceptions.** Where a format cannot, or by design does not, do what the

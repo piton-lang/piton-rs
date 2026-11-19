@@ -650,8 +650,8 @@ fn reach_counts_the_anchors_of_never_imported_files() {
 }
 
 #[test]
-fn reach_counts_an_anchor_lost_to_a_duplicate_export_once() {
-    let fixture = Fixture::new("reach-duplicate-export");
+fn reach_and_compile_keep_both_anchors_of_overlapping_globs() {
+    let fixture = Fixture::new("reach-overlapping-globs");
     fixture.write(
         "piton.config.pi",
         "use @piton/config\n\nexport piton-config Config:\n    root: .\n    entry: ./index.pi\n",
@@ -662,15 +662,18 @@ fn reach_counts_an_anchor_lost_to_a_duplicate_export_once() {
 
     let (stdout, stderr, code) = fixture.run(&["reach"]);
     assert_eq!(code, 0, "{stderr}");
-    let (reachable, unreachable) = stdout.split_once("\nunreachable").unwrap();
-    assert_eq!(reachable.matches("Roles").count(), 2, "name and path: {stdout}");
-    assert!(reachable.contains("cruxible.pi"), "{stdout}");
-    assert!(unreachable.contains("strataglyph.pi"), "{stdout}");
-    assert!(stdout.contains("1 anchor reachable, 1 unreachable\n"), "{stdout}");
+    assert!(stdout.contains("cruxible.pi"), "{stdout}");
+    assert!(stdout.contains("strataglyph.pi"), "{stdout}");
+    assert!(stdout.contains("2 anchors reachable, 0 unreachable\n"), "{stdout}");
 
     let (_, stderr, code) = fixture.run(&["check"]);
-    assert_eq!(code, 1, "{stderr}");
-    assert!(stderr.contains("duplicate-export"), "{stderr}");
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stderr.contains("duplicate-export"), "{stderr}");
+
+    let (stdout, stderr, code) = fixture.run(&["compile", "index.pi"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("\"cruxible.Roles\""), "{stdout}");
+    assert!(stdout.contains("\"strataglyph.Roles\""), "{stdout}");
 }
 
 #[test]
@@ -1297,6 +1300,7 @@ fn every_template_starts_a_project_that_checks_and_builds() {
         "crux/project",
         "piton/library",
         "piton/minimal",
+        "testing/project",
     ] {
         assert!(names.iter().any(|name| name == expected), "{names:?}");
     }
@@ -1329,6 +1333,26 @@ fn every_template_starts_a_project_that_checks_and_builds() {
     assert!(fixture.exists("belay/minimal/.claude/skills/explain/SKILL.md"));
     assert!(fixture.exists("piton/minimal/dist/index.json"));
     assert!(fixture.exists("crux/project/.claude/skills/crux-stand-in/SKILL.md"));
+}
+
+#[test]
+fn init_starts_a_specbase_for_piton_test() {
+    let fixture = Fixture::new("init-testing");
+    let (stdout, stderr, code) = fixture.run(&["init", "specbase", "--template", "testing/project"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("specbase/piton.config.pi"), "{stdout}");
+    assert!(fixture.read("specbase/piton.config.pi").contains("test-config"));
+
+    let (stdout, stderr, code) = fixture.run_in("specbase", &["check"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(!stderr.contains("warning"), "{stderr}");
+
+    // The list needs no agent. It shows the example test of the template.
+    let (stdout, stderr, code) = fixture.run_in("specbase", &["test", "--list"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(stdout.contains("GoalsAreStated"), "{stdout}");
+    assert!(stdout.contains("against spec"), "{stdout}");
+    assert!(stderr.contains("1 test in 1 file"), "{stderr}");
 }
 
 /// The crux package as `stub-crux/`. It has one skill, with the name `crux`.

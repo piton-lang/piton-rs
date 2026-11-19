@@ -101,7 +101,7 @@ pub struct Outcome {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Evaluates every anchor and variable in the resolution.
+/// Evaluates each anchor and variable in the resolution.
 pub fn evaluate(resolution: &Resolution) -> Outcome {
     let mut evaluator = Evaluator {
         resolution,

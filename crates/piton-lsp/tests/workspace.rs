@@ -212,7 +212,7 @@ fn a_file_written_behind_the_editors_back_is_picked_up() {
     // The editor does not know about a file that a branch switch or a script
     // wrote. `didChange` fires only for buffers that are open in the editor.
     // The file watcher that the server registers tells the server. The answer
-    // is a recompile from disk. Thus a new source must also be in the
+    // is a new compile from disk. Thus a new source must also be in the
     // new build.
     let fixture = Fixture::new("appeared");
     let world = fixture.world();

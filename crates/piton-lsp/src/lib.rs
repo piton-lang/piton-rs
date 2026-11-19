@@ -28,13 +28,15 @@ use world::World;
 /// Semantic token types, in the order that the server gives them to the client.
 ///
 /// The server colours the data that only the resolved program knows: the kind
-/// of a name. The syntax definition colours comments, keywords, literals,
-/// operators and prose. Thus they have no type here.
+/// of a name. It also colours each language keyword where the parser reads
+/// it as a keyword, because a grammar without context cannot tell a keyword
+/// from the same word in prose. The syntax definition colours comments,
+/// literals, operators and prose. Thus they have no type here.
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::CLASS,     // anchors
     SemanticTokenType::PROPERTY,  // properties and dictionary keys
     SemanticTokenType::VARIABLE,  // file-level variables
-    SemanticTokenType::KEYWORD,   // user keywords
+    SemanticTokenType::KEYWORD,   // user keywords and language keywords
     SemanticTokenType::NAMESPACE, // module paths
 ];
 
@@ -50,7 +52,7 @@ pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::new("imported"),
 ];
 
-/// The reason for a recompile. It decides if the server must tell the
+/// The reason for a new compile. It decides if the server must tell the
 /// other open files to ask again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
@@ -61,10 +63,10 @@ pub enum Trigger {
     Elsewhere,
 }
 
-/// Tells if a recompile for `trigger` must ask the client for a refresh of
+/// Tells if a new compile for `trigger` must ask the client for a refresh of
 /// all open files. The refresh covers semantic tokens, inlay hints and code lenses.
 ///
-/// This does not occur after an edit. The client itself asks again for the
+/// This does not happen after an edit. The client itself asks again for the
 /// buffer that the user edits. A refresh of all other files on each keystroke
 /// makes them flicker. Effects on other files show when the user saves.
 pub fn refreshes_after(trigger: Trigger) -> bool {
@@ -232,7 +234,7 @@ pub fn server_capabilities() -> ServerCapabilities {
     }
 }
 
-/// The duration of a pause in keystrokes before the server recompiles by itself.
+/// The duration of a pause in keystrokes before the server compiles again by itself.
 ///
 /// A request (hover, completion, ...) never waits for this. It compiles first
 /// if the buffers changed after the last compilation. The pause only decides
@@ -247,12 +249,12 @@ pub struct Backend {
     watching: AtomicBool,
     /// Tells if the client accepts a type hierarchy registration.
     hierarchy: AtomicBool,
-    /// The server increases it on each edit. Thus a debounced recompile can
+    /// The server increases it on each edit. Thus a delayed compile can
     /// know that a later keystroke came before it.
     generation: Arc<AtomicU64>,
 }
 
-/// Recompiles if a change occurred. Publishes diagnostics for each file that
+/// Compiles again if a change happened. Publishes diagnostics for each file that
 /// has diagnostics or had them before.
 async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>, trigger: Trigger) {
     let (published, caps) = {
@@ -404,7 +406,7 @@ impl Backend {
         Ok(features::preview(&world, &params))
     }
 
-    /// Recompiles if a change occurred, and publishes diagnostics again.
+    /// Compiles again if a change happened, and publishes diagnostics again.
     async fn refresh(&self, focus: Option<PathBuf>, trigger: Trigger) {
         publish(&self.client, &self.world, focus, trigger).await;
     }
@@ -418,7 +420,7 @@ impl Backend {
         Some((path, text))
     }
 
-    /// Recompiles after a pause in keystrokes, if no other edit comes first.
+    /// Compiles again after a pause in keystrokes, if no other edit comes first.
     fn schedule(&self, focus: PathBuf) {
         let ticket = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let generation = self.generation.clone();

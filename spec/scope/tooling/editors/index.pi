@@ -3,6 +3,7 @@ from ./Helix export *
 from ./JetBrains export *
 from ./Kate export *
 from ./NeoVim export *
+from ./Rhun export *
 from ./Sublime export *
 from ./Vim export *
 from ./VsCode export *
@@ -21,8 +22,12 @@ export abstract anchor Editor as editor:
             new line and indent the new line to the correct +1 level.
 
         enterOnBlankLine:
-            On a blank line inside a dictionary or anchor, enter should insert a
-            new line and dedent it by 1 level.
+            On the first blank line inside a dictionary or anchor, enter should
+            insert a new line at the same indent level, so a paragraph break
+            stays in the block. On a second blank line in sequence, enter
+            should insert a new line and dedent it by 1 level. Thus the first
+            enter after text opens a new line, the second keeps the level, and
+            only the third dedents.
 
         autoFormatOnSave:
             Autoformat on save is an option. Autoformat should add the space

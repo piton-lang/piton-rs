@@ -23,6 +23,7 @@ HAHA TOOLING
 - [JetBrains](./editors/JetBrains.md#jet-brains)
 - [Kate](./editors/Kate.md#kate)
 - [NeoVim](./editors/NeoVim.md#neo-vim)
+- [Rhun](./editors/Rhun.md#rhun)
 - [Sublime](./editors/Sublime.md#sublime)
 - [Vim](./editors/Vim.md#vim)
 - [VsCode](./editors/VsCode.md#vs-code)

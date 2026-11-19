@@ -1,0 +1,28 @@
+export anchor TestHandoff:
+    description:
+        Once every failed test's fix prompt is printed and the outcome is
+        written, the run offers to hand them to an agent, so a failure can go
+        straight from the report to a fix. A menu on the terminal lists the
+        agentic tools Belay knows, claude, codex, opencode and muse, and No
+        agent, which ends the run as before.
+
+        The chosen agent starts in the project root, interactively, with the
+        terminal: the same fluency prompt `piton agent` gives it, and all the
+        fix prompts as its first message. One prompt is given as it is;
+        several are given together, each under a heading that numbers it,
+        with a line asking the agent to fix them one after another. Belay
+        says how each tool is started with a first message, and the test
+        plugin starts it, which is why it declares the tools among its
+        processes and the interactive capability.
+
+        The menu only shows when stdin and stdout are terminals and at least
+        one test failed; piped, in CI, or when every test passed or could not
+        be judged, the run ends without asking. A tool that is not on PATH is
+        reported instead of started. The run's exit code is the same whatever
+        is chosen: it says how the tests went, not how the agent did.
+
+        After the agent is chosen, a second menu lists its models, with
+        Default model first, the same models `piton agent` lists. It is
+        skipped when the chosen agent judged the tests and a model was given
+        for it, which it then keeps. Cancelling it starts nothing. An agent
+        that lists no models gets a note and starts with its default.

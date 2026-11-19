@@ -142,7 +142,7 @@ pub struct Links<'a> {
     /// The headings of each reference file. It is not there during the first
     /// render of the files. That render finds their headings.
     pub index: Option<&'a HashMap<PathBuf, FileIndex>>,
-    /// References with no planned location. The report occurs after the
+    /// References with no planned location. The report comes after the
     /// render.
     pub misses: &'a RefCell<Vec<Ref>>,
     /// All the links that Belay wrote, each with its base directory. Thus

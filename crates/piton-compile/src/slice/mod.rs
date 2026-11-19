@@ -625,7 +625,7 @@ impl Walker<'_> {
     }
 
     /// The anchors and properties that a value embeds or refers to, in the
-    /// order that they occur.
+    /// order that they have in the value.
     fn value_targets(&self, value: &Value, out: &mut Vec<(Entity, Option<Relation>)>) {
         match value {
             Value::Anchor(anchor) => out.push((Entity::Anchor(*anchor), Some(Relation::Composes))),

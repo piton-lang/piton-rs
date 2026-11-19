@@ -35,7 +35,7 @@ export cli-command Lsp:
 
             Plugins with a build, like Belay, report their diagnostics too.
             Their builds are planned when a file is saved, never as you type,
-            so typing runs no plugin code; their diagnostics are the ones the
+            so typing runs no build; their diagnostics are the ones the
             last save found. A plugin that fails to plan is reported on the
             configuration.
 
@@ -75,6 +75,15 @@ export cli-command Lsp:
             completed in front of a colon that is already written keeps that
             one colon. Inside a dictionary nested in a property, nothing is
             offered, because nothing says what keys belong there.
+
+            Items are ranked by the word already typed before the cursor,
+            with case ignored: an item with the same name as the typed word
+            comes first, then items that start with it, then items that
+            contain it, then all other items. Within each rank the order above
+            holds, so required properties still come first among equals. Each
+            item filters on its own name. Thus the top item completes what is
+            written, and accepting it does not replace the typed word with a
+            different word.
 
             An editor that can replace a whole word gets both ranges, what is
             written before the cursor and the whole word, so accepting an item
@@ -190,15 +199,21 @@ export cli-command Lsp:
             of the string. Only the expressions inside `\ {...} \` forms are
             highlighted within a value.
 
-            The server colours names, by what they resolve to, and module
-            paths, and nothing else. Comments, keywords, literals, operators,
-            punctuation and prose belong to the syntax highlighter. For each
+            The server colours names, by what they resolve to, module paths
+            and language keywords, and nothing else. Comments, literals,
+            operators, punctuation and prose belong to the syntax highlighter.
+            A language keyword (`use`, `from`, `import`, `export`, `anchor`,
+            `abstract`, `extends`, `as` and `pass`) is a keyword token only
+            where the parser reads it as a keyword, never in a string body.
+            Thus a syntax highlighter without context can leave keywords to
+            the server. For each
             kind of token the server sends, the editor is told the same scope
             the syntax highlighter already uses, so a token arriving changes a
             colour only where resolving the name says something the text
             could not. An anchor is a class, abstract or not; a property or a
             dictionary key is a property; a variable is a variable; a user
-            keyword is a keyword; a module path is a namespace. A name that
+            keyword or a language keyword is a keyword; a module path is a
+            namespace. A name that
             does not resolve gets no token.
 
         inlayHints:
@@ -332,6 +347,15 @@ export cli-command Lsp:
             links. A construct's range is its whole body, and it usually
             compiles to one file per adapter, so links would mark the whole
             body as navigable and stack one tooltip per adapter on every hover.
+
+            The server shows renderer output (JSON, YAML or Markdown) only when
+            the build writes it. The build writes it when no plugin builds
+            output, or when the project sets `output` or `renderer`. A project
+            that builds with Belay and sets neither gets no renderer output, so
+            no hover, code lens or inlay names a JSON file there. Only the
+            plugin output is mapped. The compiled interpretation in the hover,
+            and the default of the preview, are then Markdown, as the plugin
+            output is, never JSON.
 
         unusedSymbolDetection:
             Warn about anchors, imports, properties, exports, or other

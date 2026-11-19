@@ -6,5 +6,6 @@
 export abstract anchor Test as test:
     expects:: string
     against:: string:: null: null
+    context:: string:: null: null
     description:: string:: null: null
     tags:: string[]:: null: null

@@ -122,11 +122,12 @@ pub struct ImportItem {
 }
 
 impl ImportItem {
-    /// The local name of the symbol.
+    /// The local name of the symbol. A qualified name, such as
+    /// `cruxible.Roles`, binds its last segment.
     pub fn local_name(&self) -> &str {
         match &self.alias {
             Some(alias) => &alias.value,
-            None => &self.name,
+            None => self.name.rsplit('.').next().unwrap_or(&self.name),
         }
     }
 }

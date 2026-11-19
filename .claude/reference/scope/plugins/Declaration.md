@@ -48,6 +48,7 @@ export abstract anchor PitonPlugin as piton-plugin:
     build:: boolean:: null: null
     inspect:: boolean:: null: null
     reach:: boolean:: null: null
+    modules:: string[]:: null: null
 ```
 
 ## Name
@@ -89,6 +90,10 @@ Optional. true when the plugin inspects projects before commands run, through an
 ## Reach
 
 Optional. true when the plugin names anchors it reaches itself, through a reach hook, described in plugin reach. `piton reach` and the language server count those anchors as roots beside the entry.
+
+## Modules
+
+Optional. The file extensions, without the dot, of the files that the plugin gives Piton modules for, through a module hook, described in plugin modules. An extension has lowercase letters and digits, and is not pi. An example is emul.
 
 ## Commands
 

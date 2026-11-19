@@ -5,8 +5,8 @@
 //! identities from anchor names. The two operations use one rule to split
 //! words. Thus a name always splits into the same words, in each direction.
 //!
-//! A split occurs only where an uppercase letter follows a lowercase letter or
-//! a digit. A split also occurs at literal `-` and `_` separators. Runs of
+//! A split happens only where an uppercase letter follows a lowercase letter or
+//! a digit. A split also happens at literal `-` and `_` separators. Runs of
 //! uppercase letters do *not* split, and this is intentional. `whatIsAType`
 //! renders as `What Is AType`, as in the reference output. A split for acronyms
 //! gives `What Is A Type`, which is a different document.

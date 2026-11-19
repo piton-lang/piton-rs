@@ -1,0 +1,19 @@
+export anchor TestModels:
+    description:
+        When neither `--model` nor the settings give a model, the tool judges
+        with its default model, and before the tests run a note lists the
+        models of the tool, from the same list `piton agent` shows, and says
+        to choose one with `--model`. The run is headless, so it lists them
+        rather than asking.
+
+        `--model` with no model lists the models of the agent instead, one on
+        each line on stdout, from the same list, like `piton test --agent
+        opencode --model`. It runs no tests and exits with 0. An agent that
+        lists no models is an error, and the exit code is 1.
+
+        A `--model` value is read as `piton agent` reads it: one of the
+        agent's models is that model, and any other value is a search string.
+        The models that contain it, ignoring case, are listed, like `piton
+        test --agent opencode --model sonnet`, or every model when none
+        contain it. It runs no tests and exits with 0. A model from the test
+        settings is never a search.

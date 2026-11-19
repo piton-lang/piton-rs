@@ -22,7 +22,7 @@ pub enum Symbol {
 }
 
 /// The location of the declaration of a property. The evaluator uses it to
-/// find the syntax. When an error occurs, the evaluator reports the source anchor.
+/// find the syntax. When an error happens, the evaluator reports the source anchor.
 #[derive(Debug, Clone)]
 pub struct Slot {
     /// The anchor that has the body that declares the value of this property.

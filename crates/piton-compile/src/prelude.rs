@@ -201,12 +201,56 @@ fn modules() -> &'static [(&'static str, &'static str)] {
         .as_slice()
 }
 
+/// The packages and modules that the plugin host registers at run time.
+/// A bundled plugin that the compiler does not know by name gives its Piton
+/// files and its declaration here. Thus the compiler holds no code that is
+/// special to that plugin.
+struct Registered {
+    roots: Vec<&'static str>,
+    modules: Vec<(&'static str, &'static str)>,
+}
+
+fn registered() -> &'static std::sync::RwLock<Registered> {
+    static REGISTERED: std::sync::OnceLock<std::sync::RwLock<Registered>> = std::sync::OnceLock::new();
+    REGISTERED.get_or_init(|| std::sync::RwLock::new(Registered { roots: Vec::new(), modules: Vec::new() }))
+}
+
+/// Adds a bundled package. `root` is its package path, for example
+/// `@piton/emul`. `modules` holds each module of the package by virtual path,
+/// and its source. A second registration of a path does nothing.
+pub fn register_package(root: &'static str, modules: &[(&'static str, &'static str)]) {
+    let mut registered = registered().write().unwrap_or_else(|error| error.into_inner());
+    if !registered.roots.contains(&root) && !PACKAGE_ROOTS.contains(&root) {
+        registered.roots.push(root);
+    }
+    for (path, source) in modules {
+        if !registered.modules.iter().any(|(known, _)| known == path) {
+            registered.modules.push((path, source));
+        }
+    }
+}
+
 /// Returns the source of a bundled module, if `path` names a bundled module.
 pub fn package_source(path: &str) -> Option<&'static str> {
     modules()
         .iter()
         .find(|(name, _)| *name == path)
         .map(|(_, source)| *source)
+        .or_else(|| {
+            let registered = registered().read().unwrap_or_else(|error| error.into_inner());
+            registered
+                .modules
+                .iter()
+                .find(|(name, _)| *name == path)
+                .map(|(_, source)| *source)
+        })
+}
+
+/// The packages that a project can import by name: the packages of the
+/// compiler, then the packages that the plugin host registered.
+pub fn package_roots() -> Vec<&'static str> {
+    let registered = registered().read().unwrap_or_else(|error| error.into_inner());
+    PACKAGE_ROOTS.iter().copied().chain(registered.roots.iter().copied()).collect()
 }
 
 /// True when `path` names a module in a bundled package.
@@ -220,7 +264,8 @@ pub fn is_package_path(path: &str) -> bool {
     path.starts_with('@')
 }
 
-/// The packages that a project can import by name.
+/// The packages of the compiler that a project can import by name.
+/// `package_roots` adds the packages that the plugin host registers.
 pub const PACKAGE_ROOTS: [&str; 5] =
     [CONFIG_PACKAGE, BELAY_PACKAGE, PACKAGING_PACKAGE, PLUGIN_PACKAGE, TEST_PACKAGE];
 

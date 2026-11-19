@@ -1,0 +1,5 @@
+# Test Concurrency
+
+## Description
+
+Tests run in parallel, up to the number of jobs at once, and each result is printed as it finishes. `--serial` runs them one after another, in the order they are listed.

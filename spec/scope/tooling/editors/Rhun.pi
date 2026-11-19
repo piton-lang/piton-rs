@@ -1,0 +1,32 @@
+use .
+
+export editor Rhun:
+    url: https://github.com/vshvedov/rhun/
+    syntaxHighlighter: [rhun-grammar, lsp]
+
+    highlighting:
+        A rhun grammar (a `.syn` file) gives the syntax highlighting. It
+        claims `.pi` files, gives `//` to Toggle Comment and indents the line
+        after a colon. A rhun grammar has no context, so it colours a word by
+        its spelling alone. Thus the grammar lists no keywords, and it does
+        not give the keyword colour to a word in a string body: `from` in
+        prose is plain. The language server gives the keyword colour to the
+        keywords at column 0 and in a declaration header, where the parser
+        reads them as keywords, through its semantic tokens. It also gives
+        the colours that need the resolved program. Every line where
+        the grammar and the parser disagree is a known, listed gap, as
+        `oneClassification` asks.
+
+    languageServer:
+        rhun talks to its extensions in its own protocol, not in LSP. The
+        Piton extension for rhun is the first-party rhun-editor/lsp bridge,
+        changed to serve Piton files only and to start `piton lsp`. It gives
+        rhun the full LSP support of `piton lsp`: problems, completion, hover,
+        navigation, rename, formatting, folding, semantic colours and inlay
+        hints.
+
+        The extension shows what the server shows, so it shows no JSON hints
+        when the build writes no JSON. A Belay project that sets no `output`
+        or `renderer` writes no JSON. There, no hover, code lens or inlay hint
+        names a JSON file or shows a value as JSON. They name the files of the
+        Belay targets.

@@ -1,0 +1,15 @@
+name = Piton
+files = *.pi
+icon = code green
+toggle_comment = //
+region = // eol comment bol
+region = \\\ \\\ string multiline bol
+builtins = string number boolean dictionary simple complex any
+constants = true false null
+variables = this self super
+ident = -
+labels = yes
+functions = no
+operators = no
+colon_indent = yes
+fold = indent

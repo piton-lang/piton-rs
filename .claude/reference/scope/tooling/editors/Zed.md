@@ -14,7 +14,7 @@ Enter on colon (on a new dictionary or anchor property) should do a new line and
 
 ### Enter On Blank Line
 
-On a blank line inside a dictionary or anchor, enter should insert a new line and dedent it by 1 level.
+On the first blank line inside a dictionary or anchor, enter should insert a new line at the same indent level, so a paragraph break stays in the block. On a second blank line in sequence, enter should insert a new line and dedent it by 1 level. Thus the first enter after text opens a new line, the second keeps the level, and only the third dedents.
 
 ### Auto Format On Save
 

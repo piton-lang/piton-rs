@@ -39,3 +39,508 @@ format = "sublime"
 fixture = "escapes"
 line = 15
 reason = "an escape block inside a ```piton fence is highlighted as Piton (embed scope:source.piton), by design"
+
+# rhun grammars have no context: a word, a number or a region gets its colour
+# from its spelling alone. Only a line comment, a key at the start of a line
+# and a verbatim block can see where they are. Each line below is a place where
+# that is not enough. The grammar lists no keywords: a word list would also
+# colour `from` in a string body. The language server colours them. See
+# editors/rhun/README.md.
+
+[[gap]]
+format = "rhun"
+fixture = "comments"
+line = 2
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "comments"
+line = 7
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 1
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 3
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 4
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 7
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 9
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 10
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 13
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 15
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it; and rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "composition"
+line = 16
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it; and rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 1
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 2
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 4
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 5
+reason = "the grammar lists no keywords, because a rhun word list would also colour them in a string body; the semantic tokens of the language server colour a keyword where the parser reads one, and `pass` alone on its line has nothing else to colour"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 7
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 10
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 13
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose); and a user keyword comes from a `use` import, which a static grammar cannot read"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 16
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 19
+reason = "a user keyword comes from a `use` import, which a static grammar cannot read; and rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "declarations"
+line = 23
+reason = "a user keyword comes from a `use` import, which a static grammar cannot read; and rhun colours a word by its spelling, not by its place, so a declared name is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 1
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 2
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes; and rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 3
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 4
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 7
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 10
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 13
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 16
+reason = "a rhun region colours its delimiters as its contents, so the backslashes of an escape are not escapes"
+
+[[gap]]
+format = "rhun"
+fixture = "escapes"
+line = 20
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 1
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose); and rhun has no context, so a name in an expression or an import list is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 3
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 4
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun has no context, so a name in an expression or an import list is plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 5
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose); and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 6
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 7
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun has no context, so a name in an expression or an import list is plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun has no context, so a quoted string in an expression is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 8
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose); and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 10
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 13
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 14
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 15
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 16
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and rhun has no context, so a quoted string in an expression is plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 18
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 19
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "expressions"
+line = 20
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain; and `operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 1
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun has no context, so a name in an expression or an import list is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 2
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun has no context, so a name in an expression or an import list is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 3
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 4
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 5
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 6
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 7
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 8
+reason = "rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 9
+reason = "rhun has no context, so a name in an expression or an import list is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 10
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 11
+reason = "rhun has no rule for the word after `use` or `from`, so a module path is plain; and rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose); and rhun has no context, so a name in an expression or an import list is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "imports"
+line = 12
+reason = "rhun has no context, so a name in an expression or an import list is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 2
+reason = "rhun colours a key (`labels`) only as the first token of a line, and never after a `.`"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 9
+reason = "rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 11
+reason = "rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose)"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 13
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 15
+reason = "`null` is a type after `::` and a value after `:`, and rhun has one colour for the word"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 16
+reason = "`null` is a type after `::` and a value after `:`, and rhun has one colour for the word"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 17
+reason = "rhun colours a word by its spelling, not by its place, so a type name after `extends`, `import` or `::` is plain (`captypes` would also colour each capital in prose); and `operators = no`, because rhun would otherwise colour the colon of each key; so the sigils and operators of an expression are plain"
+
+[[gap]]
+format = "rhun"
+fixture = "properties"
+line = 19
+reason = "rhun looks up a word list before it looks for a key, so `null:` is not a key"
+
+[[gap]]
+format = "rhun"
+fixture = "prose"
+line = 1
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "prose"
+line = 4
+reason = "rhun word lists have no context, so `true`, `false` and `null` in prose, in quotes or as a key get the constant colour; and rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "prose"
+line = 5
+reason = "rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "prose"
+line = 11
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "prose"
+line = 12
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 1
+reason = "rhun colours a word by its spelling, not by its place, so a declared name is plain"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 3
+reason = "rhun reads `-5` as a `-` and a number"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 8
+reason = "rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 9
+reason = "rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 10
+reason = "rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 11
+reason = "rhun word lists have no context, so `true`, `false` and `null` in prose, in quotes or as a key get the constant colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 12
+reason = "rhun word lists have no context, so `true`, `false` and `null` in prose, in quotes or as a key get the constant colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 13
+reason = "rhun has no context, so a number in prose or in an inline list gets the number colour; and rhun word lists have no context, so `true`, `false` and `null` in prose, in quotes or as a key get the constant colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 15
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 16
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 17
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 18
+reason = "rhun cannot colour a `-` only at the start of a line: a region needs a closing token, and a prefix needs a word after it; and rhun has no context, so a number in prose or in an inline list gets the number colour"
+
+[[gap]]
+format = "rhun"
+fixture = "values"
+line = 20
+reason = "`operators = no`, because rhun would otherwise colour the colon of each key; so the operators and merge marks are plain; and rhun has no context, so a number in prose or in an inline list gets the number colour"

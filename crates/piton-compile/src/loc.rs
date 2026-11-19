@@ -82,7 +82,7 @@ pub fn count(source: &str) -> Counts {
 
     // A file without a newline at its end also has that last line.
     if source.ends_with('\n') || source.is_empty() {
-        // `lines()` handled it before.
+        // `lines()` counted that line before.
     }
     counts
 }

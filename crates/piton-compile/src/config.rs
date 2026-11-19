@@ -59,7 +59,7 @@ const REMOVED_KEYS: [(&str, &str); 1] = [(
 ///
 /// The configuration does not know which plugins exist. The plugin host
 /// knows this. The compiler does not bundle all plugins. A user installs some. Thus the entry
-/// records plain data. This data lets the host classify the entry later. It
+/// records plain data. With this data, the host can classify the entry later. It
 /// holds each anchor in the inheritance chain and the module of each anchor.
 /// With this data, the host can tell a `piton-plugin` declaration from the
 /// settings anchor of a plugin.
@@ -477,7 +477,7 @@ fn plugin_entry(
 }
 
 /// The anchors that a set of properties names, at all depths. Each anchor
-/// occurs one time, in order.
+/// is there one time, in order.
 fn named_anchors(properties: Option<&piton_core::Properties>) -> Vec<AnchorId> {
     fn walk(value: &Value, out: &mut Vec<AnchorId>) {
         match value {

@@ -1,5 +1,6 @@
 from ./agent export *
 from ./scope/belay import Belay
+from ./scope/emul import EmulPlugin
 from ./scope/founding-thesis import FoundingThesis
 from ./scope/init import Initialization
 from ./scope/language import Language
@@ -20,3 +21,4 @@ export anchor Specification:
     Migration: @{Migration}
     Initialization: @{Initialization}
     Testing: @{Testing}
+    Emul: @{EmulPlugin}

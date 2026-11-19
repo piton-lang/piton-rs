@@ -110,7 +110,7 @@ pub enum Failure {
     Load(String),
     /// The code of the plugin threw an exception.
     Threw(String),
-    /// The plugin waited for an event that can never occur.
+    /// The plugin waited for an event that can never happen.
     Stalled,
 }
 
@@ -154,7 +154,7 @@ struct State {
 }
 
 struct Host {
-    /// All plugins in this runtime. They are the invoked plugin and its
+    /// All plugins in this runtime. They are the plugin that the user ran and its
     /// requirements.
     plugins: Vec<Manifest>,
     services: Rc<dyn Services>,
@@ -174,6 +174,10 @@ pub enum Invocation {
     Inspect,
     /// Its reach hook. It gives the anchors that it reaches itself.
     Reach,
+    /// Its module hook. It gives the Piton source of the module of a file
+    /// that is not Piton. `path` is relative to the project root when the
+    /// file is in the project, else absolute.
+    Module { path: String, text: String },
 }
 
 /// Runs a command of a plugin with its arguments. Returns the exit code
@@ -204,6 +208,18 @@ pub fn run_inspect(plugins: &[Manifest], main: &str, services: Rc<dyn Services>)
 /// JSON.
 pub fn run_reach(plugins: &[Manifest], main: &str, services: Rc<dyn Services>) -> Result<Json, Failure> {
     run(plugins, main, Invocation::Reach, services)
+}
+
+/// Runs the module hook of a plugin for one file. Returns the result of the
+/// hook as JSON.
+pub fn run_module(
+    plugins: &[Manifest],
+    main: &str,
+    path: &str,
+    text: &str,
+    services: Rc<dyn Services>,
+) -> Result<Json, Failure> {
+    run(plugins, main, Invocation::Module { path: path.to_string(), text: text.to_string() }, services)
 }
 
 /// Runs the build of a plugin. Returns its plan as JSON.
@@ -280,6 +296,9 @@ fn start(
             Invocation::Build => format!("host.build({})", json!(main)),
             Invocation::Inspect => format!("host.inspect({})", json!(main)),
             Invocation::Reach => format!("host.reach({})", json!(main)),
+            Invocation::Module { path, text } => {
+                format!("host.module({}, {}, {})", json!(main), json!(path), json!(text))
+            }
         };
         let bootstrap = format!(
             "(async () => {{\n\

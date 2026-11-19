@@ -151,7 +151,7 @@ fn unique(plan: &BuildPlan) -> Vec<&OutputFile> {
 }
 
 /// All the paths that the plan writes. The list is in sorted order, and each
-/// path occurs one time.
+/// path is there one time.
 pub fn paths(plan: &BuildPlan) -> Vec<String> {
     plan.files
         .iter()

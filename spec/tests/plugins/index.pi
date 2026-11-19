@@ -13,3 +13,8 @@ export test LspRespectsOverride:
     expects:
         Per @{OverrideReach} the LSP should reflect plugin-based reach
         overrides.
+
+export test ImportAdditionalThings:
+    expects:
+        Plugins should enable Piton to import and hand additional kinds of
+        files beyond just Piton itself.

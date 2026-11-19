@@ -73,6 +73,6 @@ export anchor PluginBuild:
     planOnly:
         `piton check` runs every build hook too, to report the plans'
         diagnostics, and writes nothing. The language server runs them when a
-        file is saved, never as you type, so typing stays free of plugin code.
+        file is saved, never as you type, so typing runs no build.
         It shows their diagnostics, and its compiled-output preview shows the
         planned files.

@@ -5,7 +5,7 @@
 //! is the name, the commands and their arguments, and the permissions on the
 //! machine. It also includes the location of the code. The CLI makes its help and parses
 //! arguments from the declaration only. It runs JavaScript only when the user
-//! invokes a command of the plugin.
+//! runs a command of the plugin.
 
 use std::path::{Path, PathBuf};
 
@@ -224,6 +224,9 @@ pub struct Manifest {
     /// True if it names the anchors that it reaches itself. `piton reach` and
     /// the editor count them as roots, together with the entry.
     pub reach: bool,
+    /// The file extensions, without the dot, that its module hook gives the
+    /// Piton module of. An example is `emul`.
+    pub modules: Vec<String>,
 }
 
 /// The marker that a placeholder evaluates to. It is the name between
@@ -243,6 +246,7 @@ pub struct Problem {
 /// plugins that its configuration declares, in the order of the list. This
 /// function omits and reports a declaration that is not well-formed.
 pub fn discover(project: &Project) -> (Vec<Manifest>, Vec<Problem>) {
+    bundled::register();
     let mut manifests = Vec::new();
     let mut problems = Vec::new();
     for plugin in bundled::PLUGINS {
@@ -604,6 +608,14 @@ fn read(
     let build = flag("build")?;
     let inspect = flag("inspect")?;
     let reach = flag("reach")?;
+    let modules = strings(properties.get("modules"), "modules")?;
+    for extension in &modules {
+        if extension == "pi" || extension.is_empty() || !extension.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+            return Err(format!(
+                "`{extension}` is not an extension a plugin can give modules for; use lowercase letters and digits, and not pi"
+            ));
+        }
+    }
 
     Ok(Manifest {
         name,
@@ -621,6 +633,7 @@ fn read(
         build,
         inspect,
         reach,
+        modules,
     })
 }
 

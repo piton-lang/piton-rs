@@ -1,0 +1,11 @@
+export anchor TestFix:
+    description:
+        A failure also asks the tool for a fix: the instructions an agent
+        needs to make the statement true, in ASD-STE100 like the explanation,
+        written as commands, naming each file to change and what to change in
+        it. The fix aims at what the test examines. Against spec it changes
+        the specification, in its .pi source, and not the code. Against code
+        it changes the code, and not the specification. Against both it gives
+        the changes to each as two parts, a part only for a side that doesn't
+        make the statement true, so that afterwards the two agree. It is asked
+        for in the same session as the verdict, so it costs no extra run.

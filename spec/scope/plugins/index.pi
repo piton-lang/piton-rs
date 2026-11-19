@@ -1,3 +1,4 @@
+from ../emul import EmulPlugin
 from ../init import Initialization
 from ../migrate import Migration
 from ../testing import Testing
@@ -8,6 +9,7 @@ from ./Capabilities import PluginCapabilities
 from ./Declaration import PluginDeclaration
 from ./Dependencies import PluginDependencies
 from ./Inspection import PluginInspection
+from ./Modules import PluginModules
 from ./Reach import PluginReach
 from ./Rendering import PluginRendering
 from ./Runtime import PluginRuntime
@@ -21,24 +23,28 @@ export anchor Plugins:
         and runs itself in QuickJS, so using one needs nothing installed
         beyond piton.
 
-        Four plugins are bundled with the compiler. Belay, the framework that
+        Five plugins are bundled with the compiler. Belay, the framework that
         compiles agent guidance, is a plugin: its constructs and adapters are
         its Piton files, and its build writes what agentic tools read.
         @{Testing}: `piton test` and the test keyword, which builds on Belay
         for the agentic tools it launches. @{Migration}: `piton migrate`, and
         the inspection that notices projects written for an older Piton. And
         @{Initialization}: `piton init`, which starts a project from the
-        templates in its templates directory.
+        templates in its templates directory. And @{EmulPlugin}: imports and
+        references of Emul designs, and `piton emul`.
 
     principles:
         Compiling stays pure. Everything that can be known about a plugin
         without running it is in its Piton declaration: its name, its commands
         and their arguments, its settings, what it requires, and what it may
         do on the machine. `piton compile`, and the language server as you
-        type, read Piton only. A plugin's code runs only when a command it
+        type, read Piton only, and the Piton that a module hook gives for a
+        file that is not Piton. A plugin's code runs only when a command it
         adds is invoked, when `piton build` or `piton check` plans its build,
-        when `piton reach` asks what it reaches, and when the editor saves a
-        file.
+        when `piton reach` asks what it reaches, when the editor saves a
+        file, and when the compiler loads a file whose extension a plugin
+        gives modules for, described in @{PluginModules}. A project that
+        imports no such file compiles without plugin code.
 
         A plugin may only do what it declares. It reads the compiled project
         freely, since that changes nothing, but every other effect, like
@@ -58,13 +64,15 @@ export anchor Plugins:
     dependencies: @{PluginDependencies}
     inspection: @{PluginInspection}
     reach: @{PluginReach}
+    modules: @{PluginModules}
     runtime: @{PluginRuntime}
     sources: @{PluginSources}
     command: @{PluginsCli}
 
     notYet:
         Plugins add commands, build output, the diagnostics their builds
-        find, and the anchors they reach. They don't yet add renderers for `piton compile`, add
+        find, the anchors they reach, and the modules of files that are not
+        Piton. They don't yet add renderers for `piton compile`, add
         diagnostics outside a build, or extend a command the compiler has.
         Each of these would extend the same declaration and API, rather than
         add a second way to extend the compiler.

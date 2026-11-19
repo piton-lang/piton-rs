@@ -1,0 +1,19 @@
+use @piton/plugin
+
+export piton-plugin EmulPlugin:
+    name: emul
+    entry: ./src/index.ts
+    modules: [emul]
+
+    description:
+        Lets a project import and reference Emul designs. Its module hook
+        gives the Piton module of each Emul file that a project imports, with
+        an emul-design anchor for each design that the file exports.
+
+    capabilities:
+        process: [emul]
+        files: read
+
+    commands:
+        emul:
+            about: List the Emul designs that the project imports

@@ -1,0 +1,48 @@
+export anchor TestFixPrompt:
+    description:
+        Every failed test is offered a prompt that fixes it, to give to an
+        agent. The prompt stands on its own, so an agent with no other
+        context can act on it, and it aims at what the test examines.
+
+        ```text
+        \\\
+        Fix the code so that this statement is true:
+
+        The Save button saves the document
+
+        The test `SaveButtonSaves` in `spec/tests/Editor.pi` examines the statement in the code (the files under `src`). It failed.
+        Reason: No handler saves the document
+        Explanation: The Save button has no click handler.
+
+        What to change:
+        Add a click handler to SaveButton in src/editor.ts. Make the handler call saveDocument.
+
+        Rules:
+        - Change only the code. Do not change the specification.
+        - Do not change the test.
+        - Do not edit generated files.
+        - To examine the fix, run `piton test SaveButtonSaves --against code`.
+        \\\
+        ```
+
+        Its first line says what to fix: the Piton specification, the code,
+        or both, so that the statement is true in it. Then the test's context,
+        when it has one, as a preamble before the statement. Then the
+        statement, the
+        test and the file it is declared in, where the statement was examined,
+        the verdict's reason, for a test against both the result in the
+        specification and in the code, and the explanation. What to change is the tool's
+        fix; when the tool gave none, the prompt asks the agent to find where
+        what the test examines doesn't make the statement true, and change it.
+
+        The rules keep the agent on that target. Against spec or code, it
+        changes only that one. Against both, it changes both, and they must
+        agree afterwards. It never changes the test: the statement is what the
+        project should say. When the specification may change, it is changed
+        in its .pi source, never in generated files, and `piton check` and
+        `piton build` run afterwards. The last rule is the command that
+        judges the test again against the same scope, with `--against`, so
+        the check matches the failure even when the scope came from a flag.
+
+        A test that could not be judged has no fix prompt: nothing is known
+        about why, beyond the error.

@@ -38,7 +38,7 @@ impl Module {
         // Thus a relative import in it resolves from the package directory.
         // It does not resolve from the parent directory.
         let name = self.path.to_string_lossy();
-        if prelude::PACKAGE_ROOTS.iter().any(|root| *root == name) {
+        if prelude::package_roots().iter().any(|root| *root == name) {
             return self.path.clone();
         }
         self.path
@@ -105,24 +105,39 @@ impl ModuleGraph {
         if let Some(existing) = self.by_path.get(path) {
             return Some(*existing);
         }
-        if let Some(text) = self.overrides.get(path).cloned() {
-            return Some(self.insert(path.to_path_buf(), text));
-        }
         let key = path.to_string_lossy().to_string();
-        let source = match prelude::package_source(&key) {
-            Some(builtin) => builtin.to_string(),
-            None => match std::fs::read_to_string(path) {
-                Ok(text) => text,
-                Err(error) => {
-                    diagnostics.push(Diagnostic::error(
-                        "unreadable-module",
-                        format!("cannot read `{}`: {error}", path.display()),
-                        path,
-                        Span::default(),
-                    ));
-                    return None;
-                }
+        let source = match self.overrides.get(path).cloned() {
+            Some(text) => text,
+            None => match prelude::package_source(&key) {
+                Some(builtin) => builtin.to_string(),
+                None => match std::fs::read_to_string(path) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        diagnostics.push(Diagnostic::error(
+                            "unreadable-module",
+                            format!("cannot read `{}`: {error}", path.display()),
+                            path,
+                            Span::default(),
+                        ));
+                        return None;
+                    }
+                },
             },
+        };
+        // A file that a plugin gives the module of is not Piton. The plugin
+        // reads its text and gives the Piton source of its module.
+        let source = match provided(path, &source) {
+            None => source,
+            Some(Ok(module)) => module,
+            Some(Err(message)) => {
+                diagnostics.push(Diagnostic::error(
+                    "plugin-module-failed",
+                    format!("cannot make the module of `{}`: {message}", path.display()),
+                    path,
+                    Span::default(),
+                ));
+                return None;
+            }
         };
         Some(self.insert(path.to_path_buf(), source))
     }
@@ -260,6 +275,50 @@ impl<'a> ResolutionContext<'a> {
     }
 }
 
+/// Gives the Piton module of a file that is not Piton. A plugin with a module
+/// hook implements it, through the plugin host. The compiler knows only the
+/// extensions and calls the hook. It holds no code for a file format.
+pub trait ModuleProvider: Send + Sync {
+    /// True when the provider gives the module of a file with `extension`.
+    /// The extension has no dot.
+    fn provides(&self, extension: &str) -> bool;
+    /// The Piton source of the module of the file at `path` with the text
+    /// `text`, or a message that tells why it failed.
+    fn module(&self, path: &Path, text: &str) -> Result<String, String>;
+}
+
+fn provider_slot() -> &'static std::sync::RwLock<Option<std::sync::Arc<dyn ModuleProvider>>> {
+    static PROVIDER: std::sync::OnceLock<std::sync::RwLock<Option<std::sync::Arc<dyn ModuleProvider>>>> =
+        std::sync::OnceLock::new();
+    PROVIDER.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// Sets the provider of modules for files that are not Piton. `None` removes
+/// it. Then only `.pi` files are modules.
+pub fn set_module_provider(provider: Option<std::sync::Arc<dyn ModuleProvider>>) {
+    *provider_slot().write().unwrap_or_else(|error| error.into_inner()) = provider;
+}
+
+fn current_provider() -> Option<std::sync::Arc<dyn ModuleProvider>> {
+    provider_slot().read().unwrap_or_else(|error| error.into_inner()).clone()
+}
+
+/// True when a plugin gives the module of a file with `extension`.
+pub fn provides(extension: &str) -> bool {
+    extension != "pi" && current_provider().is_some_and(|provider| provider.provides(extension))
+}
+
+/// The module that a plugin gives for the file at `path`, or None when no
+/// plugin gives modules for its extension.
+fn provided(path: &Path, text: &str) -> Option<Result<String, String>> {
+    let extension = path.extension()?.to_str()?;
+    if extension == "pi" {
+        return None;
+    }
+    let provider = current_provider()?;
+    provider.provides(extension).then(|| provider.module(path, text))
+}
+
 /// Resolves a module path from the source to a file on disk or to a bundled
 /// package.
 ///
@@ -321,6 +380,18 @@ pub fn resolve(text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, R
         });
     }
 
+    // A path whose extension a plugin gives modules for names that file. Only
+    // that file can match.
+    if base.extension().and_then(|e| e.to_str()).is_some_and(provides) {
+        if base.is_file() {
+            return Ok(base);
+        }
+        return Err(ResolveError::NotFound {
+            written: text.to_string(),
+            tried: vec![base],
+        });
+    }
+
     // `./Foo` can mean `./Foo.pi` or `./Foo/index.pi`.
     let with_extension = if base.extension().is_some_and(|e| e == "pi") {
         base.clone()
@@ -373,8 +444,10 @@ impl ResolveError {
         match self {
             ResolveError::UnknownPackage(_) => Some(format!(
                 "bundled packages are {}",
-                prelude::PACKAGE_ROOTS
+                prelude::package_roots()
+                    .iter()
                     .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
                     .join(" and ")
             )),
             ResolveError::NotFound { .. } => Some(

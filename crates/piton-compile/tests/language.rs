@@ -867,34 +867,77 @@ fn duplicate_exports(compilation: &Compilation) -> Vec<&piton_core::Diagnostic> 
 }
 
 #[test]
-fn two_globs_exporting_one_name_is_a_duplicate_export() {
-    let sandbox = Sandbox::new("duplicate-globs");
+fn two_globs_exporting_one_name_export_both_under_their_module_names() {
+    let sandbox = Sandbox::new("overlapping-globs");
     sandbox
         .file("cruxible.pi", "export anchor Roles:\n    from: cruxible\nexport anchor Only:\n    v: 1\n")
         .file("strataglyph.pi", "export anchor Roles:\n    from: strataglyph\n")
         .file("main.pi", "from ./cruxible export *\nfrom ./strataglyph export *\n");
     let compilation = sandbox.compile("main.pi");
+    assert!(!compilation.has_errors(), "{:#?}", compilation.diagnostics);
+    assert!(duplicate_exports(&compilation).is_empty());
+
+    // The plain name is not exported. Each meaning is, under its module name.
+    let entry = compilation.resolution.entry;
+    let names = compilation.resolution.exported_names(entry);
+    assert_eq!(names, ["cruxible.Roles", "strataglyph.Roles", "Only"], "{names:?}");
+    let surface = compilation.compiled_surface(entry);
+    let keys: Vec<&String> = surface.keys().collect();
+    assert_eq!(keys, ["cruxible.Roles", "strataglyph.Roles", "Only"]);
+    let value = |name: &str| json::value(surface.get(name).unwrap(), &compilation);
+    assert!(value("cruxible.Roles").contains("cruxible"));
+    assert!(value("strataglyph.Roles").contains("strataglyph"));
+    assert_eq!(compilation.entry_exports().len(), 3);
+}
+
+#[test]
+fn an_import_selects_an_overlapping_export_by_its_module_name() {
+    let sandbox = Sandbox::new("overlapping-import");
+    sandbox
+        .file("lib/cruxible.pi", "export anchor Roles:\n    from: cruxible\n")
+        .file("lib/strataglyph.pi", "export anchor Roles:\n    from: strataglyph\n")
+        .file("lib/index.pi", "from ./cruxible export *\nfrom ./strataglyph export *\n")
+        .file(
+            "main.pi",
+            "from ./lib import cruxible.Roles, strataglyph.Roles GlyphRoles\n\nexport anchor A:\n    a: {Roles.from}\n    b: {GlyphRoles.from}\n",
+        );
+    let compilation = sandbox.compile("main.pi");
+    assert!(!compilation.has_errors(), "{:#?}", compilation.diagnostics);
+    let a = compilation.entry_exports()[0];
+    let text = json::value(&Value::Anchor(a), &compilation);
+    assert!(text.contains("\"a\": \"cruxible\""), "{text}");
+    assert!(text.contains("\"b\": \"strataglyph\""), "{text}");
+
+    // The plain name is ambiguous. The error names each qualified name.
+    let sandbox = Sandbox::new("overlapping-plain-import");
+    sandbox
+        .file("lib/cruxible.pi", "export anchor Roles:\n    v: 1\n")
+        .file("lib/strataglyph.pi", "export anchor Roles:\n    v: 2\n")
+        .file("lib/index.pi", "from ./cruxible export *\nfrom ./strataglyph export *\n")
+        .file("main.pi", "from ./lib import Roles\n");
+    let compilation = sandbox.compile("main.pi");
+    let found = compilation
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "unresolved-import")
+        .expect("diagnostic");
+    let help = found.help.as_deref().unwrap_or_default();
+    assert!(help.contains("`cruxible.Roles`") && help.contains("`strataglyph.Roles`"), "{help}");
+}
+
+#[test]
+fn overlapping_globs_with_one_module_name_are_a_duplicate_export() {
+    let sandbox = Sandbox::new("overlapping-same-qualifier");
+    sandbox
+        .file("a/roles.pi", "export anchor Roles:\n    v: 1\n")
+        .file("b/roles.pi", "export anchor Roles:\n    v: 2\n")
+        .file("main.pi", "from ./a/roles export *\nfrom ./b/roles export *\n");
+    let compilation = sandbox.compile("main.pi");
     let found = duplicate_exports(&compilation);
     assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
-    let diagnostic = found[0];
-    assert!(diagnostic.is_error());
-    assert!(diagnostic.message.contains("`Roles`"), "{}", diagnostic.message);
-    assert!(diagnostic.message.contains("`./cruxible`"), "{}", diagnostic.message);
-    assert!(diagnostic.message.contains("`./strataglyph`"), "{}", diagnostic.message);
-    // The diagnostic is on the line that lost. The line that won is a label.
+    assert!(found[0].message.contains("`roles.Roles`"), "{}", found[0].message);
     let source = std::fs::read_to_string(sandbox.dir.join("main.pi")).unwrap();
-    assert_eq!(&source[diagnostic.span.start..diagnostic.span.end], "./strataglyph");
-    assert_eq!(diagnostic.labels.len(), 1);
-    let help = diagnostic.help.as_deref().unwrap_or_default();
-    assert!(help.contains("Roles StrataglyphRoles"), "{help}");
-
-    // The compiler keeps the first glob. Thus the remainder of the program resolves.
-    let roles = compilation
-        .entry_exports()
-        .into_iter()
-        .find(|id| compilation.store().anchor(*id).name == "Roles")
-        .expect("Roles is exported");
-    assert!(json::value(&Value::Anchor(roles), &compilation).contains("cruxible"));
+    assert_eq!(&source[found[0].span.start..found[0].span.end], "./b/roles");
 }
 
 #[test]
@@ -909,15 +952,28 @@ fn explicit_exports_of_one_name_collide_too() {
     assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
     assert!(found[0].message.contains("`./a` and `./b`"), "{}", found[0].message);
 
-    // A declaration in the file has the same name as a name from a glob.
+    // A declaration in the file and an explicit export collide.
     let sandbox = Sandbox::new("duplicate-local");
     sandbox
         .file("a.pi", "export anchor Roles:\n    v: 1\n")
-        .file("main.pi", "from ./a export *\n\nexport anchor Roles:\n    v: 2\n");
+        .file("main.pi", "from ./a export Roles\n\nexport anchor Roles:\n    v: 2\n");
     let compilation = sandbox.compile("main.pi");
     let found = duplicate_exports(&compilation);
     assert_eq!(found.len(), 1, "{:#?}", compilation.diagnostics);
     assert!(found[0].message.contains("this file and `./a`"), "{}", found[0].message);
+}
+
+#[test]
+fn an_explicit_export_hides_the_same_name_from_a_glob() {
+    let sandbox = Sandbox::new("explicit-hides-glob");
+    sandbox
+        .file("a.pi", "export anchor Roles:\n    v: 1\n")
+        .file("main.pi", "from ./a export *\n\nexport anchor Roles:\n    v: 2\n");
+    let compilation = sandbox.compile("main.pi");
+    assert!(duplicate_exports(&compilation).is_empty(), "{:#?}", compilation.diagnostics);
+    let exports = compilation.entry_exports();
+    assert_eq!(exports.len(), 1);
+    assert!(json::value(&Value::Anchor(exports[0]), &compilation).contains('2'));
 }
 
 #[test]

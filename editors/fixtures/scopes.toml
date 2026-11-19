@@ -18,6 +18,10 @@
 #   kate     Kate itemData name, and the default style it uses
 #   vim      Vim syntax group, and the default group it links to
 #   emacs    the face `piton-ts-capture-faces` gives the capture
+#   rhun     the class rhun's tokenizer gives (`print-syntax` prints its digit).
+#            rhun has twenty classes and no context, so `editors/rhun` paints
+#            only some of these; a class it never paints still needs a name
+#            here, and the lines where it differs are gaps.
 
 [Comment]
 tm = "comment.line.double-slash.piton"
@@ -27,6 +31,7 @@ kate_style = "dsComment"
 vim = "pitonComment"
 vim_link = "Comment"
 emacs = "font-lock-comment-face"
+rhun = "comment"
 
 [Keyword]
 tm = "keyword.control.piton"
@@ -36,6 +41,7 @@ kate_style = "dsKeyword"
 vim = "pitonKeyword"
 vim_link = "Keyword"
 emacs = "font-lock-keyword-face"
+rhun = "keyword"
 
 [TypeDecl]
 tm = "entity.name.type.declaration.piton"
@@ -45,6 +51,7 @@ kate_style = "dsDataType"
 vim = "pitonTypeDecl"
 vim_link = "Type"
 emacs = "font-lock-type-face"
+rhun = "tag"
 
 [TypeRef]
 tm = "entity.name.type.piton"
@@ -54,6 +61,7 @@ kate_style = "dsDataType"
 vim = "pitonTypeRef"
 vim_link = "Type"
 emacs = "font-lock-type-face"
+rhun = "type"
 
 [Variable]
 tm = "variable.other.piton"
@@ -63,6 +71,7 @@ kate_style = "dsVariable"
 vim = "pitonVariable"
 vim_link = "Identifier"
 emacs = "font-lock-variable-use-face"
+rhun = "attribute"
 
 [Key]
 tm = "variable.other.property.piton"
@@ -72,6 +81,7 @@ kate_style = "dsAttribute"
 vim = "pitonKey"
 vim_link = "Identifier"
 emacs = "font-lock-property-name-face"
+rhun = "function"
 
 [ModulePath]
 tm = "string.unquoted.module-path.piton"
@@ -81,6 +91,7 @@ kate_style = "dsImport"
 vim = "pitonPath"
 vim_link = "String"
 emacs = "font-lock-string-face"
+rhun = "link"
 
 [BuiltinType]
 tm = "support.type.builtin.piton"
@@ -90,6 +101,7 @@ kate_style = "dsBuiltIn"
 vim = "pitonBuiltinType"
 vim_link = "Type"
 emacs = "font-lock-builtin-face"
+rhun = "builtin"
 
 [Number]
 tm = "constant.numeric.piton"
@@ -99,6 +111,7 @@ kate_style = "dsDecVal"
 vim = "pitonNumber"
 vim_link = "Number"
 emacs = "font-lock-number-face"
+rhun = "number"
 
 [Constant]
 tm = "constant.language.piton"
@@ -108,6 +121,7 @@ kate_style = "dsConstant"
 vim = "pitonConstant"
 vim_link = "Constant"
 emacs = "font-lock-constant-face"
+rhun = "constant"
 
 [String]
 tm = "string.quoted.double.piton"
@@ -117,6 +131,7 @@ kate_style = "dsString"
 vim = "pitonString"
 vim_link = "String"
 emacs = "font-lock-string-face"
+rhun = "inserted"
 
 [ExprKeyword]
 tm = "variable.language.piton"
@@ -126,6 +141,7 @@ kate_style = "dsBuiltIn"
 vim = "pitonSelf"
 vim_link = "Special"
 emacs = "font-lock-builtin-face"
+rhun = "variable"
 
 [Operator]
 tm = "keyword.operator.piton"
@@ -135,6 +151,7 @@ kate_style = "dsOperator"
 vim = "pitonOperator"
 vim_link = "Operator"
 emacs = "font-lock-operator-face"
+rhun = "operator"
 
 [ListMarker]
 tm = "punctuation.definition.list.begin.piton"
@@ -144,6 +161,7 @@ kate_style = "dsSpecialChar"
 vim = "pitonListMarker"
 vim_link = "Special"
 emacs = "font-lock-misc-punctuation-face"
+rhun = "punctuation"
 
 [Sigil]
 tm = "punctuation.section.embedded.piton"
@@ -153,6 +171,7 @@ kate_style = "dsSpecialChar"
 vim = "pitonSigil"
 vim_link = "Special"
 emacs = "font-lock-misc-punctuation-face"
+rhun = "preproc"
 
 [Escape]
 tm = "constant.character.escape.piton"
@@ -162,6 +181,7 @@ kate_style = "dsSpecialChar"
 vim = "pitonEscape"
 vim_link = "SpecialChar"
 emacs = "font-lock-escape-face"
+rhun = "escape"
 
 [Verbatim]
 tm = "string.unquoted.verbatim.piton"
@@ -171,3 +191,4 @@ kate_style = "dsVerbatimString"
 vim = "pitonVerbatim"
 vim_link = "String"
 emacs = "font-lock-string-face"
+rhun = "string"

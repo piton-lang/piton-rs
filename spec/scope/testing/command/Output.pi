@@ -1,0 +1,41 @@
+export anchor TestOutput:
+    description:
+        Results go to stdout, one block per test, separated by blank lines,
+        laid out at the terminal's width, no less than 40 columns and no more
+        than 100, or 100 when stdout isn't a terminal.
+
+        ```text
+        \\\
+        ✗ FAIL   SaveButtonSaves                                  1:02
+                 spec/tests/Editor.pi · editor, save
+                 No handler saves the document
+                 The Save button has no click handler. No function in src writes the document to disk.
+        \\\
+        ```
+
+        The first line is the status as a mark and a word, ✓ pass, ✗ FAIL or
+        ! error, then the test's name, and how long it ran at the right edge,
+        as minutes and seconds. The second, dimmed, is the file it is
+        declared in and its tags. For a test against both with a result for
+        each side, a line for the specification and one for the code follow,
+        each with its own mark and word and its reason, so a test that holds
+        in one and not the other shows both, though it fails.
+
+        ```text
+        \\\
+        ✗ FAIL   SaveButtonSaves                                  1:02
+                 spec/tests/Editor.pi · editor, save
+                 spec ✓ pass  The spec says Save saves
+                 code ✗ FAIL  No handler saves the document
+                 The code has no save handler
+                 The Save button has no click handler.
+        \\\
+        ```
+
+        Then the agent's reason, aligned under the name, and for a failure its
+        ASD-STE100 explanation beneath the reason, in the status's colour. The
+        reason, the explanation and each side's reason are each printed as one
+        line: not hard-wrapped, with no indent on continuation lines and no
+        bar. The terminal wraps a long line, so a user can select a result in
+        the console and copy and paste it as coherent text. A name too long
+        for the line is cut with an ellipsis.

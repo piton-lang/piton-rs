@@ -23,3 +23,4 @@ It’s also possible to import under an alias by placing the alias after the imp
 from ./FirstFile import pi SliceOf, MyAnchor MyAliasedAnchor
 ```
 Worth clarifying that pi will be imported as and only as SliceOf (i.e. pi will not be available in scope).
+When two `export *` lines of a module export one name with two meanings, the module exports each under the name of its source module, and an import names it that way: `from ./index import cruxible.Roles`. Without an alias, a qualified import binds the last part of the name, here Roles. See [DuplicateExports](./DuplicateExports.md#duplicate-exports).

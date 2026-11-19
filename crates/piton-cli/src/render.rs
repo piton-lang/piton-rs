@@ -2,7 +2,7 @@
 //!
 //! `piton compile` and `piton build` both change the compiled surface of a
 //! module into renderer output. The call to `piton_emit::render` is only here.
-//! Thus a change to the render setup occurs in one place. An example is the
+//! Thus a change to the render setup happens in one place. An example is the
 //! context that the code gives to a renderer.
 
 use std::path::Path;

@@ -1,6 +1,6 @@
 # Comment Language
 
-Write all code comments in ASD-STE100 Simplified Technical English. This applies to each comment and each doc comment in all code, in Rust, TypeScript and every other language.
+Write all code comments in ASD-STE100 Simplified Technical English. This applies to each comment and each doc comment in all code, in Rust, TypeScript and all other languages.
 
 ## Rules
 

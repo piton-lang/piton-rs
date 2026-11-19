@@ -91,6 +91,7 @@ from ./Base import Base, helper H
 // A comment that mentions Base
 base Thing:
     title: Use Base, true and 42 here.
+    note: use this, from that, import and export as you pass.
     count: 3
     total: {{this.count + 1}} and ${{H}} and @{{Base.name}}
     items:
@@ -107,22 +108,26 @@ $0"
     assert_eq!(
         tokens,
         vec![
+            "0:0 use keyword ",
             "0:4 ./Base namespace ",
+            "1:0 from keyword ",
             "1:5 ./Base namespace ",
+            "1:12 import keyword ",
             "1:19 Base class abstract,exported,imported",
             "1:25 helper variable exported,imported",
             "1:32 H variable exported,imported",
             "3:0 base keyword imported",
             "3:5 Thing class declaration",
             "4:4 title property declaration",
-            "5:4 count property declaration",
-            "6:4 total property declaration",
-            "6:17 count property ",
-            "6:34 H variable exported,imported",
-            "6:43 Base class abstract,exported,imported",
-            "6:48 name property ",
-            "7:4 items property declaration",
-            "8:17 items property ",
+            "5:4 note property declaration",
+            "6:4 count property declaration",
+            "7:4 total property declaration",
+            "7:17 count property ",
+            "7:34 H variable exported,imported",
+            "7:43 Base class abstract,exported,imported",
+            "7:48 name property ",
+            "8:4 items property declaration",
+            "9:17 items property ",
         ]
         .into_iter()
         .map(str::to_string)
@@ -450,7 +455,7 @@ fn a_body_offers_the_keys_it_does_not_have() {
     assert_eq!(ws.labels(), vec!["note", "path"]);
     let items = ws.completion();
     let path = items.iter().find(|item| item.label == "path").expect("path");
-    assert_eq!(path.sort_text.as_deref(), Some("0path"), "required first");
+    assert_eq!(path.sort_text.as_deref(), Some("00path"), "no typed word, then required first");
     let empty = Workspace::new(&format!("{PAGE}//- /spec/index.pi\nuse ./Page\n\nexport page Home:\n    $0\n"));
     assert_eq!(empty.labels(), vec!["note", "pass", "path", "title"]);
 }

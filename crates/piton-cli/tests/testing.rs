@@ -392,3 +392,39 @@ fn against_both_a_test_fails_when_one_side_fails() {
     assert_eq!(code, 0, "{stdout}");
     assert!(!stdout.contains("spec ✓ pass"), "{stdout}");
 }
+
+#[test]
+fn a_context_goes_before_the_statement_in_the_request_and_the_fix_prompt() {
+    let fixture = project(
+        "context",
+        "",
+        "use @piton/test
+from @piton/test import Test
+
+abstract anchor EditorTest extends Test as editor-test:
+    context: The editor is the document view under src/editor.
+
+export editor-test SaveWorks:
+    expects: The Save button saves the document
+    against: code
+",
+    );
+    let (stdout, stderr, code) = fixture.run(&["test", "SaveWorks"]);
+    assert_eq!(code, 1, "{stdout}{stderr}");
+
+    // The request gives the context before the statement.
+    let calls = fixture.calls();
+    let request = calls[0].join("\n");
+    let context = request.find("The editor is the document view under src/editor.").expect(&request);
+    let statement = request.find("The Save button saves the document").expect(&request);
+    assert!(context < statement, "{request}");
+
+    // The fix prompt gives the context before the statement too.
+    let prompt = stdout.split("Fix prompts\n").nth(1).unwrap_or_else(|| panic!("{stdout}"));
+    assert!(
+        prompt.contains(
+            "this statement is true:\n\nContext: The editor is the document view under src/editor.\n\nThe Save button saves the document\n"
+        ),
+        "{prompt}"
+    );
+}

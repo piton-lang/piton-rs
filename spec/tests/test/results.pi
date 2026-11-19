@@ -1,4 +1,5 @@
 use ./lib
+from ../../scope/testing/command/Output import TestOutput
 
 export test Formatting:
     expects:
@@ -20,3 +21,10 @@ export test OfferToRunFixPrompt:
     tags:
         + {super.tags}
         - offer
+
+export test OutputFormat:
+    expects:
+        The results that piton test writes to stdout obey each rule of
+        ${TestOutput} in spec/scope/testing/command/Output.pi: the layout of
+        each block, the width, the status lines, the side lines, the reason and
+        the explanation.

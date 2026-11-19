@@ -1,0 +1,6 @@
+# Test Selection
+
+## Description
+
+Targets and `--tags` narrow the run together: a test runs when a target names it, or there are no targets, and its tags match the expression, or there is none. When the selection leaves nothing, the run is an error, since a run that tests nothing is never what was meant.
+A target is first a test's name, matched exactly. A target that is no test's name is a path, relative to the project root or absolute, and names every test declared in that file or in a file under that directory.

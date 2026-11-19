@@ -11,3 +11,14 @@ export test ExtendsTestKeyword:
         for example MyTest extends Test as my-test and whether a test is
         declared with `my-test` or `extends MyTest` it will still get picked up
         by the test framework.
+
+export test TestAnchor:
+    expects:
+        The text anchor should include an optional `context` property that will
+        prepend to the test so we can provide a re-used preamble for what a text
+        is about.  That will be sent along with the text and used for any fix
+        prompts.
+
+export test RunningAgentAndModel:
+    expects:
+        The running agent and model should be displayed when tests are run.

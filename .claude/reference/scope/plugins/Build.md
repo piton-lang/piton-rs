@@ -57,4 +57,4 @@ A project whose plugins build something gets their output instead of the rendere
 
 ## Plan Only
 
-`piton check` runs every build hook too, to report the plans' diagnostics, and writes nothing. The language server runs them when a file is saved, never as you type, so typing stays free of plugin code. It shows their diagnostics, and its compiled-output preview shows the planned files.
+`piton check` runs every build hook too, to report the plans' diagnostics, and writes nothing. The language server runs them when a file is saved, never as you type, so typing runs no build. It shows their diagnostics, and its compiled-output preview shows the planned files.

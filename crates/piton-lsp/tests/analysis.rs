@@ -78,7 +78,7 @@ fn apply(text: &str, edits: &[TextEdit]) -> String {
 }
 
 #[test]
-fn duplicate_exports_reach_the_editor() {
+fn overlapping_globs_are_not_an_error_but_duplicate_exports_reach_the_editor() {
     let fixture = Fixture::new("duplicate-exports");
     fixture.write(
         "piton.config.pi",
@@ -93,10 +93,22 @@ fn duplicate_exports_reach_the_editor() {
 
     let world = fixture.world();
     let reported = codes(&world, "spec/index.pi", &fixture);
+    assert!(
+        !reported.iter().any(|code| code == "duplicate-export"),
+        "two `export *` lines export Roles under their module names: {reported:?}"
+    );
+
+    // Two explicit exports of one name still collide.
+    fixture.write(
+        "spec/index.pi",
+        "from ./cruxible export Roles\nfrom ./strataglyph export Roles\n",
+    );
+    let world = fixture.world();
+    let reported = codes(&world, "spec/index.pi", &fixture);
     assert_eq!(
         reported.iter().filter(|code| *code == "duplicate-export").count(),
         1,
-        "both modules export Roles: {reported:?}"
+        "both lines export Roles: {reported:?}"
     );
 }
 
@@ -255,7 +267,7 @@ fn only_abstracts_that_cannot_both_hold_conflict() {
 
     let world = fixture.world();
     let reported = codes(&world, "spec/index.pi", &fixture);
-    // The compiler reports it. The editor does not add a second squiggle.
+    // The compiler reports it. The editor does not add a second diagnostic.
     assert!(
         reported.iter().any(|code| code == "conflicting-abstracts"),
         "{reported:?}"
@@ -554,6 +566,42 @@ fn belay_plan_checks_reach_the_editor() {
         reported.iter().any(|code| code == "description-too-long"),
         "Belay plan validation should be visible in the editor: {reported:?}"
     );
+}
+
+#[test]
+fn a_belay_project_without_renderer_output_shows_no_json() {
+    let fixture = Fixture::new("belay-plugin-output");
+    std::fs::create_dir_all(fixture.path("src")).expect("code root");
+    fixture.write(
+        "piton.config.pi",
+        "use @piton/config\nuse @piton/belay\n\nfrom @piton/belay import ClaudeCodeAdapter\n\nexport piton-config Config:\n    root: ./spec\n    entry: ./spec/index.pi\n    plugins:\n        - {BelayConfiguration}\n\nbelay-config BelayConfiguration:\n    codeRoot: ./src\n    adapters:\n        - {ClaudeCodeAdapter}\n",
+    );
+    fixture.write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Greet:\n    description: Greets the user.\n    useWhen: asked to greet\n    prompt: hello\n",
+    );
+
+    let world = fixture.world();
+    let uri = fixture.uri("spec/index.pi");
+    // The build writes no JSON, so no lens and no hover names a JSON file.
+    let lenses = features::code_lenses(&world, &uri).unwrap_or_default();
+    let titles: Vec<String> = lenses
+        .iter()
+        .filter_map(|lens| lens.command.as_ref().map(|command| command.title.clone()))
+        .collect();
+    assert!(titles.iter().all(|title| !title.contains("json")), "{titles:?}");
+    assert!(
+        titles.iter().any(|title| title.contains("SKILL.md")),
+        "the plugin output is still mapped: {titles:?}"
+    );
+
+    let hover = features::hover(&world, &uri, nth_position(&fixture, "spec/index.pi", "Greet", 0))
+        .expect("a hover on the skill");
+    let HoverContents::Markup(markup) = hover.contents else {
+        panic!("expected markup");
+    };
+    assert!(markup.value.contains("Compiled to"), "{}", markup.value);
+    assert!(!markup.value.contains(".json") && !markup.value.contains("(json)"), "{}", markup.value);
 }
 
 #[test]

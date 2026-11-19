@@ -186,7 +186,11 @@ fn main() -> ExitCode {
     // Plugins add commands from their declarations. Thus, before it parses,
     // the CLI loads the built-in commands and the commands of all plugins of
     // the project.
+    piton_plugin::bundled::register();
     let (project, config_diagnostics, mut manifests, mut problems) = plugins::load();
+    // A plugin with a module hook gives the modules of files that are not
+    // Piton, for example `.emul` files.
+    piton_plugin::modules::install(&project, &manifests);
     let mut command = Cli::command();
     plugins::withhold_builtins(&command, &mut manifests, &mut problems);
     command = plugins::add_commands(command, &manifests);

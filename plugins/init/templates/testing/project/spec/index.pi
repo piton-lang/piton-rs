@@ -1,0 +1,9 @@
+export anchor Specification:
+    description:
+        What this project is, in a sentence or two. The tests in spec/tests
+        state what must be true of it, and piton test has an agent judge each
+        one.
+
+    goals:
+        - Say what the project must do.
+        - Say what it must never do.

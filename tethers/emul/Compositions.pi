@@ -1,0 +1,179 @@
+from ./Conditions import Conditions
+from ./HtmlOutput import HtmlOutput
+from ./Layout import Layout
+from ./Modules import Modules
+from ./OutputSize import OutputSize
+from ./Values import Values
+
+export anchor Compositions:
+    description:
+        Compositions are how you arrange components to create a design.
+
+    purpose:
+        Where a component declares how something looks, a composition declares
+        what is on the canvas and where. A composition is a tree of component
+        instances. Each instance is drawn with its component's styling, and
+        its position in the tree decides what it sits inside of.
+
+        A composition is the unit that gets rendered. Each one becomes a single
+        output, whether that is an HTML/CSS page, an SVG or a PNG.
+
+    keywordIdentifier: composition
+
+    keyword:
+        Compositions are declared with the ${this.keywordIdentifier} keyword.
+
+    identifier:
+        Following the keyword is the name of the composition.
+
+    braces:
+        Compositions use brace syntax rather than indentation. The body of the
+        composition, and the body of every component instance inside it, is
+        enclosed in `\ { \` and `\ } \`.
+
+        Braces suit compositions because, unlike components, they nest deeply.
+        Explicit delimiters keep the tree readable, and keep it unambiguous,
+        however deep it goes and however it is indented. Indentation inside
+        braces has no meaning; it is only there to make the tree easy to
+        read.
+
+    instances:
+        A component instance is the name of a component followed by a body in
+        curly braces: `\ MyButton { } \`. The name must refer to a component
+        declared in the same file or imported into it, as described in
+        @{Modules}.
+        The same component may be instanced any number of times. A
+        composition can be instanced in the same way, as described under
+        reuse.
+
+    body:
+        The body of an instance may hold any mix of the following:
+
+        - text
+            A quoted string, such as `"Click Me"`, is text content drawn inside
+            the instance, styled by its component's typography properties.
+        - attributes
+            A `name: value` pair, such as `alt: Company logo`, sets an
+            attribute on that one instance.
+        - children
+            Further component instances, nested inside this one.
+
+        Entries are separated by commas or by line breaks, so a short body can
+        sit on one line and a longer one can be spread across several. How
+        commas inside values are handled is described in @{Values}.
+
+    text:
+        A body may hold any number of quoted texts, mixed freely with
+        children. Text and children are placed in the order they are written,
+        so text can come before, between or after child instances.
+
+        Text is drawn with the typography of the instance's own component, and
+        never with that of any instance around it, since properties do not
+        cascade. Each quoted text sits on one line of source; to break text
+        onto separate lines, use separate child instances. Two quoted texts
+        written next to each other are drawn as one run, with nothing added
+        between them. How spaces in text are collapsed, and where lines break,
+        is set out in @{Layout}.
+
+    attributes:
+        Attributes carry information that is not styling, such as the image
+        to show or a link's target. Each attribute becomes an HTML attribute
+        on the instance's element, as described in @{HtmlOutput}. Only the
+        `src` attribute affects the SVG and PNG outputs, where it names the
+        image drawn by an instance whose component has the htmlTag `img`.
+
+        Attribute names are lowercase, and may contain digits and hyphens,
+        such as `href`, `alt` or `aria-label`. The value is everything after
+        the colon up to the end of the entry. It may be quoted, in which case
+        it can contain commas without escaping.
+
+        Styling is never set on an instance. An attribute named after a
+        component property, such as `color`, is an error, as are the names
+        `class` and `style`. An instance that should look different should use
+        a different component, usually one that extends the original, or set
+        an attribute that its component declares.
+
+        An attribute the component declares, as described in @{Conditions},
+        does not set styling directly. It picks which of the component's
+        `when` blocks apply. Its value must be one of the allowed values.
+
+    variants:
+        Emul has two ways to make a variant. A variant can be a component that
+        extends another, such as `SecondaryButton extends MyButton`, chosen by
+        instancing it by name. Or it can be a value of an attribute the
+        component declares, chosen by setting that attribute on the instance,
+        as in `\ Button { size: small } \`, as described in @{Conditions}.
+
+    children:
+        Children are laid out by their parent, using the parent component's
+        layout properties, such as display, flexDirection and gap. They are
+        placed in the order they are written, which is also the order in which
+        they are drawn: later children are drawn above earlier ones, unless
+        zIndex says otherwise.
+
+    root:
+        The body of the composition itself is the root of the tree. It holds
+        component instances only, with no text or attributes, and it has no
+        styling of its own.
+
+    reuse:
+        A composition can be reused as a complex component. A composition
+        declared in the same file, or imported into it as described in
+        @{Modules}, is instanced by name like a component:
+        `\ Card { } \`. To share a composition between files, export it from
+        the file that declares it and import it where it is used.
+
+        A composition instance draws the instances in the root of the
+        referenced composition in its own place, in the order they are
+        written there. They become children of the instance's parent, or of
+        the root, and are laid out by that parent like any other children.
+        Each instance is a separate copy of the tree, and the composition
+        adds no element or styling of its own, since its root has none.
+
+        The body of a composition instance must be empty. It can't hold text,
+        attributes or children, because a composition has no place to put
+        them. A part of a design that changes from use to use should be built
+        from shared components instead.
+
+        A composition can't contain itself, either directly or through other
+        compositions that it instances. Such a cycle is an error.
+
+        A composition that is instanced is not rendered on its own unless it
+        is also exported from the entry file.
+
+    example:
+        ```emul
+        \\\
+        component Logo:
+            htmlTag: img
+            width: 120px
+            height: 32px
+            objectFit: contain
+
+        component Header:
+            display: flex
+            alignItems: center
+            gap: 12px
+            padding: 16px 24px
+
+        component Tagline:
+            fontSize: 14px
+            color: #52525b
+
+        composition Landing {
+            Header {
+                Logo { src: ./images/logo.png, alt: "Acme, Inc." }
+                Tagline { "Designs that ", "render everywhere" }
+            }
+        }
+        \\\
+        ```
+
+        Here `Header` is the single child of the root. It holds a `Logo`,
+        drawn as the image at `./images/logo.png`, and a `Tagline` with two
+        quoted texts drawn as the single run "Designs that render
+        everywhere". The `alt` value is quoted, so its comma needs no escape.
+
+    size:
+        A composition's root fills the canvas, whose size is set in the config
+        and on the command line, as described in @{OutputSize}.

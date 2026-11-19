@@ -1,0 +1,18 @@
+{
+  "//": "For editors and tsc only. Piton transpiles and runs the plugin itself; nothing is emitted from here.",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@piton/plugin": ["../../crates/piton-plugin/api/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

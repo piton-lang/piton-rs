@@ -1,0 +1,8 @@
+use @piton/test
+
+export test ExportFromModules:
+    expects:
+        Author should be able to `export *` from different packages without
+        error even if there's name overlap.  Everything that's expected to be
+        exported should be exported, and the compiler should adapt to whatever
+        the appropriate output structure is.

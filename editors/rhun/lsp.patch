@@ -1,0 +1,117 @@
+diff --git a/main.go b/main.go
+index ff574ee..bae85fb 100644
+--- a/main.go
++++ b/main.go
+@@ -32,35 +32,11 @@ import (
+ 
+ // servers by grammar name (spaces as underscores), overridable in lsp.ini's [servers]
+ var servers = map[string][]string{
+-	"Go":         {"gopls"},
+-	"Rust":       {"rust-analyzer"},
+-	"TypeScript": {"typescript-language-server", "--stdio"},
+-	"JavaScript": {"typescript-language-server", "--stdio"},
+-	"Python":     {"pyright-langserver", "--stdio"},
+-	"C":          {"clangd"},
+-	"C++":        {"clangd"},
+-	"Zig":        {"zls"},
+-	"Lua":        {"lua-language-server"},
+-	"Ruby":       {"solargraph", "stdio"},
+-	"Dart":       {"dart", "language-server"},
+-	"Kotlin":     {"kotlin-language-server"},
+-	"Swift":      {"sourcekit-lsp"},
+-	"OCaml":      {"ocamllsp"},
+-	"Haskell":    {"haskell-language-server-wrapper", "--lsp"},
+-	"Elixir":     {"elixir-ls"},
+-	"Nix":        {"nil"},
+-	"Terraform":  {"terraform-ls", "serve"},
+-	"YAML":       {"yaml-language-server", "--stdio"},
+-	"JSON":       {"vscode-json-language-server", "--stdio"},
+-	"HTML":       {"vscode-html-language-server", "--stdio"},
+-	"CSS":        {"vscode-css-language-server", "--stdio"},
++	"Piton": {"piton", "lsp"},
+ }
+ 
+ var languageIDs = map[string]string{
+-	"Go": "go", "Rust": "rust", "TypeScript": "typescript", "JavaScript": "javascript", "Python": "python",
+-	"C": "c", "C++": "cpp", "Zig": "zig", "Lua": "lua", "Ruby": "ruby", "Dart": "dart", "Kotlin": "kotlin",
+-	"Swift": "swift", "OCaml": "ocaml", "Haskell": "haskell", "Elixir": "elixir", "Nix": "nix",
+-	"Terraform": "terraform", "YAML": "yaml", "JSON": "json", "HTML": "html", "CSS": "css",
++	"Piton": "piton",
+ }
+ 
+ // ---- documents
+@@ -168,19 +144,19 @@ func (l *lsp) Event(ext *rhunext.Ext, ev rhunext.Event) {
+ 
+ func (l *lsp) Run(ext *rhunext.Ext, command string, doc rhunext.Doc) {
+ 	switch command {
+-	case "lsp.setup":
++	case "piton.setup":
+ 		go l.showSetup(doc, "", false)
+-	case "lsp.reload_configuration":
++	case "piton.reload_configuration":
+ 		if err := l.reloadSettings(); err != nil {
+ 			l.configError(err)
+ 		} else {
+ 			ext.Toast("Language server settings reloaded. Restart to apply initialization options.")
+ 		}
+-	case "lsp.cancel_progress":
++	case "piton.cancel_progress":
+ 		if l.cancelProgress() == 0 {
+ 			ext.Toast("No cancellable language server work")
+ 		}
+-	case "lsp.restart":
++	case "piton.restart":
+ 		commands, err := readConfig(filepath.Join(l.state, "lsp.ini"))
+ 		if err != nil {
+ 			l.configError(err)
+diff --git a/scope.go b/scope.go
+index 24feff7..c021c9a 100644
+--- a/scope.go
++++ b/scope.go
+@@ -22,22 +22,14 @@ import (
+ const featureMarkdown = "markdown"
+ 
+ // manifestPatterns are the file patterns of every [provides] kind in extension.ini, in its order
+-var manifestPatterns = []string{"*.go", "*.rs", "*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.py",
+-	"*.c", "*.h", "*.cc", "*.cpp", "*.cxx", "*.hpp", "*.hh", "*.zig", "*.lua", "*.rb", "*.dart", "*.kt", "*.kts",
+-	"*.swift", "*.ml", "*.mli", "*.hs", "*.ex", "*.exs", "*.nix", "*.tf", "*.yaml", "*.yml", "*.json", "*.html",
+-	"*.htm", "*.css"}
++var manifestPatterns = []string{"*.pi"}
+ 
+ // manifestTypeTriggers are type_format.triggers in extension.ini: the characters servers format on
+ var manifestTypeTriggers = []string{"newline", ".", "=", "<", ">", "{", "(", "|", "+", "}", ";"}
+ 
+ // languagePatterns are the manifest's patterns of each language (a header serves C and C++)
+ var languagePatterns = map[string][]string{
+-	"Go": {"*.go"}, "Rust": {"*.rs"}, "TypeScript": {"*.ts", "*.tsx"}, "JavaScript": {"*.js", "*.jsx", "*.mjs", "*.cjs"},
+-	"Python": {"*.py"}, "C": {"*.c", "*.h"}, "C++": {"*.cc", "*.cpp", "*.cxx", "*.hpp", "*.hh", "*.h"},
+-	"Zig": {"*.zig"}, "Lua": {"*.lua"}, "Ruby": {"*.rb"}, "Dart": {"*.dart"}, "Kotlin": {"*.kt", "*.kts"},
+-	"Swift": {"*.swift"}, "OCaml": {"*.ml", "*.mli"}, "Haskell": {"*.hs"}, "Elixir": {"*.ex", "*.exs"},
+-	"Nix": {"*.nix"}, "Terraform": {"*.tf"}, "YAML": {"*.yaml", "*.yml"}, "JSON": {"*.json"},
+-	"HTML": {"*.html", "*.htm"}, "CSS": {"*.css"},
++	"Piton": {"*.pi"},
+ }
+ 
+ // scopeKey is a [provides] key, the server method that serves it and the feature rhun must have
+diff --git a/setup.go b/setup.go
+index 1aac940..c83d074 100644
+--- a/setup.go
++++ b/setup.go
+@@ -20,6 +20,8 @@ type installGuide struct {
+ }
+ 
+ var installGuides = map[string]installGuide{
++	"piton": {url: "https://github.com/piton-lang/piton-rs", prerequisites: "Install the piton binary.",
++		command: "cargo xtask install", note: "Put piton on PATH. The language server is piton lsp. Open the folder that holds piton.config.pi."},
+ 	"gopls": {url: "https://go.dev/gopls/", prerequisites: "Install Go first.",
+ 		command: "go install golang.org/x/tools/gopls@latest", note: "Add Go's bin directory (GOBIN, or GOPATH/bin) to your PATH."},
+ 	"rust-analyzer": {url: "https://rust-analyzer.github.io/book/installation.html", prerequisites: "Install a Rust toolchain with rustup, including cargo and rustc.",
+@@ -300,7 +302,7 @@ func (l *lsp) ViewEvent(ext *rhunext.Ext, view rhunext.View, ev rhunext.Retained
+ 	case "lsp-setup:languages":
+ 		go l.showSetup(0, "", true)
+ 	case "lsp-setup:restart":
+-		go l.Run(ext, "lsp.restart", 0)
++		go l.Run(ext, "piton.restart", 0)
+ 	case "lsp-setup:config":
+ 		go func() {
+ 			path := filepath.Join(l.state, "lsp.ini")

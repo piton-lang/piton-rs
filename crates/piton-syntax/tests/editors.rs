@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use piton_syntax::language;
 
-/// Every query that the language ships.
+/// Each query that the language supplies.
 ///
 /// The queries of the grammar use the vocabulary that Helix and Neovim read.
 /// The queries of Zed use the vocabulary of Zed. Thus the two sets are not the
@@ -94,7 +94,7 @@ const DEFINITIONS: &[&str] = &[
     "kate/piton.xml",
 ];
 
-/// Every definition must know every word that has a sense.
+/// Each definition must know each word that has a sense.
 ///
 /// This is a fast, early signal. The highlighter corpus
 /// (`tests/highlight_corpus.rs`) has a different question. It asks if each word
@@ -132,7 +132,7 @@ fn every_definition_covers_the_sigils() {
     }
 }
 
-/// `.pi` is the extension. Every definition must claim it.
+/// `.pi` is the extension. Each definition must claim it.
 #[test]
 fn every_definition_claims_the_file_extension() {
     let extension = language::EXTENSION;
@@ -147,6 +147,8 @@ fn every_definition_claims_the_file_extension() {
         "zed/languages/piton/config.toml",
         "helix/languages.toml",
         "neovim/piton.lua",
+        "rhun/syntax/piton.syn",
+        "rhun/extension.ini",
     ] {
         let text = read(definition);
         assert!(
@@ -213,7 +215,7 @@ fn every_definition_indents_after_a_colon() {
     // A line opens a block when it ends where a value can start. Examples are
     // a declaration at the margin, `key:`, `key:: type:` and `- key:`. A colon
     // in a value opens no block. `prompt: Careful: ` ends a sentence, not a
-    // property. JSON and TOML double every backslash.
+    // property. JSON and TOML double each backslash.
     let config_form = BLOCK_OPENS.replace('\\', "\\\\");
 
     for (definition, needle) in [
@@ -244,7 +246,7 @@ fn every_definition_indents_after_a_colon() {
 /// which lines open a block.
 ///
 /// Zed compiles the pattern with the regex crate of Rust. Thus the pattern must
-/// compile there. VS Code can accept a pattern that Rust rejects. If that occurs,
+/// compile there. VS Code can accept a pattern that Rust rejects. If that happens,
 /// Zed uses its own old rule for indentation. Also, the pattern must find the
 /// same boundary as the server. This is the boundary between the colon of a
 /// key and the colon of a value. If not, the two will disagree on each newline.
@@ -279,6 +281,44 @@ fn the_block_opens_pattern_agrees_with_the_server() {
     }
 }
 
+/// The rhun grammar has word lists, not rules. Thus it is not in
+/// `DEFINITIONS`. It cannot give colour to a type name only after `::`.
+/// Thus it does not list a type name that is also a usual key, for example
+/// `list`. It lists the literals and the expression keywords. It lists no
+/// declaration keyword, because a word list would also colour `from` in a
+/// string body. The language server colours those keywords where the parser
+/// reads them.
+#[test]
+fn the_rhun_grammar_lists_the_words() {
+    let text = read("rhun/syntax/piton.syn");
+    let words: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            ["keywords =", "constants =", "variables =", "builtins ="]
+                .iter()
+                .any(|key| line.starts_with(key))
+        })
+        .flat_map(|line| line.split_once('=').unwrap().1.split_whitespace())
+        .collect();
+    let mut wanted: Vec<&str> = Vec::new();
+    wanted.extend(language::LITERALS);
+    wanted.extend(language::EXPRESSION_KEYWORDS);
+    wanted.extend(["string", "number", "boolean", "dictionary"]);
+    let gaps: Vec<&str> = wanted.into_iter().filter(|word| !words.contains(word)).collect();
+    assert!(gaps.is_empty(), "rhun/syntax/piton.syn does not list {}", gaps.join(", "));
+    assert!(
+        !text.lines().any(|line| line.starts_with("keywords =")),
+        "rhun/syntax/piton.syn lists keywords, which it would also colour in a string body"
+    );
+    for needle in ["files = *.pi", "toggle_comment = //", "colon_indent = yes", "labels = yes"] {
+        assert!(text.contains(needle), "rhun/syntax/piton.syn should set `{needle}`");
+    }
+    assert!(
+        !text.contains("block ="),
+        "rhun/syntax/piton.syn configures a block comment, which the language does not have"
+    );
+}
+
 /// Each editor that the specification names has a directory.
 #[test]
 fn every_specified_editor_is_covered() {
@@ -309,7 +349,7 @@ fn every_specified_editor_is_covered() {
     );
 }
 
-/// Every editor that runs the server must start it in the same way.
+/// Each editor that runs the server must start it in the same way.
 #[test]
 fn the_server_is_always_invoked_the_same_way() {
     for (definition, needle) in [
@@ -322,6 +362,7 @@ fn the_server_is_always_invoked_the_same_way() {
         ("kate/README.md", r#"["piton", "lsp"]"#),
         ("jetbrains/README.md", "piton lsp"),
         ("zed/src/piton.rs", r#"&["lsp"]"#),
+        ("rhun/lsp.patch", r#""Piton": {"piton", "lsp"}"#),
     ] {
         let text = read(definition);
         assert!(
@@ -492,7 +533,7 @@ fn the_editor_queries_match_the_grammars_own() {
     }
 }
 
-/// Every string literal that the grammar writes. These are all the anonymous tokens.
+/// Each string literal that the grammar writes. These are all the anonymous tokens.
 fn string_literals(grammar: &str) -> Vec<String> {
     let mut out = Vec::new();
     let chars: Vec<char> = grammar.chars().collect();
@@ -628,7 +669,7 @@ fn every_canonical_name_appears_in_its_definition() {
             }
         }
     }
-    // The tree-sitter query is the only place that contains every capture.
+    // The tree-sitter query is the only place that contains all captures.
     let query = read("tree-sitter-piton/queries/highlights.scm");
     let used = captures(&query);
     for (class, name) in scope_column("ts") {
@@ -681,7 +722,7 @@ fn emacs_highlights_match_the_grammars_own() {
     );
 }
 
-/// Every capture that the query uses has a face in `piton-ts-capture-faces`.
+/// Each capture that the query uses has a face in `piton-ts-capture-faces`.
 /// It is the face that `scopes.toml` names. The mode drops a capture that has
 /// no entry. Then the text has colour in all other editors, but no colour in
 /// Emacs.
@@ -802,7 +843,7 @@ fn the_workspace_excludes_the_zed_extension() {
 ///
 /// This check finds the old `indents.scm` in this directory. That
 /// file was a copy of the grammar file in the vocabulary of Neovim. Zed ignored
-/// every capture in it.
+/// all captures in it.
 #[test]
 fn zed_queries_use_captures_zed_reads() {
     for (name, allowed) in ZED_CAPTURES {
@@ -849,7 +890,7 @@ fn zed_indentation_is_a_line_rule() {
     );
 }
 
-/// Every scope that a bracket excludes must be a scope that `overrides.scm`
+/// Each scope that a bracket excludes must be a scope that `overrides.scm`
 /// defines.
 ///
 /// If `not_in = ["verbatim"]` names a scope that no query captures, it is not

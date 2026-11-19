@@ -122,6 +122,7 @@ function collect(ctx: Context, anchors: Anchor[], flagScope: string | null, fall
       name: anchor.name,
       file: anchor.file,
       expects,
+      context: text(anchor, "context"),
       description: text(anchor, "description"),
       against: flagScope ?? own ?? fallback,
       tags: Array.isArray(tagValues)
@@ -288,6 +289,13 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
   }
 
   const model = flag.model ?? settings.model;
+  // Name the agent and the model that judge the tests before the first test
+  // starts. A note would only show after the results.
+  ctx.stderr(
+    `${ctx.paint("note", "judging with")} ${ctx.paint("name", tool.name)}${ctx.paint("dim", ",")} ${
+      model === null ? ctx.paint("dim", "default model") : `${ctx.paint("dim", "model")} ${ctx.paint("name", model)}`
+    }\n`,
+  );
   if (model === null) {
     // No model was chosen: the agent judges with its default, and the run
     // lists the models it could use instead.

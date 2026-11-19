@@ -35,3 +35,7 @@
 ## Testing
 
 [Testing](./scope/testing/index.md#testing)
+
+## Emul
+
+[EmulPlugin](./scope/emul/index.md#emul-plugin)

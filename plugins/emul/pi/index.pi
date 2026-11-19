@@ -1,0 +1,4 @@
+// This file contains the Piton files of the Emul plugin.
+// Projects import them as @piton/emul.
+
+from ./EmulDesign export EmulDesign

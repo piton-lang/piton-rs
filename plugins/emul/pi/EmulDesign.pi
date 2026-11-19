@@ -1,0 +1,22 @@
+// This anchor is the shape of a design that a project imports from an Emul
+// file. The module hook of the Emul plugin makes one concrete emul-design
+// anchor for each design that the Emul file exports. This file is part of the bundled Emul plugin, as
+// @piton/emul.
+export abstract anchor EmulDesign as emul-design:
+    name:: string
+    kind:: string
+    file:: string
+
+    usage:
+        `${self.name}` is an Emul ${self.kind} in `${self.file}`. The path is
+        relative to the project root. The `emul` compiler is already installed
+        on this system. Do not install it. To use the design, read the Emul
+        file directly, or compile the design to SVG, PNG or HTML with `emul
+        build`. Select the form that is most useful for the current work. SVG
+        and PNG show how the design looks. HTML shows the structure and the
+        CSS. The Emul source shows the exact values. Write compiled files to a
+        temporary directory with `--out`, and do not add them to the project.
+        `emul build` renders only compositions that the entry of an Emul
+        project exports. Thus give `--config` for the Emul project of the
+        file, or make a temporary Emul project whose entry exports the design.
+        A component shows only in a composition.

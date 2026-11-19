@@ -1,0 +1,17 @@
+export anchor TestDiscovery:
+    description:
+        The project is the piton.config.pi in the working directory. Every
+        .pi file under its source root is compiled, not only what the entry
+        reaches, and every concrete anchor declared with export that has
+        @piton/test's Test in its inheritance chain is a test, wherever in the
+        source root it is, and whatever keyword or chain it got there by. Tests
+        in tethers/ belong to installed packages and are left out. The plugin
+        finds them with one query of the compiled project, described in the
+        plugin API. Tests are ordered by the file they are declared in, then by
+        name, so a run and a listing order them the same way every time.
+
+        The project has to compile cleanly first: tests are not run over a
+        specification with errors, which are reported as diagnostics and stop
+        the run. So does a test that isn't well-formed, one whose expects is
+        empty or whose against isn't spec, code or both: each is reported by
+        name with the file it is in, and none of the tests run.

@@ -31,11 +31,11 @@ pub fn format(source: &str, path: &Path) -> String {
     format_impl(source, path, false)
 }
 
-/// Autoformats a source file. An editor does the same with format-on-save.
+/// Formats a source file for an editor. An editor calls it when it saves a file.
 ///
 /// This function normalizes the structure. It adds a space after `//`, as
-/// `piton format` does. It does not change other commented text. A whole-line
-/// comment keeps its original indentation. Each comment keeps its text after
+/// `piton format` does. It does not change other comment text. A comment that
+/// fills a line keeps its original indentation. Each comment keeps its text after
 /// the marker byte-for-byte. The function formats the code on a line that only
 /// *carries* a comment.
 pub fn autoformat(source: &str, path: &Path) -> String {
@@ -121,13 +121,13 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
             continue;
         }
 
-        // Autoformat does not move a whole-line comment. The original
+        // The formatter does not move a comment that fills a line. The original
         // indentation stays. The only change is the space after `//`.
         // A format on save must not move the comments of a user. The comment
         // still goes into the indentation stack above. Thus the code around it
         // goes where `piton format` puts it. Only the output of the comment is
         // different. This code runs outside escape blocks. In an escape block,
-        // a `//` at the start is literal text, and the code above handles it.
+        // a `//` at the start is literal text, and the code above processes it.
         let depth = depth_for(&mut stack, indent);
 
         if preserve_comments && trimmed.starts_with("//") {
@@ -434,9 +434,9 @@ mod tests {
 
     #[test]
     fn autoformat_adds_the_space_and_leaves_comment_lines_where_they_are() {
-        // The spec tells autoformat to add the space after //. Autoformat must
-        // not change other comment text. A whole-line comment keeps its
-        // original indentation. This is also true for an incorrect indentation.
+        // The spec tells `autoformat` to add the space after //. `autoformat`
+        // must not change other comment text. A comment that fills a line keeps
+        // its original indentation. This is also true for an incorrect indentation.
         assert_eq!(auto("//no space\n"), "// no space\n");
         assert_eq!(
             auto("        // deeply indented\n"),

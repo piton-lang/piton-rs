@@ -2,7 +2,7 @@ use @piton/packaging
 use @piton/config
 use @piton/belay
 
-from @piton/belay import ClaudeCodeAdapter
+from @piton/belay import ClaudeCodeAdapter, OpenCodeAdapter
 
 export piton-config PitonLanguageTest:
     root: ./spec
@@ -14,12 +14,16 @@ export piton-config PitonLanguageTest:
     packages:
         - {Piton}
 
+    dependencies:
+        - https://github.com/emul-lang/emul-rs.git
+
 belay-config BelayConfiguration:
     codeRoot: ./crates
     shapeRoot: ./spec/shape
 
     adapters:
         - {ClaudeCodeAdapter}
+        - {OpenCodeAdapter}
 
 piton-package Piton:
     name: piton

@@ -1,0 +1,42 @@
+# Plugin Modules
+
+## Description
+
+A plugin can give the Piton module of a file that is not Piton, so that a .pi file imports it like any other module. The plugin lists the extensions of these files in its declaration, and its module hook turns the text of such a file into Piton source. The compiler knows only the extensions and calls the hook. All knowledge of the file format is in the plugin.
+```piton
+export piton-plugin EmulPlugin:
+    name: emul
+    entry: ./src/index.ts
+    modules: [emul]
+```
+```typescript
+export default definePlugin({
+  module(ctx, file) {
+    return synthesize(file.text, file.path);
+  },
+});
+```
+
+## Resolution
+
+An import path that ends in one of the listed extensions names that file, and only that file: the compiler does not try .pi or an index. The path resolves as every other module path does: relative to the importing file, from the source root when it starts with /, or in an installed package. A path that names no file is an error. Without the extension, a path names a .pi module.
+
+## Hook
+
+The hook receives the path of the file, relative to the project root when the file is in the project and else absolute, and its text. In the editor the text is the unsaved buffer. It returns the Piton source of the module, as a string or as an object with a source field. The compiler parses and resolves that source as it does every other module, so its imports, exports and anchors follow the usual rules, and a name it does not export is an error.
+
+## When
+
+The hook runs when the compiler loads such a file: in `piton compile`, `piton check`, `piton build` and every other command that compiles, and in the language server. The result is kept by path and text, so the hook runs again only when the text of the file changes. This is the one place where plugin code runs while compiling, and it never runs for a project that imports no such file. The hook has to be quick and change nothing. It may only do what the plugin declares, and it cannot compile a project that imports such a file itself.
+
+## Conflicts
+
+An extension is given modules by one plugin. The first plugin in the list of plugins that lists it wins. pi can't be listed.
+
+## Failures
+
+A hook that throws, or that returns no source, is an error on the file, which names the plugin. The module is then not loaded, and the import that names it reports nothing further.
+
+## Editor
+
+The language server, described in [Lsp](../tooling/cli/Lsp.md#lsp), installs the hooks when it loads the project configuration, and runs one when it loads such a file, from disk or from a buffer.

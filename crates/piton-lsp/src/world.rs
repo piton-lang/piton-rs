@@ -4,7 +4,7 @@
 //! Analysis always runs over the full reachable program. Only then does a
 //! question about inheritance or reachability have a true answer.
 //!
-//! The server does not compile when no change occurred. It records the
+//! The server does not compile when nothing changed. It records the
 //! buffers that a compilation used. A request for a new view does nothing
 //! until one of these buffers (or the project on disk) changes.
 
@@ -27,6 +27,13 @@ use crate::index::Index;
 pub struct OutputSettings {
     pub directory: PathBuf,
     pub renderer: Adapter,
+    /// Tells if the configuration sets `output` or `renderer`.
+    pub requested: bool,
+    /// Tells if `piton build` writes the renderer output. It does when no
+    /// plugin builds output, or when the configuration sets `output` or
+    /// `renderer`. When it is false, the server shows no renderer output: no
+    /// mapping to a JSON, YAML or Markdown file and no value in that format.
+    pub written: bool,
 }
 
 impl OutputSettings {
@@ -58,9 +65,15 @@ impl OutputSettings {
 /// (`output` and `renderer` in `piton.config.pi`). When the configuration
 /// does not give them, they are `./dist` and JSON.
 pub fn output_settings(project: &Project) -> OutputSettings {
+    let builds = project.config_path.is_some() && {
+        let (manifests, _) = piton_plugin::discover(project);
+        !piton_plugin::builders(project, &manifests).is_empty()
+    };
     OutputSettings {
         directory: project.output_dir.clone(),
         renderer: project.renderer.parse::<Adapter>().unwrap_or(Adapter::Json),
+        requested: project.renders,
+        written: !builds || project.renders,
     }
 }
 
@@ -95,7 +108,7 @@ pub struct World {
     pub root: PathBuf,
     pub project: Project,
     pub output: OutputSettings,
-    /// The problems that the configuration read found. Examples are unknown
+    /// The problems that the server found when it read the configuration. Examples are unknown
     /// settings, a bad renderer, and no `piton-config` anchor.
     pub config_diagnostics: Vec<Diagnostic>,
     /// Editor buffers that the user did not save, by path.
@@ -109,15 +122,16 @@ pub struct World {
     pub generation: u64,
     pub compilation: Option<Compilation>,
     pub index: Index,
-    /// Import, composition, conflict, and source-map analysis of `compilation`.
+    /// The analysis of `compilation`. It examines imports, composition and
+    /// conflicts. It also maps the source to the output.
     pub analysis: Analysis,
     /// Paths that had diagnostics the last time. Thus the server sends an
-    /// empty publish for files without problems, not old squiggles.
+    /// empty list for files without problems, not old diagnostics.
     pub last_reported: Vec<PathBuf>,
     /// The buffers that `compilation` used, and their versions.
     compiled_documents: HashMap<PathBuf, String>,
     compiled_versions: HashMap<PathBuf, i32>,
-    /// The server sets it when a change occurs outside the buffers. Examples
+    /// The server sets it when a change happens outside the buffers. Examples
     /// are the configuration, a file on disk, and a closed buffer.
     stale: bool,
     /// The plans of each plugin build at the last save.
@@ -134,7 +148,9 @@ pub struct World {
 
 impl World {
     pub fn new(root: &Path) -> World {
+        piton_plugin::bundled::register();
         let (project, diagnostics) = config::load(root, None);
+        crate::plugins::install_modules(&project);
         let output = output_settings(&project);
         World {
             root: root.to_path_buf(),
@@ -168,11 +184,12 @@ impl World {
     /// Reads `piton.config.pi` again.
     ///
     /// The configuration names the source root and the entry point. Thus a
-    /// change to it changes the set of files in the project. A recompile of the
+    /// change to it changes the set of files in the project. A new compile of the
     /// old project does not see this change.
     pub fn reload_project(&mut self) {
         self.plans_stale = true;
         let (project, diagnostics) = config::load(&self.root, None);
+        crate::plugins::install_modules(&project);
         self.output = output_settings(&project);
         self.config_diagnostics = diagnostics.iter().cloned().collect();
         self.project = project;
@@ -236,7 +253,7 @@ impl World {
         std::fs::read_to_string(path).ok()
     }
 
-    /// Recompiles only when a change occurred after the last compilation.
+    /// Compiles again only when a change happened after the last compilation.
     /// Returns true if it compiled.
     pub fn refresh(&mut self, focus: Option<&Path>) -> bool {
         if !self.needs_compile() {
@@ -246,7 +263,7 @@ impl World {
         true
     }
 
-    /// Recompiles the project with the current buffers.
+    /// Compiles the project again with the current buffers.
     ///
     /// The server loads all sources below the project root, not only the
     /// sources that the entry point reaches. `piton reach` answers questions
@@ -310,7 +327,7 @@ impl World {
     pub fn diagnostics_by_file(&self) -> HashMap<PathBuf, Vec<Diagnostic>> {
         let mut out: HashMap<PathBuf, Vec<Diagnostic>> = HashMap::new();
         // Each open buffer has an entry. Thus when a problem stops, its
-        // squiggle also disappears.
+        // diagnostic also goes away.
         for path in self.documents.keys() {
             out.entry(path.clone()).or_default();
         }
@@ -345,7 +362,7 @@ impl World {
             let list = out.entry(diagnostic.file.clone()).or_default();
             // The server reads the configuration separately. When it is open,
             // the server also compiles it with the workspace. Thus the same
-            // problem can occur two times.
+            // problem can be there two times.
             let repeated = list.iter().any(|seen| {
                 seen.code == diagnostic.code
                     && seen.span == diagnostic.span

@@ -212,10 +212,11 @@ fn piton_plugins_lists_what_each_may_do() {
     assert!(stdout.contains("hello (piton.config.pi)"), "{stdout}");
     assert!(stdout.contains("may: run echo"), "{stdout}");
     assert!(stdout.contains("settings: HelloSettings"), "{stdout}");
-    assert!(stderr.contains("5 plugins"), "{stderr}");
+    assert!(stderr.contains("6 plugins"), "{stderr}");
     assert!(stdout.contains("init (bundled)") && stdout.contains("start new projects"), "{stdout}");
     assert!(stdout.contains("migrate (bundled)") && stdout.contains("propose edits to piton.config.pi"), "{stdout}");
     assert!(stdout.contains("belay (bundled)"), "{stdout}");
+    assert!(stdout.contains("emul (bundled)") && stdout.contains("may: run emul"), "{stdout}");
 }
 
 #[test]
@@ -354,4 +355,32 @@ fn piton_agent_launches_each_tool_with_fluency_through_belay() {
         stderr.contains("`codex` is not on PATH; install it or print the prompt with `piton agent codex --print-fluency`"),
         "{stderr}"
     );
+}
+
+#[test]
+fn the_emul_plugin_gives_the_modules_of_emul_files() {
+    let fixture = Fixture::new("emul");
+    fixture.write("piton.config.pi", "use @piton/config\n\nexport piton-config Config:\n    root: ./spec\n");
+    fixture.write(
+        "spec/designs/Landing.emul",
+        "from ./Buttons import Button\nfrom ./forms export *\ncomponent Hidden:\n    padding: 1px\n\nexport component Card:\n    padding: 8px\n\ncomposition Landing {\n    Card { \"Hi\" }\n}\n\nexport Landing, Button\n",
+    );
+    fixture.write("spec/designs/Buttons.emul", "export component Button:\n    padding: 2px\n");
+    fixture.write("spec/designs/forms/index.emul", "export component Field:\n    padding: 2px\n");
+    fixture.write(
+        "spec/index.pi",
+        "from ./designs/Landing.emul import Landing, Button, Field, Card\n\nexport anchor Page:\n    design: @{Landing}\n    button: {Button}\n    field: {Field}\n    card: {Card}\n",
+    );
+    let (stdout, stderr, code) = fixture.run(&["compile", "spec/index.pi"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(stdout.contains("\"design\": \"./designs/Landing.json:Landing\""), "{stdout}");
+    assert!(stdout.contains("\"file\": \"spec/designs/Buttons.emul\""), "{stdout}");
+    assert!(stdout.contains("\"file\": \"spec/designs/forms/index.emul\""), "{stdout}");
+    assert!(stdout.contains("\"kind\": \"component\""), "{stdout}");
+
+    // A design that the Emul file does not export is not a name of the module.
+    fixture.write("spec/index.pi", "from ./designs/Landing.emul import Hidden\n");
+    let (stdout, stderr, code) = fixture.run(&["check", "spec/index.pi"]);
+    assert_eq!(code, 1, "{stdout}{stderr}");
+    assert!(format!("{stdout}{stderr}").contains("Hidden"), "{stdout}{stderr}");
 }

@@ -41,8 +41,11 @@ The compiler ships with these groups and templates, each named after its directo
 - belay, agent guidance compiled for the adapters chosen
   - belay/application, a shape instruction, skill, agent and command
   - belay/minimal, the Belay configuration and one skill
+- testing, a specbase checked with piton test
+  - testing/project, a test-config anchor and one example test
 
 belay/application places its shape instruction in src/, beside the application's source.
+testing/project lists its test-config settings anchor under `plugins` with `against` set to spec, so its one example test judges the specification until the project has code to judge.
 crux/project declares https://github.com/piton-lang/crux.git under `dependencies` and its entry re-exports everything the package exports, so once crux is tethered the first build emits every crux skill for each adapter chosen.
 
 ## Naming

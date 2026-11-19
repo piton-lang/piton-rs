@@ -1,6 +1,6 @@
 from ../plugins import Plugins
 from ../plugins/Reach import PluginReach
-from ./TestCommand import TestCommand
+from ./command import TestCommand
 
 export anchor Testing:
     description:
@@ -51,6 +51,7 @@ export anchor TestKeyword:
         export abstract anchor Test as test:
             expects:: string
             against:: string:: null: null
+            context:: string:: null: null
             description:: string:: null: null
             tags:: string[]:: null: null
         \\\
@@ -67,6 +68,27 @@ export anchor TestKeyword:
         Left out, the project's default is used, and without one, both.
         Against both, the statement has to hold in the specification and in
         the code, so a test passes only when they agree with it.
+
+    context:
+        Optional. A preamble that tells what the statement is about. It goes
+        before the statement in the request to the agent, and before the
+        statement in each fix prompt. A context is made to be used again:
+        give it to an anchor that extends Test, and each test that uses that
+        anchor gets the same preamble. It never changes what is being
+        asserted.
+
+        ```piton
+        \\\
+        use @piton/test
+        from @piton/test import Test
+
+        abstract anchor EditorTest extends Test as editor-test:
+            context: The editor is the document view under src/editor.
+
+        export editor-test SaveButtonSaves:
+            expects: The Save button saves the document
+        \\\
+        ```
 
     descriptionProperty:
         Optional. Context for the agent, such as where to look or what the

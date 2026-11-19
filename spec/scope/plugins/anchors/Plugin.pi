@@ -19,3 +19,4 @@ export abstract anchor PitonPlugin as piton-plugin:
     build:: boolean:: null: null
     inspect:: boolean:: null: null
     reach:: boolean:: null: null
+    modules:: string[]:: null: null

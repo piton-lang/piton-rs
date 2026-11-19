@@ -8,7 +8,7 @@
 use crate::kind::SyntaxKind;
 
 /// Parses a Piton number literal. A number literal has an optional minus and
-/// digits. A `_` can occur between two digits. A maximum of one `.` can occur,
+/// digits. A `_` can be between two digits. A maximum of one `.` can be in it,
 /// with a digit on each side of it. `.5`, `5.`, `1e3` and `1__0` are not numbers.
 pub fn parse_number_literal(text: &str) -> Option<f64> {
     let text = text.trim();

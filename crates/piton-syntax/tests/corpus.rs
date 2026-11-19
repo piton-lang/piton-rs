@@ -1,8 +1,8 @@
-//! Parses every `.pi` file in the repository.
+//! Parses each `.pi` file in the repository.
 //!
 //! The specification uses Piton. Thus the specification itself is the
 //! acceptance suite of the parser. It must parse without errors. The lossless
-//! tree must reproduce every byte.
+//! tree must give each byte again.
 
 use std::path::{Path, PathBuf};
 
@@ -64,7 +64,7 @@ fn the_specification_parses_cleanly() {
     assert!(failures.is_empty(), "{} problems:\n{}", failures.len(), failures.join("\n"));
 }
 
-/// Every name that the program knows is a separate token in the tree.
+/// Each name that the program knows is a separate token in the tree.
 ///
 /// Editors read the tree, not the AST. The highlighter, the completion feature
 /// and the golden classification all ask which token is at a position. Sometimes a

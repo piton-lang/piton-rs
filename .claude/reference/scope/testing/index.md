@@ -25,7 +25,7 @@ the test keyword is its Piton files, @piton/test, and
 
 ## Command
 
-[TestCommand](./TestCommand.md#test-command)
+[TestCommand](./command/index.md#test-command)
 
 # Test Keyword
 
@@ -47,6 +47,7 @@ export test SaveButtonSaves:
 export abstract anchor Test as test:
     expects:: string
     against:: string:: null: null
+    context:: string:: null: null
     description:: string:: null: null
     tags:: string[]:: null: null
 ```
@@ -58,6 +59,20 @@ Required. The statement, in plain English. It passes when the agent judges it tr
 ## Against
 
 Optional. What the statement is judged against: spec, code, or both. Left out, the project's default is used, and without one, both. Against both, the statement has to hold in the specification and in the code, so a test passes only when they agree with it.
+
+## Context
+
+Optional. A preamble that tells what the statement is about. It goes before the statement in the request to the agent, and before the statement in each fix prompt. A context is made to be used again: give it to an anchor that extends Test, and each test that uses that anchor gets the same preamble. It never changes what is being asserted.
+```piton
+use @piton/test
+from @piton/test import Test
+
+abstract anchor EditorTest extends Test as editor-test:
+    context: The editor is the document view under src/editor.
+
+export editor-test SaveButtonSaves:
+    expects: The Save button saves the document
+```
 
 ## Description Property
 

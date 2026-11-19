@@ -34,3 +34,4 @@ from...export also supports renaming exports:
 ```piton fragment
 from ./MyAnchor export MyAnchor MyAliasedAnchor, MyOtherAnchor MyOtherAliasedAnchor
 ```
+An index can hold `export *` lines for many modules, and those modules can export the same names. The index still exports all of them. A name with more than one meaning is exported under the name of each source module, for example cruxible.Roles and strataglyph.Roles, and an import selects one by that name. See [DuplicateExports](./DuplicateExports.md#duplicate-exports).

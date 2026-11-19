@@ -1,4 +1,4 @@
-//! The core value model, diagnostics, and name rules that every Piton crate shares.
+//! The core value model, diagnostics, and name rules that all Piton crates share.
 
 pub mod diagnostics;
 pub mod names;

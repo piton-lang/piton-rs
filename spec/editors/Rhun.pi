@@ -1,0 +1,24 @@
+use ./lib
+
+export test Rhun:
+    expects:
+        There should be an editor extension for the Rhun editor
+        https://github.com/vshvedov/rhun/
+
+        And it should support syntax highlighting and LSP
+
+        The LSP should now show inline information about where a file is
+        compiled to.
+
+export test Json:
+    expects:
+        The Rhun extension should not display inline hints and such about json
+
+export test Lsp:
+    expects:
+        The LSP that Rhun uses should be the same LSP that's provided by piton
+        lsp
+
+export test KeywordsInStrings:
+    expects:
+        Keywords like `from` in a string body shouldn't highlight as keywords.
