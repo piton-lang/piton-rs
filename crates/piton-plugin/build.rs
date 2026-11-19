@@ -1,9 +1,8 @@
 //! Embeds the files of the init plugin. The code is in `plugins/init/src`.
-//! The templates are in `plugins/init/templates`.
+//! The parts it builds projects from are in `plugins/init/templates`.
 //!
-//! Each template is a directory. To add a template, add a directory. No list
-//! names the templates. This script embeds each file below the plugin at its
-//! path in the plugin. The plugin reads its templates from that list.
+//! This script embeds each file below the plugin at its path in the plugin.
+//! No list names the files. The plugin reads its parts from that list.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

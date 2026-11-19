@@ -35,13 +35,18 @@ Spell names out. A name says what something is, not how it is stored.
 
 ## Description
 
-What this application is, in a sentence or two. How its code is written is in [Conventions](./Conventions.md#conventions).
+What app is, in a sentence or two. How its code is written is in [Conventions](./Conventions.md#conventions).
+
+## Goals
+
+- Say what the application must do.
+- Say what it must never do.
 ==> .muse/reference/shape/Source.md (muse, shape reference)
 # Source
 
 ## Description
 
-Guidance for everything under src/.
+Guidance for all of the application's source.
 
 ## Prompt
 
@@ -49,7 +54,7 @@ Follow [Conventions](../Conventions.md#conventions) for every change here. Add a
 ==> src/AGENTS.md (muse, instruction)
 # Source
 
-Guidance for everything under src/.
+Guidance for all of the application's source.
 
 Follow [Conventions](../.muse/reference/Conventions.md#conventions) for every change here. Add a shape document beside this one, under the matching directory, for guidance that only applies to part of the source.
 ==> diagnostics

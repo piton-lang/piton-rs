@@ -48,7 +48,7 @@ export anchor PluginCapabilities:
 
     interactive:
         true lets the plugin ask the user on the terminal: to choose one item
-        from a menu, to check any of a list of items, or to type an answer. The menu only ever shows when stdin and stdout are
+        from a menu, to check any of a list of items, to answer yes or no, or to type an answer. The menu only ever shows when stdin and stdout are
         terminals; otherwise nothing is asked and nothing is chosen, so a
         plugin never waits on someone who isn't there.
 
@@ -60,7 +60,8 @@ export anchor PluginCapabilities:
         any of them exists, it writes none and gives back the ones that exist.
         A path that leads out of the directory is refused. It also lets the
         plugin tether the dependencies the new project's configuration
-        declares, as `piton tether` does there with no source.
+        declares, as `piton tether` does there with no source, and learn the
+        name of the directory it writes into.
 
     temporaryFiles:
         true lets the plugin write temporary files, outside the project, each

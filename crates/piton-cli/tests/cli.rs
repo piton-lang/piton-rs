@@ -1273,45 +1273,34 @@ fn slice_with_an_adapter_needs_a_target_the_build_writes() {
     assert!(stderr.contains("no Belay configuration"), "{stderr}");
 }
 
-/// The template names that `piton init --list` shows.
-fn templates(fixture: &Fixture) -> Vec<String> {
-    let (stdout, stderr, code) = fixture.run(&["init", "--list"]);
-    assert_eq!(code, 0, "{stderr}");
-    // Templates are the indented lines, under the line of their group.
-    stdout
-        .lines()
-        .filter(|line| line.starts_with("  "))
-        .map(|line| line.split_whitespace().next().expect("name").to_string())
-        .collect()
-}
+/// The projects `piton init` starts, each a directory and the arguments that
+/// answer its questions. Between them they take every part.
+const INIT_PROJECTS: &[(&str, &[&str])] = &[
+    ("basic-json", &["--type", "basic"]),
+    ("basic-yaml", &["--type", "basic", "--renderer", "yaml"]),
+    ("basic-markdown", &["--type", "basic", "-r", "markdown"]),
+    ("plain-application", &["--type", "application", "--no-belay", "--no-testing"]),
+    ("tested-application", &["--type", "application", "--no-belay"]),
+    ("belay-application", &["--type", "application", "--no-crux"]),
+    ("crux-application", &["--type", "application"]),
+    ("rooted-application", &["--type", "application", "--no-crux", "--code-root", ".", "--shape-root", "spec/guide"]),
+    ("library", &["--type", "tether", "--no-testing"]),
+    ("tested-library", &["--type", "tether", "--testing"]),
+];
 
 #[test]
-fn every_template_starts_a_project_that_checks_and_builds() {
-    let fixture = Fixture::new("init-templates");
-    let names = templates(&fixture);
-    for expected in [
-        "belay/application",
-        "belay/minimal",
-        "crux/project",
-        "piton/library",
-        "piton/minimal",
-        "testing/project",
-    ] {
-        assert!(names.iter().any(|name| name == expected), "{names:?}");
-    }
-    assert_eq!(names[0], "crux/project", "the preferred group comes first");
+fn every_kind_of_project_starts_one_that_checks_and_builds() {
+    let fixture = Fixture::new("init-projects");
     stub_crux(&fixture);
 
-    for name in &names {
+    for (name, answers) in INIT_PROJECTS {
         // The tests do not connect to GitHub. Thus they do not tether. They
-        // tether the dependencies of a template from a stand-in.
-        let (stdout, stderr, code) = fixture.run(&["init", name, "--template", name, "--no-tether"]);
+        // tether the dependencies of a project from a stand-in.
+        let mut args = vec!["init", name, "--no-tether"];
+        args.extend_from_slice(answers);
+        let (stdout, stderr, code) = fixture.run(&args);
         assert_eq!(code, 0, "{name}: {stderr}");
         assert!(stdout.contains(&format!("{name}/piton.config.pi")), "{name}: {stdout}");
-        assert!(
-            !fixture.exists(&format!("{name}/.template")),
-            "the description is not part of the project"
-        );
         tether_stub_crux(&fixture, name);
 
         let (stdout, stderr, code) = fixture.run_in(name, &["check"]);
@@ -1323,31 +1312,76 @@ fn every_template_starts_a_project_that_checks_and_builds() {
         assert_eq!(code, 0, "{name}: {stdout}{stderr}");
     }
 
-    assert!(fixture.exists("belay/application/.claude/skills/review-change/SKILL.md"));
-    assert!(fixture.exists("belay/application/src/CLAUDE.md"));
-    assert!(fixture.exists("belay/minimal/.claude/skills/explain/SKILL.md"));
-    assert!(fixture.exists("piton/minimal/dist/index.json"));
-    assert!(fixture.exists("crux/project/.claude/skills/crux-stand-in/SKILL.md"));
+    assert!(fixture.exists("basic-json/dist/index.json"));
+    assert!(fixture.exists("basic-yaml/dist/index.yaml"));
+    assert!(fixture.read("basic-yaml/piton.config.pi").contains("renderer: yaml"));
+    assert!(fixture.read("basic-json/spec/index.pi").contains("What basic-json is"), "the name fills the part in");
+    assert!(fixture.exists("plain-application/dist/index.json"));
+    assert!(!fixture.read("plain-application/piton.config.pi").contains("belay"));
+    assert!(fixture.exists("belay-application/.claude/skills/review-change/SKILL.md"));
+    assert!(fixture.exists("belay-application/src/CLAUDE.md"));
+    assert!(!fixture.read("belay-application/piton.config.pi").contains("dependencies"));
+    assert!(fixture.exists("crux-application/.claude/skills/crux-stand-in/SKILL.md"));
+    assert!(fixture.exists("crux-application/.claude/skills/review-change/SKILL.md"));
+    assert!(fixture.exists("rooted-application/spec/guide/Source.pi"));
+    assert!(fixture.exists("rooted-application/CLAUDE.md"), "the code root is the project");
+    assert!(!fixture.exists("rooted-application/README.md"), "the code root's own files stay out of the project root");
+    let library = fixture.read("library/piton.config.pi");
+    assert!(library.contains("piton-package Library:\n    name: library\n"), "{library}");
+    assert!(!library.contains("belay"), "{library}");
+    assert!(fixture.read("library/spec/index.pi").contains("export ReviewComponent"), "the example skill is exported");
 }
 
 #[test]
-fn init_starts_a_specbase_for_piton_test() {
-    let fixture = Fixture::new("init-testing");
-    let (stdout, stderr, code) = fixture.run(&["init", "specbase", "--template", "testing/project"]);
+fn a_tether_ships_its_example_skill_to_the_projects_that_tether_it() {
+    let fixture = Fixture::new("init-tether-skill");
+    let (_, stderr, code) = fixture.run(&["init", "lib", "--type", "tether"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(stdout.contains("specbase/piton.config.pi"), "{stdout}");
-    assert!(fixture.read("specbase/piton.config.pi").contains("test-config"));
+    let (_, stderr, code) = fixture.run(&["init", "app", "--type", "application", "--no-crux", "--no-testing"]);
+    assert_eq!(code, 0, "{stderr}");
+    let config = fixture.read("app/piton.config.pi");
+    fixture.write(
+        "app/piton.config.pi",
+        &config.replace("    plugins:", "    dependencies:\n        - ../lib\n\n    plugins:"),
+    );
+    let index = fixture.read("app/spec/index.pi");
+    fixture.write("app/spec/index.pi", &format!("{index}from lib export ReviewComponent\n"));
 
-    let (stdout, stderr, code) = fixture.run_in("specbase", &["check"]);
+    let (stdout, stderr, code) = fixture.run_in("app", &["tether"]);
     assert_eq!(code, 0, "{stdout}{stderr}");
-    assert!(!stderr.contains("warning"), "{stderr}");
+    let (stdout, stderr, code) = fixture.run_in("app", &["check"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    let (stdout, stderr, code) = fixture.run_in("app", &["build"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(fixture.exists("app/.claude/skills/review-component/SKILL.md"));
+}
 
-    // The list does not use an agent. It shows the example test of the template.
+#[test]
+fn init_sets_up_piton_test_against_what_each_type_has() {
+    let fixture = Fixture::new("init-testing");
+    let (_, stderr, code) = fixture.run(&["init", "specbase", "--type", "tether"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(fixture.read("specbase/piton.config.pi").contains("test-config Tests:\n    against: spec\n"));
+
+    // The list does not use an agent. It shows the example test.
     let (stdout, stderr, code) = fixture.run_in("specbase", &["test", "--list"]);
     assert_eq!(code, 0, "{stdout}{stderr}");
-    assert!(stdout.contains("GoalsAreStated"), "{stdout}");
+    assert!(stdout.contains("AnchorsAreDescribed"), "{stdout}");
     assert!(stdout.contains("against spec"), "{stdout}");
     assert!(stderr.contains("1 test in 1 file"), "{stderr}");
+
+    let (_, stderr, code) = fixture.run(&["init", "app", "--type", "application", "--no-crux"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.contains("with Belay for claude-code and piton test"), "{stderr}");
+    let (stdout, stderr, code) = fixture.run_in("app", &["test", "--list"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(stdout.contains("against both"), "{stdout}");
+
+    // Testing is the default; --no-testing leaves it out.
+    let (_, stderr, code) = fixture.run(&["init", "untested", "--type", "tether", "--no-testing"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!fixture.read("untested/piton.config.pi").contains("test-config"));
+    assert!(!fixture.exists("untested/spec/tests"));
 }
 
 /// The crux package as `stub-crux/`. It has one skill, with the name `crux`.
@@ -1362,7 +1396,7 @@ fn stub_crux(fixture: &Fixture) {
     );
 }
 
-/// When the template in `name` requires crux, this function changes it to use
+/// When the project in `name` requires crux, this function changes it to use
 /// the stand-in crux. Then it tethers it.
 fn tether_stub_crux(fixture: &Fixture, name: &str) {
     let config = format!("{name}/piton.config.pi");
@@ -1382,18 +1416,20 @@ fn tether_stub_crux(fixture: &Fixture, name: &str) {
 #[test]
 fn init_leaves_tethering_to_later_when_asked() {
     let fixture = Fixture::new("init-no-tether");
-    let (stdout, stderr, code) =
-        fixture.run(&["init", "app", "--template", "crux/project", "--no-tether"]);
+    // Without a terminal, an application takes Belay and the crux skills.
+    let (stdout, stderr, code) = fixture.run(&["init", "app", "--type", "application", "--no-tether"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stdout.contains("tethered"), "{stdout}");
     assert!(!fixture.exists("app/tethers"));
     assert!(stderr.contains("piton tether"), "the next steps say to tether: {stderr}");
     let config = fixture.read("app/piton.config.pi");
     assert!(config.contains("- https://github.com/piton-lang/crux.git"), "{config}");
-    assert_eq!(fixture.read("app/spec/index.pi").lines().last(), Some("from crux export *"));
+    let index = fixture.read("app/spec/index.pi");
+    assert!(index.contains("from ./agent export *\nfrom ./shape export *\n"), "{index}");
+    assert!(index.contains("\nfrom crux export *\n"), "{index}");
 
-    // A template without dependencies has no package to tether.
-    let (_, stderr, code) = fixture.run(&["init", "plain", "--template", "piton/minimal"]);
+    // A project without dependencies has no package to tether.
+    let (_, stderr, code) = fixture.run(&["init", "plain", "--type", "basic"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stderr.contains("piton tether"), "{stderr}");
 }
@@ -1403,7 +1439,7 @@ fn init_builds_a_belay_project_for_the_adapters_chosen() {
     let fixture = Fixture::new("init-adapters");
     for adapter in ["claude-code", "codex", "opencode"] {
         let (_, stderr, code) =
-            fixture.run(&["init", adapter, "--template", "belay/application", "--adapter", adapter]);
+            fixture.run(&["init", adapter, "--type", "application", "--no-crux", "--adapter", adapter]);
         assert_eq!(code, 0, "{adapter}: {stderr}");
         let (stdout, stderr, code) = fixture.run_in(adapter, &["format", "--check"]);
         assert_eq!(code, 0, "{adapter}: {stdout}{stderr}");
@@ -1416,15 +1452,19 @@ fn init_builds_a_belay_project_for_the_adapters_chosen() {
         "only the chosen adapter is built"
     );
     assert!(fixture.exists("opencode/.opencode/skills/review-change/SKILL.md"));
-    assert!(fixture.exists("opencode/opencode.json"), "OpenCode is told to load src/AGENTS.md");
+    assert!(
+        fixture.read("opencode/opencode.json").contains(r#""instructions": ["src/**/AGENTS.md"]"#),
+        "OpenCode is told to load the instructions in the code root"
+    );
     assert!(!fixture.exists("codex/opencode.json"), "only the chosen adapter's files are written");
     assert!(!fixture.exists("codex/.adapters"));
 
     let (_, stderr, code) = fixture.run(&[
         "init",
         "several",
-        "--template",
-        "belay/application",
+        "--type",
+        "application",
+        "--no-crux",
         "--adapter",
         "codex,claude-code",
         "-a",
@@ -1445,23 +1485,26 @@ fn init_builds_a_belay_project_for_the_adapters_chosen() {
     assert_eq!(code, 0, "{stdout}{stderr}");
 
     let (_, stderr, code) =
-        fixture.run(&["init", "bad", "--template", "belay/minimal", "--adapter", "cursor"]);
+        fixture.run(&["init", "bad", "--type", "application", "--adapter", "cursor"]);
     assert_eq!(code, 1);
     assert!(stderr.contains("`cursor` is not an adapter"), "{stderr}");
-    let (_, stderr, code) = fixture.run(&[
-        "init",
-        "plain",
-        "--template",
-        "piton/minimal",
-        "--adapter",
-        "codex",
-    ]);
-    assert_eq!(code, 1);
-    assert!(stderr.contains("doesn't use Belay"), "{stderr}");
-    assert!(
-        !fixture.exists("bad") && !fixture.exists("plain"),
-        "nothing is written on an error"
-    );
+    assert!(!fixture.exists("bad"), "nothing is written on an error");
+}
+
+#[test]
+fn init_names_the_project_after_its_directory() {
+    let fixture = Fixture::new("init-name");
+    fixture.write("shared-ui/.keep", "");
+    let (stdout, stderr, code) = fixture.run_in("shared-ui", &["init", ".", "--type", "tether"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.lines().any(|line| line == "piton.config.pi"), "{stdout}");
+    let config = fixture.read("shared-ui/piton.config.pi");
+    assert!(config.contains("    name: shared-ui\n"), "{config}");
+    assert!(!stderr.contains("cd ."), "{stderr}");
+
+    let (_, stderr, code) = fixture.run(&["init", "nested/widgets", "--type", "tether"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(fixture.read("nested/widgets/piton.config.pi").contains("    name: widgets\n"));
 }
 
 #[test]
@@ -1469,7 +1512,7 @@ fn init_never_overwrites_a_file() {
     let fixture = Fixture::new("init-existing");
     fixture.write("piton.config.pi", "// mine\n");
 
-    let (stdout, stderr, code) = fixture.run(&["init", "--template", "piton/minimal"]);
+    let (stdout, stderr, code) = fixture.run(&["init", "--type", "basic"]);
     assert_eq!(code, 1);
     assert!(stdout.is_empty(), "{stdout}");
     assert!(stderr.contains("nothing was written"), "{stderr}");
@@ -1479,24 +1522,34 @@ fn init_never_overwrites_a_file() {
 }
 
 #[test]
-fn init_needs_a_template_it_knows() {
-    let fixture = Fixture::new("init-choose");
+fn init_refuses_answers_the_project_does_not_take() {
+    let fixture = Fixture::new("init-refuse");
 
-    // Without a terminal for questions, the user must name the template.
+    // Without a terminal for questions, the user must name the type.
     let (_, stderr, code) = fixture.run(&["init"]);
     assert_eq!(code, 1);
-    assert!(stderr.contains("pick a template with --template"), "{stderr}");
+    assert!(stderr.contains("pick the type of project with --type"), "{stderr}");
 
-    let (_, stderr, code) = fixture.run(&["init", "--template", "nope"]);
-    assert_eq!(code, 1);
-    assert!(stderr.contains("`nope` is not a template; the templates are"), "{stderr}");
-
-    // Without a terminal, a group is not sufficient. The user cannot select
-    // from it.
-    let (_, stderr, code) = fixture.run(&["init", "--template", "belay"]);
-    assert_eq!(code, 1);
-    assert!(stderr.contains("`belay` is a group of templates"), "{stderr}");
-    assert!(stderr.contains("`belay/application`, `belay/minimal`"), "{stderr}");
+    for (args, message) in [
+        (&["--type", "nope"][..], "`nope` is not a type of project; the types are"),
+        (&["--type", "basic", "--renderer", "toml"], "`toml` is not a renderer"),
+        (&["--type", "application", "--renderer", "yaml"], "--renderer is only for a basic project"),
+        (&["--type", "basic", "--testing"], "--testing is only for an application or a tether"),
+        (&["--type", "tether", "--belay"], "--belay is only for an application"),
+        (&["--type", "tether", "--crux"], "--crux is only for an application"),
+        (&["--type", "application", "--no-belay", "--crux"], "--crux is only for an application that uses Belay"),
+        (&["--type", "application", "--no-belay", "-a", "codex"], "--adapter is only for an application that uses Belay"),
+        (&["--type", "application", "--shape-root", "./shape"], "the shape root has to be beneath ./spec"),
+        (&["--type", "application", "--shape-root", "./spec"], "the shape root has to be beneath ./spec"),
+        (&["--type", "application", "--code-root", "../elsewhere"], "has to be a path inside the project"),
+    ] {
+        let mut all = vec!["init", "refused"];
+        all.extend_from_slice(args);
+        let (_, stderr, code) = fixture.run(&all);
+        assert_eq!(code, 1, "{args:?}");
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
+    assert!(!fixture.exists("refused"), "nothing is written on an error");
     assert!(!fixture.exists("piton.config.pi"));
 }
 

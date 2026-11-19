@@ -10,7 +10,7 @@ specification in `spec/` is itself written in Piton, so the compiler's
 acceptance suite is the language describing itself.
 
 ```
-piton init       # start a project from a template
+piton init       # start a basic project, an application or a tether
 piton check      # validate the specbase
 piton build      # compile every configured artifact
 piton reach      # see what the entrypoints can and cannot see
@@ -73,7 +73,7 @@ what would happen. `cargo xtask` on its own lists the tasks.
 | `piton check [paths]` | Validates syntax, imports, references, types, inheritance, composition, exports, and circular dependencies; exits 1 on any error |
 | `piton compile <path>` | Prints one file's output, or writes a glob's with `--write`; `--renderer json\|yaml\|markdown`, `--dependencies` |
 | `piton format [path]` | Applies canonical formatting; `--check` reports without writing, and `piton format -` formats stdin to stdout |
-| `piton init [directory]` | Starts a project from a built-in template (`--template`, or asks); `--list` describes them. `init` is the bundled init plugin (`plugins/init`); its templates live in `plugins/init/templates/`, one directory each, and are embedded in the binary. Never overwrites a file |
+| `piton init [name]` | Starts a project, asking for its name (also its directory; `.` uses the current one) and its type: `basic` (pick a renderer), `application` (Belay with its adapters and roots, piton test, the crux skills) or `tether` (a package, with spec-only piton test). Each question has a flag (`--type`, `--renderer`, `--belay`/`--no-belay`, `--adapter`, `--code-root`, `--shape-root`, `--testing`/`--no-testing`, `--crux`/`--no-crux`). `init` is the bundled init plugin (`plugins/init`); the parts it combines live in `plugins/init/templates/` and are embedded in the binary. Never overwrites a file |
 | `piton loc [paths]` | Counts total, code, comment, and blank lines per file |
 | `piton lsp` | Runs the language server over stdio |
 | `piton reach [targets]` | Reports reachable anchors with depth and path, and what is unreachable; `--no-paths` and `--no-unreachable` trim the report |

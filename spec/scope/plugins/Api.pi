@@ -66,8 +66,10 @@ export anchor PluginApi:
         resources: Every file under a directory of the plugin's own, recursively, as paths relative to it with forward slashes, sorted, like the templates the init plugin ships with. No capability is needed.
         ask: Asks the user to type an answer on the terminal, and gives the answer, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
         chooseMany: Asks the user to check any items of a list on the terminal, some checked to start with and at least a number of them, and gives the indexes checked, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
+        confirm: Asks the user a yes or no question on the terminal, answered with y or n, with enter taking the default it is given, and gives the answer, or nothing when they cancel or stdin or stdout isn't a terminal. Needs the interactive capability.
         format: Piton source in the canonical format, as `piton format` writes it.
         scaffold: Writes a new project's files into a directory named relative to where piton was run, never over a file, and prints each path written; when any file exists, writes none and gives the ones that exist. Needs the scaffold capability.
+        directoryName: The name of a directory, named relative to where piton was run, as its own last part once the path is made absolute, so `.` gives the name of the current directory. The directory need not exist. Needs the scaffold capability.
         tether: Tethers the dependencies a new project's configuration declares, and says none, installed or failed; asked only to check, it says pending when there are some. Needs the scaffold capability.
         onPath: Whether a program the plugin may run is on PATH.
         readFile: The text of a file inside the project.

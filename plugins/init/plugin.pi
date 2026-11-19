@@ -5,8 +5,8 @@ export piton-plugin InitPlugin:
     entry: ./src/index.ts
 
     description:
-        Starts a new project from one of the templates in its templates
-        directory.
+        Starts a new project, basic, application or tether, from the parts in
+        its templates directory and the answers to a few questions.
 
     capabilities:
         interactive: true
@@ -14,36 +14,70 @@ export piton-plugin InitPlugin:
 
     commands:
         init:
-            about: Start a new project from one of the built-in templates
+            about: Start a new project: basic, application or tether
             standalone: true
 
             help:
-                Without a directory, asks for the project's name and creates it
-                in a directory of that name. Without --template, asks which one
-                to use, and for a Belay template which adapters to build for.
-                Nothing is overwritten: if any file the template writes already
-                exists, nothing is written. A template that declares
-                dependencies, like crux/project, has them tethered.
+                Asks for the project's name, which is also its directory, then
+                its type and what it should have: the renderer of a basic
+                project; Belay, its adapters and roots, testing and the crux
+                skills for an application; testing for a tether. Each question
+                has an argument that answers it. Without a terminal to ask on,
+                --type is needed and the rest take their defaults. Nothing is
+                overwritten: if any file init would write already exists,
+                nothing is written. Dependencies, like crux, are tethered.
 
             arguments:
-                directory:
-                    help: Directory to create the project in; asked for as the project's name, or the current one when there is no terminal to ask on
+                name:
+                    help: The project's name and the directory to create it in; `.` uses the current directory and its name
                     positional: true
 
-                template:
-                    help: Template to start from; --list names them
+                type:
+                    help: The type of project; basic, application or tether
                     short: t
+
+                renderer:
+                    help: What a basic project compiles to; json, yaml or markdown
+                    short: r
+
+                belay:
+                    help: An application uses Belay
+                    type: flag
+                    conflicts: [no-belay]
+
+                no-belay:
+                    help: An application doesn't use Belay
+                    type: flag
 
                 adapter:
                     help: Belay adapter to build for, like codex; repeat it or separate with commas for several
                     short: a
                     multiple: true
 
-                list:
-                    help: List the templates and what each one sets up
+                code-root:
+                    help: Belay's code root; ./src when not given
+
+                shape-root:
+                    help: Belay's shape root, beneath ./spec; ./spec/shape when not given
+
+                testing:
+                    help: Set the project up for piton test
                     type: flag
-                    conflicts: [directory, template, adapter, no-tether]
+                    conflicts: [no-testing]
+
+                no-testing:
+                    help: Don't set the project up for piton test
+                    type: flag
+
+                crux:
+                    help: Add the crux skills to an application that uses Belay
+                    type: flag
+                    conflicts: [no-crux]
+
+                no-crux:
+                    help: Don't add the crux skills
+                    type: flag
 
                 no-tether:
-                    help: Write the files only, leaving a template's dependencies for piton tether
+                    help: Write the files only, leaving the project's dependencies for piton tether
                     type: flag

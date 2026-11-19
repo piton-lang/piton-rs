@@ -1,0 +1,11 @@
+use @piton/belay
+
+// An example of guidance a package can ship: a project that tethers this one
+// builds it for its own adapters.
+export skill ReviewComponent:
+    description: Review a component against what every component promises.
+    useWhen: reviewing a component before it is merged
+    prompt:
+        Check that the component says what it is for, and that every
+        interactive part of it can be reached and used from the keyboard.
+        Report each place it falls short, with the file and line.

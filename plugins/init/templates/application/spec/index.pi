@@ -1,0 +1,10 @@
+from ./Conventions import Conventions
+
+export anchor Specification:
+    description:
+        What {{name}} is, in a sentence or two. How its code is written is in
+        @{Conventions}.
+
+    goals:
+        - Say what the application must do.
+        - Say what it must never do.

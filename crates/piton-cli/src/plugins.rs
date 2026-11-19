@@ -212,6 +212,11 @@ impl piton_plugin::Services for CliServices {
         prompt.prompt().ok()
     }
 
+    fn confirm(&self, message: &str, default: bool) -> Option<bool> {
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        inquire::Confirm::new(message).with_default(default).prompt().ok()
+    }
+
     fn choose_many(&self, message: &str, options: &[String], defaults: &[usize], minimum: usize) -> Option<Vec<usize>> {
         let _ = std::io::Write::flush(&mut std::io::stdout());
         inquire::MultiSelect::new(message, options.to_vec())

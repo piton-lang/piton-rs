@@ -1,8 +1,0 @@
-use @piton/test
-
-export test GoalsAreStated:
-    expects:
-        The Specification anchor in spec/index.pi states what the project must
-        do and what it must never do.
-
-    tags: [example]

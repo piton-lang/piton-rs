@@ -14,3 +14,18 @@ export test Templates:
     expects:
         The init command templates should be store in templates/ directory of
         the plugin.
+
+export test ProjectTypes:
+    expects:
+        `piton init` asks for the project's name first, unless it is given as
+        `piton init name`, and uses it as both the name and the directory, so
+        `.` takes the current directory's name. It then asks which type of
+        project to start: basic, application or tether. A basic project picks
+        what it compiles to: JSON, Markdown or YAML. An application chooses
+        whether it uses Belay, and with Belay which agents it supports and its
+        codeRoot and shapeRoot, with sane defaults, and whether it adds
+        testing. A tether can't use Belay, though it shows with an example
+        skill that a package can ship agent guidance, and can add testing
+        configured
+        against the specification only. Testing is added unless declined. Last
+        comes the option to add the crux skills.

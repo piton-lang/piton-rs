@@ -4,7 +4,8 @@ from ./Init import Init
 export anchor Initialization:
     description:
         The init plugin, bundled with the compiler, adds `piton init`, which
-        starts a new project from a template. It is a plugin, described in
+        starts a new project from the answers to a few questions. It is a
+        plugin, described in
         @{Plugins}, like any other: the compiler has no init command of its
         own.
 
@@ -15,26 +16,29 @@ export anchor Initialization:
     command: @{Init}
 
     declaration:
-        Its declaration names the init command and its arguments: directory,
-        positional; template, short t; adapter, short a, which can be given
-        more than once; list, a flag that can't be given with the others; and
-        no-tether, a flag. The command is standalone, so it runs outside a
-        project, and inside one whose configuration has errors.
+        Its declaration names the init command and its arguments: name,
+        positional; type, short t; renderer, short r; belay and no-belay,
+        flags that can't be given together; adapter, short a, which can be
+        given more than once; code-root; shape-root; testing and no-testing,
+        and crux and no-crux, each a pair of flags that can't be given
+        together; and no-tether, a flag. The command is standalone, so it
+        runs outside a project, and inside one whose configuration has
+        errors.
 
     capabilities:
         It may ask the user on the terminal, which is interactive, and start
-        new projects, which is scaffold: write the template's files into the
-        directory the user names, never over a file, and tether the new
-        project's dependencies. It reads no project files and runs no
-        programs.
+        new projects, which is scaffold: learn the name of the directory it
+        writes into, write the project's files there, never over a file, and
+        tether the new project's dependencies. It reads no project files and
+        runs no programs.
 
     templates:
-        The templates are in the templates directory of the plugin, one
-        directory for each group and one in it for each template, as @{Init}
-        describes. The plugin lists them with its resources, and reads each
-        file as a resource. Authors edit a template by editing its files, and
-        add one by adding a directory with a `.template` file beside its
-        files; nothing else changes.
+        The parts it builds a project from are in the templates directory of
+        the plugin, one directory for each, as @{Init} describes. The plugin
+        lists them with its resources, and reads each file as a resource.
+        Authors change what a project starts with by editing a part's files.
+        The types, and which parts each one takes, are in the plugin's code,
+        as is the configuration it writes.
 
     adapters:
         The adapters it offers are those @piton/belay exports, each with its

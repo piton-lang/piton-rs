@@ -70,7 +70,7 @@ const EMUL_MODULES: &[(&str, &str)] = &[
     (EMUL_PLUGIN_DECLARATION, include_str!("../../../plugins/emul/plugin.pi")),
 ];
 
-/// The init plugin. It gives `piton init` and its templates. `build.rs`
+/// The init plugin. It gives `piton init` and the parts it builds projects from. `build.rs`
 /// embeds each file below `plugins/init/src` and `plugins/init/templates`.
 const INIT_FILES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/init_files.rs"));
 

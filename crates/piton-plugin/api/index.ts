@@ -455,6 +455,10 @@ export interface Context {
    * null when the user cancels or no terminal is available. The plugin
    * must have capabilities.interactive. */
   ask(message: string, options?: { help?: string }): string | null;
+  /** Asks the user a yes or no question on the terminal. Enter gives
+   * `default`. Returns the answer, or null when the user cancels or no
+   * terminal is available. The plugin must have capabilities.interactive. */
+  confirm(message: string, settings?: { default?: boolean }): boolean | null;
   /** Asks the user to select items of `options` on the terminal. At the
    * start, `defaults` gives the selected items. The user must select
    * `minimum` items or more. Returns the selected indexes, or null when the
@@ -477,6 +481,11 @@ export interface Context {
    * returns the files that exist. The plugin must have
    * capabilities.scaffold. */
   scaffold(directory: string, files: Edit[]): { existing: string[] };
+  /** The name of `directory`, relative to the directory where piton
+   * started: its last part once the path is absolute. Thus `.` gives the name
+   * of the current directory. The directory does not have to exist. The
+   * plugin must have capabilities.scaffold. */
+  directoryName(directory: string): string;
   /** Tethers the dependencies of the new project in `directory`, as
    * `piton tether` without a source does. Returns `none` when the project
    * has no dependencies, else `installed` or `failed`. With `check`, it
@@ -618,6 +627,9 @@ function makeContext(plugin: string, plugins: Map<string, Plugin>, contexts: Map
     resource: (path) => call<string>(plugin, "resource", { path }),
     resources: (path) => call<string[]>(plugin, "resources", { path }),
     ask: (message, options = {}) => call<string | null>(plugin, "ask", { message, help: options.help ?? null }),
+    confirm: (message, settings = {}) =>
+      call<boolean | null>(plugin, "confirm", { message, default: settings.default ?? false }),
+    directoryName: (directory) => call<string>(plugin, "directoryName", { directory }),
     chooseMany: (message, options, settings = {}) =>
       call<number[] | null>(plugin, "chooseMany", {
         message,

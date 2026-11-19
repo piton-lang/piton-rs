@@ -1,0 +1,8 @@
+use @piton/test
+
+export test AnchorsAreDescribed:
+    expects:
+        Each anchor in the specification is described well enough that
+        someone new to {{name}} could tell what it is for.
+
+    tags: [example]

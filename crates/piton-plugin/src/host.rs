@@ -77,6 +77,12 @@ pub trait Services {
     fn ask(&self, _message: &str, _help: Option<&str>) -> Option<String> {
         None
     }
+    /// Asks the user a yes or no question on the terminal, with `default` the
+    /// answer that enter gives. Returns the answer, or None when the user
+    /// cancels. The host calls it only when stdin and stdout are terminals.
+    fn confirm(&self, _message: &str, _default: bool) -> Option<bool> {
+        None
+    }
     /// Asks the user to select items of `options` on the terminal. At the
     /// start, `defaults` gives the selected items. The user must select
     /// `minimum` items or more. Returns the selected indexes, or None when
@@ -770,6 +776,25 @@ impl Host {
                     json!(self.services.ask(&message, help))
                 }
             }
+            "confirm" => {
+                if !manifest.capabilities.interactive {
+                    return Err(Self::refuse(manifest, "ask the user", "interactive"));
+                }
+                let message = text_field(payload, "message")?;
+                let default = field(payload, "default").as_bool().unwrap_or(false);
+                if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                    Json::Null
+                } else {
+                    json!(self.services.confirm(&message, default))
+                }
+            }
+            "directoryName" => {
+                if !manifest.capabilities.scaffold {
+                    return Err(Self::refuse(manifest, "name a new project's directory", "scaffold"));
+                }
+                let directory = scaffold_directory(&text_field(payload, "directory")?);
+                json!(directory_name(&directory)?)
+            }
             "chooseMany" => {
                 if !manifest.capabilities.interactive {
                     return Err(Self::refuse(manifest, "ask the user to choose", "interactive"));
@@ -1294,6 +1319,27 @@ fn scaffold_directory(directory: &str) -> PathBuf {
     } else {
         PathBuf::from(directory)
     }
+}
+
+/// Returns the name of `directory`: its last part, after the path is made
+/// absolute against the current directory. Thus `.` gives the name of the
+/// current directory. The directory does not have to exist.
+fn directory_name(directory: &Path) -> Result<String, String> {
+    let current = std::env::current_dir().map_err(|error| format!("cannot read the current directory: {error}"))?;
+    let mut absolute = PathBuf::new();
+    for component in current.join(directory).components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                absolute.pop();
+            }
+            other => absolute.push(other),
+        }
+    }
+    absolute
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("`{}` has no name", directory.display()))
 }
 
 /// True if PATH contains `program`.

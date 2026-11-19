@@ -2,116 +2,188 @@ export anchor Init:
     commandName: init
 
     positionalArguments:
-        directory:
-            Where to create the project, created if it doesn't exist. Without
-            it, init asks for the project's name and uses it as the directory;
-            with no terminal to ask on, it uses the current directory.
+        name:
+            The project's name, which is also the directory it is created in,
+            created if it doesn't exist. `.` creates it in the current
+            directory, and the project takes that directory's name. Without
+            it, init asks for the name; with no terminal to ask on, it uses
+            `.`.
 
     namedArguments:
-        template:
-            The template to start from, named with its group, like
-            `belay/application`. Naming only the group, like `belay`, asks which
-            of its templates to use.
+        type:
+            Short t. The type of project: basic, application or tether.
+        renderer:
+            Short r. What a basic project compiles to: json, yaml or markdown.
+            Only a basic project takes it.
+        belay:
+            A flag: an application uses Belay. It can't be given with
+            no-belay.
+        no-belay:
+            A flag: an application doesn't use Belay.
         adapter:
-            A Belay adapter to build for, by its target id, like `codex`.
-            Repeat it, or separate ids with commas, to build for several. Only
-            a Belay template takes it.
-        list:
-            List the groups and their templates, each with what it sets up, and
-            do nothing else. The preferred group is listed first and marked as
-            recommended.
+            Short a. A Belay adapter to build for, by its target id, like
+            `codex`. Repeat it, or separate ids with commas, to build for
+            several. Only an application that uses Belay takes it.
+        code-root:
+            Belay's code root. Only an application that uses Belay takes it.
+        shape-root:
+            Belay's shape root, beneath the specification root. Only an
+            application that uses Belay takes it.
+        testing:
+            A flag: set the project up for piton test. Only an application or
+            a tether takes it. It can't be given with no-testing.
+        no-testing:
+            A flag: don't set the project up for piton test.
+        crux:
+            A flag: add the crux skills. Only an application that uses Belay
+            takes it. It can't be given with no-crux.
+        no-crux:
+            A flag: don't add the crux skills.
         no-tether:
-            Write the template's files only, leaving the dependencies its
+            Write the project's files only, leaving the dependencies its
             configuration declares for piton tether to install later.
 
     description:
-        Starts a new project from one of the templates that come with the
-        compiler. It is the command of the init plugin, not a command the
-        compiler has itself. It is standalone: it runs wherever it is invoked,
-        inside a project or not, whatever the configuration there says, and
-        writes relative to the directory it is run in.
+        Starts a new project, built from the parts that come with the
+        compiler, by asking what kind of project it is and what it should
+        have. It is the command of the init plugin, not a command the compiler
+        has itself. It is standalone: it runs wherever it is invoked, inside a
+        project or not, whatever the configuration there says, and writes
+        relative to the directory it is run in.
 
-    templates:
-        Templates come in groups. Each group is a directory in the templates/
-        directory of the init plugin, plugins/init/templates in the compiler's
-        repository, and each template is a directory in its group, which holds
-        exactly the files a new project gets, laid out as the project lays
-        them out. A template is named with its group, `group/template`. The
-        group and each template have a `.template` file that describes them in
-        one line, which is not written into the project. A group holding a
-        `.preferred` file is the one to recommend: it comes before the others,
-        which stay in name order, and is marked as recommended wherever groups
-        are offered. Template files are text.
+    questions:
+        Init asks, in this order, only the questions that apply, and skips
+        each one whose answer is given on the command line:
 
-        The templates are embedded with the plugin's files when the compiler
-        is built, so init needs no network, and a release always writes the
-        templates it was released with. The plugin reads them from its own
-        directory at run time, so adding or editing a template is adding or
-        editing a directory: nothing in the compiler or in the plugin's code
-        lists them.
+        1. The project's name.
+        2. The type of project, from a list: basic, application or tether,
+            each with what it is for.
+        3. For a basic project, the renderer, from a list: json, yaml or
+            markdown, json first.
+        4. For an application, whether it uses Belay, yes by default. When it
+            does: the adapters to build for, as a list with a box to check
+            beside each, naming the platform and its target id, with Claude
+            Code checked to start with and at least one checked; then the code
+            root, ./src unless another is typed; then the shape root,
+            ./spec/shape unless another is typed.
+        5. For an application or a tether, whether to set it up for piton
+            test, yes by default.
+        6. For an application that uses Belay, whether to add the crux
+            skills, yes by default.
 
-        Every template has to start a project that checks without problems, is
-        already formatted, and builds, for each adapter it can be built for.
+        A yes or no question is answered with y or n, and enter takes the
+        default. Escape or Ctrl+C at any question stops init before anything
+        is written. With no terminal to ask on, the type has to be given with
+        --type, and init says so; every other question takes its default.
 
-    bundledTemplates:
-        The compiler ships with these groups and templates, each named after
-        its directory.
+    name:
+        The name is what was given or typed: the directory
+        the project is created in, relative to the directory init runs in. The
+        project's name is that directory's own name, its last part, so `.` is
+        the name of the current directory. A tether's package is published
+        under that name.
 
-        - crux, the preferred group, guidance built on the crux skills
-            - crux/project, Belay with the crux package tethered and built
-        - piton, plain Piton compiled by a renderer
-            - piton/minimal, a project compiled to JSON in dist/
-            - piton/library, a package others install with piton tether
-        - belay, agent guidance compiled for the adapters chosen
-            - belay/application, a shape instruction, skill, agent and command
-            - belay/minimal, the Belay configuration and one skill
-        - testing, a specbase checked with piton test
-            - testing/project, a test-config anchor and one example test
+    types:
+        basic:
+            Plain Piton compiled by one of the compiler's renderers into dist/.
+            Its configuration sets the renderer chosen, and its specification
+            is a Specification anchor and a Glossary.
 
-        belay/application places its shape instruction in src/, beside the
-        application's source.
+        application:
+            The specification of an application. With Belay, its configuration
+            adds a belay-config with the code root, shape root and adapters
+            chosen, and the project gets the guidance Belay compiles for its
+            code: a Conventions anchor, a shape instruction for the code root,
+            a skill, an agent and a command. Without Belay it is compiled to
+            JSON in dist/, like a basic project that keeps the default
+            renderer.
 
-        testing/project lists its test-config settings anchor under `plugins`
-        with `against` set to spec, so its one example test judges the
-        specification until the project has code to judge.
+        tether:
+            A package, which other projects install with piton tether. Its
+            configuration declares a piton-package named after the project,
+            whose root is the specification root, and its specification is
+            an abstract Component anchor for the projects that install it to
+            extend, and a ReviewComponent skill, as an example of the agent
+            guidance a package can ship. A tether can't use Belay: its
+            configuration has no belay-config, and a project that tethers it
+            builds the skill for its own adapters.
 
-        crux/project declares https://github.com/piton-lang/crux.git under `dependencies` and its entry re-exports
-        everything the package exports, so once crux is tethered the first
-        build emits every crux skill for each adapter chosen.
+        Every type keeps its sources in ./spec, entered at ./spec/index.pi.
 
-    naming:
-        Without a directory given, the first thing init asks is the project's
-        name, and the project is created in a directory of that name beneath
-        the current one. An empty answer creates it in the current directory.
-        Only then does it ask for a template.
+    testing:
+        Setting a project up for piton test adds a test-config to its
+        plugins and one example test, in spec/tests. An application's tests
+        are judged against both the specification and the code, the code
+        being Belay's code root, or the project root without Belay. A
+        tether's tests are judged against the specification only, since a
+        package is a specification.
 
-    choosing:
-        Without a template named, init asks which group to start from, then
-        which template in it, each as a list to move through, pick from, and
-        filter by typing. The preferred group is offered first, so it is
-        the one already selected. A group with a single template doesn't ask. When
-        there is no terminal to ask on, a template has to be named in full, and
-        init says so.
+    crux:
+        Adding the crux skills declares https://github.com/piton-lang/crux.git
+        under the configuration's dependencies and re-exports everything the
+        package exports from the entry, so once crux is tethered the first
+        build emits every crux skill for each adapter chosen. They are
+        offered only when the project uses Belay, since Belay is what builds
+        them.
 
-    adapters:
-        A template is a Belay template when its configuration lists Belay
-        adapters, and the adapters it lists are the default. After the template
-        is chosen, init asks which of the adapters @piton/belay exports to
-        build for, as a list with a box to check beside each, naming the
-        platform and its target id. The defaults start checked, and at least
-        one has to be. With --adapter, or with no terminal to ask on, it
-        doesn't ask; without --adapter it keeps the defaults.
+    roots:
+        The code root and the shape root are paths relative to the project,
+        written as typed, with `./` added when they don't start with it. The
+        shape root has to be beneath the specification root, ./spec, and not
+        ./spec itself, since the entry exports the shape instructions from it;
+        init says so when it isn't, and asks again or, from --shape-root,
+        stops.
 
-        The chosen adapters replace the listed ones in the configuration
-        written, both in its import from @piton/belay and in its adapters
-        list, each once and in the order @piton/belay exports them. The
-        configuration is written canonically formatted, with the compiler's
-        formatter.
+    configuration:
+        The plugin writes piton.config.pi from the answers, rather than
+        reading it from a part, and writes it canonically formatted with the
+        compiler's formatter. The adapters chosen are listed in its import
+        from @piton/belay and in its adapters list, each once and in the order
+        @piton/belay exports them.
 
-        Files a template keeps in `.adapters/<target id>/` are written only
-        when that adapter is chosen, at their path beneath it. A template uses
-        them for what one platform needs and the others don't, like the
-        opencode.json that has OpenCode load the instructions placed in src/.
+    parts:
+        The files a project gets, other than its configuration, come from
+        parts: directories in the templates/ directory of the init plugin,
+        plugins/init/templates in the compiler's repository. Each part holds
+        files laid out as the project lays them out:
+
+        - basic, application and tether hold what each type starts with.
+        - belay holds what Belay adds to an application.
+        - testing holds the example test.
+        - crux holds the entry's re-export of crux.
+
+        A project gets the part of its type, then belay, testing and crux, in
+        that order, when it has them. Within a part:
+
+        - Files under `shape/` are written beneath the shape root, and files
+            under `code/` beneath the code root. Files under `code/` aren't
+            written when the code root is the project root.
+        - Files under `.adapters/<target id>/` are written only when that
+            adapter is chosen, at their path beneath it, like the
+            opencode.json that has OpenCode load the instructions placed in
+            the code root.
+        - `\ {{name}} \` in a file is replaced by the project's name;
+            `\ {{codeRoot}} \` by the code root followed by a slash, like
+            `src/`, or by nothing when it is the project root;
+            `\ {{shapeRoot}} \` by the shape root relative to the
+            specification root, like `shape`; and `\ {{specRoot}} \` by the
+            specification root relative to the shape root, like `..`.
+
+        When several parts have a file at the same path, the project gets
+        them joined into one: the lines of each that come before its first
+        declaration, its comments, uses and imports, in the order of the
+        parts, then the rest of each in the same order, formatted with the
+        compiler's formatter. That is how the entry gains the exports of
+        Belay and crux.
+
+        The parts are embedded with the plugin's files when the compiler is
+        built, so init needs no network for them, and a release always writes
+        the parts it was released with. Authors change what a project starts
+        with by editing a part's files.
+
+        Every combination of answers has to start a project that checks
+        without problems, is already formatted, and builds, for each adapter
+        it can be built for.
 
     tethering:
         When the configuration written declares dependencies, init tethers
@@ -124,25 +196,25 @@ export anchor Init:
 
     safety:
         Init never overwrites a file. The host writes the project, through the
-        scaffold capability, and when any file the template would write
-        already exists, it writes none of them, and init names each one. Escape or
-        Ctrl+C at any question stops init before anything is written.
+        scaffold capability, and when any file init would write already
+        exists, it writes none of them, and init names each one.
 
     output:
         The path of each file written, one per line on stdout, followed by
         what piton tether prints for each package tethered. Then on stderr
-        what was created from which template, the adapters chosen for a Belay
-        template, how many files were written, and the commands to run next.
-        On a terminal each path is marked as added with its directory dimmed;
-        piped, the paths are bare.
+        what was created, the type with what it was given: the renderer, or
+        Belay with its adapters, testing and crux. Then how many files were
+        written, and the commands to run next. On a terminal each path is
+        marked as added with its directory dimmed; piped, the paths are bare.
 
     diagnostics:
         errors: true
         warnings: false
 
-        A template that doesn't exist, a group or no template named without a
-        terminal to ask on, an adapter that doesn't exist, --adapter given for
-        a template that isn't a Belay template, a question cancelled, and a
+        No type given without a terminal to ask on, a type, renderer or
+        adapter that doesn't exist, an argument the type or its answers don't
+        take, like --renderer for an application or --crux without Belay, a
+        shape root outside the specification root, a question cancelled, a
         file that would be overwritten, and dependencies that fail to tether
         are all errors.
 
