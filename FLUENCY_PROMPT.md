@@ -1,8 +1,8 @@
 # Piton Fluency
 
 This document is a reference for Piton and its family: the language, project
-configuration, plugins, the bundled Belay, test and migrate plugins,
-packages and tools. Read it before you read or change a Piton specbase. The
+configuration, plugins, the bundled Belay, test, migrate, init and Emul
+plugins, packages and tools. Read it before you read or change a Piton specbase. The
 GenerateFluencyPrompt skill makes it from `spec/`. Section 19 gives the
 differences between the compiler and the spec.
 
@@ -22,10 +22,14 @@ The reason for Piton (`spec/scope/founding-thesis/`):
 - A prompt in one session leaves no record that you can trace.
 - Pure prose (AGENTS.md, CLAUDE.md) decays. It is not clear, it repeats, and
   you cannot use it again.
-- Piton adds imports, inheritance, types and references to prose. You write a
-  pattern one time and use it many times.
-- The author compares Piton to CAM above G-code. CNC replaced the hand of the
-  machinist, not the skill. The problem below is repetition.
+- Piton adds imports, inheritance, types and references to prose. Structure
+  and prose are both first-class. You write a pattern one time and use it
+  many times.
+- A small tool does not need a record. A complex system needs a record of the
+  process, not only of the output.
+- The author compares Piton to CAM above G-code. CAM combines the design
+  intent of the engineer with the skill of the machinist. CNC replaced the
+  hand of the machinist, not the skill. The problem below is repetition.
 - The goal: an agent that reads the spec becomes a compiler for Piton and
   Belay. This repository is that test. `crates/` and `plugins/` are the
   compiler.
@@ -40,8 +44,10 @@ Core facts:
   Its constructs and adapters are Piton files. Its build is TypeScript.
 - Plugin code (section 11) runs only for a plugin command, for build plans
   (`piton build`, `piton check`), for reach hooks (`piton reach`), for
-  inspect hooks before a command, and when the editor saves a file. It never
-  runs for `piton compile` or while you type.
+  inspect hooks before a command, and when the editor saves a file. A module
+  hook (11.13) is the one exception: it runs when the compiler loads a file
+  that is not Piton. A project that imports no such file compiles without
+  plugin code.
 - **The `.pi` source is the truth.** Generated Markdown (`.claude/...`,
   `CLAUDE.md`, `AGENTS.md`, build output) comes from it. Edit the `.pi`
   source and build again. Do not edit the output.
@@ -127,8 +133,9 @@ Piton infers the type of a value without a constraint from its form:
 | `${...}` | string |
 
 Each built-in type is a `type` anchor (`spec/scope/language/types/lib/Type.pi`).
-It has `description`, `what-is-a-type`, `supportedOperators` and
-`unsupportedOperators`. An operator that a type does not list is an error.
+It has `description` (required), `what-is-a-type`, `supportedOperators`
+(`extends Operator[]`, required, can be null) and `unsupportedOperators`
+(a string with a default). An operator that a type does not list is an error.
 Piton applies this check after coercion and inference.
 
 | Type | Operators |
@@ -269,7 +276,8 @@ You can address keys that the block declares directly
   `:` is mandatory (`constraint-spacing`).
 - The spec documents `:` (assignment) and `::` (type annotation) as
   declaration operators (`spec/scope/language/operators/declaration/`). They
-  are not expression operators.
+  are not expression operators. They have no precedence, and no type lists
+  them as supported.
 
 ```piton
 count:: number: 42
@@ -304,6 +312,8 @@ first type that can hold the value wins.
 - Piton calculates an expression first: `string: {1.0}` → `"1"`.
 - **Piton never coerces booleans or null.** `flag:: string: false` gives
   `type-mismatch`. Write `${false}`.
+- `value:: boolean:: string: "false"` → the string `"false"`, with its quotes.
+  `"false"` is not a boolean.
 - Piton never coerces collections or anchors.
 - If no type matches, the result is `type-mismatch`.
 
@@ -402,8 +412,8 @@ the expression:
 
 `${}`:
 
-- A string stays the same. Numbers and booleans become text. Null becomes
-  `null`.
+- A string stays the same. Numbers become text. Booleans become `true` or
+  `false`. Null becomes `null`.
 - An anchor becomes its source name: `${Child}` → `"Child"`.
 - `${self}` becomes the name of the current most-derived anchor.
 - Piton never changes the name to title case.
@@ -429,7 +439,8 @@ Example. `export anchor Metadata:` has `name: Piton` and
 - A string changes to a number only if the **full** string is a Piton number
   literal. `#{"42"}` → `42`. Piton never calculates the string.
 - Booleans, null, collections and anchors give `not-a-number`.
-- The value stays a number in structured output.
+- The value stays a number in structured output. You can use it in more
+  arithmetic and conversions.
 
 ### 6.3 Operators
 
@@ -447,8 +458,8 @@ Example. `export anchor Metadata:` has `name: Piton` and
 | Operands | Result |
 | --- | --- |
 | number + number | Addition. |
-| string and a simple value | Concatenation. The `${}` rules make the text: `{2 + "Hello"}` → `"2Hello"`. |
-| string and a list, dictionary or anchor (either side) | An implicit list. Piton never makes a string: `{"Tags: " + tags}` → `["Tags: ", [...]]`. |
+| string and a simple value | Concatenation. The `${}` rules make the text: `{2 + "Hello"}` → `"2Hello"`, `{"Enabled: " + true}` → `"Enabled: true"`. |
+| string and a list, dictionary or anchor (either side) | An implicit list. Piton never makes a string: `{"Tags: " + tags}` → `["Tags: ", [...]]`. For the name, write `${tags}`. |
 | list + list | Merge. Remove duplicates, keep the last copy: `{["A","B","C","D"] + ["A","B","C"]}` → `[D, A, B, C]`. |
 | dictionary + dictionary | Shallow merge. The right side wins. |
 | other | Error. `{1 + true}`, `{null + 1}` and `{1 ++ 2}` give `invalid-operand`. |
@@ -506,6 +517,8 @@ from /subdir/file import AnAnchor
 from .. import Something
 from my-package import MyAnchor
 from @piton/belay import ClaudeCodeAdapter
+from ./index import cruxible.Roles
+from ./designs/Landing.emul import Landing
 from ./file import
     First,
     Second
@@ -516,6 +529,8 @@ from ./file import
   only in a project with a `piton.config.pi`.
 - `.pi` is optional. The formatter removes it.
 - A directory, `.` or `..` means the `index.pi` of that directory.
+- A path that ends in an extension of a module hook (for example `.emul`)
+  names that file only (11.13).
 - You can import only exports. Other names give `unresolved-export`. A module
   that is not there gives `unresolved-module`.
 - An alias has the form `Name Alias`. Piton has no `as` in imports. Only the
@@ -527,12 +542,40 @@ Exports:
 - In an index, the short forms are `from ./X export X`, `from ./X export *`
   and `from ./X export A AliasA, B`.
 - **An import into an index does not export the name again.**
-- **A module exports each name one time** (`duplicate-export`). This applies
-  to a name written out and to a name from `export *`, if the two names mean
-  different things.
+- A name leaves a module in four ways. A declaration with `export`,
+  `export Name` and `from ./X export Name` are explicit exports.
+  `from ./X export *` is a glob.
 - The same anchor through two routes is not an error.
-- The error names the two sources. Fix it with an alias or an explicit list.
-  The LSP shows the same error.
+
+Two globs that give one name two meanings:
+
+- This is not an error. The module does not export the plain name.
+- It exports each meaning with the name of its source module as a
+  qualifier: `cruxible.Roles`, `strataglyph.Roles`.
+- The name of a source module is its file name without `.pi`. For an
+  `index.pi`, it is the name of the directory.
+- A name from one glob only, or with the same meaning in all globs, stays a
+  plain export.
+- The compiled output uses the same keys (`cruxible.Roles`), in the order of
+  the export lines.
+- Import a qualified export by its full name. Without an alias, the import
+  binds the last part of the name:
+  `from ./index import cruxible.Roles, strataglyph.Roles GlyphRoles` binds
+  `Roles` and `GlyphRoles`.
+- An import of the plain name `Roles` from that index is an error. The error
+  names each qualified name that you can use.
+- `from ./index export *` in another module exports the qualified names
+  again as they are.
+- An explicit export hides the same name from a glob. This is not an error.
+
+`duplicate-export` has only two causes:
+
+- Two explicit exports of one name with two different meanings.
+- Two globs that give a name two meanings from source modules with the same
+  name (`./a/roles` and `./b/roles` both give `roles.Roles`).
+- The error names the name and the two modules. Fix it with an alias
+  (`from ./b export Roles BRoles`) or an explicit list. The LSP shows the
+  same error.
 - The compiler keeps one export. The order is: the exported declaration, then
   named exports in order, then `*` exports in order.
 - If nothing else reaches the dropped item, `piton reach` reports it as
@@ -556,15 +599,14 @@ Circular imports:
   `use` and `import`.
 
 Bundled packages: `@piton/config`, `@piton/packaging`, `@piton/plugin`, and
-one package for each bundled plugin with Piton files: `@piton/belay` and
-`@piton/test`. The migrate plugin has no Piton files. Each project has all
-of them without configuration.
+one package for each bundled plugin with Piton files: `@piton/belay`,
+`@piton/test` and `@piton/emul`. The migrate and init plugins have no Piton
+files. Each project has all of them without configuration.
 
 The formatter sorts and breaks import and export lines:
 
-- In each group of import lines, `use` lines come first, then `from` lines.
+- `use` lines come first, then `from` lines.
 - It sorts lines by path and sorts the names.
-- A blank line separates groups.
 - It breaks a line across lines if it has more than 2 items or more than 80
   columns.
 
@@ -776,28 +818,40 @@ Config diagnostics: `missing-config`, `unknown-config-key`,
 ## 11. Plugins (`spec/scope/plugins/`)
 
 Plugins add CLI commands, build output, build diagnostics, the anchors that
-they reach, and Piton files that you can import. They do not change the
-compiler.
+they reach, Piton files that you can import, and the modules of files that
+are not Piton. They do not change the compiler.
 
 - You declare a plugin in Piton and write it in TypeScript.
 - oxc transpiles the code. Embedded QuickJS (rquickjs) runs it.
 - You install nothing. Plugins need no Node and no build step.
 - **Compilation stays pure.** `piton compile` and the LSP while you type read
-  only Piton. Plugin code runs only for its command, for build plans of
+  only Piton, and the Piton that a module hook gives for a file that is not
+  Piton (11.13). Plugin code runs only for its command, for build plans of
   `piton build` and `piton check`, for reach hooks of `piton reach`, for
-  inspect hooks before a command (11.10), and when the editor saves a file.
+  inspect hooks before a command (11.10), when the editor saves a file, and
+  when the compiler loads a file with an extension of a module hook.
 - **A plugin can do only what it declares.** It can always read the compiled
   project.
 - Bundled plugins and installed plugins work the same. The binary holds the
   files of a bundled plugin.
-- Three plugins are bundled: Belay (`plugins/belay`), the test plugin
-  (`plugins/test`) and the migrate plugin (`plugins/migrate`). Each has
-  `plugin.pi` (its declaration), `src/` (its TypeScript) and, if it has
-  Piton files, `pi/`.
+- Five plugins are bundled. Each has `plugin.pi` (its declaration), `src/`
+  (its TypeScript) and, if it has Piton files, `pi/`. The binary holds each
+  file below `src/` (and below `templates/` for init) without a list.
+
+| Plugin | Directory | Adds |
+| --- | --- | --- |
+| Belay | `plugins/belay` | Agent output, `piton agent`, `piton belay slice` (12). |
+| test | `plugins/test` | `piton test` (14). |
+| migrate | `plugins/migrate` | `piton migrate` (11.12). |
+| init | `plugins/init` | `piton init` (15). It also holds `templates/`. |
+| Emul | `plugins/emul` | Imports and references of Emul designs, `piton emul` (11.14). |
 - Not available now: renderers for `piton compile`, diagnostics outside a
   build, and extensions of a compiler command.
 
 ### 11.1 Declaration (`@piton/plugin`)
+
+This example is a short form of `plugins/test/plugin.pi`. The real file
+has more arguments and a `help` block.
 
 ```piton
 use @piton/plugin
@@ -807,6 +861,7 @@ export piton-plugin TestPlugin:
     entry: ./src/index.ts
     settings: TestConfig
     requires: [belay]
+    reach: true
     description: Has an agentic tool judge the project's tests.
     capabilities:
         process: [claude, codex, opencode, muse]
@@ -842,6 +897,7 @@ export piton-plugin TestPlugin:
 | `build:: boolean` | Optional. `true` if the plugin has a build hook (11.3). Without it, `piton build` does not run the plugin. |
 | `inspect:: boolean` | Optional. `true` if the plugin has an inspect hook (11.10). |
 | `reach:: boolean` | Optional. `true` if the plugin has a reach hook (11.11). |
+| `modules:: string[]` | Optional. The file extensions, without the dot, that the module hook gives Piton modules for (11.13). Lowercase letters and digits. Not `pi`. Example: `emul`. |
 
 The host reads `build`, `inspect` and `reach` to know which plugins to ask.
 It does not run the plugin to know this.
@@ -856,7 +912,10 @@ Commands:
   `piton --help` lists group commands below the group. The group is also a
   command that lists them.
 - `help` gives more text. It shows in `piton <command> --help`.
-- `arguments` is an ordered dictionary.
+- `standalone: true` is for a command that uses no project (`piton init`).
+  It runs outside a project and in a project whose config has errors. Piton
+  does not report the plugin problems of the project before it.
+- `arguments` is an ordered dictionary, in the order of the help.
 - If a command has the same name as a command of another plugin or a
   built-in command, Piton reports it and leaves it out. The same rule
   applies in a group. A group cannot have the name of a command.
@@ -904,6 +963,7 @@ capabilities:
     outputs: [.claude/**, **/CLAUDE.md]
     interactive: true
     edits: [piton.config.pi]
+    scaffold: true
 ```
 
 | Capability | Meaning |
@@ -912,8 +972,9 @@ capabilities:
 | `files: read \| none` | The default is `none`. `read` lets the plugin read files and list directories in the project, never outside it. |
 | `outputs: [globs]` | The paths that the build of the plugin can write, relative to the project root. `*` matches in one directory. `**` matches across directories. Do not put quotes around them. |
 | `edits: [globs]` | The project files that the plugin can propose to change, relative to the project root, as for `outputs`. Piton applies an edit only when the user agrees, or when the user runs the command of the plugin. An edit outside the globs is an error, and Piton offers nothing of it. |
-| `interactive: true` | The plugin can show a menu on the terminal. The menu shows only when stdin and stdout are terminals. |
+| `interactive: true` | The plugin can ask the user on the terminal: select one item from a menu, check items of a list, or type an answer. It asks only when stdin and stdout are terminals. Else it asks nothing and selects nothing. |
 | `temporaryFiles: true` | Temporary files outside the project. Piton removes them when the command ends. |
+| `scaffold: true` | The plugin can start a new project. It gives files (path and contents) and a directory relative to the directory where `piton` ran. The host writes them and prints each path. The host never overwrites a file: if one file exists, it writes none and returns the files that exist. A path that goes out of the directory is refused. The plugin can also tether the dependencies of the new config, as `piton tether` with no source does. |
 
 - **Plugins never write project files themselves.** A build returns a plan,
   and the host writes it inside `outputs`. An inspect hook returns proposed
@@ -1127,6 +1188,7 @@ A handler returns the exit code. If it returns nothing, the code is 0.
 | `build` | The build plan (11.3). Needs `build: true`. |
 | `inspect` | The findings: what is out of date (11.10). Needs `inspect: true`. |
 | `reach` | The anchors that the plugin reaches (11.11). Needs `reach: true`. |
+| `module` | The Piton source of a file that is not Piton (11.13). Needs `modules`. It gets `{path, text}` and returns a string or `{source}`. |
 | `exports` | What plugins that require this plugin can use (11.4). |
 
 | Context member | Meaning |
@@ -1138,6 +1200,7 @@ A handler returns the exit code. If it returns nothing, the code is 0.
 | `compile({workspace})` | Compile the project. `workspace` compiles all sources below the root. |
 | `spawn` | Run a permitted program with args, an optional cwd in the project, and env. It runs in the project root with an empty stdin. |
 | `exec` | Run a permitted program with the terminal. The user does the input. It returns the exit code. |
+| argument size | `spawn` and `exec` refuse an argument or env value that is too large for the OS (on Linux, 128 KiB or more) before the program starts. The error names the value and its size. Write more data to a temporary file. |
 | `applyEdits` | Write proposed edits (a project file and its full new contents) for a command that the user ran to make them. Each path must be in the `edits` capability. It returns the changed paths. |
 | `choose` | Show a menu and return the selected item, or nothing on cancel or without a terminal. Needs `interactive`. |
 | `resource` | The text of a file in the directory of the plugin. It needs no capability. |
