@@ -165,7 +165,7 @@ export interface Listed {
   file: string;
   against: string;
   tags: string[];
-  expects: string;
+  expects: string[];
 }
 
 /** Shows the tests that a run will include. It puts each test below the file
@@ -184,7 +184,14 @@ export function list(ctx: Context, tests: Listed[], width: number): string {
       let meta = `against ${test.against}`;
       if (test.tags.length > 0) meta += ` · ${test.tags.join(", ")}`;
       out += `  ${ctx.paint("heading", test.name)}  ${ctx.paint("dim", meta)}\n`;
-      for (const line of wrap(test.expects, width - 4)) out += `    ${line}\n`;
+      for (const statement of test.expects) {
+        // Several statements are a list. Each wraps beneath its marker.
+        const marker = test.expects.length === 1 ? "" : "- ";
+        const lines = wrap(statement, width - 4 - marker.length);
+        lines.forEach((line, index) => {
+          out += `    ${index === 0 ? marker : " ".repeat(marker.length)}${line}\n`;
+        });
+      }
     }
     blocks.push(out);
   }

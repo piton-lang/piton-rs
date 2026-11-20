@@ -69,12 +69,20 @@ function fixRequest(project: Project, against: string): string {
  * code of the project. */
 const GENERATED = [".claude", ".codex", ".agents", ".opencode", ".muse", ".piton"];
 
+/** The statements of a test as text: one statement as it is, or a list
+ * with one statement on each line. */
+export function statementText(test: TestCase): string {
+  if (test.expects.length === 1) return test.expects[0];
+  return test.expects.map((statement) => `- ${statement}`).join("\n");
+}
+
 /** One test that is ready to run. */
 export interface TestCase {
   name: string;
   /** An absolute path. */
   file: string;
-  expects: string;
+  /** The statements. The test passes only when each one is true. */
+  expects: string[];
   /** A preamble that tells what the statement is about. It goes before the
    * statement in the request and in the fix prompt. */
   context: string | null;
@@ -133,9 +141,10 @@ export function request(project: Project, test: TestCase): string {
     "You are judging one test of this Piton project.\n" +
     "\n" +
     context +
-    "Decide whether this statement is true:\n" +
-    "\n" +
-    `${test.expects}\n` +
+    (test.expects.length === 1
+      ? "Decide whether this statement is true:\n\n"
+      : "Decide whether all of these statements are true. The statement of this test is true only if each one is true:\n\n") +
+    `${statementText(test)}\n` +
     `${description}\n` +
     `The test is \`${test.name}\`, declared in \`${relative(test.file, root)}\`. Judge it against ${scope}\n` +
     "\n" +
@@ -413,15 +422,16 @@ export function fixPrompt(
   outcome: { reason: string; explanation: string | null; fix: string | null; sides: Sides },
 ): string {
   const { what, only, keep } = target(project, test.against);
+  const statement = test.expects.length === 1 ? "this statement is" : "each of these statements is";
   const title =
     test.against === "spec"
-      ? "Fix the Piton specification so that this statement is true:"
+      ? `Fix the Piton specification so that ${statement} true:`
       : test.against === "code"
-        ? "Fix the code so that this statement is true:"
-        : "Fix the Piton specification and the code so that this statement is true in both:";
+        ? `Fix the code so that ${statement} true:`
+        : `Fix the Piton specification and the code so that ${statement} true in both:`;
   const lines = [title, ""];
   if (test.context !== null) lines.push(`Context: ${test.context}`, "");
-  lines.push(test.expects, "");
+  lines.push(statementText(test), "");
   lines.push(
     `The test \`${test.name}\` in \`${relative(test.file, project.root)}\` examines the statement in ${what}. It failed.`,
     `Reason: ${outcome.reason || "The agent gave no reason."}`,

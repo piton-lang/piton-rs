@@ -451,3 +451,30 @@ fn the_settings_can_give_the_code_root() {
     let request = request_of(&calls, "saves the document").join("\n");
     assert!(request.contains("the files under `src`"), "{request}\n{stdout}\n{stderr}");
 }
+
+#[test]
+fn a_test_can_expect_several_statements() {
+    let tests = "use @piton/test\n\nexport test Several:\n    expects:\n        - The App anchor has a name\n        - The App anchor has no colour\n    against: spec\n";
+    let fixture = project("several", "", tests);
+    let (stdout, stderr, code) = fixture.run(&["test", "--list"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stdout.contains("  Several  against spec\n    - The App anchor has a name\n    - The App anchor has no colour\n"),
+        "{stdout}"
+    );
+
+    // The tool judges them together. The test passes only when each one is true.
+    let _ = fixture.run(&["test", "Several"]);
+    // The stand-in records each line of the arguments as one entry.
+    let request = request_of(&fixture.calls(), "has no colour").join("\n");
+    assert!(request.contains("Decide whether all of these statements are true."), "{request}");
+    assert!(request.contains("- The App anchor has a name\n- The App anchor has no colour\n"), "{request}");
+}
+
+#[test]
+fn a_test_with_an_empty_list_of_statements_is_not_well_formed() {
+    let fixture = project("no-statements", "", "use @piton/test\n\nexport test Nothing:\n    expects: []\n");
+    let (_, stderr, code) = fixture.run(&["test", "--list"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("test `Nothing` has no statement to judge"), "{stderr}");
+}

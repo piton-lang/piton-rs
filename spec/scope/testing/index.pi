@@ -49,7 +49,7 @@ export anchor TestKeyword:
         ```piton
         \\\
         export abstract anchor Test as test:
-            expects:: string
+            expects:: string:: string[]
             against:: string:: null: null
             context:: string:: null: null
             description:: string:: null: null
@@ -62,6 +62,22 @@ export anchor TestKeyword:
         judges it true of what it reads, and fails otherwise. A failure comes
         with a short explanation of why, written in ASD-STE100 Simplified
         Technical English, and a prompt to give an agent to fix it.
+
+        It can also be a list of statements. Then the test's statement is that
+        each of them is true: the agent judges them together, in one session,
+        and the test passes only when every one holds. The request and the fix
+        prompt give them as a list, one to a line, and the listing of tests
+        shows each one beneath the test. An empty list, or a statement that is
+        empty, is not a statement, and the test isn't well-formed.
+
+        ```piton
+        \\\
+        export test SaveButtonSaves:
+            expects:
+                - The Save button saves the document
+                - Saving keeps the cursor where it was
+        \\\
+        ```
 
     against:
         Optional. What the statement is judged against: spec, code, or both.

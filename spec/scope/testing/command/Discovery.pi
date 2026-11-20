@@ -13,5 +13,6 @@ export anchor TestDiscovery:
         The project has to compile cleanly first: tests are not run over a
         specification with errors, which are reported as diagnostics and stop
         the run. So does a test that isn't well-formed, one whose expects is
-        empty or whose against isn't spec, code or both: each is reported by
-        name with the file it is in, and none of the tests run.
+        empty, an empty list or a list with an empty statement, or whose against
+        isn't spec, code or both: each is reported by name with the file it is
+        in, and none of the tests run.

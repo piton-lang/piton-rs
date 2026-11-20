@@ -45,7 +45,7 @@ export test SaveButtonSaves:
 
 ```piton
 export abstract anchor Test as test:
-    expects:: string
+    expects:: string:: string[]
     against:: string:: null: null
     context:: string:: null: null
     description:: string:: null: null
@@ -55,6 +55,13 @@ export abstract anchor Test as test:
 ## Expects
 
 Required. The statement, in plain English. It passes when the agent judges it true of what it reads, and fails otherwise. A failure comes with a short explanation of why, written in ASD-STE100 Simplified Technical English, and a prompt to give an agent to fix it.
+It can also be a list of statements. Then the test's statement is that each of them is true: the agent judges them together, in one session, and the test passes only when every one holds. The request and the fix prompt give them as a list, one to a line, and the listing of tests shows each one beneath the test. An empty list, or a statement that is empty, is not a statement, and the test isn't well-formed.
+```piton
+export test SaveButtonSaves:
+    expects:
+        - The Save button saves the document
+        - Saving keeps the cursor where it was
+```
 
 ## Against
 

@@ -119,6 +119,20 @@ function text(anchor: Anchor, key: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** The statements of a test: one text, or each text of a list, without
+ * spaces at the two ends. If a statement is empty or is not text, it gives
+ * null. */
+function statements(anchor: Anchor): string[] | null {
+  const value = anchor.properties.expects;
+  const list = Array.isArray(value) ? value : [value];
+  const out: string[] = [];
+  for (const item of list) {
+    if (typeof item !== "string" || item.trim().length === 0) return null;
+    out.push(item.trim());
+  }
+  return out.length > 0 ? out : null;
+}
+
 /** Finds each exported, concrete test in the source of the project. The
  * tests are in the order of their files, then their names. If a test is not
  * correct, it gives null. `flagScope` is the value of the `--against` flag.
@@ -129,7 +143,7 @@ function collect(ctx: Context, anchors: Anchor[], flagScope: string | null, fall
   const tests: TestCase[] = [];
   let valid = true;
   for (const anchor of anchors) {
-    const expects = text(anchor, "expects");
+    const expects = statements(anchor);
     if (expects === null) {
       ctx.report.error(`test \`${anchor.name}\` has no statement to judge`);
       ctx.report.note(`declared in ${relative(anchor.file, root)}`);
