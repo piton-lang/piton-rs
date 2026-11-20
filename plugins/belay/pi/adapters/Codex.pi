@@ -15,7 +15,8 @@ export anchor CodexAdapter extends Adapter:
         output: AGENTS.md at the scope selected by ShapeMapping
         format: Markdown
         rules:
-            - Diagnose a same-directory AGENTS.override.md that shadows generated guidance.
+            - Diagnose a same-directory AGENTS.override.md that shadows
+                generated guidance.
             - Account for the configured instruction byte limit.
             - Do not generate override files merely to win precedence.
         loading:
@@ -44,7 +45,8 @@ export anchor CodexAdapter extends Adapter:
         invocation: $x-<name>
         rules:
             - Nest allow_implicit_invocation under policy in the generated YAML.
-            - Do not emit deprecated personal custom prompts as repository commands.
+            - Do not emit deprecated personal custom prompts as repository
+                commands.
             - Do not invent a project-local .codex/commands discovery directory.
 
     agent:
@@ -53,14 +55,16 @@ export anchor CodexAdapter extends Adapter:
         fields:
             name: Normalized construct name
             description: Agent description
-            developer_instructions: Role introduction, prompt, and serialized additional content
+            developer_instructions:
+                Role introduction, prompt, and serialized additional content
         optionalFields:
             - model
             - model_reasoning_effort
             - sandbox_mode
         rules:
             - Serialize the complete instruction body as a valid TOML string.
-            - Omit absent options rather than imposing model or sandbox defaults.
+            - Omit absent options rather than imposing model or sandbox
+                defaults.
             - Do not translate a generic tool list into an invented tools field.
         qualification:
             This targets the documented standalone custom-agent format, not
@@ -73,6 +77,9 @@ export anchor CodexAdapter extends Adapter:
             Unsupported per-command tool or model settings must be diagnosed.
 
     checks:
-        - Commands produce both the skill and its explicit-invocation policy file.
-        - Agent output parses as TOML and contains the three required identity and instruction fields.
-        - Shadowed or over-budget instruction output is reported before being called usable.
+        - Commands produce both the skill and its explicit-invocation policy
+            file.
+        - Agent output parses as TOML and contains the three required identity
+            and instruction fields.
+        - Shadowed or over-budget instruction output is reported before being
+            called usable.

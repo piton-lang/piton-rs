@@ -7,17 +7,17 @@ export anchor TestExplanation:
         language isn't English. It is requested in the same session as the
         verdict, so it costs no extra run.
 
-        The request gives the rules that matter most in a few sentences. At
-        most four sentences, on the verdict's one line. Only words from the
-        ASD-STE100 dictionary with their approved meanings, plus technical
-        names like file, anchor and property names, and one word for one
-        meaning. Sentences of no more than 20 words, with one topic each. The
-        active voice and the simple present, past or future tense. No -ing
-        forms of verbs, contractions or phrasal verbs. Articles where they
-        belong, and noun clusters of three words or fewer. It says what is
-        missing or different, and where.
+        The request gives the rules that matter most in a few sentences. At most
+        four sentences, on the verdict's one line. Only words from the
+        ASD-STE100 dictionary with their approved meanings, plus technical names
+        like file, anchor and property names, and one word for one meaning.
+        Sentences of no more than 20 words, with one topic each. The active
+        voice and the simple present, past or future tense. No -ing forms of
+        verbs, contractions or phrasal verbs. Articles where they belong, and
+        noun clusters of three words or fewer. It says what is missing or
+        different, and where.
 
         The explanation is the verdict's explanation, kept only when pass is
         false. A failure without one still fails, and shows only its reason.
-        Asking for ASD-STE100 is not checking it: the text is shown as the
-        tool wrote it.
+        Asking for ASD-STE100 is not checking it: the text is shown as the tool
+        wrote it.

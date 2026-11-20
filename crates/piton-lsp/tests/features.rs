@@ -421,7 +421,7 @@ impl Buffer {
     fn items(&self) -> Vec<CompletionItem> {
         match features::completion(&self.world, &self.uri, self.position) {
             Some(CompletionResponse::Array(items)) => items,
-            Some(_) => panic!("expected an array"),
+            Some(CompletionResponse::List(list)) => list.items,
             None => Vec::new(),
         }
     }
@@ -1303,4 +1303,69 @@ fn plain_text_has_no_hover_and_no_actions() {
     assert!(titles(9, 14).is_empty(), "{:?}", titles(9, 14));
     assert!(titles(3, 22).is_empty(), "{:?}", titles(3, 22));
     assert!(titles(8, 9).contains(&"Export `Hidden`".to_string()));
+}
+
+#[test]
+fn a_module_path_from_the_root_is_completed_from_the_root() {
+    let buffer = Buffer::over(
+        "spec/scope/tooling/cli/Loc.pi",
+        "from /<|>\n\nexport anchor Probe:\n    x: 1\n",
+    );
+    let labels: Vec<String> = buffer.items().into_iter().map(|item| item.label).collect();
+    assert!(labels.contains(&"/agent/skills/BuildTooling".to_string()), "{labels:?}");
+    assert!(labels.contains(&"/agent".to_string()), "an index is its directory: {labels:?}");
+    assert!(
+        !labels.iter().any(|label| label.starts_with("./") || label.starts_with("../")),
+        "a path from the root is not changed to a relative path: {labels:?}"
+    );
+}
+
+#[test]
+fn a_relative_module_path_is_completed_relative() {
+    let buffer = Buffer::over(
+        "spec/scope/tooling/cli/Loc.pi",
+        "from .<|>\n\nexport anchor Probe:\n    x: 1\n",
+    );
+    let labels: Vec<String> = buffer.items().into_iter().map(|item| item.label).collect();
+    assert!(labels.iter().any(|label| label.starts_with("../")), "{labels:?}");
+    assert!(
+        !labels.iter().any(|label| label.starts_with('/')),
+        "{labels:?}"
+    );
+}
+
+#[test]
+fn an_auto_import_has_the_style_of_the_imports_of_the_file() {
+    let buffer = Buffer::over(
+        "spec/scope/tooling/cli/Loc.pi",
+        "from /agent/skills/BuildTooling import BuildTooling\n\nexport anchor Probe:\n    tool: @{BuildTooling}\n    x: {<|>}\n",
+    );
+    let from: Vec<String> = buffer
+        .items()
+        .into_iter()
+        .filter_map(|item| item.label_details.and_then(|details| details.description))
+        .filter(|from| !from.starts_with('@'))
+        .collect();
+    assert!(from.iter().any(|from| from.starts_with("/agent")), "{from:?}");
+    // A module of an installed package keeps its package path, like
+    // `emul/...`. No module is offered by a relative path.
+    assert!(!from.iter().any(|from| from.starts_with('.')), "{from:?}");
+}
+
+#[test]
+fn module_paths_that_contain_the_typed_path_come_closest_first() {
+    let buffer = Buffer::over(
+        "spec/scope/tooling/cli/Loc.pi",
+        "from /agent/skills<|>\n\nexport anchor Probe:\n    x: 1\n",
+    );
+    let mut items = buffer.items();
+    items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
+    let labels: Vec<String> = items.into_iter().map(|item| item.label).collect();
+    // Only the paths that contain what is typed. A path in another directory
+    // that only shares the last segment is not offered.
+    assert!(labels.iter().all(|label| label.contains("/agent/skills")), "{labels:?}");
+    assert!(labels.len() >= 2, "{labels:?}");
+    // The shortest path is the closest, and comes first.
+    let shortest = labels.iter().map(String::len).min();
+    assert_eq!(labels.first().map(String::len), shortest, "{labels:?}");
 }

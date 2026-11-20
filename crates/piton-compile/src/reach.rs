@@ -312,15 +312,13 @@ fn read_targets(
     result: &mut Reachability,
 ) {
     let mut pending: Vec<Read> = compilation
-        .values
-        .get(&anchor)
-        .map(|properties| {
-            properties
-                .keys()
-                .map(|name| Read::Property(anchor, name.clone()))
-                .collect()
-        })
-        .unwrap_or_default();
+        .resolution
+        .store
+        .anchor(anchor)
+        .properties
+        .keys()
+        .map(|name| Read::Property(anchor, name.clone()))
+        .collect();
     let mut visited: HashSet<Read> = pending.iter().cloned().collect();
     let mut variables: Vec<VariableId> = Vec::new();
     while let Some(read) = pending.pop() {

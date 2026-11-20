@@ -167,14 +167,22 @@ function links(source: Source, options: Options, draft: Draft): void {
   const broken = new Map<string, [string, string, number, string]>();
   draft.files.forEach((file, index) => {
     const from = directory(file.path);
+    const cleanFrom = clean(from);
+    // A file links to the same few files many times. Each target resolves
+    // one time.
+    const resolved = new Map<string, string>();
     for (const link of markdownLinks(file.contents)) {
       // Only the links that Belay wrote must land on its output. Belay
       // passes a link that an author wrote through as it is.
-      if (hasScheme(link) || !draft.wroteLink(from, link)) continue;
+      if (hasScheme(link) || !draft.wroteCleanLink(cleanFrom, link)) continue;
       const hash = link.indexOf("#");
       const target = hash < 0 ? link : link.slice(0, hash);
       const fragment = hash < 0 ? null : link.slice(hash + 1);
-      const key = target === "" ? file.path : normalize(join(from, target));
+      let key = resolved.get(target);
+      if (key === undefined) {
+        key = target === "" ? file.path : normalize(join(from, target));
+        resolved.set(target, key);
+      }
       const add = (problem: string) => {
         const entry: [string, string, number, string] = [file.path, link, index, problem];
         broken.set(JSON.stringify(entry), entry);

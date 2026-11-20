@@ -17,13 +17,22 @@ export function trim(text: string): string {
   return trimEnd(trimStart(text));
 }
 
+/** Gives true if the character code is visible ASCII. No white space
+ * character of the compiler is one. */
+function visibleAscii(code: number): boolean {
+  return code > 32 && code < 127;
+}
+
 /** Removes white space at the start of `text`. */
 export function trimStart(text: string): string {
+  // Most text starts with a visible character. A regular expression is slow.
+  if (text.length > 0 && visibleAscii(text.charCodeAt(0))) return text;
   return text.replace(LEADING, "");
 }
 
 /** Removes white space at the end of `text`. */
 export function trimEnd(text: string): string {
+  if (text.length > 0 && visibleAscii(text.charCodeAt(text.length - 1))) return text;
   return text.replace(TRAILING, "");
 }
 

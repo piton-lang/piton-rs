@@ -1,7 +1,11 @@
 //! `piton format` — apply the canonical format.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
+use piton_compile::{Compilation, ModuleId};
+use piton_lsp::analysis;
+use piton_lsp::index::Index;
 use piton_syntax::format;
 
 use anstream::{eprintln, println};
@@ -45,6 +49,13 @@ pub fn run(path: Option<&str>, check_only: bool) -> u8 {
         return EXIT_ERRORS;
     }
 
+    // Only a project can tell which imports are unused. Without a
+    // configuration, the command formats each file alone.
+    let imports = configured
+        .config_path
+        .is_some()
+        .then(|| Imports::new(configured.clone(), &sources));
+
     let mut unformatted = Vec::new();
     let mut changed = 0usize;
     for source in &sources {
@@ -52,7 +63,11 @@ pub fn run(path: Option<&str>, check_only: bool) -> u8 {
             report::fail(format!("cannot read `{}`", source.display()));
             return EXIT_ERRORS;
         };
-        let formatted = format::format(&text, source);
+        let organized = match &imports {
+            Some(imports) => imports.organize(source, &text),
+            None => text.clone(),
+        };
+        let formatted = format::format(&organized, source);
         if formatted == text {
             continue;
         }
@@ -96,6 +111,76 @@ pub fn run(path: Option<&str>, check_only: bool) -> u8 {
         report::plural(sources.len(), "file", "files")
     ));
     EXIT_SUCCESS
+}
+
+/// The compilation that tells which imports each file uses.
+struct Imports {
+    compilation: Compilation,
+    index: Index,
+    modules: HashMap<PathBuf, ModuleId>,
+}
+
+impl Imports {
+    /// Compiles every source under the source root, and also `sources`.
+    /// Thus a file that no module imports still has its imports checked.
+    fn new(project: piton_compile::Project, sources: &[PathBuf]) -> Imports {
+        let compilation = Compilation::build_workspace(project, HashMap::new(), sources);
+        let index = Index::build(&compilation);
+        let modules = compilation
+            .graph()
+            .iter()
+            .filter(|module| !module.is_package())
+            .map(|module| (canonical(&module.path), module.id))
+            .collect();
+        Imports {
+            compilation,
+            index,
+            modules,
+        }
+    }
+
+    /// `text` without its unused and duplicate imports.
+    ///
+    /// A file with an error keeps all of its imports. An import that does not
+    /// resolve looks unused, but a missing package or an incorrect path can
+    /// cause it. The removal of that import loses the intent of the author.
+    /// The configuration file also keeps its imports.
+    fn organize(&self, source: &Path, text: &str) -> String {
+        if piton_lsp::world::is_config_file(source) {
+            return text.to_string();
+        }
+        let path = canonical(source);
+        let Some(module) = self.modules.get(&path).copied() else {
+            return text.to_string();
+        };
+        let module_path = &self.compilation.graph().get(module).path;
+        if self.compilation.graph().get(module).source != text {
+            return text.to_string();
+        }
+        let broken = self
+            .compilation
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.is_error() && diagnostic.file == *module_path);
+        if broken {
+            return text.to_string();
+        }
+        let Some(mut edits) =
+            analysis::organize_imports(&self.compilation, &self.index, module, text)
+        else {
+            return text.to_string();
+        };
+        edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start));
+        let mut out = text.to_string();
+        for (span, replacement) in edits {
+            out.replace_range(span.start..span.end, &replacement);
+        }
+        out
+    }
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// `piton format -` formats stdin to stdout. An external formatter of an

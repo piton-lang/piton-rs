@@ -82,7 +82,15 @@ pub struct Ambiguity {
 pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     pub compositions: Vec<Composition>,
-    pub mappings: Vec<Mapping>,
+    /// What the analysis found in each module from its own text and names.
+    pub findings: Findings,
+    /// The diagnostics of [`slow_diagnostics`]. The editor fills them in
+    /// after the others, and keeps the ones from before until then.
+    pub slow: Vec<Diagnostic>,
+    /// The maps from the source to the output, which come only on request.
+    /// See [`Analysis::mappings_for`].
+    renderer: RendererMaps,
+    plugin: PluginMaps,
     pub ambiguities: Vec<Ambiguity>,
     /// For each anchor, the anchors that copy it with `{X}`.
     pub composers: HashMap<AnchorId, Vec<AnchorId>>,
@@ -101,23 +109,37 @@ impl Analysis {
             .collect()
     }
 
+    /// All mappings from the source file `file`: first to the renderer
+    /// output, then to the plugin outputs.
+    pub fn mappings_for(&self, compilation: &Compilation, file: &Path) -> Vec<Mapping> {
+        let mut found = self.renderer.from_source(compilation, file);
+        found.extend(
+            self.plugin
+                .all(compilation)
+                .iter()
+                .filter(|mapping| paths_match(&mapping.source_file, file))
+                .cloned(),
+        );
+        found
+    }
+
     /// All mappings for the construct at `offset`. The widest is last.
-    pub fn mappings_at(&self, file: &Path, offset: usize) -> Vec<&Mapping> {
-        let mut found: Vec<&Mapping> = self
-            .mappings
-            .iter()
-            .filter(|mapping| {
-                paths_match(&mapping.source_file, file) && mapping.source_span.contains(offset)
-            })
+    pub fn mappings_at(&self, compilation: &Compilation, file: &Path, offset: usize) -> Vec<Mapping> {
+        let mut found: Vec<Mapping> = self
+            .mappings_for(compilation, file)
+            .into_iter()
+            .filter(|mapping| mapping.source_span.contains(offset))
             .collect();
         found.sort_by_key(|mapping| mapping.source_span.len());
         found
     }
 
     /// The smallest map with a compiled slice that covers `offset`.
-    pub fn at_output(&self, file: &Path, offset: usize) -> Option<&Mapping> {
-        self.mappings
-            .iter()
+    pub fn at_output(&self, compilation: &Compilation, file: &Path, offset: usize) -> Option<Mapping> {
+        self.renderer
+            .into_output(compilation, file)
+            .into_iter()
+            .chain(self.plugin.all(compilation).iter().cloned())
             .filter(|mapping| {
                 paths_match(&mapping.output_path, file)
                     && offset >= mapping.output_start
@@ -147,36 +169,121 @@ pub fn analyze(
     compilation: &Compilation,
     index: &Index,
     output: &OutputSettings,
-    plans: &[piton_plugin::plan::PluginPlan],
+    plans: &std::sync::Arc<Vec<piton_plugin::plan::PluginPlan>>,
     reached: &[(std::path::PathBuf, String)],
 ) -> Analysis {
-    let mut analysis = Analysis::default();
-    // The used items are the items that `piton reach` reaches. These are the
-    // exports of the entry, and the anchors that plugins reach themselves. An
-    // example is the tests that the test plugin runs.
-    let roots = reach::locate(compilation, reached);
-    let reachability = reach::from_entry_and(compilation, &roots);
+    let mut analysis = analyze_fast(compilation, index, output, plans, None);
+    analysis.slow = slow_diagnostics(compilation, index, reached);
+    analysis
+}
 
-    imports(compilation, index, &mut analysis.diagnostics);
-    ambiguities(compilation, index, &mut analysis);
+/// The same as [`analyze`], without the checks of [`slow_diagnostics`]. The
+/// editor publishes these diagnostics first, and the slow ones after them.
+///
+/// With the analysis of the compilation before, each module that the edit
+/// did not affect keeps what the analysis found in it from its own text.
+pub fn analyze_fast(
+    compilation: &Compilation,
+    index: &Index,
+    output: &OutputSettings,
+    plans: &std::sync::Arc<Vec<piton_plugin::plan::PluginPlan>>,
+    previous: Option<&Findings>,
+) -> Analysis {
+    let mut analysis = Analysis {
+        renderer: RendererMaps::new(output),
+        plugin: PluginMaps {
+            plans: plans.clone(),
+            mappings: Default::default(),
+        },
+        ..Analysis::default()
+    };
+    analysis.findings = module_findings(compilation, index, previous);
+    for module in compilation.graph().iter() {
+        if let Some(findings) = analysis.findings.get(&module.id) {
+            analysis.diagnostics.extend(findings.diagnostics.iter().cloned());
+            analysis.ambiguities.extend(findings.ambiguities.iter().cloned());
+        }
+    }
+    compositions(compilation, &mut analysis);
+    composition_edges(compilation, &mut analysis);
+    plugin_outputs(compilation, plans, &mut analysis);
+    sort(&mut analysis.diagnostics);
+    analysis
+}
+
+/// The diagnostics that need all of the project: unused and redundant
+/// items. These are warnings, never errors. Reachability takes the most time
+/// of the analysis in a large project. Thus the editor publishes the errors
+/// first, and these after them.
+pub fn slow_diagnostics(
+    compilation: &Compilation,
+    index: &Index,
+    reached: &[(std::path::PathBuf, String)],
+) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
     // Without an entry, the analysis reaches nothing. Thus all items look unused.
     // The only problem to report is that there is no entry.
     if compilation.resolution.has_entry {
-        unused(compilation, index, &reachability, &mut analysis.diagnostics);
+        // The used items are the items that `piton reach` reaches. These are
+        // the exports of the entry, and the anchors that plugins reach
+        // themselves. An example is the tests that the test plugin runs.
+        let roots = reach::locate(compilation, reached);
+        let reachability = reach::from_entry_and(compilation, &roots);
+        unused(compilation, index, &reachability, &mut out);
     }
-    redundant(compilation, &mut analysis.diagnostics);
-    compositions(compilation, &mut analysis);
-    composition_edges(compilation, &mut analysis);
-    map_outputs(compilation, output, &mut analysis.mappings);
-    plugin_outputs(compilation, plans, &mut analysis);
+    redundant(compilation, &mut out);
+    sort(&mut out);
+    out
+}
 
-    analysis.diagnostics.sort_by(|left, right| {
+fn sort(diagnostics: &mut [Diagnostic]) {
+    diagnostics.sort_by(|left, right| {
         left.file
             .cmp(&right.file)
             .then(left.span.start.cmp(&right.span.start))
             .then(left.code.cmp(&right.code))
     });
-    analysis
+}
+
+/// Moves diagnostics from an old text of a file to its new text. The texts
+/// share a start and an end. A span in the shared start stays, and a span
+/// in the shared end moves with the end. The new text has no place for a
+/// span that touches the changed part, so it goes.
+pub fn carry_over(diagnostics: &[Diagnostic], old: &str, new: &str) -> Vec<Diagnostic> {
+    if old == new {
+        return diagnostics.to_vec();
+    }
+    let prefix = old
+        .bytes()
+        .zip(new.bytes())
+        .take_while(|(left, right)| left == right)
+        .count();
+    let longest = old.len().min(new.len()) - prefix;
+    let suffix = old
+        .bytes()
+        .rev()
+        .zip(new.bytes().rev())
+        .take(longest)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let old_end = old.len() - suffix;
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            let span = diagnostic.span;
+            if span.end <= prefix {
+                return Some(diagnostic.clone());
+            }
+            if span.start >= old_end {
+                let start = span.start - old_end + (new.len() - suffix);
+                let end = span.end - old_end + (new.len() - suffix);
+                let mut moved = diagnostic.clone();
+                moved.span = Span::new(start, end);
+                return Some(moved);
+            }
+            None
+        })
+        .collect()
 }
 
 /// Rewrites the imports of a file. Only the names that the file references
@@ -245,11 +352,14 @@ pub fn organize_imports(
 // Imports
 // ---------------------------------------------------------------------------
 
-fn imports(compilation: &Compilation, index: &Index, out: &mut Vec<Diagnostic>) {
-    for module in compilation.graph().iter() {
-        if module.is_package() {
-            continue;
-        }
+/// The problems with the imports of one module.
+fn module_imports(
+    compilation: &Compilation,
+    index: &Index,
+    module: &piton_compile::module::Module,
+    out: &mut Vec<Diagnostic>,
+) {
+    {
         let path = module.path.clone();
         let ast = module.ast();
         let mut seen_use: HashMap<String, Span> = HashMap::new();
@@ -419,7 +529,9 @@ fn resolve_written(compilation: &Compilation, module: ModuleId, written: &str) -
     let directory = from.directory();
     let context =
         piton_compile::module::ResolutionContext::new(&directory, compilation.project.roots());
-    let path = piton_compile::module::resolve(written, &context).ok()?;
+    // The graph remembers the answers of the compilation, so the analysis
+    // does not look for files on the disk again.
+    let path = compilation.graph().resolve_path(written, &context).ok()?;
     compilation.graph().id_for(&path)
 }
 
@@ -505,11 +617,15 @@ fn render_from(path: &str, keyword: &str, names: &[String], star: bool) -> Strin
 /// The compiler resolves these without a message. A declaration wins over an
 /// import, and the last import wins over earlier imports. Thus a reference can
 /// mean an item that its author did not intend. The editor shows this.
-fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis) {
-    for module in compilation.graph().iter() {
-        if module.is_package() {
-            continue;
-        }
+/// The names that one module binds to more than one item.
+fn module_ambiguities(
+    compilation: &Compilation,
+    index: &Index,
+    module: &piton_compile::module::Module,
+    diagnostics: &mut Vec<Diagnostic>,
+    ambiguities: &mut Vec<Ambiguity>,
+) {
+    {
         let ast = module.ast();
         let mut bindings: Vec<(String, Binding)> = Vec::new();
         let mut import_spans: Vec<Span> = Vec::new();
@@ -652,13 +768,13 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
                         describe(binding),
                     ));
                 }
-                analysis.diagnostics.push(diagnostic);
+                diagnostics.push(diagnostic);
             }
             for (position, binding) in found.iter().enumerate() {
                 if position == winner || binding.from.is_none() {
                     continue;
                 }
-                analysis.diagnostics.push(
+                diagnostics.push(
                     Diagnostic::warning(
                         "shadowed-import",
                         format!(
@@ -677,7 +793,7 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
                 );
             }
 
-            analysis.ambiguities.push(Ambiguity {
+            ambiguities.push(Ambiguity {
                 module: module.id,
                 name,
                 bindings: found,
@@ -686,6 +802,42 @@ fn ambiguities(compilation: &Compilation, index: &Index, analysis: &mut Analysis
             });
         }
     }
+}
+
+/// What the analysis finds in one module from its own text and names: the
+/// problems with its imports, and its ambiguous names.
+#[derive(Debug, Default)]
+pub struct ModuleFindings {
+    diagnostics: Vec<Diagnostic>,
+    ambiguities: Vec<Ambiguity>,
+}
+
+/// What the analysis found in each module, by module.
+pub type Findings = HashMap<ModuleId, std::sync::Arc<ModuleFindings>>;
+
+/// The findings of each module. A module that the edit did not affect keeps
+/// its findings from `previous`: it has the same text, ids and names.
+fn module_findings(compilation: &Compilation, index: &Index, previous: Option<&Findings>) -> Findings {
+    let mut out = HashMap::new();
+    for module in compilation.graph().iter() {
+        if module.is_package() {
+            continue;
+        }
+        let kept = match (previous, &compilation.affected) {
+            (Some(previous), Some(affected)) if !affected.contains(&module.id) => {
+                previous.get(&module.id).cloned()
+            }
+            _ => None,
+        };
+        let findings = kept.unwrap_or_else(|| {
+            let mut findings = ModuleFindings::default();
+            module_imports(compilation, index, module, &mut findings.diagnostics);
+            module_ambiguities(compilation, index, module, &mut findings.diagnostics, &mut findings.ambiguities);
+            std::sync::Arc::new(findings)
+        });
+        out.insert(module.id, findings);
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -983,6 +1135,14 @@ fn compositions(compilation: &Compilation, analysis: &mut Analysis) {
         owner: None,
         path: PathBuf::new(),
     };
+    // The anchor of each declaration, by module and item. A search of all
+    // anchors for each declaration takes long in a large project.
+    let anchors: HashMap<(ModuleId, usize), AnchorId> = compilation
+        .store()
+        .anchors
+        .iter()
+        .map(|def| ((def.module, def.item), def.id))
+        .collect();
     for module in compilation.graph().iter() {
         if module.is_package() {
             continue;
@@ -992,21 +1152,16 @@ fn compositions(compilation: &Compilation, analysis: &mut Analysis) {
         for (item_index, item) in module.ast().items.iter().enumerate() {
             match item {
                 Item::Anchor(decl) => {
-                    let Some(def) = compilation
-                        .store()
-                        .anchors
-                        .iter()
-                        .find(|def| def.module == module.id && def.item == item_index)
-                    else {
+                    let Some(&anchor) = anchors.get(&(module.id, item_index)) else {
                         continue;
                     };
-                    composer.owner = Some(def.id);
+                    composer.owner = Some(anchor);
                     for property in decl.body.properties() {
                         composer.value(
                             &property.value,
                             property.span,
                             &property.name,
-                            Holder::Anchor(def.id, vec![property.name.clone()]),
+                            Holder::Anchor(anchor, vec![property.name.clone()]),
                         );
                     }
                 }
@@ -1516,49 +1671,162 @@ fn composition_edges(compilation: &Compilation, analysis: &mut Analysis) {
 // Source to output
 // ---------------------------------------------------------------------------
 
-/// Maps each compiled module to the file that `piton compile` writes for it.
-/// This uses the configured output directory and renderer.
-fn map_outputs(compilation: &Compilation, output: &OutputSettings, mappings: &mut Vec<Mapping>) {
-    // A plugin build replaces the renderer output. Then the build writes no
-    // JSON, YAML or Markdown file for a module, so the map names none.
-    if !output.written {
-        return;
+/// The maps from the source to the renderer output, made when a request
+/// asks for them.
+///
+/// Each map comes from a render of the output of a module. A large project
+/// renders megabytes of output. An index that exports a package again
+/// renders all of the package one more time. The analysis runs after each
+/// keystroke. Thus it does not render all modules. A request renders only the
+/// modules whose output holds a declaration of its file. The maps stay for
+/// the life of the compilation.
+#[derive(Debug, Default)]
+struct RendererMaps {
+    /// The output settings. `None` when the build writes no renderer output.
+    output: Option<OutputSettings>,
+    /// For each module, the modules whose output holds one of its declarations.
+    owners: std::sync::OnceLock<HashMap<ModuleId, Vec<ModuleId>>>,
+    /// The maps from the output of each module that a request rendered.
+    by_module: std::sync::Mutex<HashMap<ModuleId, std::sync::Arc<Vec<Mapping>>>>,
+}
+
+impl RendererMaps {
+    fn new(output: &OutputSettings) -> Self {
+        // A plugin build replaces the renderer output. Then the build writes no
+        // JSON, YAML or Markdown file for a module, so the map names none.
+        RendererMaps {
+            output: output.written.then(|| output.clone()),
+            ..RendererMaps::default()
+        }
     }
+
+    /// The maps that start in `file`, in the order of the modules.
+    fn from_source(&self, compilation: &Compilation, file: &Path) -> Vec<Mapping> {
+        if self.output.is_none() {
+            return Vec::new();
+        }
+        let owners = self.owners.get_or_init(|| output_owners(compilation));
+        let mut modules: Vec<ModuleId> = compilation
+            .graph()
+            .iter()
+            .filter(|module| paths_match(&module.path, file))
+            .flat_map(|module| owners.get(&module.id).into_iter().flatten().copied())
+            .collect();
+        modules.sort();
+        modules.dedup();
+        modules
+            .into_iter()
+            .flat_map(|module| {
+                self.of_module(compilation, module)
+                    .iter()
+                    .filter(|mapping| paths_match(&mapping.source_file, file))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    /// The maps into the output file `file`.
+    fn into_output(&self, compilation: &Compilation, file: &Path) -> Vec<Mapping> {
+        let Some(output) = &self.output else {
+            return Vec::new();
+        };
+        compilation
+            .graph()
+            .iter()
+            .filter(|module| paths_match(&output.output_for(&compilation.project, &module.path), file))
+            .flat_map(|module| self.of_module(compilation, module.id).as_ref().clone())
+            .collect()
+    }
+
+    fn of_module(&self, compilation: &Compilation, module: ModuleId) -> std::sync::Arc<Vec<Mapping>> {
+        if let Some(found) = self.by_module.lock().unwrap().get(&module) {
+            return found.clone();
+        }
+        let mut mappings = Vec::new();
+        if let Some(output) = &self.output {
+            map_output(compilation, output, module, &mut mappings);
+        }
+        let mappings = std::sync::Arc::new(mappings);
+        self.by_module.lock().unwrap().insert(module, mappings.clone());
+        mappings
+    }
+}
+
+/// For each module, the modules whose output holds one of its declarations. A
+/// module compiles its exports. Thus it holds the declarations of each module
+/// that it exports from.
+fn output_owners(compilation: &Compilation) -> HashMap<ModuleId, Vec<ModuleId>> {
+    let resolution = &compilation.resolution;
+    let declarer = |symbol: Symbol| match symbol {
+        Symbol::Anchor(anchor) => compilation.store().anchor(anchor).module,
+        Symbol::Variable(variable) => compilation.store().variable(variable).module,
+    };
+    let mut owners: HashMap<ModuleId, Vec<ModuleId>> = HashMap::new();
     for module in compilation.graph().iter() {
         if module.is_package() || is_config_module(compilation, module.id) {
             continue;
         }
-        let declarations = file_declarations(compilation, module.id);
-        if declarations.is_empty() {
-            continue;
+        let mut declarers: HashSet<ModuleId> = HashSet::new();
+        for name in resolution.exported_names(module.id) {
+            // The map finds the origin of a name with `lookup` first. Thus
+            // both lookups name a module that the output can hold.
+            let found = [
+                resolution.lookup(module.id, &name),
+                resolution.lookup_export(module.id, &name, &mut HashSet::new()),
+            ];
+            declarers.extend(found.into_iter().flatten().map(declarer));
         }
-        let adapter = output.renderer;
-        let output_path = output.output_for(&compilation.project, &module.path);
-        let directory = output_path.parent().unwrap_or(Path::new("."));
-        let context = piton_emit::MarkdownContext {
-            from_directory: directory,
-            source_root: &compilation.project.source_root,
-        };
-        let rendered = piton_emit::render(adapter, &declarations, compilation, context);
-        match adapter {
-            piton_emit::Adapter::Markdown => map_markdown(
-                compilation,
-                &module.path,
-                &output_path,
-                &rendered,
-                &declarations,
-                mappings,
-            ),
-            piton_emit::Adapter::Json | piton_emit::Adapter::Yaml => map_structured(
-                compilation,
-                &module.path,
-                &output_path,
-                adapter.as_str(),
-                &rendered,
-                &declarations,
-                mappings,
-            ),
+        for declared in declarers {
+            owners.entry(declared).or_default().push(module.id);
         }
+    }
+    owners
+}
+
+/// Maps a compiled module to the file that `piton compile` writes for it.
+/// This uses the configured output directory and renderer.
+fn map_output(
+    compilation: &Compilation,
+    output: &OutputSettings,
+    module: ModuleId,
+    mappings: &mut Vec<Mapping>,
+) {
+    let module = compilation.graph().get(module);
+    if module.is_package() || is_config_module(compilation, module.id) {
+        return;
+    }
+    let declarations = file_declarations(compilation, module.id);
+    if declarations.is_empty() {
+        return;
+    }
+    let adapter = output.renderer;
+    let output_path = output.output_for(&compilation.project, &module.path);
+    let directory = output_path.parent().unwrap_or(Path::new("."));
+    let context = piton_emit::MarkdownContext {
+        from_directory: directory,
+        source_root: &compilation.project.source_root,
+    };
+    let rendered = piton_emit::render(adapter, &declarations, compilation, context);
+    let rendered = Rendered::new(&rendered);
+    match adapter {
+        piton_emit::Adapter::Markdown => map_markdown(
+            compilation,
+            &module.path,
+            &output_path,
+            &rendered,
+            &declarations,
+            mappings,
+        ),
+        piton_emit::Adapter::Json | piton_emit::Adapter::Yaml => map_structured(
+            compilation,
+            &module.path,
+            &output_path,
+            adapter.as_str(),
+            &rendered,
+            &declarations,
+            mappings,
+        ),
     }
 }
 
@@ -1572,20 +1840,20 @@ fn map_markdown(
     compilation: &Compilation,
     source: &Path,
     output: &Path,
-    rendered: &str,
+    rendered: &Rendered,
     declarations: &piton_core::Properties,
     mappings: &mut Vec<Mapping>,
 ) {
-    let end = rendered.len();
+    let end = rendered.text.len();
     let mut cursor = 0usize;
     for (name, value) in declarations {
         let heading = format!("# {}", title_case(name));
-        let Some(relative) = rendered[cursor..end].find(&heading) else {
+        let Some(relative) = rendered.text[cursor..end].find(&heading) else {
             continue;
         };
         let start = cursor + relative;
         let after = start + heading.len();
-        let next = rendered[after..end]
+        let next = rendered.text[after..end]
             .find("\n# ")
             .map(|index| after + index)
             .unwrap_or(end);
@@ -1604,8 +1872,8 @@ fn map_markdown(
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("output"),
-                    line_of(rendered, start),
-                    line_of(rendered, next.saturating_sub(1))
+                    rendered.line_of(start),
+                    rendered.line_of(next.saturating_sub(1))
                 ),
             );
         }
@@ -1630,7 +1898,7 @@ fn map_property_headings(
     compilation: &Compilation,
     output: &Path,
     adapter: &str,
-    rendered: &str,
+    rendered: &Rendered,
     from: usize,
     to: usize,
     anchor: AnchorId,
@@ -1648,13 +1916,13 @@ fn map_property_headings(
     let mut cursor = from;
     for property in decl.body.properties() {
         let heading = format!("{marks} {}", title_case(&property.name));
-        let Some(relative) = rendered[cursor..to].find(&heading) else {
+        let Some(relative) = rendered.text[cursor..to].find(&heading) else {
             continue;
         };
         let start = cursor + relative;
         let after = start + heading.len();
         let boundary = format!("\n{marks} ");
-        let next = rendered[after..to]
+        let next = rendered.text[after..to]
             .find(&boundary)
             .map(|index| after + index)
             .unwrap_or(to);
@@ -1672,8 +1940,8 @@ fn map_property_headings(
                     .file_name()
                     .and_then(|name| name.to_str())
                     .unwrap_or("output"),
-                line_of(rendered, start),
-                line_of(rendered, next.saturating_sub(1))
+                rendered.line_of(start),
+                rendered.line_of(next.saturating_sub(1))
             ),
         );
         cursor = after;
@@ -1685,35 +1953,34 @@ fn map_structured(
     source: &Path,
     output: &Path,
     adapter: &str,
-    rendered: &str,
+    rendered: &Rendered,
     declarations: &piton_core::Properties,
     mappings: &mut Vec<Mapping>,
 ) {
     let mut cursor = 0usize;
-    for (name, value) in declarations {
+    for (position, (name, value)) in declarations.iter().enumerate() {
         let key = if adapter == "json" {
             format!("\"{name}\"")
         } else {
             format!("{name}:")
         };
-        let Some(relative) = rendered[cursor..].find(&key) else {
+        let Some(relative) = rendered.text[cursor..].find(&key) else {
             continue;
         };
         let start = cursor + relative;
         let after = start + key.len();
         let next_key = declarations
-            .keys()
-            .skip_while(|candidate| *candidate != name)
-            .nth(1)
+            .get_index(position + 1)
+            .map(|(next, _)| next)
             .and_then(|next| {
                 let pattern = if adapter == "json" {
                     format!("\"{next}\"")
                 } else {
                     format!("\n{next}:")
                 };
-                rendered[after..].find(&pattern).map(|index| after + index)
+                rendered.text[after..].find(&pattern).map(|index| after + index)
             })
-            .unwrap_or(rendered.len());
+            .unwrap_or(rendered.text.len());
         if let Some((origin, span)) = declaration_origin(compilation, source, name) {
             push_mapping(
                 mappings,
@@ -1726,7 +1993,7 @@ fn map_structured(
                 &format!(
                     "{adapter} {}:{}",
                     file_name(output),
-                    line_of(rendered, start)
+                    rendered.line_of(start)
                 ),
             );
         }
@@ -1750,7 +2017,7 @@ fn map_structured_properties(
     compilation: &Compilation,
     output: &Path,
     adapter: &str,
-    rendered: &str,
+    rendered: &Rendered,
     from: usize,
     to: usize,
     anchor: AnchorId,
@@ -1763,7 +2030,7 @@ fn map_structured_properties(
     };
     let source = module.path.clone();
     let source = source.as_path();
-    let slice = &rendered[from..to];
+    let slice = &rendered.text[from..to];
     for property in decl.body.properties() {
         let key = if adapter == "json" {
             format!("\"{}\"", property.name)
@@ -1785,7 +2052,7 @@ fn map_structured_properties(
             &format!(
                 "{adapter} {}:{}",
                 file_name(output),
-                line_of(rendered, start)
+                rendered.line_of(start)
             ),
         );
     }
@@ -1857,36 +2124,77 @@ fn plugin_outputs(compilation: &Compilation, plans: &[piton_plugin::plan::Plugin
         for diagnostic in &plan.diagnostics {
             analysis.diagnostics.push(place_belay(compilation, diagnostic.clone()));
         }
-        for file in &plan.files {
-            let Some(anchor) = anchor_for_output(compilation, &file.origin) else {
-                continue;
-            };
-            let def = compilation.store().anchor(anchor);
-            let source = compilation.graph().get(def.module).path.clone();
-            if source.to_string_lossy().starts_with('@') {
-                continue;
-            }
-            let group = file.group.clone().unwrap_or_else(|| file.owner.clone());
-            let contents = String::from_utf8_lossy(&file.data);
-            let output = compilation.project.root.join(&file.path);
-            let label = format!("{group} {}", file.path);
-            push_mapping(&mut analysis.mappings, &source, def.span, &output, 0, contents.len().max(1), &group, &label);
-            map_property_headings(compilation, &output, &group, &contents, 0, contents.len(), anchor, 2, &mut analysis.mappings);
-        }
     }
 }
 
-/// The first anchor that a planned file names as its origin. An anchor in the
-/// source of the project wins over an anchor in a bundled package.
-pub(crate) fn anchor_for_output(compilation: &Compilation, origin: &str) -> Option<AnchorId> {
-    let name = origin.split(',').next().unwrap_or(origin).trim();
-    let mut found = compilation.store().anchors.iter().filter(|def| def.name == name);
-    let candidates: Vec<_> = found.by_ref().collect();
-    candidates
-        .iter()
-        .find(|def| !compilation.graph().get(def.module).path.to_string_lossy().starts_with('@'))
-        .or_else(|| candidates.first())
-        .map(|def| def.id)
+/// The maps from the source to the files that the plugin builds plan.
+///
+/// A plan can hold a thousand files, with megabytes of text. The analysis
+/// runs after each keystroke. Thus the maps come only when a request asks
+/// for them, one time for each compilation.
+#[derive(Debug, Default)]
+struct PluginMaps {
+    plans: std::sync::Arc<Vec<piton_plugin::plan::PluginPlan>>,
+    mappings: std::sync::OnceLock<Vec<Mapping>>,
+}
+
+impl PluginMaps {
+    fn all(&self, compilation: &Compilation) -> &[Mapping] {
+        self.mappings.get_or_init(|| {
+            let anchors = OutputOrigins::new(compilation);
+            let mut mappings = Vec::new();
+            for plan in self.plans.iter() {
+                for file in &plan.files {
+                    let Some(anchor) = anchors.find(&file.origin) else {
+                        continue;
+                    };
+                    let def = compilation.store().anchor(anchor);
+                    let source = compilation.graph().get(def.module).path.clone();
+                    if source.to_string_lossy().starts_with('@') {
+                        continue;
+                    }
+                    let group = file.group.clone().unwrap_or_else(|| file.owner.clone());
+                    let contents = String::from_utf8_lossy(&file.data);
+                    let output = compilation.project.root.join(&file.path);
+                    let label = format!("{group} {}", file.path);
+                    push_mapping(&mut mappings, &source, def.span, &output, 0, contents.len().max(1), &group, &label);
+                    map_property_headings(compilation, &output, &group, &Rendered::new(&contents), 0, contents.len(), anchor, 2, &mut mappings);
+                }
+            }
+            mappings
+        })
+    }
+}
+
+/// The anchors by name, to find the anchor that a planned file names as its
+/// origin. An anchor in the source of the project wins over an anchor in a
+/// bundled package. The index finds each one without a search of all anchors.
+struct OutputOrigins {
+    by_name: HashMap<String, AnchorId>,
+}
+
+impl OutputOrigins {
+    fn new(compilation: &Compilation) -> Self {
+        let mut by_name: HashMap<String, AnchorId> = HashMap::new();
+        let in_package = |def: &piton_compile::AnchorDef| {
+            compilation.graph().get(def.module).path.to_string_lossy().starts_with('@')
+        };
+        for def in &compilation.store().anchors {
+            match by_name.get(&def.name) {
+                // The first anchor of the project wins, then the first anchor.
+                Some(found) if !in_package(compilation.store().anchor(*found)) || in_package(def) => {}
+                _ => {
+                    by_name.insert(def.name.clone(), def.id);
+                }
+            }
+        }
+        OutputOrigins { by_name }
+    }
+
+    fn find(&self, origin: &str) -> Option<AnchorId> {
+        let name = origin.split(',').next().unwrap_or(origin).trim();
+        self.by_name.get(name).copied()
+    }
 }
 
 /// Plan diagnostics go on the configuration. The editor does not examine that
@@ -1911,8 +2219,25 @@ fn place_belay(compilation: &Compilation, mut diagnostic: Diagnostic) -> Diagnos
     diagnostic
 }
 
-fn line_of(text: &str, offset: usize) -> usize {
-    text[..offset.min(text.len())].matches('\n').count() + 1
+/// A rendered output, with the offset of each line break. A large index
+/// renders to megabytes of output. A count of the line breaks before each
+/// mapping, from the start of the text, then took many seconds.
+struct Rendered<'a> {
+    text: &'a str,
+    breaks: Vec<usize>,
+}
+
+impl<'a> Rendered<'a> {
+    fn new(text: &'a str) -> Self {
+        let breaks = text.match_indices('\n').map(|(index, _)| index).collect();
+        Rendered { text, breaks }
+    }
+
+    /// The line number, from 1, of a byte offset.
+    fn line_of(&self, offset: usize) -> usize {
+        let offset = offset.min(self.text.len());
+        self.breaks.partition_point(|index| *index < offset) + 1
+    }
 }
 
 fn file_name(path: &Path) -> String {

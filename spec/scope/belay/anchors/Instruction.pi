@@ -6,9 +6,14 @@ export anchor InstructionBehavior extends FrameworkSpecification:
         application scope. Its placement is part of its meaning.
 
     requirements:
-        - Treat description and prompt as optional, and leave them out of the output when missing.
+        - Treat description and prompt as optional, and leave them out of the
+            output when missing.
         - Map instructions under shapeRoot to the corresponding codeRoot scope.
-        - Combine instructions assigned to the same scope into one guidance file per target.
-        - Use the target's supported scoped guidance filename and representation.
-        - Also preserve shape instructions in the target's compiled shape-reference tree.
-        - Serialize additional properties according to the common serialization rules.
+        - Combine instructions assigned to the same scope into one guidance file
+            per target.
+        - Use the target's supported scoped guidance filename and
+            representation.
+        - Also preserve shape instructions in the target's compiled
+            shape-reference tree.
+        - Serialize additional properties according to the common serialization
+            rules.

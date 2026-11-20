@@ -66,6 +66,30 @@ pub struct Resolution {
     /// around it. Thus there is no start point for reachability.
     pub has_entry: bool,
     pub diagnostics: Vec<Diagnostic>,
+    /// The export tables that the resolver calculated before. See
+    /// [`ExportCache`].
+    exports: ExportCache,
+}
+
+/// The results of export lookups, by module.
+///
+/// A lookup follows `export *` lines through all the index files of a
+/// package. Without this cache, each question walked the same chains again.
+/// A project that exported a large package again then took minutes to
+/// analyze. The scopes do not change after the resolver makes them. Thus a
+/// result stays correct for the life of the resolution.
+///
+/// A walk that stops at a cycle gives a result that depends on where the
+/// walk started. The cache does not keep such a result. It keeps only the
+/// results of walks that found no cycle.
+#[derive(Default)]
+struct ExportCache {
+    symbols: std::sync::Mutex<HashMap<(ModuleId, String), Option<Symbol>>>,
+    names: std::sync::Mutex<HashMap<ModuleId, std::sync::Arc<Vec<String>>>>,
+    /// The same names as `names`, as a set. A lookup uses it to skip an
+    /// `export *` module that does not export the name.
+    name_sets: std::sync::Mutex<HashMap<ModuleId, std::sync::Arc<HashSet<String>>>>,
+    qualifiers: std::sync::Mutex<HashMap<ModuleId, std::sync::Arc<HashMap<ModuleId, String>>>>,
 }
 
 impl Resolution {
@@ -99,21 +123,68 @@ impl Resolution {
         name: &str,
         visiting: &mut HashSet<(ModuleId, String)>,
     ) -> Option<Symbol> {
+        self.lookup_export_in(module, name, visiting, &mut false)
+    }
+
+    /// False when the cache shows that `module` does not export `name`. True
+    /// when it does, or when the cache does not know.
+    fn may_export(&self, module: ModuleId, name: &str) -> bool {
+        match self.exports.name_sets.lock().unwrap().get(&module) {
+            Some(names) => names.contains(name),
+            None => true,
+        }
+    }
+
+    /// Resolves an exported name, with the cache. `visiting` holds the
+    /// lookups that are in progress. The function sets `cut` when the walk
+    /// stops at a cycle. Then the result is not kept.
+    fn lookup_export_in(
+        &self,
+        module: ModuleId,
+        name: &str,
+        visiting: &mut HashSet<(ModuleId, String)>,
+        cut: &mut bool,
+    ) -> Option<Symbol> {
         let key = (module, name.to_string());
-        if !visiting.insert(key) {
+        if let Some(found) = self.exports.symbols.lock().unwrap().get(&key) {
+            return *found;
+        }
+        if !visiting.insert(key.clone()) {
+            *cut = true;
             return None;
         }
+        let mut local_cut = false;
+        let found = self.lookup_export_uncached(module, name, visiting, &mut local_cut);
+        visiting.remove(&key);
+        if local_cut {
+            *cut = true;
+        } else {
+            self.exports.symbols.lock().unwrap().insert(key, found);
+        }
+        found
+    }
+
+    fn lookup_export_uncached(
+        &self,
+        module: ModuleId,
+        name: &str,
+        visiting: &mut HashSet<(ModuleId, String)>,
+        cut: &mut bool,
+    ) -> Option<Symbol> {
         let scope = self.scope(module);
         match scope.exports.get(name) {
             Some(ExportTarget::Local(symbol)) => Some(*symbol),
             Some(ExportTarget::Forwarded {
                 module: source,
                 name: original,
-            }) => self.lookup_export(*source, original, visiting),
+            }) => self.lookup_export_in(*source, original, visiting, cut),
             None => {
                 let mut found: Option<Symbol> = None;
                 for glob in &scope.export_globs {
-                    if let Some(symbol) = self.lookup_export(*glob, name, visiting) {
+                    if !self.may_export(*glob, name) {
+                        continue;
+                    }
+                    if let Some(symbol) = self.lookup_export_in(*glob, name, visiting, cut) {
                         match found {
                             None => found = Some(symbol),
                             // Two meanings: the module does not export the plain name.
@@ -125,14 +196,18 @@ impl Resolution {
                 if found.is_some() {
                     return found;
                 }
-                let qualifiers = self.export_qualifiers(module);
+                // Only a name with a dot can have a qualifier.
+                if !name.contains('.') {
+                    return None;
+                }
+                let qualifiers = self.export_qualifiers_shared(module);
                 scope.export_globs.iter().find_map(|glob| {
                     let qualifier = qualifiers.get(glob)?;
                     let rest = name.strip_prefix(qualifier.as_str())?.strip_prefix('.')?;
                     if !self.glob_overlaps(module, rest) {
                         return None;
                     }
-                    self.lookup_export(*glob, rest, visiting)
+                    self.lookup_export_in(*glob, rest, visiting, cut)
                 })
             }
         }
@@ -143,6 +218,9 @@ impl Resolution {
     fn glob_meanings(&self, module: ModuleId, name: &str) -> Vec<(ModuleId, Symbol)> {
         let mut meanings: Vec<(ModuleId, Symbol)> = Vec::new();
         for glob in &self.scope(module).export_globs {
+            if !self.may_export(*glob, name) {
+                continue;
+            }
             if let Some(symbol) = self.lookup_export(*glob, name, &mut HashSet::new()) {
                 meanings.push((*glob, symbol));
             }
@@ -172,6 +250,20 @@ impl Resolution {
     /// `pkg-a/roles.pi` and `pkg-b/roles.pi` give `pkg-a.roles` and
     /// `pkg-b.roles`.
     pub fn export_qualifiers(&self, module: ModuleId) -> HashMap<ModuleId, String> {
+        self.export_qualifiers_shared(module).as_ref().clone()
+    }
+
+    /// The same as [`Self::export_qualifiers`], from the cache.
+    fn export_qualifiers_shared(&self, module: ModuleId) -> std::sync::Arc<HashMap<ModuleId, String>> {
+        if let Some(found) = self.exports.qualifiers.lock().unwrap().get(&module) {
+            return found.clone();
+        }
+        let found = std::sync::Arc::new(self.calculate_qualifiers(module));
+        self.exports.qualifiers.lock().unwrap().insert(module, found.clone());
+        found
+    }
+
+    fn calculate_qualifiers(&self, module: ModuleId) -> HashMap<ModuleId, String> {
         let mut globs: Vec<ModuleId> = Vec::new();
         for glob in &self.scope(module).export_globs {
             if !globs.contains(glob) {
@@ -275,13 +367,46 @@ impl Resolution {
     /// has it one time for each source module, with the name of that module as its
     /// qualifier (`cruxible.Roles`, `strataglyph.Roles`).
     pub fn exported_names(&self, module: ModuleId) -> Vec<String> {
-        self.collect_exports(module, &mut HashSet::new())
+        self.collect_exports(module, &mut HashSet::new(), &mut false)
+            .as_ref()
+            .clone()
     }
 
-    fn collect_exports(&self, module: ModuleId, visiting: &mut HashSet<ModuleId>) -> Vec<String> {
-        if !visiting.insert(module) {
-            return Vec::new();
+    /// The exported names of `module`, with the cache. `visiting` holds the
+    /// modules that are in progress. The function sets `cut` when the walk
+    /// stops at a cycle. Then the result is not kept.
+    fn collect_exports(
+        &self,
+        module: ModuleId,
+        visiting: &mut HashSet<ModuleId>,
+        cut: &mut bool,
+    ) -> std::sync::Arc<Vec<String>> {
+        if let Some(found) = self.exports.names.lock().unwrap().get(&module) {
+            return found.clone();
         }
+        if !visiting.insert(module) {
+            *cut = true;
+            return Default::default();
+        }
+        let mut local_cut = false;
+        let found = std::sync::Arc::new(self.collect_exports_uncached(module, visiting, &mut local_cut));
+        visiting.remove(&module);
+        if local_cut {
+            *cut = true;
+        } else {
+            let set = found.iter().cloned().collect();
+            self.exports.name_sets.lock().unwrap().insert(module, std::sync::Arc::new(set));
+            self.exports.names.lock().unwrap().insert(module, found.clone());
+        }
+        found
+    }
+
+    fn collect_exports_uncached(
+        &self,
+        module: ModuleId,
+        visiting: &mut HashSet<ModuleId>,
+        cut: &mut bool,
+    ) -> Vec<String> {
         let scope = self.scope(module);
         let mut out: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
@@ -293,9 +418,9 @@ impl Resolution {
         let mut candidates: Vec<String> = Vec::new();
         let mut candidate_seen: HashSet<String> = HashSet::new();
         for glob in &scope.export_globs {
-            for name in self.collect_exports(*glob, visiting) {
-                if !seen.contains(&name) && candidate_seen.insert(name.clone()) {
-                    candidates.push(name);
+            for name in self.collect_exports(*glob, visiting, cut).iter() {
+                if !seen.contains(name) && candidate_seen.insert(name.clone()) {
+                    candidates.push(name.clone());
                 }
             }
         }
@@ -310,7 +435,7 @@ impl Resolution {
                 }
                 continue;
             }
-            let qualifiers = self.export_qualifiers(module);
+            let qualifiers = self.export_qualifiers_shared(module);
             for (glob, _) in &meanings {
                 let qualified = format!("{}.{name}", qualifiers[glob]);
                 if seen.insert(qualified.clone()) {
@@ -344,6 +469,7 @@ pub fn resolve_with(
             entry: ModuleId(0),
             has_entry: false,
             diagnostics,
+            exports: ExportCache::default(),
         };
     };
     resolve_from(graph, entry_id, roots, diagnostics)
@@ -394,6 +520,7 @@ pub fn resolve_including(
                 entry: ModuleId(0),
                 has_entry: false,
                 diagnostics,
+                exports: ExportCache::default(),
             },
         },
     }
@@ -446,7 +573,7 @@ pub fn resolve_from_roots(
         let mut resolved = Vec::new();
         for (text, span) in paths {
             let context = ResolutionContext::new(&directory, roots);
-            match module::resolve(&text, &context) {
+            match graph.resolve_path(&text, &context) {
                 Ok(path) => match graph.load(&path, &mut diagnostics) {
                     Some(target) => {
                         resolved.push((text, Some(target), span));
@@ -541,14 +668,14 @@ pub fn resolve_from_roots(
     for id in &module_ids {
         let module_edges = edges.get(id).cloned().unwrap_or_default();
         let module_path = graph.get(*id).path.clone();
-        let items: Vec<Item> = graph.get(*id).ast().items.clone();
+        let items: &[Item] = &graph.get(*id).ast().items;
         let mut edge_cursor = 0usize;
         let mut scope = scopes.remove(id).unwrap_or_default();
         // `export *` comes after all named exports in precedence, on all
         // lines.
         let mut globs: Vec<ExportSite> = Vec::new();
 
-        for item in &items {
+        for item in items {
             match item {
                 Item::Use(decl) => {
                     let target = module_edges.get(edge_cursor).and_then(|e| e.1);
@@ -618,7 +745,7 @@ pub fn resolve_from_roots(
                             module: *source,
                             name: original.clone(),
                         };
-                        let source = import_source_label(&items, *source, &module_edges);
+                        let source = import_source_label(items, *source, &module_edges);
                         export(&mut scope, &decl.name, forwarded, decl.name_span, source);
                     } else {
                         diagnostics.push(Diagnostic::error(
@@ -643,6 +770,7 @@ pub fn resolve_from_roots(
         entry,
         has_entry: true,
         diagnostics,
+        exports: ExportCache::default(),
     };
 
     check_imports_resolve(&mut resolution, &module_ids);
@@ -971,10 +1099,13 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
             let Item::Anchor(decl) = &resolution.graph.get(*id).ast().items[item] else {
                 continue;
             };
-            let decl = decl.clone();
+            // Only the header is necessary. A copy of the full declaration
+            // also copies its body, which takes long in a large project.
+            let extends = decl.extends.clone();
+            let keyword_span = decl.keyword_span;
             let mut bases = Vec::new();
 
-            for base in &decl.extends {
+            for base in &extends {
                 match resolution.lookup(*id, &base.value) {
                     Some(Symbol::Anchor(base_id)) => bases.push(base_id),
                     Some(Symbol::Variable(_)) => diagnostics.push(Diagnostic::error(
@@ -1003,7 +1134,7 @@ fn resolve_inheritance(resolution: &mut Resolution, modules: &[ModuleId]) {
                             "unknown-keyword",
                             format!("`{keyword}` is not a keyword in scope"),
                             &module_path,
-                            decl.keyword_span,
+                            keyword_span,
                         )
                         .with_help(
                             "add a `use` declaration for the module that exports it".to_string(),
@@ -1271,11 +1402,19 @@ fn build_slots_for(
             match slots.get_mut(&name) {
                 Some(existing) => {
                     // From left to right, the last item wins. This applies to values and to
-                    // type constraints.
-                    let inherited_constraints = slot.constraints.clone();
+                    // type constraints. A base that only declares the property, with no
+                    // value, does not remove the value of a base before it. Thus a value
+                    // from a concrete base implements a property that an abstract requires.
+                    let earlier = existing.clone();
                     *existing = slot;
                     if existing.constraints.is_empty() {
-                        existing.constraints = inherited_constraints;
+                        existing.constraints = earlier.constraints.clone();
+                    }
+                    if !existing.has_value && earlier.has_value {
+                        existing.owner = earlier.owner;
+                        existing.index = earlier.index;
+                        existing.span = earlier.span;
+                        existing.has_value = true;
                     }
                 }
                 None => {

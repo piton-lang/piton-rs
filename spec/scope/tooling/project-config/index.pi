@@ -1,16 +1,17 @@
 from ../../plugins/Sources import PluginSources
 from ../../testing import TestConfiguration
 from ../cli/Lsp import Lsp
+
 export anchor ProjectConfig:
     description:
         If the compiler finds a piton.config.pi file in the current working
         directory, it will read that configuration file to configure a project.
         Realistically, this is how any Piton project will usually be used.
-        Through a project you can configure the root, the entry point, where
-        the output goes and which renderer it uses, packages, dependencies,
-        and plugins. By default output goes to ./dist as JSON. Plugins with a
-        build decide where their own output goes, and a project with one only
-        gets ./dist as well when it sets output or renderer.
+        Through a project you can configure the root, the entry point, where the
+        output goes and which renderer it uses, packages, dependencies, and
+        plugins. By default output goes to ./dist as JSON. Plugins with a build
+        decide where their own output goes, and a project with one only gets
+        ./dist as well when it sets output or renderer.
 
         Configuration anchors are provided by the @piton/config use/import which
         is bundled into the compiler:
@@ -41,9 +42,9 @@ export anchor ProjectConfig:
     plugins:
         Optional. A list of anchors: the declarations of plugins the project
         adds, and its settings for plugins it has, like a test-config for the
-        bundled test plugin, described in @{TestConfiguration}. How each is
-        told apart and read is described in @{PluginSources}. An item that
-        isn't an anchor is warned about and ignored.
+        bundled test plugin, described in @{TestConfiguration}. How each is told
+        apart and read is described in @{PluginSources}. An item that isn't an
+        anchor is warned about and ignored.
 
     exports:
         The piton.config.pi file exports its main piton-config anchor, and the

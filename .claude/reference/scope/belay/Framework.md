@@ -84,6 +84,7 @@ Belay constructs are ordinary Piton anchors with framework-specific meaning. The
 
 - Expose Agent, Instruction, Skill, and Command as the four agentic constructs.
 - Associate those anchors with agent, instruction, skill, and command.
+- Expose VendoredSkill and VendoredAgent, with vendored-skill and vendored-agent, for a skill or an agent that a vendored file supplies whole. Belay builds them as skills and agents.
 - Allow abstract anchors to provide shared structure and behavior.
 - Resolve inherited properties according to the Piton language specification.
 - Validate required properties on concrete constructs after inheritance resolves.

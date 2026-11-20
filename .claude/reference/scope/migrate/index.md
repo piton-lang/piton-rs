@@ -7,7 +7,8 @@ Its source is in the compiler's repository at plugins/migrate: its declaration i
 
 ## Migrations
 
-[FrameworksToPlugins](./index.md#frameworks-to-plugins)
+- [FrameworksToPlugins](./index.md#frameworks-to-plugins)
+- [VendoredKeywords](./index.md#vendored-keywords)
 
 ## Command
 
@@ -34,6 +35,20 @@ A key named frameworks in the piton-config anchor of piton.config.pi.
 ## Edit
 
 When the configuration has no plugins key, the frameworks key is renamed plugins, and its items stay as they are. When it has both, the frameworks items move to the end of the plugins list, and the frameworks key goes. Either key can hold its items as a block or as an inline list; an inline plugins list becomes a block, so the moved items can follow its own. Every configuration that has a frameworks key gets this edit, so none is left to change by hand.
+
+# Vendored Keywords
+
+## Description
+
+A skill or an agent that a vendored file supplies whole, declared with skill or agent, which no longer compiles, is declared with vendored-skill or vendored-agent instead. The keyword decides which properties the compiler requires: a skill needs useWhen and an agent needs role, and their vendored forms need neither.
+
+## Detects
+
+In each .pi file below the source root, a declaration that starts with skill or agent at the start of a line, with or without export. A skill is vendored when a folder that its files names, inline or for any target, holds a SKILL.md. An agent is vendored when it has a file that is not null. Files below a tethers directory are left out: an installed package is changed in its own project.
+
+## Edit
+
+The keyword of each such declaration becomes vendored-skill or vendored-agent, and the rest of the line stays as it is. A skill whose folder has no SKILL.md stays a skill.
 
 # Migrate Command
 

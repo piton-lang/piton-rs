@@ -15,6 +15,6 @@ export anchor Comments:
         Here url is the string “https://example.com // not a comment”.
 
         `piton format` will always put a space between the "//" and the comment
-        text, so you might as well get used to doing it yourself. It won't
-        touch anything else in the comment though, so commented-out code stays
-        as it is.
+        text, so you might as well get used to doing it yourself. It won't touch
+        anything else in the comment though, so commented-out code stays as it
+        is.

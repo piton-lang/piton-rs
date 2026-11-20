@@ -52,7 +52,9 @@ export class Source {
   constructor(readonly ctx: Context) {
     this.project = roots(ctx, ctx.project());
     this.compilation = ctx.compile();
-    for (const record of this.compilation.anchors()) this.records.set(record.id, record);
+    // Belay reads the properties with `values`, one anchor at a time, and
+    // only for the anchors that it emits.
+    for (const record of this.compilation.anchors({ properties: false })) this.records.set(record.id, record);
   }
 
   /** The anchor with this id. */
@@ -74,7 +76,9 @@ export class Source {
 
   /** The ids of the anchors that extend an anchor of Belay's package. */
   extending(name: string): number[] {
-    return this.compilation.anchors({ extends: { module: PACKAGE, name } }).map((record) => record.id);
+    return this.compilation
+      .anchors({ extends: { module: PACKAGE, name }, properties: false })
+      .map((record) => record.id);
   }
 
   /** The properties of an anchor, with nothing flattened. */

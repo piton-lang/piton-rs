@@ -1,8 +1,8 @@
 export anchor TestErrors:
     description:
-        A project with no tests is reported and succeeds. Targets and tags
-        that select no tests, and a target that matches no test by name, file
-        or directory, are errors. A tool that is not on PATH is an error naming it,
-        with a suggestion to choose another with `--agent`, and nothing is
-        run. `--jobs` with `--serial` is an error, since they disagree, and so
-        is a jobs value below 1.
+        A project with no tests is reported and succeeds. Targets and tags that
+        select no tests, and a target that matches no test by name, file or
+        directory, are errors. A tool that is not on PATH is an error naming it,
+        with a suggestion to choose another with `--agent`, and nothing is run.
+        `--jobs` with `--serial` is an error, since they disagree, and so is a
+        jobs value below 1.

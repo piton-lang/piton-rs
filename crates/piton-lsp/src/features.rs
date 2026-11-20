@@ -153,7 +153,7 @@ pub fn hover(world: &World, uri: &Url, position: Position) -> Option<Hover> {
     // Thus the hover shows it on the declared name, not on each word of its value.
     let declaring = occurrence.is_some_and(|item| item.role == Role::Definition);
     if declaring {
-        if let Some(note) = mapping_note(&world.analysis, &cursor.path, cursor.offset) {
+        if let Some(note) = mapping_note(world, &cursor.path, cursor.offset) {
             parts.push(note);
         }
     }
@@ -239,12 +239,8 @@ fn source_link(world: &World, path: &Path, span: Span) -> String {
     }
 }
 
-fn mapping_note(
-    analysis: &crate::analysis::Analysis,
-    file: &Path,
-    offset: usize,
-) -> Option<String> {
-    let mappings = analysis.mappings_at(file, offset);
+fn mapping_note(world: &World, file: &Path, offset: usize) -> Option<String> {
+    let mappings = world.mappings_at(file, offset);
     if mappings.is_empty() {
         return None;
     }
@@ -1559,6 +1555,7 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         _ => {}
     }
 
+    let paths = matches!(context, Context::ModulePath);
     // The typed word ranks the items. An item that completes the word goes
     // above an item that replaces it with a different word. A partial sigil
     // (`@`, `#`) is not part of the name.
@@ -1571,7 +1568,11 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         .into_iter()
         .map(|mut item| {
             let rank = match_rank(&typed, &item.label);
-            let order = item.sort_text.take().unwrap_or_else(|| item.label.clone());
+            // Among paths with one rank, the shortest is the closest.
+            let order = match (paths, item.sort_text.take()) {
+                (true, _) => format!("{:05}{}", item.label.len(), item.label),
+                (false, order) => order.unwrap_or_else(|| item.label.clone()),
+            };
             item.sort_text = Some(format!("{rank}{order}"));
             // The client filters with this text against the typed word. The
             // typed word holds the partial sigil, so the filter text holds it too.
@@ -1605,6 +1606,20 @@ pub fn completion(world: &World, uri: &Url, position: Position) -> Option<Comple
         })
         .collect();
 
+    // A module path is a whole path, not a word. A fuzzy match of the last
+    // segment alone offers paths in other directories first. Thus the list
+    // keeps only the paths that contain what is typed, closest first, and
+    // tells the client to ask again as the path grows.
+    if paths {
+        let mut items = items;
+        if !typed.is_empty() {
+            items.retain(|item| item.sort_text.as_deref().is_some_and(|order| !order.starts_with('3')));
+        }
+        return Some(CompletionResponse::List(CompletionList {
+            is_incomplete: true,
+            items,
+        }));
+    }
     Some(CompletionResponse::Array(items))
 }
 
@@ -1777,6 +1792,20 @@ fn keywords(words: &[&str]) -> Vec<CompletionItem> {
 fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
     let compilation = cursor.compilation;
     let source_root = &compilation.project.source_root;
+    // A path that starts with `/` is a path from the source root. The list
+    // then offers each module that way, and does not change it to a relative
+    // path. A path that starts with `.` is relative. Before either, the list
+    // has the style of the imports that the file has.
+    let typed = {
+        let line_start = cursor.text[..cursor.offset].rfind('\n').map_or(0, |at| at + 1);
+        let line = &cursor.text[line_start..cursor.offset];
+        line.rsplit(char::is_whitespace).next().unwrap_or("")
+    };
+    let rooted = match typed.chars().next() {
+        Some('/') => true,
+        Some('.') => false,
+        _ => uses_rooted_imports(compilation, cursor.module),
+    };
 
     let mut items = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -1808,8 +1837,17 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         offer(name.clone(), Some("installed package".into()), &mut items);
     }
 
-    // Completion runs on a keystroke. Thus the walk has a limit.
-    let mut files = piton_compile::module::sources_up_to(source_root, 5000);
+    // Completion runs on a keystroke. Thus each walk has a limit.
+    const LIMIT: usize = 5000;
+    let mut files = piton_compile::module::sources_up_to(source_root, LIMIT);
+    // The walk of the source root skips `tethers/`. An installed package is
+    // not source of the project, but a person imports its modules. A module
+    // that no file imports yet is not in the graph. Thus the list walks each
+    // package too.
+    for name in &installed {
+        let directory = piton_compile::packages::package_directory(project_root, name);
+        files.extend(piton_compile::module::sources_up_to(&directory, LIMIT));
+    }
     // A module in the graph can be outside the source root. An installed
     // package is an example. The list still offers it.
     files.extend(
@@ -1827,7 +1865,7 @@ fn module_paths(cursor: &Cursor<'_>) -> Vec<CompletionItem> {
         match package_import_path(project_root, &installed, &file) {
             Some((written, detail)) => offer(written, Some(detail), &mut items),
             None => {
-                let written = import_path(&cursor.path, &file, source_root);
+                let written = written_import(&cursor.path, &file, &compilation.project, rooted);
                 let detail = file
                     .strip_prefix(source_root)
                     .unwrap_or(&file)
@@ -2009,6 +2047,8 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
         .collect();
     let insert = insertion_point(compilation, cursor.module, &cursor.text);
     let at = offset_to_position(&cursor.text, insert);
+    // The new import has the style of the imports that the file has.
+    let rooted = uses_rooted_imports(compilation, cursor.module);
 
     // When an index re-exports a name, several modules export it. They all go
     // to the same symbol. The list offers it one time, with an import from the
@@ -2019,7 +2059,7 @@ fn importable(cursor: &Cursor<'_>, only: Only) -> Vec<CompletionItem> {
         if module.id == cursor.module {
             continue;
         }
-        let written = import_path(&cursor.path, &module.path, &compilation.project.source_root);
+        let written = written_import(&cursor.path, &module.path, &compilation.project, rooted);
         for name in compilation.resolution.exported_names(module.id) {
             if visible.contains(&name) {
                 continue;
@@ -3018,10 +3058,12 @@ pub fn code_actions_for(
             continue;
         };
 
-        // Offer to import the symbol from each location that exports it.
+        // Offer to import the symbol from each location that exports it,
+        // with the style of the imports that the file has.
+        let rooted = uses_rooted_imports(compilation, cursor.module);
         for source in modules_exporting(compilation, name) {
             let source_path = compilation.graph().get(source).path.clone();
-            let written = import_path(&cursor.path, &source_path, &world.project.source_root);
+            let written = written_import(&cursor.path, &source_path, &world.project, rooted);
             let insert = insertion_point(compilation, cursor.module, &cursor.text);
             let edit = TextEdit {
                 range: Range {
@@ -3526,7 +3568,54 @@ fn modules_exporting(compilation: &Compilation, name: &str) -> Vec<piton_compile
 }
 
 /// The path text that an import uses to reach `target` from `from`.
-fn import_path(from: &Path, target: &Path, _source_root: &Path) -> String {
+/// How a file imports `target`. A bundled package is its name. A module of
+/// an installed package is its package path. Then, with `rooted`, a module
+/// below the source root is a path from the root, like `/kernel/Shape`.
+/// Each other module is a path relative to the importing file.
+fn written_import(from: &Path, target: &Path, project: &piton_compile::Project, rooted: bool) -> String {
+    if target.to_string_lossy().starts_with('@') {
+        return target.to_string_lossy().to_string();
+    }
+    let installed = piton_compile::packages::installed_names(&project.root);
+    if let Some((written, _)) = package_import_path(&project.root, &installed, target) {
+        return written;
+    }
+    // A path from the root works only in a project with a configuration,
+    // which names the root.
+    if rooted && project.config_path.is_some() {
+        if let Ok(inside) = target.with_extension("").strip_prefix(&project.source_root) {
+            let text = inside.to_string_lossy().replace('\\', "/");
+            // An import of `index` uses the name of its directory. The index
+            // of the root itself keeps its name.
+            let text = match text.strip_suffix("/index") {
+                Some(directory) => directory.to_string(),
+                None => text,
+            };
+            return format!("/{text}");
+        }
+    }
+    import_path(from, target)
+}
+
+/// Tells if a file writes its imports as paths from the source root: its
+/// first import path that is not a package starts with `/`.
+fn uses_rooted_imports(compilation: &Compilation, module: piton_compile::ModuleId) -> bool {
+    compilation
+        .graph()
+        .get(module)
+        .ast()
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Use(decl) => Some(decl.path.text.as_str()),
+            Item::From(decl) => Some(decl.path.text.as_str()),
+            _ => None,
+        })
+        .find(|path| path.starts_with('/') || path.starts_with('.'))
+        .is_some_and(|path| path.starts_with('/'))
+}
+
+fn import_path(from: &Path, target: &Path) -> String {
     if target.to_string_lossy().starts_with('@') {
         return target.to_string_lossy().to_string();
     }
@@ -4045,24 +4134,20 @@ pub fn code_lenses(world: &World, uri: &Url) -> Option<Vec<CodeLens>> {
     let cursor = file_context(world, uri)?;
     let mut lenses = Vec::new();
     let mut seen = HashSet::new();
-    for mapping in &world.analysis.mappings {
-        if !paths_equal(&mapping.source_file, &cursor.path) {
-            continue;
-        }
+    let mappings = world.mappings_for(&cursor.path);
+    let mut labels_at: HashMap<usize, Vec<&str>> = HashMap::new();
+    for mapping in &mappings {
+        labels_at
+            .entry(mapping.source_span.start)
+            .or_default()
+            .push(mapping.label.as_str());
+    }
+    for mapping in &mappings {
         // One lens for each construct, not one for each adapter slice of the same span.
         if !seen.insert(mapping.source_span.start) {
             continue;
         }
-        let labels: Vec<&str> = world
-            .analysis
-            .mappings
-            .iter()
-            .filter(|other| {
-                paths_equal(&other.source_file, &cursor.path)
-                    && other.source_span.start == mapping.source_span.start
-            })
-            .map(|other| other.label.as_str())
-            .collect();
+        let labels = &labels_at[&mapping.source_span.start];
         let title = if labels.len() <= 2 {
             labels.join(" · ")
         } else {
@@ -4211,7 +4296,6 @@ pub fn source_to_output(world: &World, params: &serde_json::Value) -> serde_json
     };
     let offset = position_to_offset(&text, Position { line, character });
     let hits: Vec<serde_json::Value> = world
-        .analysis
         .mappings_at(&path, offset)
         .into_iter()
         .map(|mapping| {
@@ -4237,7 +4321,7 @@ pub fn output_to_source(world: &World, params: &serde_json::Value) -> serde_json
         .and_then(|value| value.as_u64())
         .unwrap_or(0) as usize;
     let path = PathBuf::from(path);
-    let Some(mapping) = world.analysis.at_output(&path, offset) else {
+    let Some(mapping) = world.at_output(&path, offset) else {
         return serde_json::Value::Null;
     };
     let text = world.text(&mapping.source_file).unwrap_or_default();

@@ -11,10 +11,10 @@ from ./StringExpression import StringExpression
 export anchor Expressions:
     description:
         Expressions combine values and operators to produce a result. Nothing
-        gets evaluated unless it's in braces, like \ {a + b} \ or
-        \ {1 + 2} \. Without braces, 1 + 2 is just text. Evaluation follows
-        Piton’s type and operator rules and resolves forward references.
-        Unresolved or cyclic references are compiler errors.
+        gets evaluated unless it's in braces, like \ {a + b} \ or \ {1 + 2} \.
+        Without braces, 1 + 2 is just text. Evaluation follows Piton’s type and
+        operator rules and resolves forward references. Unresolved or cyclic
+        references are compiler errors.
 
     story:
         A question you might currently have is how can a variable references
@@ -87,10 +87,10 @@ export anchor Expressions:
         myDictionary.list, combines that value with [4, 5, 6], and evaluates to
         [1, 2, 3, 4, 5, 6].
 
-        Anchors get copied in too, but the copy still knows it's Foo. So if x
-        is \ {Foo} \, then \ {x == Foo} \ is true, \ ${x} \ is “Foo”, and x
-        passes a Foo type constraint. If you want a link instead of a copy,
-        use \ @{Foo} \.
+        Anchors get copied in too, but the copy still knows it's Foo. So if x is
+        \ {Foo} \, then \ {x == Foo} \ is true, \ ${x} \ is “Foo”, and x passes
+        a Foo type constraint. If you want a link instead of a copy, use
+        \ @{Foo} \.
 
     expressionsInText:
         If the whole value is just an expression, like \ total: {a + b} \, it
@@ -99,13 +99,13 @@ export anchor Expressions:
         \ ${x} \ turns the result into a string, so the whole thing is just a
         string.
 
-        \ {x} \ with a simple value (string, number, boolean, or null) drops
-        the value into the text, so \ Total: {a + b} \ is “Total: 3”.
+        \ {x} \ with a simple value (string, number, boolean, or null) drops the
+        value into the text, so \ Total: {a + b} \ is “Total: 3”.
 
-        \ {x} \ with a list, dictionary, or anchor copies it in. That turns
-        the property into an implicit list, same as when you mix types in a
-        collection. So \ See {Foo} for details \ becomes a list with “See”,
-        a copy of Foo, and “for details”.
+        \ {x} \ with a list, dictionary, or anchor copies it in. That turns the
+        property into an implicit list, same as when you mix types in a
+        collection. So \ See {Foo} for details \ becomes a list with “See”, a
+        copy of Foo, and “for details”.
 
         \ @{x} \ puts in a reference, which ends up as a link or a path.
 

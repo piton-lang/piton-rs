@@ -29,7 +29,9 @@ export piton-plugin TestPlugin:
 
             arguments:
                 targets:
-                    help: Tests to run, by name, or the files and directories holding them; every test when none are given
+                    help:
+                        Tests to run, by name, or the files and directories
+                        holding them; every test when none are given
                     positional: true
                     multiple: true
 
@@ -38,12 +40,17 @@ export piton-plugin TestPlugin:
                     choices: [claude, codex, opencode, muse]
 
                 model:
-                    help: The model that judges the tests; without one, the agent's models are listed; with --model and no model, they are listed and nothing runs
+                    help:
+                        The model that judges the tests; without one, the
+                        agent's models are listed; with --model and no model,
+                        they are listed and nothing runs
                     short: m
                     optionalValue: true
 
                 against:
-                    help: What every test is judged against, whatever the test says
+                    help:
+                        What every test is judged against, whatever the test
+                        says
                     choices: [spec, code, both]
 
                 jobs:
@@ -62,4 +69,6 @@ export piton-plugin TestPlugin:
                     type: flag
 
                 tags:
-                    help: Only run tests whose tags match this expression, like "((a and b) not c) or d"
+                    help:
+                        Only run tests whose tags match this expression, like
+                        "((a and b) not c) or d"

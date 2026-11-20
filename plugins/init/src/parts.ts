@@ -7,7 +7,8 @@
 // and `code/` go beneath Belay's shape and code roots, files under
 // `.adapters/<target id>/` only when that adapter is chosen, and the
 // placeholders below are filled in. When several parts have a file at the
-// same path, they are joined into one.
+// same path, they are joined into one. Each Piton file is then formatted,
+// because a filled-in name can make a line of prose longer than 80 columns.
 
 import type { Context } from "@piton/plugin";
 
@@ -42,8 +43,8 @@ export interface Filling {
   specRoot: string;
 }
 
-/** The files of `parts`, in order, filled in and with files at the same path
- * joined. */
+/** The files of `parts`, in order, filled in, with files at the same path
+ * joined, and each Piton file canonically formatted. */
 export function files(ctx: Context, parts: string[], filling: Filling): File[] {
   const placed = new Map<string, string[]>();
   for (const part of parts) {
@@ -53,10 +54,11 @@ export function files(ctx: Context, parts: string[], filling: Filling): File[] {
       else existing.push(file.contents);
     }
   }
-  return [...placed.entries()].map(([path, contents]) => ({
-    path,
-    contents: contents.length === 1 ? contents[0] : ctx.format(join(contents), path),
-  }));
+  return [...placed.entries()].map(([path, contents]) => {
+    const text = contents.length === 1 ? contents[0] : join(contents);
+    const format = contents.length > 1 || path.endsWith(".pi");
+    return { path, contents: format ? ctx.format(text, path) : text };
+  });
 }
 
 /** The files `part` adds, placed and filled in. */

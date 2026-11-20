@@ -115,11 +115,98 @@ export function frameworksToPlugins(text: string): string | null {
   return lines.join("\n");
 }
 
+/** The directory part of a path with `/` separators, or "" for none. */
+function directoryOf(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "" : path.slice(0, slash);
+}
+
+/** Joins a written path to a directory, and resolves `.` and `..`. */
+function joinPath(base: string, written: string): string {
+  const parts: string[] = [];
+  for (const part of [...base.split("/"), ...written.split("/")]) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+/** The paths that a `files:` key names: one inline path, or one for each
+ * `target: path` line of its block. A `null` names no path. */
+function namedPaths(lines: string[], at: number): string[] {
+  const inline = inlineValue(lines[at]);
+  const values = inline.length > 0 ? [inline] : lines.slice(at + 1, blockEnd(lines, at)).map(inlineValue);
+  return values.filter((value) => value.length > 0 && value !== "null");
+}
+
+/** Changes `skill` to `vendored-skill` and `agent` to `vendored-agent` where
+ * a vendored file supplies the whole construct. Gives null when the text
+ * needs no change.
+ *
+ * A skill is vendored when a folder that its `files` names holds a
+ * SKILL.md. An agent is vendored when it has a `file`. `hasSkillFile` tells
+ * if a folder, as the file writes it, holds a SKILL.md. */
+export function vendoredKeywords(text: string, hasSkillFile: (written: string) => boolean): string | null {
+  const lines = text.split("\n");
+  let changed = false;
+  for (let at = 0; at < lines.length; at += 1) {
+    const header = /^(export )?(skill|agent) ([A-Za-z_][A-Za-z0-9_]*)\b(.*):\s*$/.exec(lines[at]);
+    if (header === null) continue;
+    const kind = header[2];
+    const end = blockEnd(lines, at);
+    let vendored = false;
+    for (let inner = at + 1; inner < end; inner += 1) {
+      if (indentOf(lines[inner]) !== 4) continue;
+      if (kind === "agent" && /^\s+file:/.test(lines[inner]) && inlineValue(lines[inner]) !== "null") vendored = true;
+      if (kind === "skill" && /^\s+files:/.test(lines[inner])) vendored = namedPaths(lines, inner).some(hasSkillFile);
+    }
+    if (!vendored) continue;
+    lines[at] = `${header[1] ?? ""}vendored-${kind} ${header[3]}${header[4]}:`;
+    changed = true;
+  }
+  return changed ? lines.join("\n") : null;
+}
+
+/** Every Piton file below the source root, relative to the project root.
+ * Installed packages belong to their own projects, so the list leaves out
+ * `tethers/`. */
+function sourceFiles(ctx: Context, sourceRoot: string): string[] {
+  if (ctx.stat(sourceRoot === "" ? "." : sourceRoot)?.kind !== "directory") return [];
+  return ctx
+    .listFiles(sourceRoot === "" ? "." : sourceRoot)
+    .map((file) => (sourceRoot === "" ? file.path : `${sourceRoot}/${file.path}`))
+    .filter((path) => path.endsWith(".pi") && !path.startsWith("tethers/") && !path.includes("/tethers/"));
+}
+
 /** Every migration that the project needs. */
 export function findings(ctx: Context): Finding[] {
   const out: Finding[] = [];
   if (ctx.stat(CONFIG)?.kind !== "file") return out;
   const config = ctx.readFile(CONFIG);
+
+  // The source root, relative to the project root, or "" for the root itself.
+  const project = ctx.project();
+  const root = project.root.endsWith("/") ? project.root : `${project.root}/`;
+  const sourceRoot = project.sourceRoot.startsWith(root) ? project.sourceRoot.slice(root.length) : "";
+  const edits = [];
+  for (const path of sourceFiles(ctx, sourceRoot)) {
+    const text = ctx.readFile(path);
+    // Most files declare no vendored construct. This test is fast.
+    if (!text.includes("file:") && !text.includes("files:")) continue;
+    const directory = directoryOf(path);
+    const updated = vendoredKeywords(text, (written) => {
+      const folder = written.startsWith("/") ? joinPath(sourceRoot, written.slice(1)) : joinPath(directory, written);
+      return ctx.stat(`${folder}/SKILL.md`)?.kind === "file";
+    });
+    if (updated !== null) edits.push({ path, contents: updated });
+  }
+  if (edits.length > 0) {
+    out.push({
+      message: `${edits.length === 1 ? "a file declares" : `${edits.length} files declare`} a vendored skill or agent with \`skill\` or \`agent\`, which is now \`vendored-skill\` or \`vendored-agent\``,
+      edits,
+    });
+  }
 
   const moved = frameworksToPlugins(config);
   if (moved !== null) {

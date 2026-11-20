@@ -14,7 +14,8 @@ export anchor NumericExpression:
         - Interpret numeric strings according to Piton's numeric literal rules.
         - Require the entire string to represent a number.
         - Do not interpret a numeric string as an expression.
-        - Do not implicitly convert booleans, null, collections, or anchors to numbers.
+        - Do not implicitly convert booleans, null, collections, or anchors to
+            numbers.
 
     composition:
         description:
@@ -23,5 +24,5 @@ export anchor NumericExpression:
 
     output:
         description:
-            Preserve the numeric type in structured output. Convert it to
-            text only when required by the surrounding output format.
+            Preserve the numeric type in structured output. Convert it to text
+            only when required by the surrounding output format.

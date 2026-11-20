@@ -6,7 +6,7 @@
 //! Thus `${A}` inside `B` does not force the properties of `A`. For this reason,
 //! circular *references* are correct, but circular *values* stay an error.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use indexmap::IndexSet;
@@ -20,7 +20,7 @@ use piton_syntax::ast::{
 
 use crate::module::ModuleId;
 use crate::resolve::Resolution;
-use crate::store::{Slot, Symbol, VariableId};
+use crate::store::{Slot, Store, Symbol, VariableId};
 
 /// The location from which the evaluator evaluates an expression.
 #[derive(Debug, Clone, Copy)]
@@ -95,14 +95,67 @@ pub enum Read {
 pub type Reads = HashMap<Read, IndexSet<Read>>;
 
 pub struct Outcome {
-    pub anchors: HashMap<AnchorId, Properties>,
+    pub anchors: HashMap<AnchorId, std::sync::Arc<Properties>>,
     pub variables: HashMap<VariableId, Value>,
     pub reads: Reads,
-    pub diagnostics: Vec<Diagnostic>,
+    /// Each diagnostic, with the item that the evaluator evaluated when it
+    /// found the problem. A later evaluation that uses the value of the item
+    /// again uses the diagnostic again too.
+    pub diagnostics: Vec<(Option<Read>, Diagnostic)>,
+}
+
+/// The values of an evaluation before, and the items whose values are old.
+/// See [`evaluate_again`].
+pub struct Reuse<'a> {
+    /// The store of the evaluation before. It holds its values.
+    pub store: &'a Store,
+    pub reads: &'a Reads,
+    pub diagnostics: &'a [(Option<Read>, Diagnostic)],
+    /// The anchors and variables to evaluate again. Each other item keeps
+    /// the value of the evaluation before.
+    pub dirty_anchors: &'a HashSet<AnchorId>,
+    pub dirty_variables: &'a HashSet<VariableId>,
 }
 
 /// Evaluates each anchor and variable in the resolution.
 pub fn evaluate(resolution: &Resolution) -> Outcome {
+    run(resolution, None)
+}
+
+/// Evaluates the items of `reuse` that are old, and takes the value of each
+/// other item from the evaluation before. The ids of the resolution must
+/// name the same items as the ids of the store of `reuse`.
+///
+/// An item keeps its old value only when no item that it reads, and no
+/// declaration that it inherits, changed. Thus the result is the same as the
+/// result of [`evaluate`]. Its reads and its diagnostics also come from the
+/// evaluation before, for each item that keeps its value.
+pub fn evaluate_again(resolution: &Resolution, reuse: &Reuse<'_>) -> Outcome {
+    let mut outcome = run(resolution, Some(reuse));
+    for (frame, reads) in reuse.reads {
+        if !is_dirty(reuse, frame) {
+            outcome.reads.entry(frame.clone()).or_default().extend(reads.iter().cloned());
+        }
+    }
+    let kept = reuse
+        .diagnostics
+        .iter()
+        .filter(|(frame, _)| frame.as_ref().is_some_and(|frame| !is_dirty(reuse, frame)))
+        .cloned();
+    outcome.diagnostics.extend(kept);
+    outcome
+}
+
+/// Tells if `item` belongs to an anchor or a variable that `reuse` evaluates
+/// again.
+fn is_dirty(reuse: &Reuse<'_>, item: &Read) -> bool {
+    match item {
+        Read::Property(anchor, _) => reuse.dirty_anchors.contains(anchor),
+        Read::Variable(variable) => reuse.dirty_variables.contains(variable),
+    }
+}
+
+fn run<'a>(resolution: &'a Resolution, reuse: Option<&'a Reuse<'a>>) -> Outcome {
     let mut evaluator = Evaluator {
         resolution,
         properties: HashMap::new(),
@@ -114,6 +167,8 @@ pub fn evaluate(resolution: &Resolution) -> Outcome {
         frames: Vec::new(),
         muted: Vec::new(),
         diagnostics: Vec::new(),
+        stored: false,
+        reuse,
     };
 
     for index in 0..resolution.store.variables.len() {
@@ -141,7 +196,7 @@ struct Evaluator<'a> {
     property_stack: Vec<(AnchorId, String)>,
     variables: HashMap<VariableId, Value>,
     variable_stack: Vec<VariableId>,
-    anchors: HashMap<AnchorId, Properties>,
+    anchors: HashMap<AnchorId, std::sync::Arc<Properties>>,
     reads: Reads,
     /// The items that the evaluator evaluates now, with the innermost item last. Thus
     /// each read goes to the item that asked for it.
@@ -149,7 +204,15 @@ struct Evaluator<'a> {
     /// Frame depths at which the evaluator does not record reads. The reads at these
     /// depths only find the target of a reference.
     muted: Vec<usize>,
-    diagnostics: Vec<Diagnostic>,
+    /// Each diagnostic, with the innermost item at the time. See
+    /// [`Outcome::diagnostics`].
+    diagnostics: Vec<(Option<Read>, Diagnostic)>,
+    /// The evaluation before, when only some items are old.
+    reuse: Option<&'a Reuse<'a>>,
+    /// True when the store already holds the evaluated values, as it does for
+    /// a [`Probe`]. Then a value that the caches do not hold comes from the
+    /// store, and the evaluator does not evaluate it again.
+    stored: bool,
 }
 
 impl<'a> Evaluator<'a> {
@@ -171,15 +234,36 @@ impl<'a> Evaluator<'a> {
 
     fn error(&mut self, code: &str, message: impl Into<String>, module: ModuleId, span: Span) {
         let path = self.path(module);
-        self.diagnostics
-            .push(Diagnostic::error(code, message, path, span));
+        self.report(Diagnostic::error(code, message, path, span));
+    }
+
+    /// Records a diagnostic, with the item that the evaluator evaluates now.
+    fn report(&mut self, diagnostic: Diagnostic) {
+        self.diagnostics.push((self.frames.last().cloned(), diagnostic));
+    }
+
+    /// The value of an item that keeps its value from the evaluation before.
+    fn reused_property(&self, anchor: AnchorId, name: &str) -> Option<Value> {
+        let reuse = self.reuse?;
+        if reuse.dirty_anchors.contains(&anchor) {
+            return None;
+        }
+        reuse.store.anchor(anchor).properties.get(name).cloned()
     }
 
     // -- anchors --------------------------------------------------------
 
-    fn anchor_properties(&mut self, anchor: AnchorId) -> Properties {
+    fn anchor_properties(&mut self, anchor: AnchorId) -> std::sync::Arc<Properties> {
         if let Some(existing) = self.anchors.get(&anchor) {
             return existing.clone();
+        }
+        if self.stored {
+            return self.resolution.store.anchor(anchor).properties.clone();
+        }
+        if let Some(reuse) = self.reuse {
+            if !reuse.dirty_anchors.contains(&anchor) {
+                return reuse.store.anchor(anchor).properties.clone();
+            }
         }
         let names: Vec<String> = self
             .resolution
@@ -206,7 +290,7 @@ impl<'a> Evaluator<'a> {
             let value = self.property_value(anchor, &name);
             properties.insert(name, value);
         }
-        properties
+        std::sync::Arc::new(properties)
     }
 
     fn property_value(&mut self, anchor: AnchorId, name: &str) -> Value {
@@ -214,6 +298,14 @@ impl<'a> Evaluator<'a> {
         let key = (anchor, name.to_string());
         if let Some(cached) = self.properties.get(&key) {
             return cached.clone();
+        }
+        if self.stored {
+            if let Some(stored) = self.resolution.store.anchor(anchor).properties.get(name) {
+                return stored.clone();
+            }
+        }
+        if let Some(reused) = self.reused_property(anchor, name) {
+            return reused;
         }
         if self.property_stack.contains(&key) {
             let def = self.resolution.store.anchor(anchor);
@@ -265,12 +357,14 @@ impl<'a> Evaluator<'a> {
     /// reads the declaration of `x` in a base. Then `self` still means the start
     /// anchor of the lookup. The reason is that `self` continues across inheritance.
     fn slot_value(&mut self, derived: AnchorId, slot: &Slot, name: &str) -> Value {
-        let owner = self.resolution.store.anchor(slot.owner);
+        // The resolution lives longer than the evaluator. Thus the syntax can
+        // stay borrowed while the evaluator changes, and needs no copy.
+        let resolution: &'a Resolution = self.resolution;
+        let owner = resolution.store.anchor(slot.owner);
         let owner_module = owner.module;
         let owner_item = owner.item;
         let super_anchor = owner.bases.last().copied();
-        let Some(ast::Item::Anchor(decl)) = self
-            .resolution
+        let Some(ast::Item::Anchor(decl)) = resolution
             .graph
             .get(owner_module)
             .ast()
@@ -279,7 +373,7 @@ impl<'a> Evaluator<'a> {
         else {
             return Value::Null;
         };
-        let Some(property) = decl.body.properties().nth(slot.index).cloned() else {
+        let Some(property) = decl.body.properties().nth(slot.index) else {
             return Value::Null;
         };
 
@@ -366,6 +460,19 @@ impl<'a> Evaluator<'a> {
         if let Some(cached) = self.variables.get(&id) {
             return cached.clone();
         }
+        if self.stored {
+            if let Some(stored) = &self.resolution.store.variable(id).value {
+                return stored.clone();
+            }
+        }
+        if let Some(reuse) = self.reuse {
+            if !reuse.dirty_variables.contains(&id) {
+                if let Some(old) = &reuse.store.variable(id).value {
+                    self.variables.insert(id, old.clone());
+                    return old.clone();
+                }
+            }
+        }
         if self.variable_stack.contains(&id) {
             let def = self.resolution.store.variable(id);
             let (name, module, span) = (def.name.clone(), def.module, def.name_span);
@@ -387,7 +494,9 @@ impl<'a> Evaluator<'a> {
 
         if !decl.value.declared {
             // This is `x:: number` with no value. Only an abstract anchor can have a
-            // property without a value.
+            // property without a value. The problem belongs to the variable, not
+            // to the item that read it first.
+            self.frames.push(Read::Variable(id));
             self.error(
                 "missing-value",
                 format!(
@@ -397,6 +506,7 @@ impl<'a> Evaluator<'a> {
                 def.module,
                 decl.name_span,
             );
+            self.frames.pop();
             self.variables.insert(id, Value::Null);
             return Value::Null;
         }
@@ -815,7 +925,7 @@ impl<'a> Evaluator<'a> {
                 Some(target) => Evaluated::plain(Value::Reference(target)),
                 None => {
                     let path = self.path(context.module);
-                    self.diagnostics.push(
+                    self.report(
                         Diagnostic::error(
                             "invalid-reference",
                             "`@{...}` has to point at an anchor or a property on one",
@@ -1744,7 +1854,7 @@ impl<'a> Probe<'a> {
     /// A probe that starts with the values that `resolution` stores at this time.
     /// `Compilation::from_resolution` supplies these values. Thus the probe evaluates no value two times.
     pub fn new(resolution: &'a Resolution) -> Probe<'a> {
-        let mut evaluator = Evaluator {
+        let evaluator = Evaluator {
             resolution,
             properties: HashMap::new(),
             property_stack: Vec::new(),
@@ -1755,20 +1865,11 @@ impl<'a> Probe<'a> {
             frames: Vec::new(),
             muted: Vec::new(),
             diagnostics: Vec::new(),
+            // The probe reads the stored values when it needs them. A copy of
+            // all values at the start took long in a large project.
+            stored: true,
+            reuse: None,
         };
-        for def in &resolution.store.anchors {
-            for (name, value) in &def.properties {
-                evaluator
-                    .properties
-                    .insert((def.id, name.clone()), value.clone());
-            }
-            evaluator.anchors.insert(def.id, def.properties.clone());
-        }
-        for def in &resolution.store.variables {
-            if let Some(value) = &def.value {
-                evaluator.variables.insert(def.id, value.clone());
-            }
-        }
         Probe { evaluator }
     }
 

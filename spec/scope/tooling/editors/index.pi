@@ -24,10 +24,10 @@ export abstract anchor Editor as editor:
         enterOnBlankLine:
             On the first blank line inside a dictionary or anchor, enter should
             insert a new line at the same indent level, so a paragraph break
-            stays in the block. On a second blank line in sequence, enter
-            should insert a new line and dedent it by 1 level. Thus the first
-            enter after text opens a new line, the second keeps the level, and
-            only the third dedents.
+            stays in the block. On a second blank line in sequence, enter should
+            insert a new line and dedent it by 1 level. Thus the first enter
+            after text opens a new line, the second keeps the level, and only
+            the third dedents.
 
         autoFormatOnSave:
             Autoformat on save is an option. Autoformat should add the space
@@ -35,15 +35,14 @@ export abstract anchor Editor as editor:
 
         stringsStayStrings:
             Prose is one string, and the syntax highlighter shows it in the
-            editor's plain text style, so the structure around it stands out.
-            A word in it is never a keyword, constant, number, or type, and
+            editor's plain text style, so the structure around it stands out. A
+            word in it is never a keyword, constant, number, or type, and
             characters like `$`, `#`, `@`, a backtick, or brackets that open
             nothing are part of the string. Imports and declarations are
-            top-level only, so they're recognized at column 0: an indented
-            line like `use the spec to decide` or `export the result` is
-            prose. Only the expressions inside `\ {...} \` forms are
-            highlighted within a value, and a quoted string inside one is
-            coloured as a string.
+            top-level only, so they're recognized at column 0: an indented line
+            like `use the spec to decide` or `export the result` is prose. Only
+            the expressions inside `\ {...} \` forms are highlighted within a
+            value, and a quoted string inside one is coloured as a string.
 
         valuesKeepTheirType:
             A value that is exactly a number, `true`, `false` or `null` is that

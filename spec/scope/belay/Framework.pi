@@ -12,7 +12,8 @@ export anchor FrameworkPurpose extends FrameworkSpecification:
 
     requirements:
         - Express reusable agent behavior as structured Piton source.
-        - Connect descriptions of what should exist with guidance for building it.
+        - Connect descriptions of what should exist with guidance for building
+            it.
         - Preserve composition through Piton anchors and inheritance.
         - Produce platform-specific artifacts through configured adapters.
 
@@ -26,8 +27,10 @@ export anchor SourceAuthority extends FrameworkSpecification:
         - Make lasting specification changes in the originating Piton source.
         - Derive generated guidance from the resolved source and configuration.
         - Treat implementation as something to assess against the specification.
-        - Distinguish predictable artifact generation from probabilistic agent behavior.
-        - Load the four constructs from the Belay plugin's own .pi files, so what a project imports is what the plugin builds with.
+        - Distinguish predictable artifact generation from probabilistic agent
+            behavior.
+        - Load the four constructs from the Belay plugin's own .pi files, so
+            what a project imports is what the plugin builds with.
 
 export anchor FrameworkBoundaries extends FrameworkSpecification:
     description:
@@ -37,9 +40,12 @@ export anchor FrameworkBoundaries extends FrameworkSpecification:
     requirements:
         - Defer parsing and expression evaluation to Piton.
         - Defer imports, exports, inheritance, and reachability to Piton.
-        - Use adapters to translate resolved Belay constructs into target artifacts.
-        - Leave execution of generated instructions to the consuming agentic platform.
-        - Do not treat successful compilation as proof of correct agent execution.
+        - Use adapters to translate resolved Belay constructs into target
+            artifacts.
+        - Leave execution of generated instructions to the consuming agentic
+            platform.
+        - Do not treat successful compilation as proof of correct agent
+            execution.
 
 export anchor ProjectConfiguration extends FrameworkSpecification:
     description:
@@ -47,13 +53,18 @@ export anchor ProjectConfiguration extends FrameworkSpecification:
         plugins property of its Piton config: Belay's settings, as a plugin.
 
     requirements:
-        - List the Belay configuration under plugins in the project configuration.
-        - Resolve codeRoot and shapeRoot relative to the configuration file. codeRoot is required, and a configuration without it is an error.
+        - List the Belay configuration under plugins in the project
+            configuration.
+        - Resolve codeRoot and shapeRoot relative to the configuration file.
+            codeRoot is required, and a configuration without it is an error.
         - Use codeRoot to identify the application's source-code root.
-        - Use shapeRoot, when configured, to identify the architectural instruction root.
+        - Use shapeRoot, when configured, to identify the architectural
+            instruction root.
         - Use adapters to select the output targets for the project.
-        - Require individual files to use or import the framework definitions they need.
-        - Do not interpret listing the configuration as an implicit import in every file.
+        - Require individual files to use or import the framework definitions
+            they need.
+        - Do not interpret listing the configuration as an implicit import in
+            every file.
 
     package: @piton/belay
 
@@ -61,11 +72,22 @@ export anchor ProjectConfiguration extends FrameworkSpecification:
         keyword: belay-config
 
         fields:
-            codeRoot: Required. Where the app's code lives, relative to the project config.
-            shapeRoot: Optional. Where the shape instructions live. Without it, BELAY_SHAPE_ROOT is the project root and nothing is placed by shape.
+            codeRoot:
+                Required. Where the app's code lives, relative to the project
+                config.
+            shapeRoot:
+                Optional. Where the shape instructions live. Without it,
+                BELAY_SHAPE_ROOT is the project root and nothing is placed by
+                shape.
             adapters: Required. The list of adapters to build for.
-            crossDiscovery: Optional. separate when each tool's output is deployed apart, so every adapter writes its own complete tree; allow to accept that one tool offers another tool's command skills as ordinary skills. Without it, the enabled tools share one project.
-            instructionByteLimit: Optional. The instruction byte limit to check against, for targets that have one.
+            crossDiscovery:
+                Optional. separate when each tool's output is deployed apart, so
+                every adapter writes its own complete tree; allow to accept that
+                one tool offers another tool's command skills as ordinary
+                skills. Without it, the enabled tools share one project.
+            instructionByteLimit:
+                Optional. The instruction byte limit to check against, for
+                targets that have one.
 
         example:
             codeRoot: ./src/
@@ -78,13 +100,21 @@ export anchor ConstructComposition extends FrameworkSpecification:
         introducing a separate composition language.
 
     requirements:
-        - Expose Agent, Instruction, Skill, and Command as the four agentic constructs.
+        - Expose Agent, Instruction, Skill, and Command as the four agentic
+            constructs.
         - Associate those anchors with agent, instruction, skill, and command.
+        - Expose VendoredSkill and VendoredAgent, with vendored-skill and
+            vendored-agent, for a skill or an agent that a vendored file
+            supplies whole. Belay builds them as skills and agents.
         - Allow abstract anchors to provide shared structure and behavior.
-        - Resolve inherited properties according to the Piton language specification.
-        - Validate required properties on concrete constructs after inheritance resolves.
-        - Preserve additional properties for serialization into the generated guidance.
-        - Emit only what the build command emits: the entry file's exports and anything they reference.
+        - Resolve inherited properties according to the Piton language
+            specification.
+        - Validate required properties on concrete constructs after inheritance
+            resolves.
+        - Preserve additional properties for serialization into the generated
+            guidance.
+        - Emit only what the build command emits: the entry file's exports and
+            anything they reference.
 
     otherAnchors:
         Belay has more than the four constructs. The config anchor, the

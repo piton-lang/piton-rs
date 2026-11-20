@@ -2,9 +2,10 @@
 // source tree.
 //
 // The `files` of a skill names a folder. Belay copies the folder next to the
-// SKILL.md of the skill. If the folder has its own SKILL.md, that file is the
-// skill, and Belay uses it as it is. The `file` of an agent names its native
-// definition, which Belay also uses as it is. Each property is one path for
+// SKILL.md that it renders. The `files` of a vendored-skill names a folder
+// that holds its own SKILL.md. That file is the skill, and Belay uses it as
+// it is. The `file` of a vendored-agent names its native definition, which
+// Belay also uses as it is. Each property is one path for
 // all targets, or a dictionary from target id to path.
 //
 // A path is relative to the `.pi` file that declares the property. A path
@@ -78,7 +79,8 @@ export function shown(source: Source, path: string): string {
 /** What a construct names for `target`. */
 export function choose(source: Source, item: Construct, target: Target, draft: Draft): Choice {
   const key = vendoredProperty(item.kind);
-  if (key === null) return { kind: "render" };
+  // Only a vendored-agent has a native file. Belay reports `file` on an agent.
+  if (key === null || (item.kind === "agent" && !item.vendored)) return { kind: "render" };
   const value = find(item, key);
   if (value === undefined || value.kind === "null") return { kind: "render" };
   const site = source.propertySite(item.anchor, key);

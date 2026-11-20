@@ -16,8 +16,8 @@ export anchor SpecialTypeConstraints:
 
         There are two more you can use with any type. Add [] to the end for a
         list of that type, like `string[]`. And put extends in front of an
-        anchor type to accept anything that inherits from it, like
-        `extends Operator[]`. We'll cover that one with abstract anchors.
+        anchor type to accept anything that inherits from it, like `extends
+        Operator[]`. We'll cover that one with abstract anchors.
 
         ```piton
         \\\

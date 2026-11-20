@@ -6,8 +6,8 @@ export piton-plugin MigratePlugin:
     inspect: true
 
     description:
-        Notices projects written for an older Piton and offers to bring them
-        up to date.
+        Notices projects written for an older Piton and offers to bring them up
+        to date.
 
     capabilities:
         files: read
@@ -19,5 +19,7 @@ export piton-plugin MigratePlugin:
 
             arguments:
                 check:
-                    help: Change nothing, and fail when the project needs a migration
+                    help:
+                        Change nothing, and fail when the project needs a
+                        migration
                     type: flag

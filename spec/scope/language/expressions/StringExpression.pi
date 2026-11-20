@@ -7,7 +7,8 @@ export anchor StringExpression:
     evaluation:
         - Evaluate the enclosed expression using normal expression rules.
         - Return string results unchanged.
-        - Convert other results according to the stringification rules for their type.
+        - Convert other results according to the stringification rules for their
+            type.
         - Report an error when no string representation is defined.
 
     conversion:
@@ -15,14 +16,16 @@ export anchor StringExpression:
         - Convert booleans to lowercase true or false.
         - Convert null to the string null.
         - Convert anchors to their name, as written in the source.
-        - Convert a named list or dictionary to its name, like Anchor.propertyName, or just the variable name at the top of a file.
+        - Convert a named list or dictionary to its name, like
+            Anchor.propertyName, or just the variable name at the top of a file.
         - Report an error for a list or dictionary that has no name.
-        - Do not reinterpret the resulting string as source syntax or another expression.
+        - Do not reinterpret the resulting string as source syntax or another
+            expression.
 
     composition:
         description:
-            The result is a string that can be embedded in surrounding text
-            or participate in an enclosing expression.
+            The result is a string that can be embedded in surrounding text or
+            participate in an enclosing expression.
 
     output:
         description:
@@ -31,9 +34,9 @@ export anchor StringExpression:
 
     complexValues:
         `\ ${} \` never pulls in the contents of a list, dictionary, or anchor.
-        It only gives you the name. If you want the contents, or a link to
-        them, use the other two forms. Each one does one job, the same way in
-        every renderer. In a file named Metadata.pi:
+        It only gives you the name. If you want the contents, or a link to them,
+        use the other two forms. Each one does one job, the same way in every
+        renderer. In a file named Metadata.pi:
 
         ```piton
         \\\

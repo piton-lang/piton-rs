@@ -54,9 +54,9 @@ export anchor Super:
         As with the previous example of multiple inheritance, the anchor could
         be inheriting from multiple bases, in which case what does super point
         to? super is everything the anchor inherits, merged together the same
-        way as property inheritance: left to right, last in line wins. So if
-        the last base doesn't have the property, super still finds it on an
-        earlier one.
+        way as property inheritance: left to right, last in line wins. So if the
+        last base doesn't have the property, super still finds it on an earlier
+        one.
 
         ```piton
         \\\

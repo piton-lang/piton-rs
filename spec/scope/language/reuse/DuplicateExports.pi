@@ -1,9 +1,9 @@
 export anchor DuplicateExports:
     description:
         There are four ways a name can leave a module. It can be a declaration
-        marked export, `export Name`, `from ./X export Name`, or
-        `from ./X export *`, which hands on everything X exports. The first
-        three are explicit exports. The last is a glob.
+        marked export, `export Name`, `from ./X export Name`, or `from ./X
+        export *`, which hands on everything X exports. The first three are
+        explicit exports. The last is a glob.
 
         Two `export *` lines can export the same name with two different
         meanings. That is not an error. The module exports every one of them,
@@ -17,26 +17,26 @@ export anchor DuplicateExports:
         ```
 
         If both modules export an anchor called Roles, the module does not
-        export the plain name Roles, because it cannot mean one of them over
-        the other. It exports each one under the name of its source module
+        export the plain name Roles, because it cannot mean one of them over the
+        other. It exports each one under the name of its source module
         instead: cruxible.Roles and strataglyph.Roles. The name of a source
-        module is its file name without .pi, or the name of its directory
-        when it is an index.pi. A name that only one glob exports, or that all
-        the globs export with the same meaning, stays a plain export.
+        module is its file name without .pi, or the name of its directory when
+        it is an index.pi. A name that only one glob exports, or that all the
+        globs export with the same meaning, stays a plain export.
 
-        Two source modules can have the same name, for example when two
-        packages each have a module called roles. Then the compiler adds the
-        name of the parent directory to each of those qualifiers, and does
-        this again until each qualifier is unique. The parent directory of an
-        installed package module is the package name. Thus
-        `from ./pkg-a/roles export *` and `from ./pkg-b/roles export *` export
-        pkg-a.roles.Roles and pkg-b.roles.Roles. Only the qualifiers that
-        collide get longer. As a last way to tell an index.pi apart from a
-        file with the name of its directory, its qualifier gets index.
+        Two source modules can have the same name, for example when two packages
+        each have a module called roles. Then the compiler adds the name of the
+        parent directory to each of those qualifiers, and does this again until
+        each qualifier is unique. The parent directory of an installed package
+        module is the package name. Thus `from ./pkg-a/roles export *` and `from
+        ./pkg-b/roles export *` export pkg-a.roles.Roles and pkg-b.roles.Roles.
+        Only the qualifiers that collide get longer. As a last way to tell an
+        index.pi apart from a file with the name of its directory, its qualifier
+        gets index.
 
-        The compiled output follows the same names. Here the module compiles
-        to an object with the keys cruxible.Roles and strataglyph.Roles, next
-        to the keys of its plain exports, in the order of the export lines.
+        The compiled output follows the same names. Here the module compiles to
+        an object with the keys cruxible.Roles and strataglyph.Roles, next to
+        the keys of its plain exports, in the order of the export lines.
 
         An import selects an overlapping export by its qualified name. Without
         an alias, the import binds the last part of the name.
@@ -47,13 +47,13 @@ export anchor DuplicateExports:
         \\\
         ```
 
-        This brings in Roles from cruxible and GlyphRoles from strataglyph.
-        A longer qualifier works the same way: the import uses the full name,
-        for example `from ./index import pkg-a.roles.Roles`.
-        An import of the plain name Roles from that index is an error, because
-        the index does not export it. The error names each qualified name that
-        the import can use instead. A `from ./index export *` line in another
-        module hands on the qualified names as they are.
+        This brings in Roles from cruxible and GlyphRoles from strataglyph. A
+        longer qualifier works the same way: the import uses the full name, for
+        example `from ./index import pkg-a.roles.Roles`. An import of the plain
+        name Roles from that index is an error, because the index does not
+        export it. The error names each qualified name that the import can use
+        instead. A `from ./index export *` line in another module hands on the
+        qualified names as they are.
 
         An explicit export hides the same name from a glob, and that is not an
         error either. If the module declares or names its own Roles, it exports
@@ -66,9 +66,9 @@ export anchor DuplicateExports:
 
         Only one case is a compile error, `duplicate-export`: two explicit
         exports of one name with two different meanings. Overlapping globs are
-        never this error, because their qualifiers are always unique. The
-        error names the clashing name and both modules it comes from. To fix
-        it, export one of them under an alias.
+        never this error, because their qualifiers are always unique. The error
+        names the clashing name and both modules it comes from. To fix it,
+        export one of them under an alias.
 
         ```piton fragment
         \\\
@@ -77,11 +77,11 @@ export anchor DuplicateExports:
         \\\
         ```
 
-        A duplicate export is still an error, but the compiler keeps one of
-        the two so the rest of the program can resolve and every other problem
-        gets reported in the same run. A declaration marked export wins
-        first, then the other named exports in the order they are written,
-        then the `export *` lines in the order they are written. The one that
-        isn't kept isn't exported by the module, so if nothing else reaches it,
-        `piton reach` reports it as unreachable. The language server reports
-        the same error, since it shares the compiler's diagnostics.
+        A duplicate export is still an error, but the compiler keeps one of the
+        two so the rest of the program can resolve and every other problem gets
+        reported in the same run. A declaration marked export wins first, then
+        the other named exports in the order they are written, then the `export
+        *` lines in the order they are written. The one that isn't kept isn't
+        exported by the module, so if nothing else reaches it, `piton reach`
+        reports it as unreachable. The language server reports the same error,
+        since it shares the compiler's diagnostics.

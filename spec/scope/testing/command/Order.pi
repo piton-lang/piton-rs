@@ -1,9 +1,9 @@
 export anchor TestOrder:
     description:
         Problems are found before anything costly. The configuration is read
-        first, then the flags are checked against the declaration, then the
-        test settings, then the tag expression is parsed, then the project is
-        compiled and the tests collected and selected.
-        Only then is the tool needed: `--list` stops there, so listing works
-        without the tool installed, and a run checks the tool is on PATH
-        before launching it for any test.
+        first, then the flags are checked against the declaration, then the test
+        settings, then the tag expression is parsed, then the project is
+        compiled and the tests collected and selected. Only then is the
+        tool needed: `--list` stops there, so listing works without the tool
+        installed, and a run checks the tool is on PATH before launching it for
+        any test.

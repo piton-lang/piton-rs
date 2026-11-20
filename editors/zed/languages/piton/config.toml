@@ -37,7 +37,10 @@ increase_indent_pattern = "^[^-+/\\s][^:]*:\\s*$|^\\s*[^-+:/\\s][^:/\\s]*(::\\s*
 # should carry on querying the language server rather than starting a new
 # query at `r`.
 word_characters = ["-"]
-completion_query_characters = ["-"]
+# A module path is one query: after `from /tooling/sk`, the query is all of
+# `/tooling/sk`, not only `sk`, so the paths that match the whole of it come
+# first. A `.` stays out, because after `{Anchor.` the query is the member.
+completion_query_characters = ["-", "/"]
 
 # `not_in` names scopes from `overrides.scm`. A quotation mark typed in prose
 # is a quotation mark; only in an expression is it the start of a string.

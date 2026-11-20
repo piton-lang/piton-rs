@@ -40,8 +40,8 @@ export anchor TypeCoercion:
         If you want the string, use `\ ${false} \`.
 
         Quotes don't do anything special, so a quoted value is just a string
-        with quotes in it. `\ value:: boolean:: string: "false" \` is the
-        string `"false"`, quotes and all, because `"false"` isn't a boolean.
+        with quotes in it. `\ value:: boolean:: string: "false" \` is the string
+        `"false"`, quotes and all, because `"false"` isn't a boolean.
 
         Likewise, lists, dictionaries, and anchors are never coerced into
         unrelated types.

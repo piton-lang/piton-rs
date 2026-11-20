@@ -13,7 +13,7 @@ export operator ConcatenationOperator:
 
         A list, dictionary, or anchor doesn't get turned into a string. You get
         an implicit list instead, same as putting `\ {x} \` in the middle of
-        some text. So if tags is `\ [a, b] \`, `\ {"Tags: " + tags} \` gives
-        you `["Tags: ", ["a", "b"]]`. If you want the name, use `\ ${tags} \`.
+        some text. So if tags is `\ [a, b] \`, `\ {"Tags: " + tags} \` gives you
+        `["Tags: ", ["a", "b"]]`. If you want the name, use `\ ${tags} \`.
 
     symbol: +

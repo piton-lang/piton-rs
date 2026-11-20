@@ -1,8 +1,11 @@
 // Part of the bundled Belay plugin, as @piton/belay. Its behaviour is
 // described in spec/scope/belay/anchors/Skill.pi.
+//
+// files names a folder that Belay copies next to the rendered SKILL.md. A
+// skill that a folder supplies whole, SKILL.md included, is a vendored-skill.
 
 from ./Construct import Construct
 
 export abstract anchor Skill extends Construct as skill:
-    useWhen:: string:: null: null
+    useWhen:: string
     files:: string:: dictionary:: null: null

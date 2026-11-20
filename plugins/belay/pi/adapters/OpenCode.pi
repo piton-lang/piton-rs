@@ -15,17 +15,20 @@ export anchor OpenCodeAdapter extends Adapter:
         output: AGENTS.md at the scope selected by ShapeMapping
         format: Markdown
         loading:
-            OpenCode searches local rule files upward from the working
-            directory and prefers AGENTS.md over its CLAUDE.md fallback.
-            Do not assume Claude's nested-loading behavior or Codex's chain.
+            OpenCode searches local rule files upward from the working directory
+            and prefers AGENTS.md over its CLAUDE.md fallback. Do not assume
+            Claude's nested-loading behavior or Codex's chain.
         rules:
-            - Preserve scoped output placement without claiming identical activation across tools.
-            - Use explicit instructions configuration when the selected deployment needs additional files.
-            - Do not load all nested instructions globally merely to make them discoverable.
+            - Preserve scoped output placement without claiming identical
+                activation across tools.
+            - Use explicit instructions configuration when the selected
+                deployment needs additional files.
+            - Do not load all nested instructions globally merely to make them
+                discoverable.
         nestedActivation:
             Only count on what OpenCode documents for startup. Don't assume
-            nested files get picked up, and report an error if shape scoping
-            is needed but can't be guaranteed.
+            nested files get picked up, and report an error if shape scoping is
+            needed but can't be guaranteed.
 
     skill:
         output: .opencode/skills/<name>/SKILL.md
@@ -35,16 +38,18 @@ export anchor OpenCodeAdapter extends Adapter:
             description: Description followed by Use when and useWhen
         body: Prompt followed by serialized additional content
         rules:
-            - Require a name of 1 to 64 lowercase alphanumeric characters with single hyphen separators.
+            - Require a name of 1 to 64 lowercase alphanumeric characters with
+                single hyphen separators.
             - Match name metadata to the containing directory.
-            - Reject descriptions outside the supported 1 to 1024 character range.
+            - Reject descriptions outside the supported 1 to 1024 character
+                range.
             - Do not rely on unrecognized frontmatter to enforce policy.
         discovery:
             OpenCode also discovers the skills in .claude/skills and
             .agents/skills, and ignores frontmatter it doesn't recognise, like
-            Claude's disable-model-invocation. With Claude Code or Codex
-            enabled beside it, OpenCode writes no copy of a skill they already
-            write there.
+            Claude's disable-model-invocation. With Claude Code or Codex enabled
+            beside it, OpenCode writes no copy of a skill they already write
+            there.
         discoveredCommands:
             OpenCode enforces skill permissions from opencode.json or
             opencode.jsonc, where deny hides a skill. A permission that denies
@@ -67,7 +72,8 @@ export anchor OpenCodeAdapter extends Adapter:
         rules:
             - Derive command identity from the filename.
             - Preserve explicitly authored runtime argument placeholders.
-            - Do not emit Claude-specific allowed-tools as an enforced command setting.
+            - Do not emit Claude-specific allowed-tools as an enforced command
+                setting.
 
     agent:
         output: .opencode/agents/<name>.md
@@ -77,12 +83,15 @@ export anchor OpenCodeAdapter extends Adapter:
             mode: Explicit primary, subagent, or all selection
             model: Explicit provider-qualified model when configured
             permission: Explicit native permission map when configured
-        body: Role introduction followed by prompt and serialized additional content
+        body:
+            Role introduction followed by prompt and serialized additional
+            content
         defaultMode: subagent
         rules:
             - Derive agent identity from the filename.
             - Prefer native permission entries over the deprecated tools option.
-            - Validate native options instead of copying metadata from another adapter.
+            - Validate native options instead of copying metadata from another
+                adapter.
 
     permissions:
         description:
@@ -93,7 +102,10 @@ export anchor OpenCodeAdapter extends Adapter:
     checks:
         - A command keeps its x-prefixed filename and native frontmatter.
         - Agent mode is explicit in generated output.
-        - A skill another enabled adapter writes where OpenCode discovers it is not written again.
+        - A skill another enabled adapter writes where OpenCode discovers it is
+            not written again.
         - Duplicate skills discovered through other adapters are reported.
-        - A command skill OpenCode discovers is an error unless a skill permission denies it or crossDiscovery is set.
-        - Required scope behavior that cannot be established for the target version is diagnosed.
+        - A command skill OpenCode discovers is an error unless a skill
+            permission denies it or crossDiscovery is set.
+        - Required scope behavior that cannot be established for the target
+            version is diagnosed.

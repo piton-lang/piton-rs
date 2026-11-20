@@ -58,8 +58,10 @@ pub struct AnchorDef {
     pub bases: Vec<AnchorId>,
     /// Properties in output order. Each property refers to the declaration that wins.
     pub slots: IndexMap<String, Slot>,
-    /// Resolved values. The evaluator fills them.
-    pub properties: Properties,
+    /// Resolved values. The evaluator fills them. They are shared, so that a
+    /// later compilation can keep the values that an edit did not change
+    /// without a copy.
+    pub properties: std::sync::Arc<Properties>,
 }
 
 impl AnchorDef {

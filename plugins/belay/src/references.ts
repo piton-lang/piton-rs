@@ -10,7 +10,6 @@
 // The reference tree mirrors the source tree: one file for each source
 // module, with a heading for each anchor in it.
 
-import type { Value } from "@piton/plugin";
 import { join, normalize, startsWith, stripPrefix, withExtension } from "./paths";
 import type { Source } from "./source";
 
@@ -58,11 +57,13 @@ export function close(source: Source, roots: number[]): Closure {
     const anchor = queue.pop()!;
     if (visited.has(anchor)) continue;
     visited.add(anchor);
-    const found: Occurrence[] = [];
-    const embedded = new Set<number>([anchor]);
-    for (const [key, value] of source.values(anchor)) {
-      occurrencesIn(source, value, anchor, key, found, embedded);
-    }
+    // The host walks the values. Only the references cross to the plugin,
+    // not megabytes of text.
+    const found: Occurrence[] = source.compilation.references(anchor).map((reference) => ({
+      target: { anchor: reference.target.id, path: reference.target.path },
+      from: reference.from,
+      key: reference.key,
+    }));
     for (const occurrence of found) {
       const reached = occurrence.target.anchor;
       closure.occurrences.push(occurrence);
@@ -76,49 +77,6 @@ export function close(source: Source, roots: number[]): Closure {
     }
   }
   return closure;
-}
-
-/** Collects the references in a value, each with the property of the anchor
- * that holds it. It goes into embedded anchors, so a reference in an inlined
- * copy belongs to the place where the author wrote it. */
-function occurrencesIn(
-  source: Source,
-  value: Value | { kind: "entry"; key: string; value: Value },
-  from: number,
-  key: string,
-  out: Occurrence[],
-  embedded: Set<number>,
-): void {
-  switch (value.kind) {
-    case "reference":
-      out.push({ target: { anchor: value.id, path: value.path }, from, key });
-      return;
-    case "text":
-      for (const target of value.references) out.push({ target: { anchor: target.id, path: target.path }, from, key });
-      return;
-    case "list":
-      for (const item of value.items) occurrencesIn(source, item, from, key, out, embedded);
-      return;
-    case "dictionary":
-      for (const [, item] of value.entries) occurrencesIn(source, item, from, key, out, embedded);
-      return;
-    case "mixed":
-      for (const item of value.items) occurrencesIn(source, item, from, key, out, embedded);
-      return;
-    case "entry":
-      occurrencesIn(source, value.value, from, key, out, embedded);
-      return;
-    case "anchor":
-      if (!embedded.has(value.id)) {
-        embedded.add(value.id);
-        for (const [inner, item] of source.values(value.id)) {
-          occurrencesIn(source, item, value.id, inner, out, embedded);
-        }
-      }
-      return;
-    default:
-      return;
-  }
 }
 
 function unrepresentable(source: Source, anchor: number): Unrepresentable | null {

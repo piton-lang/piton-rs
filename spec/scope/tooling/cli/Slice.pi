@@ -10,8 +10,8 @@ export cli-command Slice:
 
     description:
         Prints the part of the specification one anchor, property, or variable
-        depends on, as a single document to hand to an agent working on that
-        one thing.
+        depends on, as a single document to hand to an agent working on that one
+        thing.
 
         It answers what someone needs in order to understand and implement the
         target, not which files happen to be near it. Imports alone bring
@@ -35,8 +35,7 @@ export cli-command Slice:
         - transitive
 
     semantics:
-        A whole anchor needs every property it has and every anchor it
-        extends.
+        A whole anchor needs every property it has and every anchor it extends.
 
         A property needs every base that declares it too, the anchors its type
         constraint names, whatever its value read to be computed, like
@@ -51,15 +50,15 @@ export cli-command Slice:
         anchors its type constraint names.
 
     chain:
-        The target is also placed where it sits in the project. The chain is
-        the shortest way the build gets from the project's entry to the
+        The target is also placed where it sits in the project. The chain is the
+        shortest way the build gets from the project's entry to the
         target's anchor: starting at the entry's exports, following what each
-        property's value refers to or embeds, like `Specification.Tooling`,
-        then `Tooling.cli`, then `Cli.commands` for a command the CLI lists.
+        property's value refers to or embeds, like `Specification.Tooling`, then
+        `Tooling.cli`, then `Cli.commands` for a command the CLI lists.
 
-        Each link is only that one property. What else it refers to or embeds
-        is not followed, since the target doesn't need it, and following it
-        from the entry would bring in the whole specification.
+        Each link is only that one property. What else it refers to or embeds is
+        not followed, since the target doesn't need it, and following it from
+        the entry would bring in the whole specification.
 
         The chain is traced from the project's entry even when the target is
         given as a file, so the project is compiled as a build compiles it. A
@@ -79,8 +78,8 @@ export cli-command Slice:
         reference or an embedded anchor is written as its name, since the
         declaration it names is in the same document.
 
-        A cycle is followed until it comes back around, and every dependency
-        in it is still listed, so it stays visible.
+        A cycle is followed until it comes back around, and every dependency in
+        it is still listed, so it stays visible.
 
     paths:
         Every path the slice prints is written relative to the directory the
@@ -105,9 +104,9 @@ export cli-command Slice:
         warnings: false
 
         A file that doesn't exist, a name that isn't declared or imported where
-        it's looked up, a property the anchor doesn't have, a bare name
-        declared in more than one file, and a path that reaches inside a
-        property are all errors.
+        it's looked up, a property the anchor doesn't have, a bare name declared
+        in more than one file, and a path that reaches inside a property are all
+        errors.
 
     exitCode:
         success: 0

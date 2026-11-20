@@ -42,9 +42,9 @@ export type Lists:
         ```
 
     dictionariesInLists:
-        Anything indented under a list item isn't part of that item. It
-        becomes the next item in the list. So a dictionary indented under an
-        item is its own item, right after it:
+        Anything indented under a list item isn't part of that item. It becomes
+        the next item in the list. So a dictionary indented under an item is its
+        own item, right after it:
 
         ```piton
         \\\
@@ -70,8 +70,7 @@ export type Lists:
         A list item is never a key, even with a colon at the end.
         `\ - Settings: \` is just the string `Settings:`.
 
-        For lists indented under a dictionary key, see the Dictionaries
-        type.
+        For lists indented under a dictionary key, see the Dictionaries type.
 
     access:
         Piton intentionally does not provide a way to access items within a

@@ -38,12 +38,21 @@ export cli-command TestCommand:
 
     namedArguments:
         agent: Which tool judges the tests [ claude | codex | opencode | muse ]
-        model: The model that judges the tests, `-m` for short, given to the tool as `piton agent --model` gives it; given with no model, it lists the models of the agent and runs nothing; given a value that is not one of the models, it lists the models that contain it, else all of them, and runs nothing
+        model:
+            The model that judges the tests, `-m` for short, given to the tool
+            as `piton agent --model` gives it; given with no model, it lists the
+            models of the agent and runs nothing; given a value that is not one
+            of the models, it lists the models that contain it, else all of
+            them, and runs nothing
         against: What every test is judged against [ spec | code | both ]
         jobs: How many tests run at once
         serial: Run one test at a time, the same as `--jobs 1`
-        list: Print the tests that would run, grouped by file, without running them
-        tags: Only run tests whose tags match an expression, like `--tags "((save and editor) not slow) or smoke"`
+        list:
+            Print the tests that would run, grouped by file, without running
+            them
+        tags:
+            Only run tests whose tags match an expression, like `--tags "((save
+            and editor) not slow) or smoke"`
 
     description:
         Runs the project's tests, described in @{Testing}. Each test is one

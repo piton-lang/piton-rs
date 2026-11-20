@@ -30,6 +30,17 @@ skill Review:
     prompt: Review the diff
     useWhen: Asked for a review
 ```
+A value that a concrete base gives fills one in, even when an abstract comes after that base, like the abstract of a keyword, which always comes last. The abstract only declares the property, and a declaration without a value never removes a value that a base before it gave.
+```piton
+abstract anchor Skill as skill:
+    useWhen:: string
+
+anchor Shared:
+    useWhen: Asked for a review
+
+skill Review extends Shared:
+    description: Reviews code
+```
 
 ## Multiple Abstracts
 

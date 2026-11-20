@@ -10,5 +10,6 @@ pub mod language;
 pub mod literal;
 pub mod parser;
 pub mod prose;
+mod wrap;
 
 pub use kind::{Piton, SyntaxKind, SyntaxNode, SyntaxToken};

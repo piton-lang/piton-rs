@@ -1,6 +1,17 @@
 export anchor TestLaunch:
-    claude: claude -p <request> --append-system-prompt-file <fluency file> --allowedTools Read,Grep,Glob --disallowedTools Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose
-    codex: codex exec --sandbox read-only --skip-git-repo-check -c developer_instructions=<short prompt as a TOML string> <request>
-    opencode: opencode run --standalone <request>, with OPENCODE_CONFIG_CONTENT naming the fluency file as instructions and denying edit and bash
-    muse: muse exec -c run.developer_prompt=<short prompt as a JSON string> <request>, inside Muse's own sandbox
-    model: With a model, each tool also gets its model option before the request, as `piton agent` gives it.
+    claude:
+        claude -p <request> --append-system-prompt-file <fluency file>
+        --allowedTools Read,Grep,Glob --disallowedTools
+        Edit,Write,NotebookEdit,Bash --output-format stream-json --verbose
+    codex:
+        codex exec --sandbox read-only --skip-git-repo-check -c
+        developer_instructions=<short prompt as a TOML string> <request>
+    opencode:
+        opencode run --standalone <request>, with OPENCODE_CONFIG_CONTENT naming
+        the fluency file as instructions and denying edit and bash
+    muse:
+        muse exec -c run.developer_prompt=<short prompt as a JSON string>
+        <request>, inside Muse's own sandbox
+    model:
+        With a model, each tool also gets its model option before the request,
+        as `piton agent` gives it.

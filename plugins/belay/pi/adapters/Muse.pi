@@ -4,7 +4,8 @@ from ./Adapter import Adapter
 // `muse --help`, `muse skills list --json` and `muse init` output, and the
 // warnings `muse exec --trust-workspace` prints about rules files.
 export anchor MuseAdapter extends Adapter:
-    description: Compile Belay constructs into project-local Muse Code artifacts.
+    description:
+        Compile Belay constructs into project-local Muse Code artifacts.
     targetId: muse
     instructionFile: AGENTS.md
     referenceRoot: .muse/reference
@@ -22,7 +23,8 @@ export anchor MuseAdapter extends Adapter:
             above it.
         rules:
             - Combine guidance for the same scope in one file.
-            - Share the AGENTS.md Codex and OpenCode read rather than writing a second rules file.
+            - Share the AGENTS.md Codex and OpenCode read rather than writing a
+                second rules file.
 
     skill:
         output: .agents/skills/<name>/SKILL.md
@@ -33,13 +35,14 @@ export anchor MuseAdapter extends Adapter:
         body: Prompt followed by serialized additional content
         rules:
             - Always write a description; Muse rejects a SKILL.md without one.
-            - Do not emit allowed-tools; Muse records it as advisory metadata and enforces nothing.
+            - Do not emit allowed-tools; Muse records it as advisory metadata
+                and enforces nothing.
         discovery:
-            Muse discovers project skills in .agents/skills, .claude/skills
-            and .codex/skills, in that order of priority. A skill found again
-            in a lower-priority directory is skipped, so Muse offers one copy.
-            With Claude Code or Codex enabled beside it, Muse writes no copy of
-            a skill or command they already write there, and links to theirs.
+            Muse discovers project skills in .agents/skills, .claude/skills and
+            .codex/skills, in that order of priority. A skill found again in a
+            lower-priority directory is skipped, so Muse offers one copy. With
+            Claude Code or Codex enabled beside it, Muse writes no copy of a
+            skill or command they already write there, and links to theirs.
 
     command:
         support: translated to a manually invoked skill
@@ -62,14 +65,13 @@ export anchor MuseAdapter extends Adapter:
         description:
             Muse has no project-local agent definition file. Agent definitions
             come from plugins or from a per-run overlay, neither of which a
-            build can write. An agent is not translated into a skill: Muse
-            gets no file for it, and the build warns with
-            unsupported-construct. Everything else, the reference tree
-            included, is still written.
+            build can write. An agent is not translated into a skill: Muse gets
+            no file for it, and the build warns with unsupported-construct.
+            Everything else, the reference tree included, is still written.
         references:
-            A reference to an agent links to the agent another enabled
-            adapter writes in the same project. With none, the agent is
-            documented in the reference tree like any other referenced anchor.
+            A reference to an agent links to the agent another enabled adapter
+            writes in the same project. With none, the agent is documented in
+            the reference tree like any other referenced anchor.
 
     permissions:
         description:
@@ -79,5 +81,6 @@ export anchor MuseAdapter extends Adapter:
 
     checks:
         - A command keeps its x-prefixed name and disable-model-invocation.
-        - A skill or command another enabled adapter writes where Muse discovers it is not written again.
+        - A skill or command another enabled adapter writes where Muse discovers
+            it is not written again.
         - Every agent is reported as unsupported, and no agent file is written.

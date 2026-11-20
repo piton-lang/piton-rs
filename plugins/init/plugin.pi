@@ -29,7 +29,9 @@ export piton-plugin InitPlugin:
 
             arguments:
                 name:
-                    help: The project's name and the directory to create it in; `.` uses the current directory and its name
+                    help:
+                        The project's name and the directory to create it in;
+                        `.` uses the current directory and its name
                     positional: true
 
                 type:
@@ -37,7 +39,8 @@ export piton-plugin InitPlugin:
                     short: t
 
                 renderer:
-                    help: What a basic project compiles to; json, yaml or markdown
+                    help:
+                        What a basic project compiles to; json, yaml or markdown
                     short: r
 
                 belay:
@@ -50,7 +53,9 @@ export piton-plugin InitPlugin:
                     type: flag
 
                 adapter:
-                    help: Belay adapter to build for, like codex; repeat it or separate with commas for several
+                    help:
+                        Belay adapter to build for, like codex; repeat it or
+                        separate with commas for several
                     short: a
                     multiple: true
 
@@ -58,7 +63,9 @@ export piton-plugin InitPlugin:
                     help: Belay's code root; ./src when not given
 
                 shape-root:
-                    help: Belay's shape root, beneath ./spec; ./spec/shape when not given
+                    help:
+                        Belay's shape root, beneath ./spec; ./spec/shape when
+                        not given
 
                 testing:
                     help: Set the project up for piton test
@@ -79,5 +86,7 @@ export piton-plugin InitPlugin:
                     type: flag
 
                 no-tether:
-                    help: Write the files only, leaving the project's dependencies for piton tether
+                    help:
+                        Write the files only, leaving the project's dependencies
+                        for piton tether
                     type: flag

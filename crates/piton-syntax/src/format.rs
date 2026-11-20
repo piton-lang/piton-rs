@@ -1,10 +1,10 @@
 //! The canonical formatter.
 //!
-//! `piton format` normalizes the structure. It does not change prose. The
-//! indentation becomes four spaces for each level. Each comment has a space
-//! after `//`. Declaration punctuation has its mandatory spaces. The formatter
-//! sorts and wraps import lists. It does not change the text of a string,
-//! because in Piton that text is the value.
+//! `piton format` normalizes the structure. The indentation becomes four
+//! spaces for each level. Each comment has a space after `//`. Declaration
+//! punctuation has its mandatory spaces. The formatter sorts and wraps import
+//! lists. It wraps prose again at 80 columns (see `crate::wrap`). It does not
+//! change the value of a string, because Piton joins prose lines with one space.
 
 use std::path::Path;
 
@@ -18,7 +18,7 @@ use crate::prose;
 /// change this width.
 pub const INDENT: usize = 4;
 
-/// The column where an import declaration wraps to separate lines.
+/// The column where an import declaration and prose wrap to more lines.
 pub const WRAP_COLUMN: usize = 80;
 
 /// Formats a source file in the canonical form.
@@ -149,7 +149,41 @@ fn format_impl(source: &str, path: &Path, preserve_comments: bool) -> String {
     if !out.ends_with('\n') && !out.is_empty() {
         out.push('\n');
     }
-    sort_import_lines(&out)
+    crate::wrap::reflow(&separate_imports(&sort_import_lines(&out)), path)
+}
+
+/// Puts a blank line after the imports. A top-level `use` or `from` statement
+/// must not have a declaration directly below it. Comment lines between two
+/// imports stay part of the imports. A comment line after the last import
+/// gets the blank line above it, because it describes the declaration.
+fn separate_imports(text: &str) -> String {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let is_import = |line: &str| line.starts_with("use ") || line.starts_with("from ");
+    let is_continuation = |line: &str| {
+        line.starts_with([' ', '\t']) && !line.trim().is_empty() && !line.trim_start().starts_with("//")
+    };
+    let is_comment = |line: &str| line.trim_start().starts_with("//");
+
+    let mut out = String::with_capacity(text.len() + 1);
+    let mut in_imports = false;
+    for (index, line) in lines.iter().enumerate() {
+        if in_imports && !is_import(line) && !is_continuation(line) && !line.trim().is_empty() {
+            // A run of comments that ends at an import is inside the imports.
+            let next = lines[index..].iter().find(|line| !is_comment(line));
+            let inner = is_comment(line) && next.is_some_and(|line| is_import(line));
+            if !inner {
+                out.push('\n');
+                in_imports = false;
+            }
+        } else if line.trim().is_empty() {
+            in_imports = false;
+        }
+        if is_import(line) {
+            in_imports = true;
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 /// Sorts each run of import lines. The `use` lines come first, then the `from`
@@ -533,6 +567,32 @@ mod tests {
     }
 
     #[test]
+    fn a_blank_line_separates_the_imports_from_the_first_declaration() {
+        assert_eq!(
+            fmt("use ./kw\nfrom ./a import A\nexport anchor B:\n    pass\n"),
+            "use ./kw\nfrom ./a import A\n\nexport anchor B:\n    pass\n"
+        );
+        // A wrapped import keeps its lines. The blank line goes after them.
+        assert_eq!(
+            fmt("from ./a import A, B, C\nanchor D:\n    pass\n"),
+            "from ./a import\n    A,\n    B,\n    C\n\nanchor D:\n    pass\n"
+        );
+        // A comment above the declaration goes with the declaration.
+        assert_eq!(
+            fmt("use ./kw\n// About D.\nanchor D:\n    pass\n"),
+            "use ./kw\n\n// About D.\nanchor D:\n    pass\n"
+        );
+        // A comment between two imports stays in the imports.
+        assert_eq!(
+            fmt("use ./kw\n// More.\nuse ./other\n\nanchor D:\n    pass\n"),
+            "use ./kw\n// More.\nuse ./other\n\nanchor D:\n    pass\n"
+        );
+        // A file that has a blank line there already does not change.
+        let source = "use ./kw\n\nanchor D:\n    pass\n";
+        assert_eq!(fmt(source), source);
+    }
+
+    #[test]
     fn star_exports_are_preserved() {
         assert_eq!(
             fmt("from ./MyAnchor export *\n"),
@@ -541,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn prose_and_blank_lines_are_left_alone() {
+    fn blank_lines_keep_their_paragraph_breaks() {
         let source = "anchor A:\n    text:\n        one line\n\n        another after a break\n";
         assert_eq!(fmt(source), source);
     }

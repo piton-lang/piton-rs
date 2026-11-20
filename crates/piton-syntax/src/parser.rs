@@ -1388,7 +1388,7 @@ pub(crate) fn parse_property_header(text: &str, start: usize) -> Option<Property
 /// True for a line that starts like a typed property but has incorrect
 /// spaces, such as `myVariable::number:42`. The whitespace after `::` and
 /// after `:` is part of the syntax.
-fn misspaced_constraint(text: &str) -> bool {
+pub(crate) fn misspaced_constraint(text: &str) -> bool {
     let name_len = text
         .char_indices()
         .take_while(|(i, c)| c.is_alphanumeric() || *c == '_' || (*c == '-' && *i > 0))
@@ -1529,7 +1529,7 @@ fn parse_declaration_header(text: &str, start: usize) -> Option<DeclarationHeade
 // ---------------------------------------------------------------------------
 
 /// The length of a backslash run when `text` contains only backslashes.
-fn backslash_run(text: &str) -> Option<usize> {
+pub(crate) fn backslash_run(text: &str) -> Option<usize> {
     if text.is_empty() || !text.chars().all(|c| c == '\\') {
         return None;
     }

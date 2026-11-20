@@ -447,7 +447,7 @@ fn source_maps_to_the_compiled_section_and_back() {
     let source = fixture.path("spec/index.pi");
     let text = std::fs::read_to_string(&source).expect("readable");
     let offset = text.find("description").expect("property") + 2;
-    let mappings = world.analysis.mappings_at(&source, offset);
+    let mappings = world.mappings_at(&source, offset);
     // By default, the build writes JSON to ./dist, with the same layout as the source root.
     let mapping = mappings
         .iter()
@@ -460,7 +460,6 @@ fn source_maps_to_the_compiled_section_and_back() {
     );
 
     let back = world
-        .analysis
         .at_output(&mapping.output_path, mapping.output_start)
         .expect("the compiled slice maps back");
     assert!(
@@ -502,11 +501,7 @@ fn source_maps_to_the_compiled_section_and_back() {
 
     // The server reads the configuration but does not compile it. It maps to nothing.
     let config = fixture.path("piton.config.pi");
-    assert!(world
-        .analysis
-        .mappings
-        .iter()
-        .all(|mapping| mapping.source_file != config));
+    assert!(world.mappings_for(&config).is_empty());
 }
 
 #[test]
@@ -524,11 +519,9 @@ fn the_configured_output_directory_and_renderer_decide_the_mapping() {
 
     let world = fixture.world();
     let source = fixture.path("spec/nested/Page.pi");
-    let outputs: Vec<(&str, &std::path::Path)> = world
-        .analysis
-        .mappings
+    let mappings = world.mappings_for(&source);
+    let outputs: Vec<(&str, &std::path::Path)> = mappings
         .iter()
-        .filter(|mapping| mapping.source_file == source)
         .map(|mapping| (mapping.adapter.as_str(), mapping.output_path.as_path()))
         .collect();
     // Page.pi compiles to out/nested/Page.md. The index that re-exports it

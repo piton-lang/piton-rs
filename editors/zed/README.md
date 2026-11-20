@@ -60,6 +60,12 @@ that would fix it:
 untouched, as `initialize` options and as the answer to
 `workspace/configuration`.
 
+To see where the server spends its time on a slow project, set
+`"initialization_options": { "timings": true }`. The server then writes one
+line to the language server log for each compilation, with the duration of
+each phase, and one for the checks and plugin plans that follow it. Open the
+log with `dev: open language server logs`.
+
 ## What comes from where
 
 | | |

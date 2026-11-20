@@ -7,10 +7,10 @@ export test Implementation:
 
 export test ExtendsTestKeyword:
     expects:
-        The core `Test` anchor from @piton/test can be extended in Piton
-        for example MyTest extends Test as my-test and whether a test is
-        declared with `my-test` or `extends MyTest` it will still get picked up
-        by the test framework.
+        The core `Test` anchor from @piton/test can be extended in Piton for
+        example MyTest extends Test as my-test and whether a test is declared
+        with `my-test` or `extends MyTest` it will still get picked up by the
+        test framework.
 
 export test TestAnchor:
     expects:

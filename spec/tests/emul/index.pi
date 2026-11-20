@@ -24,8 +24,7 @@ export test LspSupport:
 
 export test ReachFollowsEmulUses:
     expects:
-        An emul-design anchor references the designs that the design extends
-        or instances, also through local designs that the file does not
-        export, so piton reach reaches the components of a referenced
-        composition. Names in text and imports that no design uses are not
-        reached.
+        An emul-design anchor references the designs that the design extends or
+        instances, also through local designs that the file does not export, so
+        piton reach reaches the components of a referenced composition. Names in
+        text and imports that no design uses are not reached.

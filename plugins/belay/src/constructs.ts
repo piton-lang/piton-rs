@@ -3,7 +3,8 @@
 // A construct is an ordinary anchor. An anchor is a skill when its
 // inheritance chain reaches the `Skill` anchor of Belay. Thus Belay asks the
 // compilation which anchors extend each construct, and does not look at
-// keywords.
+// keywords. A `VendoredSkill` is a skill, and a `VendoredAgent` is an agent,
+// that a vendored file supplies whole.
 
 import type { Value } from "@piton/plugin";
 import type { Source } from "./source";
@@ -51,6 +52,8 @@ export interface Construct {
   name: string;
   /** The properties in their order, with nothing flattened. */
   properties: [string, Value][];
+  /** True for a `VendoredSkill` or a `VendoredAgent`. */
+  vendored: boolean;
 }
 
 /** The value of one property of a construct, or undefined. */
@@ -77,6 +80,7 @@ export function remainder(item: Construct, consumed: string[]): string[] {
 /** The anchors that extend each construct of Belay. */
 export class Constructs {
   private readonly kinds = new Map<number, ConstructKind>();
+  private readonly vendored = new Set<number>();
 
   constructor(source: Source) {
     // An anchor that extends one construct extends no other, except the
@@ -85,6 +89,13 @@ export class Constructs {
     for (const kind of ["skill", "command", "agent", "instruction"] as ConstructKind[]) {
       for (const id of source.extending(kind[0].toUpperCase() + kind.slice(1))) {
         if (!this.kinds.has(id)) this.kinds.set(id, kind);
+      }
+    }
+    for (const [name, kind] of [["VendoredSkill", "skill"], ["VendoredAgent", "agent"]] as [string, ConstructKind][]) {
+      for (const id of source.extending(name)) {
+        if (this.kinds.has(id)) continue;
+        this.kinds.set(id, kind);
+        this.vendored.add(id);
       }
     }
   }
@@ -101,7 +112,7 @@ export class Constructs {
       const info = source.anchor(anchor);
       const kind = this.classify(anchor);
       if (info.abstract || kind === null) continue;
-      found.push({ anchor, kind, name: info.name, properties: source.values(anchor) });
+      found.push({ anchor, kind, name: info.name, properties: source.values(anchor), vendored: this.vendored.has(anchor) });
     }
     return found.sort(
       (a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind) || compareText(a.name, b.name),

@@ -1,7 +1,20 @@
 use @piton/test
 
 export test FormatUsesFourSpaces:
-    expects: piton format indents with four spaces, and that is not configurable.
+    expects:
+        piton format indents with four spaces, and that is not configurable.
+    tags: [tooling]
+
+export test FormatReflowsProse:
+    expects:
+        piton format fills each prose paragraph to 80 columns, joins short
+        lines, and never changes a compiled value.
+    tags: [tooling]
+
+export test FormatMovesLongInlineValues:
+    expects:
+        piton format moves the value of a `key: value` line that passes 80
+        columns into an indented block below the key.
     tags: [tooling]
 
 export test CheckWritesNothing:
@@ -23,13 +36,13 @@ export test MigrationToPluginConfig:
 
 export test AgentModels:
     expects:
-        Any tool that allows selecting an agent should also offer the ability
-        to select a model.  And if no model is selected it should list the
-        models available.
+        Any tool that allows selecting an agent should also offer the ability to
+        select a model.  And if no model is selected it should list the models
+        available.
 
         So in other words `piton test --agent opencode` will use whatever the
-        default opencode model is, and piton test --agent opencode --model`
-        will list the available models.
+        default opencode model is, and piton test --agent opencode --model` will
+        list the available models.
 
         You can also put a --model searchString and it'll filter the results.
         And if nothing is found, it'll list everything.

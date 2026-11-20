@@ -1,26 +1,24 @@
 export anchor TestProgress:
     description:
-        Before the first test starts, a line on stderr names the agent and
-        the model that judge the tests, like judging with claude, model opus,
-        or says that the agent uses its default model, like judging with
-        claude, default model. It is written at once, not kept until the end
-        like a note, so it shows while the tests run.
+        Before the first test starts, a line on stderr names the agent and the
+        model that judge the tests, like judging with claude, model opus, or
+        says that the agent uses its default model, like judging with claude,
+        default model. It is written at once, not kept until the end like a
+        note, so it shows while the tests run.
 
-        A test can take minutes, so a run never sits silent while one is
-        being judged. On a terminal, a status block below the results is
-        redrawn as things change: a spinner with how many tests are done and
-        running, then one line per running test with its name, how long it
-        has been running, and what its tool did last. Results are printed
-        above the block as they finish, and the block is gone when the run
-        ends.
+        A test can take minutes, so a run never sits silent while one is being
+        judged. On a terminal, a status block below the results is redrawn as
+        things change: a spinner with how many tests are done and running, then
+        one line per running test with its name, how long it has been running,
+        and what its tool did last. Results are printed above the block as they
+        finish, and the block is gone when the run ends.
 
         What a tool did last comes from its output as it is written. Claude's
-        events name its tool calls, like reading crates/piton-cli/src/main.rs
-        or searching spec for a pattern, with paths relative to the project,
-        and the first line of what it says; it reads thinking while it works
-        on its first turn. For the other tools it is the last line they
-        printed.
+        events name its tool calls, like reading crates/piton-cli/src/main.rs or
+        searching spec for a pattern, with paths relative to the project, and
+        the first line of what it says; it reads thinking while it works on its
+        first turn. For the other tools it is the last line they printed.
 
         When stderr isn't a terminal, a block would only clutter a log, so a
-        line saying running and the test's name is written as each test
-        starts instead.
+        line saying running and the test's name is written as each test starts
+        instead.

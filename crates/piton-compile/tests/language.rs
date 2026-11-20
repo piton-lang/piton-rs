@@ -509,6 +509,25 @@ fn a_concrete_anchor_must_implement_every_abstract_slot() {
 }
 
 #[test]
+fn a_value_from_a_concrete_base_implements_an_abstract_slot() {
+    let sandbox = Sandbox::new("abstract-base-value");
+    sandbox.file(
+        "main.pi",
+        "abstract anchor Skill as skill:\n    useWhen:: string\n\nanchor Shared:\n    useWhen: asked\n\nexport skill Review extends Shared:\n    description: Reviews\n",
+    );
+    let compilation = sandbox.compile("main.pi");
+    assert!(
+        !compilation
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "unimplemented-property"),
+        "the keyword's abstract comes last, but the base already gives the value: {:?}",
+        compilation.diagnostics
+    );
+    assert_eq!(text_of(&property("abstract anchor Skill as skill:\n    useWhen:: string\n\nanchor Shared:\n    useWhen: asked\n\nexport skill Review extends Shared:\n    description: Reviews\n", "Review", "useWhen")), "asked");
+}
+
+#[test]
 fn extends_constraints_accept_anything_in_the_chain() {
     let source = r#"abstract anchor A:
     description:: string

@@ -3,8 +3,8 @@ use ../../cli
 export cli-command Untether:
     commandName: untether
     description:
-        Moves an installed package from tethers/ to untethered/ inside root,
-        and rewrites any imports.
+        Moves an installed package from tethers/ to untethered/ inside root, and
+        rewrites any imports.
     positionalArguments:
         packageName: the name of the package to untether
     namedArguments:

@@ -254,7 +254,7 @@ pub fn load(start: &Path, explicit: Option<&Path>) -> (Project, DiagnosticSink) 
     let resolution = resolve::resolve(&config_path, module::Roots::flat(&root));
     let outcome = eval::evaluate(&resolution);
     diagnostics.extend(resolution.diagnostics.iter().cloned());
-    diagnostics.extend(outcome.diagnostics.iter().cloned());
+    diagnostics.extend(outcome.diagnostics.iter().map(|(_, diagnostic)| diagnostic.clone()));
 
     let Some(config_module) = resolution.graph.id_for(&config_path) else {
         return (default_project(&root, &config_path), diagnostics);
@@ -450,7 +450,7 @@ fn plugin_entry(
             .get(&anchor)
             .map(|properties| crate::json::properties_map(properties, &view))
             .unwrap_or_default(),
-        anchor_sites: named_anchors(outcome.anchors.get(&anchor))
+        anchor_sites: named_anchors(outcome.anchors.get(&anchor).map(|properties| properties.as_ref()))
             .into_iter()
             .map(|named| {
                 let def = resolution.store.anchor(named);
@@ -461,7 +461,7 @@ fn plugin_entry(
             .iter()
             .map(|property| (property.name.clone(), property.name_span))
             .collect(),
-        anchors: named_anchors(outcome.anchors.get(&anchor))
+        anchors: named_anchors(outcome.anchors.get(&anchor).map(|properties| properties.as_ref()))
             .into_iter()
             .map(|named| {
                 (
@@ -512,6 +512,7 @@ impl piton_core::AnchorView for OutcomeView<'_> {
         self.outcome
             .anchors
             .get(&id)
+            .map(|properties| properties.as_ref())
             .unwrap_or_else(|| EMPTY.get_or_init(piton_core::Properties::new))
     }
 

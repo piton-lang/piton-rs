@@ -11,6 +11,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
+use piton_compile::module::ParseCache;
 use piton_compile::{config, Compilation, Project};
 use piton_core::Diagnostic;
 use piton_emit::Adapter;
@@ -122,14 +125,19 @@ pub struct World {
     /// The count of compilations. An answer made for one compilation can use
     /// it to know that a question comes after a different compilation.
     pub generation: u64,
-    pub compilation: Option<Compilation>,
-    pub index: Index,
+    /// Shared, so that the slow checks can run on another thread. See
+    /// [`SlowJob`].
+    pub compilation: Option<Arc<Compilation>>,
+    pub index: Arc<Index>,
     /// The analysis of `compilation`. It examines imports, composition and
     /// conflicts. It also maps the source to the output.
     pub analysis: Analysis,
     /// Paths that had diagnostics the last time. Thus the server sends an
     /// empty list for files without problems, not old diagnostics.
     pub last_reported: Vec<PathBuf>,
+    /// The diagnostics that the client has for each file, with the version
+    /// of the buffer. The server sends a file again only when they change.
+    pub sent: HashMap<PathBuf, (Vec<tower_lsp::lsp_types::Diagnostic>, Option<i32>)>,
     /// The buffers that `compilation` used, and their versions.
     compiled_documents: HashMap<PathBuf, String>,
     compiled_versions: HashMap<PathBuf, i32>,
@@ -137,7 +145,7 @@ pub struct World {
     /// are the configuration, a file on disk, and a closed buffer.
     stale: bool,
     /// The plans of each plugin build at the last save.
-    pub plugin_plans: Vec<piton_plugin::plan::PluginPlan>,
+    pub plugin_plans: Arc<Vec<piton_plugin::plan::PluginPlan>>,
     /// The items that each plugin reached at the last save, by file and name.
     pub plugin_reached: Vec<(PathBuf, String)>,
     /// The findings of the inspect hooks at the last save. Each finding has
@@ -149,6 +157,145 @@ pub struct World {
     /// The file that the user edited last. It is the project when there is no
     /// configuration.
     focus: Option<PathBuf>,
+    /// The parses of the last compilation. A compilation parses only the
+    /// files whose text changed.
+    parses: Arc<ParseCache>,
+    /// The duration of each phase of the last compilation, in order.
+    pub timings: Vec<(&'static str, std::time::Duration)>,
+}
+
+/// The inputs of one compilation. It owns copies of them. Thus the server can
+/// compile on a different thread, and requests do not wait for the lock.
+pub struct CompileJob {
+    project: Project,
+    documents: HashMap<PathBuf, String>,
+    versions: HashMap<PathBuf, i32>,
+    outside: Vec<PathBuf>,
+    output: OutputSettings,
+    plans: Arc<Vec<piton_plugin::plan::PluginPlan>>,
+    parses: Arc<ParseCache>,
+    /// The compilation before, and its index. The evaluation takes each value
+    /// from it that the edit cannot change, and the index each module.
+    previous: Option<(Arc<Compilation>, Arc<Index>)>,
+    /// What the analysis before found in each module.
+    findings: Option<crate::analysis::Findings>,
+}
+
+/// The checks of [`crate::analysis::slow_diagnostics`] for one compilation.
+/// They run on another thread, after the server publishes the other
+/// diagnostics.
+pub struct SlowJob {
+    generation: u64,
+    compilation: Arc<Compilation>,
+    index: Arc<Index>,
+    reached: Vec<(PathBuf, String)>,
+}
+
+impl SlowJob {
+    pub fn run(self) -> SlowResult {
+        let started = std::time::Instant::now();
+        let diagnostics = crate::analysis::slow_diagnostics(&self.compilation, &self.index, &self.reached);
+        SlowResult {
+            generation: self.generation,
+            diagnostics,
+            duration: started.elapsed(),
+        }
+    }
+}
+
+/// The diagnostics of a [`SlowJob`], for the compilation that it names.
+pub struct SlowResult {
+    generation: u64,
+    diagnostics: Vec<Diagnostic>,
+    /// The time that the checks took.
+    pub duration: std::time::Duration,
+}
+
+/// The result of a [`CompileJob`].
+pub struct Compiled {
+    /// The duration of each phase, in order.
+    pub timings: Vec<(&'static str, std::time::Duration)>,
+    compilation: Compilation,
+    index: Index,
+    analysis: Analysis,
+    documents: HashMap<PathBuf, String>,
+    versions: HashMap<PathBuf, i32>,
+}
+
+impl CompileJob {
+    /// Compiles and analyzes the project. This is the slow part of a
+    /// compilation. It does not use the world.
+    pub fn run(self) -> Compiled {
+        let compilation = Compilation::build_workspace_cached(
+            self.project,
+            self.documents.clone(),
+            &self.outside,
+            &self.parses,
+            self.previous.as_ref().map(|(compilation, _)| compilation.as_ref()),
+        );
+        let mut timings = compilation.timings.clone();
+        let started = std::time::Instant::now();
+        // The index of the compilation before goes with it.
+        let index = Index::build_after(&compilation, self.previous.as_ref().map(|(_, index)| index.as_ref()));
+        timings.push(("index", started.elapsed()));
+        let started = std::time::Instant::now();
+        // The slow checks run after the server publishes these diagnostics.
+        let analysis = crate::analysis::analyze_fast(
+            &compilation,
+            &index,
+            &self.output,
+            &self.plans,
+            self.findings.as_ref(),
+        );
+        timings.push(("analysis", started.elapsed()));
+        Compiled {
+            timings,
+            compilation,
+            index,
+            analysis,
+            documents: self.documents,
+            versions: self.versions,
+        }
+    }
+}
+
+/// What a plan of the plugin builds needs: the project, and the parses of the
+/// editor, which a plugin compilation takes again.
+pub struct PlanRequest {
+    pub project: Project,
+    pub parses: Arc<ParseCache>,
+}
+
+/// The plugin data that the server gets when the user saves a file.
+pub struct PluginData {
+    /// The duration of each part, in order.
+    pub timings: Vec<(&'static str, std::time::Duration)>,
+    plans: Vec<piton_plugin::plan::PluginPlan>,
+    reached: Vec<(PathBuf, String)>,
+    findings: Vec<piton_plugin::inspection::Finding>,
+}
+
+impl PluginData {
+    /// Plans the plugin builds of `project`. It also gets the anchors that the
+    /// plugins reach and the findings of their inspect hooks. Plugin code runs
+    /// here. It can take seconds.
+    pub fn gather(request: &PlanRequest) -> PluginData {
+        let PlanRequest { project, parses } = request;
+        let started = std::time::Instant::now();
+        let plans = crate::plugins::plan(project, parses);
+        let planned = started.elapsed();
+        let started = std::time::Instant::now();
+        let reached = crate::plugins::reached(project, parses);
+        let reaching = started.elapsed();
+        let started = std::time::Instant::now();
+        let findings = crate::plugins::findings(project, parses);
+        PluginData {
+            timings: vec![("build plans", planned), ("reach hooks", reaching), ("inspect hooks", started.elapsed())],
+            plans,
+            reached,
+            findings,
+        }
+    }
 }
 
 /// The directory of the nearest `piton.config.pi` in `start` or in a
@@ -178,23 +325,36 @@ impl World {
             caps: ClientCaps::default(),
             generation: 0,
             compilation: None,
-            index: Index::default(),
+            index: Arc::new(Index::default()),
             analysis: Analysis::default(),
             last_reported: Vec::new(),
+            sent: HashMap::new(),
             compiled_documents: HashMap::new(),
             compiled_versions: HashMap::new(),
             stale: true,
-            plugin_plans: Vec::new(),
+            plugin_plans: Arc::new(Vec::new()),
             plugin_reached: Vec::new(),
             plugin_findings: Vec::new(),
             plans_stale: true,
             focus: None,
+            parses: Arc::new(ParseCache::default()),
+            timings: Vec::new(),
         }
     }
 
     /// The user saved a file. The next refresh plans the plugin builds again.
     pub fn saved(&mut self) {
         self.plans_stale = true;
+        self.stale = true;
+        // A save can make a file. Without a file watcher, the server learns
+        // of a new file only here.
+        self.files_moved();
+    }
+
+    /// A file appeared or went. Each import path resolves again, because it
+    /// can now name a different file, or none.
+    pub fn files_moved(&mut self) {
+        self.parses.forget_paths();
         self.stale = true;
     }
 
@@ -205,6 +365,7 @@ impl World {
     /// old project does not see this change.
     pub fn reload_project(&mut self) {
         self.plans_stale = true;
+        self.parses.forget_paths();
         let (project, diagnostics) = config::load(&self.root, None);
         crate::plugins::install_modules(&project);
         self.output = output_settings(&project);
@@ -270,6 +431,20 @@ impl World {
     /// An example is a file that changed on disk.
     pub fn invalidate(&mut self) {
         self.stale = true;
+        self.parses.forget_paths();
+    }
+
+    /// Tells if the compilation describes `path` as it is now: it read the
+    /// same buffer of the file, and no change on disk came after it. Without
+    /// a path, it tells if there is a compilation and no change on disk.
+    pub fn is_current(&self, path: Option<&Path>) -> bool {
+        if self.compilation.is_none() || self.stale {
+            return false;
+        }
+        match path {
+            Some(path) => self.documents.get(path) == self.compiled_documents.get(path),
+            None => true,
+        }
     }
 
     /// Tells if the compilation is different from the buffers or the disk.
@@ -304,12 +479,60 @@ impl World {
 
     /// Compiles the project again with the current buffers.
     ///
+    /// It also plans the plugin builds first when a save made them old. The
+    /// server does each step on a different thread. See [`World::prepare`],
+    /// [`CompileJob::run`] and [`World::install`].
+    pub fn recompile(&mut self, focus: Option<&Path>) {
+        if let Some(request) = self.take_plan_request() {
+            self.set_plugin_data(PluginData::gather(&request));
+        }
+        if let Some(job) = self.prepare(focus) {
+            self.install(job.run());
+            if let Some(slow) = self.slow_job() {
+                self.install_slow(slow.run());
+            }
+        }
+    }
+
+    /// The project to plan the plugin builds of, when a save or the
+    /// configuration made the plans old. The world then counts the plans as
+    /// current. Thus only one caller plans them.
+    pub fn take_plan_request(&mut self) -> Option<PlanRequest> {
+        if !self.plans_stale {
+            return None;
+        }
+        self.plans_stale = false;
+        Some(PlanRequest {
+            project: self.project.clone(),
+            parses: self.parses.clone(),
+        })
+    }
+
+    /// The request for a plan of the plugin builds, now.
+    pub fn plan_request(&self) -> PlanRequest {
+        PlanRequest {
+            project: self.project.clone(),
+            parses: self.parses.clone(),
+        }
+    }
+
+    /// Records new plugin data. The next compilation analyzes with it.
+    pub fn set_plugin_data(&mut self, data: PluginData) {
+        self.plugin_plans = Arc::new(data.plans);
+        self.plugin_reached = data.reached;
+        self.plugin_findings = data.findings;
+        self.stale = true;
+    }
+
+    /// The inputs of a compilation with the current buffers. `None` when there
+    /// is nothing to compile.
+    ///
     /// The server loads all sources below the project root, not only the
     /// sources that the entry point reaches. `piton reach` answers questions
     /// about reachability. Reachability does not decide which files exist. A
     /// file that no file imports at this time is a file that a person writes now. It
     /// must have diagnostics, symbols, and jump targets, as all files do.
-    pub fn recompile(&mut self, focus: Option<&Path>) {
+    pub fn prepare(&mut self, focus: Option<&Path>) -> Option<CompileJob> {
         if let Some(path) = focus {
             self.focus = Some(path.to_path_buf());
         }
@@ -329,10 +552,7 @@ impl World {
                     open.sort();
                     open.first().map(|path| (*path).clone())
                 });
-            match focus {
-                Some(path) => project = Project::for_file(&path),
-                None => return,
-            }
+            project = Project::for_file(&focus?);
         }
 
         // The user still edits a buffer that is open from outside the project
@@ -340,27 +560,86 @@ impl World {
         let mut outside: Vec<PathBuf> = self.documents.keys().cloned().collect();
         outside.extend(focus.map(Path::to_path_buf));
 
-        let compilation = Compilation::build_workspace(project, self.documents.clone(), &outside);
-
-        if self.plans_stale {
-            self.plugin_plans = crate::plugins::plan(&self.project);
-            self.plugin_reached = crate::plugins::reached(&self.project);
-            self.plugin_findings = crate::plugins::findings(&self.project);
-            self.plans_stale = false;
-        }
-        self.index = Index::build(&compilation);
-        self.analysis = crate::analysis::analyze(
-            &compilation,
-            &self.index,
-            &self.output,
-            &self.plugin_plans,
-            &self.plugin_reached,
-        );
-        self.compilation = Some(compilation);
-        self.compiled_documents = self.documents.clone();
-        self.compiled_versions = self.versions.clone();
-        self.generation += 1;
+        // The job takes the buffers as they are now. A change after this
+        // makes the compilation old again.
         self.stale = false;
+        Some(CompileJob {
+            project,
+            documents: self.documents.clone(),
+            versions: self.versions.clone(),
+            outside,
+            output: self.output.clone(),
+            plans: self.plugin_plans.clone(),
+            parses: self.parses.clone(),
+            previous: self.compilation.clone().map(|compilation| (compilation, self.index.clone())),
+            findings: self.compilation.is_some().then(|| self.analysis.findings.clone()),
+        })
+    }
+
+    /// Makes `compiled` the current compilation. It returns the compilation
+    /// before it. A large compilation takes time to free. Thus the caller can
+    /// free it on a different thread.
+    pub fn install(&mut self, compiled: Compiled) -> Option<Arc<Compilation>> {
+        self.timings = compiled.timings;
+        let compilation = Arc::new(compiled.compilation);
+        // The slow checks of this compilation come later. Until then, the
+        // warnings of the compilation before stay, where the edit did not
+        // move them. Without them, the warnings would go and come back at
+        // each keystroke.
+        let mut analysis = compiled.analysis;
+        analysis.slow = match &self.compilation {
+            Some(previous) => carried(&self.analysis.slow, previous, &compilation),
+            None => Vec::new(),
+        };
+        self.analysis = analysis;
+        self.index = Arc::new(compiled.index);
+        self.compiled_documents = compiled.documents;
+        self.compiled_versions = compiled.versions;
+        self.generation += 1;
+        self.compilation.replace(compilation)
+    }
+
+    /// The slow checks of the current compilation.
+    pub fn slow_job(&self) -> Option<SlowJob> {
+        Some(SlowJob {
+            generation: self.generation,
+            compilation: self.compilation.clone()?,
+            index: self.index.clone(),
+            reached: self.plugin_reached.clone(),
+        })
+    }
+
+    /// Records the slow diagnostics. It returns false, and records nothing,
+    /// when another compilation came after the one that they describe.
+    pub fn install_slow(&mut self, result: SlowResult) -> bool {
+        if result.generation != self.generation {
+            return false;
+        }
+        self.analysis.slow = result.diagnostics;
+        true
+    }
+
+    /// All maps from the source file `file` to the compiled output.
+    pub fn mappings_for(&self, file: &Path) -> Vec<crate::analysis::Mapping> {
+        match &self.compilation {
+            Some(compilation) => self.analysis.mappings_for(compilation, file),
+            None => Vec::new(),
+        }
+    }
+
+    /// The maps for the construct at `offset` in `file`. The widest is last.
+    pub fn mappings_at(&self, file: &Path, offset: usize) -> Vec<crate::analysis::Mapping> {
+        match &self.compilation {
+            Some(compilation) => self.analysis.mappings_at(compilation, file, offset),
+            None => Vec::new(),
+        }
+    }
+
+    /// The smallest map with a slice of the output file `file` that covers
+    /// `offset`.
+    pub fn at_output(&self, file: &Path, offset: usize) -> Option<crate::analysis::Mapping> {
+        let compilation = self.compilation.as_ref()?;
+        self.analysis.at_output(compilation, file, offset)
     }
 
     /// Diagnostics, in groups by the file that they belong to.
@@ -394,6 +673,7 @@ impl World {
             .analysis
             .diagnostics
             .iter()
+            .chain(&self.analysis.slow)
             .chain(&self.config_diagnostics);
         for diagnostic in extra {
             if diagnostic.file.to_string_lossy().starts_with('@') {
@@ -420,4 +700,21 @@ impl World {
         }
         out
     }
+}
+
+/// The diagnostics of the compilation before, moved to the text of the new
+/// compilation. A file that the new compilation does not have keeps none.
+fn carried(diagnostics: &[Diagnostic], before: &Compilation, after: &Compilation) -> Vec<Diagnostic> {
+    let mut by_file: HashMap<&Path, Vec<Diagnostic>> = HashMap::new();
+    for diagnostic in diagnostics {
+        by_file.entry(diagnostic.file.as_path()).or_default().push(diagnostic.clone());
+    }
+    let mut out = Vec::new();
+    for (file, group) in by_file {
+        let (Some(old), Some(new)) = (before.source_of(file), after.source_of(file)) else {
+            continue;
+        };
+        out.extend(crate::analysis::carry_over(&group, old, new));
+    }
+    out
 }

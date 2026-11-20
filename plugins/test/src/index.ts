@@ -520,6 +520,7 @@ function reach(ctx: Context) {
     exported: true,
     concrete: true,
     withinSourceRoot: true,
+    properties: false,
   });
   return { anchors: anchors.map((anchor) => ({ file: anchor.file, name: anchor.name })) };
 }

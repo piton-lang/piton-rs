@@ -1,33 +1,31 @@
 export anchor PluginSources:
     description:
-        A project has the plugins bundled with the compiler, and the plugins
-        its piton.config.pi declares. Both are listed by `piton plugins`, and
-        both add their commands to the CLI.
+        A project has the plugins bundled with the compiler, and the plugins its
+        piton.config.pi declares. Both are listed by `piton plugins`, and both
+        add their commands to the CLI.
 
     bundled:
-        A bundled plugin is part of the compiler. Its Piton files are a
-        bundled package, @piton/ and its name, so `use @piton/test` works in
-        any project, and its declaration and code are embedded with them.
-        Every project has every bundled plugin, and its commands, without
-        configuring anything. A bundled plugin with a build only builds for a
-        project that lists its settings, so a project that never mentions
-        Belay gets no agent files.
+        A bundled plugin is part of the compiler. Its Piton files are a bundled
+        package, @piton/ and its name, so `use @piton/test` works in any
+        project, and its declaration and code are embedded with them. Every
+        project has every bundled plugin, and its commands, without configuring
+        anything. A bundled plugin with a build only builds for a project that
+        lists its settings, so a project that never mentions Belay gets no agent
+        files.
 
-        Five are bundled, each in the compiler's source with its declaration
-        in plugin.pi, its TypeScript in src, and any Piton files in pi:
-        Belay, in plugins/belay, the test plugin, in plugins/test, the
-        migrate plugin, in plugins/migrate, the Emul plugin, in plugins/emul,
-        and the init plugin, in plugins/init, which also holds its templates
-        in templates. Every file
-        under a bundled plugin's src, and under the init plugin's templates,
-        is embedded, so a file added there is part of the next build without
-        being listed anywhere.
+        Five are bundled, each in the compiler's source with its declaration in
+        plugin.pi, its TypeScript in src, and any Piton files in pi: Belay, in
+        plugins/belay, the test plugin, in plugins/test, the migrate plugin, in
+        plugins/migrate, the Emul plugin, in plugins/emul, and the init plugin,
+        in plugins/init, which also holds its templates in templates. Every file
+        under a bundled plugin's src, and under the init plugin's templates, is
+        embedded, so a file added there is part of the next build without being
+        listed anywhere.
 
     installed:
-        A project adds a plugin by listing its piton-plugin anchor under
-        plugins in piton.config.pi. Its entry, and every file its code
-        imports, are read from the directory of the file the declaration is
-        in.
+        A project adds a plugin by listing its piton-plugin anchor under plugins
+        in piton.config.pi. Its entry, and every file its code imports, are read
+        from the directory of the file the declaration is in.
 
         ```piton
         \\\
@@ -48,16 +46,15 @@ export anchor PluginSources:
         \\\
         ```
 
-        A plugin shared between projects is a package: its declaration, code
-        and Piton files are in the package, installed into tethers/ like any
-        other, and the project imports the declaration from it and lists it.
-        Its Piton files are imported by the package's name, as every
-        package's are.
+        A plugin shared between projects is a package: its declaration, code and
+        Piton files are in the package, installed into tethers/ like any other,
+        and the project imports the declaration from it and lists it. Its Piton
+        files are imported by the package's name, as every package's are.
 
     settings:
         A project's settings for a plugin are an anchor implementing the
-        abstract anchor the plugin's declaration names as its settings,
-        listed under plugins too.
+        abstract anchor the plugin's declaration names as its settings, listed
+        under plugins too.
 
         ```piton
         \\\
@@ -73,8 +70,8 @@ export anchor PluginSources:
 
         For a bundled plugin, the anchor has to come from its package, so the
         test plugin's settings implement @piton/test's TestConfig. A project
-        lists at most one settings anchor for each plugin; two is an error
-        when the plugin reads them. The plugin checks their values itself, and
+        lists at most one settings anchor for each plugin; two is an error when
+        the plugin reads them. The plugin checks their values itself, and
         reports a wrong one where it is written.
 
     listing:
@@ -83,15 +80,14 @@ export anchor PluginSources:
         and so is anything under plugins that isn't an anchor.
 
     loading:
-        Plugins are found every time piton runs, by reading the configuration
-        of the project the working directory is inside: the nearest
-        piton.config.pi in it or a directory above it. So a plugin's commands
-        are there as soon as it is listed, and work from anywhere in the
-        project. Finding them compiles Piton only: no plugin code runs
-        until one of its commands does.
+        Plugins are found every time piton runs, by reading the configuration of
+        the project the working directory is inside: the nearest piton.config.pi
+        in it or a directory above it. So a plugin's commands are there as soon
+        as it is listed, and work from anywhere in the project. Finding them
+        compiles Piton only: no plugin code runs until one of its commands does.
 
         Before a plugin's command runs, the configuration has to be free of
         errors, which are reported first, and problems with the project's
         plugins are reported as warnings. A plugin that inspects projects is
-        the exception: its commands run even when the configuration has
-        errors, since repairing it may be what they are for.
+        the exception: its commands run even when the configuration has errors,
+        since repairing it may be what they are for.

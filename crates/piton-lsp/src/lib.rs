@@ -236,9 +236,11 @@ pub fn server_capabilities() -> ServerCapabilities {
 
 /// The duration of a pause in keystrokes before the server compiles again by itself.
 ///
-/// A request (hover, completion, ...) never waits for this. It compiles first
-/// if the buffers changed after the last compilation. The pause only decides
-/// when the server publishes diagnostics again while a person types.
+/// A request (hover, completion, ...) never waits for this. A request about a
+/// file compiles first if the buffer of that file changed after the last
+/// compilation. A request that spans files, like a rename, compiles first if
+/// any buffer changed. The pause only decides when the server publishes
+/// diagnostics again while a person types.
 const DEBOUNCE: Duration = Duration::from_millis(250);
 
 pub struct Backend {
@@ -252,64 +254,218 @@ pub struct Backend {
     /// The server increases it on each edit. Thus a delayed compile can
     /// know that a later keystroke came before it.
     generation: Arc<AtomicU64>,
+    /// See [`Shared::compiling`].
+    compiling: Arc<tokio::sync::Mutex<()>>,
+    /// See [`Shared::plans`].
+    plans: tokio::sync::mpsc::UnboundedSender<world::PlanRequest>,
+    /// See [`Shared::timings`].
+    timings: Arc<AtomicBool>,
+    /// The other end of `plans`. `initialized` starts [`plan_worker`] with it.
+    plan_requests: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<world::PlanRequest>>>,
+}
+
+/// The state that each compile and publish shares.
+#[derive(Clone)]
+struct Shared {
+    client: Client,
+    world: Arc<RwLock<World>>,
+    /// Only one compilation runs at a time. A second caller waits, and then
+    /// finds that the first compilation already covers its change.
+    compiling: Arc<tokio::sync::Mutex<()>>,
+    /// The projects whose plugin builds to plan. See [`plan_worker`].
+    plans: tokio::sync::mpsc::UnboundedSender<world::PlanRequest>,
+    /// Tells if the server logs the duration of each phase. See
+    /// [`timings_requested`].
+    timings: Arc<AtomicBool>,
+}
+
+/// Tells if the client asked for the duration of each phase in the log. The
+/// client asks with `"timings": true` in its initialization options, or with
+/// the environment variable `PITON_LSP_TIMINGS`.
+pub fn timings_requested(options: Option<&serde_json::Value>) -> bool {
+    let option = options
+        .and_then(|options| options.get("timings"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    option || std::env::var_os("PITON_LSP_TIMINGS").is_some_and(|value| !value.is_empty() && value != "0")
+}
+
+/// One line for the log: the total, then each phase.
+pub fn timings_line(what: &str, timings: &[(&str, Duration)]) -> String {
+    let total: Duration = timings.iter().map(|(_, duration)| *duration).sum();
+    let phases: Vec<String> = timings
+        .iter()
+        .map(|(phase, duration)| format!("{phase} {} ms", duration.as_millis()))
+        .collect();
+    format!("{what} in {} ms: {}", total.as_millis(), phases.join(", "))
+}
+
+/// Plans the plugin builds of each project that `publish` sends. Then it
+/// publishes again with the new plans. Plugin code can take seconds. Thus it
+/// runs here, on a blocking thread, and no request waits for it.
+async fn plan_worker(shared: Shared, mut projects: tokio::sync::mpsc::UnboundedReceiver<world::PlanRequest>) {
+    while let Some(mut request) = projects.recv().await {
+        // Only the newest request counts.
+        while let Ok(newer) = projects.try_recv() {
+            request = newer;
+        }
+        let gathered = tokio::task::spawn_blocking(move || world::PluginData::gather(&request)).await;
+        let Ok(data) = gathered else {
+            continue;
+        };
+        if shared.timings.load(Ordering::Relaxed) {
+            let line = timings_line("planned the plugin builds", &data.timings);
+            shared.client.log_message(MessageType::INFO, line).await;
+        }
+        shared.world.write().await.set_plugin_data(data);
+        publish(&shared, None, Trigger::Elsewhere).await;
+    }
 }
 
 /// Compiles again if a change happened. Publishes diagnostics for each file that
 /// has diagnostics or had them before.
-async fn publish(client: &Client, world: &RwLock<World>, focus: Option<PathBuf>, trigger: Trigger) {
-    let (published, caps) = {
-        let mut world = world.write().await;
-        if !world.refresh(focus.as_deref()) {
+///
+/// The compilation runs on a blocking thread, outside the lock of the world.
+/// Thus a keystroke or a request that needs no new compilation does not wait
+/// for it. When a save made the plugin plans old, this also starts a new plan
+/// in the background. The plan publishes again when it is ready.
+async fn publish(shared: &Shared, focus: Option<PathBuf>, trigger: Trigger) {
+    let turn = shared.compiling.lock().await;
+    let job = {
+        let mut world = shared.world.write().await;
+        if !world.needs_compile() {
             return;
         }
-        let grouped = world.diagnostics_by_file();
-        world.last_reported = grouped.keys().cloned().collect();
-
-        let text_of = |path: &std::path::Path| world.text(path);
-        let published = grouped
-            .into_iter()
-            .filter_map(|(path, diagnostics)| {
-                let url = convert::path_to_url(&path)?;
-                let text = world.text(&path).unwrap_or_default();
-                let items = diagnostics
-                    .iter()
-                    .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text, &text_of))
-                    .collect::<Vec<_>>();
-                // The result holds the version of the buffer that these came from. Thus a
-                // client can discard them if the buffer changed after that.
-                Some((url, items, world.compiled_version(&path)))
-            })
-            .collect::<Vec<_>>();
-        (published, world.caps)
+        world.prepare(focus.as_deref())
     };
+    let Some(job) = job else {
+        return;
+    };
+    let Ok(compiled) = tokio::task::spawn_blocking(move || job.run()).await else {
+        return;
+    };
+    let timings = shared
+        .timings
+        .load(Ordering::Relaxed)
+        .then(|| timings_line("compiled", &compiled.timings));
+    let (published, caps, previous, plan, slow) = {
+        let mut world = shared.world.write().await;
+        let previous = world.install(compiled);
+        let published = outgoing(&mut world);
+        (published, world.caps, previous, world.take_plan_request(), world.slow_job())
+    };
+    drop(turn);
+    // A large compilation takes time to free. The requests do not wait for it.
+    tokio::task::spawn_blocking(move || drop(previous));
 
+    if let Some(line) = timings {
+        shared.client.log_message(MessageType::INFO, line).await;
+    }
     for (url, diagnostics, version) in published {
-        client.publish_diagnostics(url, diagnostics, version).await;
+        shared.client.publish_diagnostics(url, diagnostics, version).await;
     }
     if refreshes_after(trigger) {
         // A failure only means that the client did not accept the request.
         // The new compilation answers the next request of the client in all cases.
         if caps.semantic_refresh {
-            let _ = client.semantic_tokens_refresh().await;
+            let _ = shared.client.semantic_tokens_refresh().await;
         }
         if caps.inlay_refresh {
-            let _ = client.inlay_hint_refresh().await;
+            let _ = shared.client.inlay_hint_refresh().await;
         }
         if caps.lens_refresh {
-            let _ = client.code_lens_refresh().await;
+            let _ = shared.client.code_lens_refresh().await;
         }
     }
+    if let Some(project) = plan {
+        let _ = shared.plans.send(project);
+    }
+    if let Some(job) = slow {
+        tokio::spawn(publish_slow(shared.clone(), job));
+    }
+}
+
+/// Runs the slow checks of a compilation, then publishes what they change.
+/// No request waits for them. A compilation that came after them makes them
+/// old, and then they change nothing.
+async fn publish_slow(shared: Shared, job: world::SlowJob) {
+    let Ok(result) = tokio::task::spawn_blocking(move || job.run()).await else {
+        return;
+    };
+    let duration = result.duration;
+    let published = {
+        let mut world = shared.world.write().await;
+        if !world.install_slow(result) {
+            return;
+        }
+        outgoing(&mut world)
+    };
+    if shared.timings.load(Ordering::Relaxed) {
+        let line = timings_line("checked for unused and redundant items", &[("checks", duration)]);
+        shared.client.log_message(MessageType::INFO, line).await;
+    }
+    for (url, diagnostics, version) in published {
+        shared.client.publish_diagnostics(url, diagnostics, version).await;
+    }
+}
+
+/// The diagnostics to send: each file whose diagnostics, or whose version,
+/// differ from what the client has. A large project has thousands of files.
+/// A keystroke changes the diagnostics of few of them.
+fn outgoing(world: &mut World) -> Vec<(Url, Vec<Diagnostic>, Option<i32>)> {
+    let grouped = world.diagnostics_by_file();
+    world.last_reported = grouped.keys().cloned().collect();
+    let text_of = |path: &std::path::Path| world.text(path);
+    let mut out = Vec::new();
+    let mut sent = Vec::new();
+    for (path, diagnostics) in grouped {
+        let Some(url) = convert::path_to_url(&path) else {
+            continue;
+        };
+        let text = world.text(&path).unwrap_or_default();
+        let items = diagnostics
+            .iter()
+            .map(|diagnostic| features::to_lsp_diagnostic(diagnostic, &text, &text_of))
+            .collect::<Vec<_>>();
+        // The result holds the version of the buffer that these came from. Thus a
+        // client can discard them if the buffer changed after that.
+        let version = world.compiled_version(&path);
+        if world.sent.get(&path) == Some(&(items.clone(), version)) {
+            continue;
+        }
+        sent.push((path, items.clone(), version));
+        out.push((url, items, version));
+    }
+    for (path, items, version) in sent {
+        world.sent.insert(path, (items, version));
+    }
+    out
 }
 
 impl Backend {
     fn new(client: Client) -> Backend {
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let (plans, plan_requests) = tokio::sync::mpsc::unbounded_channel();
         Backend {
             client,
             world: Arc::new(RwLock::new(World::new(&root))),
             watching: AtomicBool::new(false),
             hierarchy: AtomicBool::new(false),
             generation: Arc::new(AtomicU64::new(0)),
+            compiling: Arc::new(tokio::sync::Mutex::new(())),
+            plans,
+            timings: Arc::new(AtomicBool::new(false)),
+            plan_requests: std::sync::Mutex::new(Some(plan_requests)),
+        }
+    }
+
+    fn shared(&self) -> Shared {
+        Shared {
+            client: self.client.clone(),
+            world: self.world.clone(),
+            compiling: self.compiling.clone(),
+            plans: self.plans.clone(),
+            timings: self.timings.clone(),
         }
     }
 
@@ -320,9 +476,28 @@ impl Backend {
     /// must agree with the spans in the compilation.
     async fn fresh(&self) -> tokio::sync::RwLockReadGuard<'_, World> {
         if self.world.read().await.needs_compile() {
-            publish(&self.client, &self.world, None, Trigger::Edit).await;
+            publish(&self.shared(), None, Trigger::Edit).await;
         }
         self.world.read().await
+    }
+
+    /// The world for a request about `uri`, or about no file.
+    ///
+    /// It compiles first only when the buffer of that file changed after the
+    /// last compilation, or when the server has no compilation yet. A request
+    /// about another file, or about the whole workspace, does not wait for
+    /// the compilation of a file that the user types in. Its positions are
+    /// still true, because its own text did not change. The compilation that
+    /// the edit causes refreshes the other files after it.
+    async fn fresh_for(&self, uri: Option<&Url>) -> tokio::sync::RwLockReadGuard<'_, World> {
+        {
+            let world = self.world.read().await;
+            let path = uri.and_then(convert::url_to_path);
+            if world.is_current(path.as_deref()) {
+                return world;
+            }
+        }
+        self.fresh().await
     }
 
     /// Asks the client to tell the server when a `.pi` file appears, changes or
@@ -408,7 +583,7 @@ impl Backend {
 
     /// Compiles again if a change happened, and publishes diagnostics again.
     async fn refresh(&self, focus: Option<PathBuf>, trigger: Trigger) {
-        publish(&self.client, &self.world, focus, trigger).await;
+        publish(&self.shared(), focus, trigger).await;
     }
 
     /// The current buffer, for the requests that use only its syntax. These
@@ -424,12 +599,11 @@ impl Backend {
     fn schedule(&self, focus: PathBuf) {
         let ticket = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let generation = self.generation.clone();
-        let client = self.client.clone();
-        let world = self.world.clone();
+        let shared = self.shared();
         tokio::spawn(async move {
             tokio::time::sleep(DEBOUNCE).await;
             if generation.load(Ordering::SeqCst) == ticket {
-                publish(&client, &world, Some(focus), Trigger::Edit).await;
+                publish(&shared, Some(focus), Trigger::Edit).await;
             }
         });
     }
@@ -445,6 +619,10 @@ impl LanguageServer for Backend {
             }
             world.caps = client_caps(&params.capabilities);
         }
+        self.timings.store(
+            timings_requested(params.initialization_options.as_ref()),
+            Ordering::Relaxed,
+        );
 
         let dynamic = params
             .capabilities
@@ -473,6 +651,9 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        if let Some(requests) = self.plan_requests.lock().unwrap().take() {
+            tokio::spawn(plan_worker(self.shared(), requests));
+        }
         self.watch_sources().await;
         self.offer_type_hierarchy().await;
         self.refresh(None, Trigger::Elsewhere).await;
@@ -545,6 +726,10 @@ impl LanguageServer for Backend {
                     news = true;
                     continue;
                 }
+                if change.typ != FileChangeType::CHANGED {
+                    // An import can now name a different file, or none.
+                    world.files_moved();
+                }
                 match change.typ {
                     FileChangeType::DELETED => {
                         // A deleted file has no text for the server to use.
@@ -580,7 +765,7 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document_position_params.text_document.uri)).await;
         Ok(features::hover(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -592,7 +777,7 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document_position_params.text_document.uri)).await;
         Ok(features::definition(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -604,7 +789,7 @@ impl LanguageServer for Backend {
         &self,
         params: request::GotoTypeDefinitionParams,
     ) -> Result<Option<request::GotoTypeDefinitionResponse>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document_position_params.text_document.uri)).await;
         Ok(features::type_definition(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -616,7 +801,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document_position_params.text_document.uri)).await;
         Ok(features::document_highlight(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -633,7 +818,7 @@ impl LanguageServer for Backend {
         &self,
         params: request::GotoImplementationParams,
     ) -> Result<Option<request::GotoImplementationResponse>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document_position_params.text_document.uri)).await;
         Ok(features::implementations(
             &world,
             &params.text_document_position_params.text_document.uri,
@@ -703,7 +888,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document.uri)).await;
         Ok(features::document_symbols(
             &world,
             &params.text_document.uri,
@@ -714,7 +899,7 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(None).await;
         Ok(features::workspace_symbols(&world, &params.query))
     }
 
@@ -772,12 +957,12 @@ impl LanguageServer for Backend {
     }
 
     async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document.uri)).await;
         Ok(features::code_lenses(&world, &params.text_document.uri))
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document.uri)).await;
         Ok(features::code_actions_for(
             &world,
             &params.text_document.uri,
@@ -787,7 +972,7 @@ impl LanguageServer for Backend {
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document.uri)).await;
         Ok(features::inlay_hints(
             &world,
             &params.text_document.uri,
@@ -823,7 +1008,7 @@ impl LanguageServer for Backend {
         &self,
         params: SemanticTokensParams,
     ) -> Result<Option<SemanticTokensResult>> {
-        let world = self.fresh().await;
+        let world = self.fresh_for(Some(&params.text_document.uri)).await;
         Ok(features::semantic_tokens(&world, &params.text_document.uri))
     }
 }

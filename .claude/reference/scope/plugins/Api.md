@@ -177,6 +177,10 @@ Only anchors that aren't abstract.
 
 Only anchors declared in the project's own source, not in tethers/ or a bundled package.
 
+### Properties
+
+False leaves each anchor's resolved properties out, which are most of the size of the answer, for a plugin that only needs to know which anchors exist. It is true when it isn't given.
+
 This is how the test plugin finds every test: every exported, concrete anchor in the source root that extends Test, whatever keyword or chain it got there by.
 Each anchor comes with its name, the file it is declared in, whether it is exported and abstract, the keyword it was declared with, its resolved properties, and its location: where it names a property itself, or else where its name is, to point a diagnostic at.
 
@@ -187,6 +191,10 @@ The ids of the anchors the entry exports, in the order it exports them, the ones
 ### Values
 
 An anchor's resolved properties in their order, with nothing flattened, as described under typed values.
+
+### References
+
+Each reference in an anchor's values, in order, as the anchor and property path it names, the anchor whose property holds it, and that property. The walk goes into each anchor a value embeds, once, and a reference there belongs to the embedded anchor, where its author wrote it. A plugin that only follows references, as Belay does to find what its output links to, asks for these rather than for all of the values, which can be megabytes of text.
 
 ### Slot
 

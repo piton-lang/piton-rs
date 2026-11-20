@@ -122,6 +122,11 @@ export interface AnchorQuery {
   /** Only anchors that the source of the project declares. Anchors in
    * tethers/ or in a bundled package do not count. */
   withinSourceRoot?: boolean;
+  /** False leaves the properties of each anchor out: each record then has
+   * empty `properties`. The default is true. The properties are most of the
+   * size of the answer, so a plugin that only needs to know which anchors
+   * exist asks without them. */
+  properties?: boolean;
 }
 
 interface AnchorRecord {
@@ -185,6 +190,16 @@ export class LinkSpace {
   }
 }
 
+/** One reference in the values of an anchor. See `Compilation.references`. */
+export interface ValueReference {
+  /** The anchor that the reference names, and the property path in it. */
+  target: { id: number; path: string[] };
+  /** The anchor whose property holds the reference. */
+  from: number;
+  /** That property. */
+  key: string;
+}
+
 /** A compiled project. */
 export class Compilation {
   constructor(
@@ -216,6 +231,15 @@ export class Compilation {
    * parts. */
   values(id: number): [string, Value][] {
     return call<[string, Value][]>(this.plugin, "values", { handle: this.handle, id });
+  }
+
+  /** Each reference in the values of an anchor, in order. Each one names the
+   * anchor and the property that hold it. The walk goes into the anchors
+   * that a value embeds, one time each, and a reference there belongs to the
+   * embedded anchor. A plugin that only follows references asks for these,
+   * not for all of the values. */
+  references(id: number): ValueReference[] {
+    return call<ValueReference[]>(this.plugin, "references", { handle: this.handle, id });
   }
 
   /** The source of the value of a property of an anchor. It is null when the

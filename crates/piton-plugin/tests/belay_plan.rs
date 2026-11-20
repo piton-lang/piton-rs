@@ -683,7 +683,7 @@ fn a_vendored_skill_is_copied_as_it_is_for_each_target() {
         )
         .write(
             "spec/index.pi",
-            "use @piton/belay\n\nexport skill Designer:\n    files:\n        claude-code: ./vendor/claude\n        codex: ./vendor/codex\n",
+            "use @piton/belay\n\nexport vendored-skill Designer:\n    files:\n        claude-code: ./vendor/claude\n        codex: ./vendor/codex\n",
         );
     executable(&sandbox, "spec/vendor/claude/scripts/run");
     std::fs::write(sandbox.dir.join("spec/vendor/claude/scripts/blob.bin"), [0u8, 159, 146, 150]).expect("blob");
@@ -760,7 +760,7 @@ fn a_vendored_skill_cannot_also_set_what_its_file_defines() {
         .write("spec/v/SKILL.md", "---\nname: other\ndescription: D.\n---\n\nBody.\n")
         .write(
             "spec/index.pi",
-            "use @piton/belay\n\nexport skill Vendored:\n    prompt: Ignored.\n    files: ./v\n",
+            "use @piton/belay\n\nexport vendored-skill Vendored:\n    prompt: Ignored.\n    files: ./v\n",
         );
     let built = sandbox.plan();
     assert!(built.diagnostic("vendored-conflict").message.contains("Vendored.prompt"));
@@ -775,7 +775,7 @@ fn per_target_paths_must_cover_the_built_targets() {
         .write("spec/v/SKILL.md", "---\nname: partial\ndescription: D.\n---\n")
         .write(
             "spec/index.pi",
-            "use @piton/belay\n\nexport skill Partial:\n    files:\n        claude-code: ./v\n        cursor: ./v\n",
+            "use @piton/belay\n\nexport vendored-skill Partial:\n    files:\n        claude-code: ./v\n        cursor: ./v\n",
         );
     let built = sandbox.plan();
     assert!(built.diagnostic("missing-vendored-target").message.contains("codex"));
@@ -783,15 +783,70 @@ fn per_target_paths_must_cover_the_built_targets() {
 }
 
 #[test]
-fn a_missing_folder_and_a_missing_use_when_are_errors() {
+fn a_missing_folder_is_an_error() {
     let sandbox = Sandbox::new("vendored-missing");
     sandbox.configure(CLAUDE, "").write(
         "spec/index.pi",
-        "use @piton/belay\n\nexport skill Gone:\n    files: ./nowhere\n\nexport skill Bare:\n    prompt: No useWhen.\n",
+        "use @piton/belay\n\nexport vendored-skill Gone:\n    files: ./nowhere\n",
     );
     let built = sandbox.plan();
     assert!(built.diagnostic("missing-vendored-files").message.contains("nowhere"));
-    assert!(built.diagnostic("missing-use-when").message.contains("Bare"));
+}
+
+#[test]
+fn use_when_and_role_are_required_properties() {
+    // The compiler reports them as soon as the file changes. Belay does
+    // not have to plan a build first.
+    let sandbox = Sandbox::new("required-fields");
+    sandbox.configure(CLAUDE, "").write(
+        "spec/index.pi",
+        "use @piton/belay\n\nexport skill Bare:\n    prompt: No useWhen.\n\nexport agent Plain:\n    prompt: No role.\n",
+    );
+    let (project, _) = config::load(&sandbox.dir, None);
+    let compilation = Compilation::build(project);
+    let missing: Vec<&str> = compilation
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "unimplemented-property")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert!(missing.iter().any(|m| m.contains("`Bare`") && m.contains("`useWhen`")), "{missing:?}");
+    assert!(missing.iter().any(|m| m.contains("`Plain`") && m.contains("`role`")), "{missing:?}");
+}
+
+#[test]
+fn a_vendored_definition_needs_the_vendored_keyword() {
+    let sandbox = Sandbox::new("vendored-keyword");
+    sandbox
+        .configure(CLAUDE, "")
+        .write("spec/v/SKILL.md", "---\nname: whole\ndescription: D.\n---\n")
+        .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n")
+        .write(
+            "spec/index.pi",
+            "use @piton/belay\n\nexport skill Whole:\n    useWhen: asked\n    files: ./v\n\nexport agent Reviewer:\n    role: reviewer\n    file: ./agents/reviewer.md\n",
+        );
+    let built = sandbox.plan();
+    let messages: Vec<&str> = built
+        .plan
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "vendored-keyword")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert!(messages.iter().any(|m| m.contains("`Whole`") && m.contains("vendored-skill")), "{messages:?}");
+    assert!(messages.iter().any(|m| m.contains("`Reviewer`") && m.contains("vendored-agent")), "{messages:?}");
+}
+
+#[test]
+fn a_vendored_skill_needs_its_own_skill_file() {
+    let sandbox = Sandbox::new("vendored-without-skill-file");
+    sandbox
+        .configure(CLAUDE, "")
+        .write("spec/tools/check.sh", "echo ok\n")
+        .write("spec/index.pi", "use @piton/belay\n\nexport vendored-skill Tools:\n    files: ./tools\n");
+    let built = sandbox.plan();
+    assert!(built.diagnostic("missing-vendored-skill").message.contains("SKILL.md"));
+    assert!(!built.has(".claude/skills/tools/check.sh"), "{:?}", built.paths());
 }
 
 #[test]
@@ -809,7 +864,7 @@ fn a_vendored_agent_is_used_as_it_is() {
         )
         .write(
             "spec/index.pi",
-            "use @piton/belay\n\nexport agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: ./agents/reviewer.toml\n",
+            "use @piton/belay\n\nexport vendored-agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: ./agents/reviewer.toml\n",
         );
     let built = sandbox.plan();
     built.assert_clean();
@@ -825,7 +880,7 @@ fn a_vendored_agent_must_match_the_target_format() {
         .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n")
         .write(
             "spec/index.pi",
-            "use @piton/belay\n\nexport agent Reviewer:\n    role: reviewer\n    file: ./agents/reviewer.md\n",
+            "use @piton/belay\n\nexport vendored-agent Reviewer:\n    role: reviewer\n    file: ./agents/reviewer.md\n",
         );
     let built = sandbox.plan();
     assert!(built.diagnostic("vendored-format-mismatch").message.contains(".toml"));
@@ -840,7 +895,7 @@ fn a_null_entry_leaves_the_construct_out_of_that_target() {
         .write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n\nYou review.\n")
         .write(
             "spec/index.pi",
-            "use @piton/belay\n\nexport agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: null\n",
+            "use @piton/belay\n\nexport vendored-agent Reviewer:\n    file:\n        claude-code: ./agents/reviewer.md\n        codex: null\n",
         );
     let built = sandbox.plan();
     built.assert_clean();

@@ -24,7 +24,8 @@ pub struct Module {
     /// their package path, for example `@piton/belay`.
     pub path: PathBuf,
     pub source: String,
-    pub parse: Parse,
+    /// The parse of `source`. A [`ParseCache`] can share it between graphs.
+    pub parse: std::sync::Arc<Parse>,
 }
 
 impl Module {
@@ -54,6 +55,98 @@ impl Module {
     }
 }
 
+/// The parses of earlier compilations, by path.
+///
+/// The language server compiles all of the project after each edit. Most
+/// files did not change. A graph that has this cache parses a file again only
+/// when its text changed. The cache keeps one parse for each path.
+#[derive(Default)]
+pub struct ParseCache {
+    parses: std::sync::Mutex<HashMap<PathBuf, (String, std::sync::Arc<Parse>)>>,
+    /// The file that each import path names, by the directory of the
+    /// importing file and the path as it is written. Each resolution looks
+    /// for files on the disk. The answer changes only when a file appears or
+    /// goes. See [`ParseCache::forget_paths`].
+    paths: std::sync::Mutex<HashMap<(PathBuf, String), PathBuf>>,
+}
+
+impl ParseCache {
+    /// Forgets the file that each import path names. The editor calls this
+    /// when a file appears, goes or is saved, because the same import can then
+    /// name a different file, or none.
+    pub fn forget_paths(&self) {
+        self.paths.lock().unwrap().clear();
+    }
+
+    /// Resolves an import path, as [`resolve`] does. It remembers each
+    /// path that names a file.
+    fn resolve(&self, text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, ResolveError> {
+        let key = (context.from_directory.to_path_buf(), text.to_string());
+        if let Some(found) = self.paths.lock().unwrap().get(&key) {
+            return Ok(found.clone());
+        }
+        let found = resolve(text, context)?;
+        self.paths.lock().unwrap().insert(key, found.clone());
+        Ok(found)
+    }
+    /// The parse of `source` at `path`. It parses only when the cache has no
+    /// parse of the same text.
+    fn parse(&self, path: &Path, source: &str) -> std::sync::Arc<Parse> {
+        if let Some((text, parse)) = self.parses.lock().unwrap().get(path) {
+            if text == source {
+                return parse.clone();
+            }
+        }
+        let parse = std::sync::Arc::new(parser::parse(source, path));
+        self.parses
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), (source.to_string(), parse.clone()));
+        parse
+    }
+
+    /// Parses each file of `paths` that the cache does not hold, on all cores
+    /// at once. A buffer in `overrides` takes the place of its file. A later
+    /// load finds the parses here. The files are independent. Thus the first
+    /// compilation of a large project does not parse them one at a time.
+    pub fn prewarm(&self, paths: &[PathBuf], overrides: &HashMap<PathBuf, String>) {
+        let missing: Vec<&PathBuf> = {
+            let parses = self.parses.lock().unwrap();
+            paths.iter().filter(|path| !parses.contains_key(*path)).collect()
+        };
+        if missing.len() < 64 {
+            return;
+        }
+        let threads = std::thread::available_parallelism().map_or(1, |count| count.get()).min(16);
+        let chunk = missing.len().div_ceil(threads);
+        std::thread::scope(|scope| {
+            for part in missing.chunks(chunk) {
+                scope.spawn(move || {
+                    for path in part {
+                        let text = match overrides.get(*path) {
+                            Some(text) => text.clone(),
+                            None => match std::fs::read_to_string(path) {
+                                Ok(text) => text,
+                                Err(_) => continue,
+                            },
+                        };
+                        self.parse(path, &text);
+                    }
+                });
+            }
+        });
+    }
+
+    /// Removes the parses of the paths that `graph` did not load. Thus the
+    /// cache does not keep files that the project no longer has.
+    pub fn keep_only(&self, graph: &ModuleGraph) {
+        self.parses
+            .lock()
+            .unwrap()
+            .retain(|path, _| graph.by_path.contains_key(path));
+    }
+}
+
 /// All modules that a compilation loaded.
 #[derive(Default)]
 pub struct ModuleGraph {
@@ -62,9 +155,33 @@ pub struct ModuleGraph {
     /// Text that replaces the text on disk. The language server uses this.
     /// Thus the analysis shows the unsaved buffers.
     overrides: HashMap<PathBuf, String>,
+    /// The parses of earlier compilations, when the caller keeps them.
+    cache: Option<std::sync::Arc<ParseCache>>,
 }
 
 impl ModuleGraph {
+    /// Resolves an import path, as [`resolve`] does. With a cache, it
+    /// remembers the answer.
+    pub fn resolve_path(&self, text: &str, context: &ResolutionContext<'_>) -> Result<PathBuf, ResolveError> {
+        match &self.cache {
+            Some(cache) => cache.resolve(text, context),
+            None => resolve(text, context),
+        }
+    }
+
+    /// Creates a graph that reads the given buffers and takes the parses that
+    /// `cache` has.
+    pub fn with_cache(
+        overrides: HashMap<PathBuf, String>,
+        cache: std::sync::Arc<ParseCache>,
+    ) -> ModuleGraph {
+        ModuleGraph {
+            overrides,
+            cache: Some(cache),
+            ..ModuleGraph::default()
+        }
+    }
+
     /// Creates a graph that reads the given buffers. It does not read the files
     /// that the buffers shadow.
     pub fn with_overrides(overrides: HashMap<PathBuf, String>) -> ModuleGraph {
@@ -145,7 +262,10 @@ impl ModuleGraph {
     /// Records a module from text that the caller gives. This replaces the
     /// previous copy. The language server uses this for unsaved editor buffers.
     pub fn insert(&mut self, path: PathBuf, source: String) -> ModuleId {
-        let parse = parser::parse(&source, &path);
+        let parse = match &self.cache {
+            Some(cache) => cache.parse(&path, &source),
+            None => std::sync::Arc::new(parser::parse(&source, &path)),
+        };
         if let Some(existing) = self.by_path.get(&path).copied() {
             self.modules[existing.0 as usize] = Module {
                 id: existing,

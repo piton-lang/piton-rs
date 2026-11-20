@@ -60,6 +60,12 @@ export class Draft {
   }
 
   wroteLink(from: string, link: string): boolean {
-    return this.links.has(`${clean(from)}\u0000${link}`);
+    return this.wroteCleanLink(clean(from), link);
+  }
+
+  /** The same as `wroteLink`, for a directory that `clean` already gave. A
+   * file holds many links from one directory. */
+  wroteCleanLink(from: string, link: string): boolean {
+    return this.links.has(`${from}\u0000${link}`);
   }
 }

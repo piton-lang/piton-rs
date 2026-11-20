@@ -6,7 +6,7 @@ Belay is a plugin, described in [Plugins](../plugins/index.md#plugins), bundled 
 
 ## Files
 
-Its source is in the compiler's repository at plugins/belay. Its Piton files, in pi, are @piton/belay: the four constructs, the adapters, the belay-config settings anchor, and the special imports. Its declaration is plugin.pi, and its code is in src. The specification here describes what they do and shows their shapes; the anchors themselves are the ones in plugins/belay.
+Its source is in the compiler's repository at plugins/belay. Its Piton files, in pi, are @piton/belay: the four constructs, the vendored forms of a skill and an agent, the adapters, the belay-config settings anchor, and the special imports. Its declaration is plugin.pi, and its code is in src. The specification here describes what they do and shows their shapes; the anchors themselves are the ones in plugins/belay.
 
 ## Settings
 

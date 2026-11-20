@@ -22,9 +22,8 @@ export anchor Operators:
     LogicalOperators: @{LogicalOperators}
     DeclarationOperators: @{DeclarationOperators}
     precedence:
-        Higher rows go first. Operators on the same row go left to right,
-        except the ternary, which goes right to left. Parentheses change the
-        order.
+        Higher rows go first. Operators on the same row go left to right, except
+        the ternary, which goes right to left. Parentheses change the order.
 
         ```markdown
         \\\

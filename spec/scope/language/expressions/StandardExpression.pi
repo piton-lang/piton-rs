@@ -1,7 +1,7 @@
 export anchor StandardExpression:
     description:
-        Evaluates an expression and returns its intrinsic result,
-        preserving its type without requesting conversion.
+        Evaluates an expression and returns its intrinsic result, preserving its
+        type without requesting conversion.
 
     syntax: \ {} \
 
@@ -13,18 +13,20 @@ export anchor StandardExpression:
 
     composition:
         description:
-            The result retains its type when used within an enclosing
-            expression or assigned as a property value.
+            The result retains its type when used within an enclosing expression
+            or assigned as a property value.
 
     output:
         description:
-            Serialize the resulting value according to its type and the
-            selected output format.
+            Serialize the resulting value according to its type and the selected
+            output format.
 
         requirements:
             - Preserve native value types in structured output.
-            - Serialize an anchor as its resolved content rather than a link to it.
-            - Apply the output format's serialization rules when textual output is required.
+            - Serialize an anchor as its resolved content rather than a link to
+                it.
+            - Apply the output format's serialization rules when textual output
+                is required.
 
     inText:
         If there's other text around it, a simple value gets dropped into the

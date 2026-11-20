@@ -7,20 +7,57 @@
 import { headingSlug } from "./names";
 import { lines, trim, trimStart, utf8 } from "./text";
 
+/** Calls `visit` with the start and the end of each line of `text`, as
+ * `lines` splits it, without a copy of each line. A `\r` before a line
+ * break is not part of the line. */
+function eachLine(text: string, visit: (start: number, end: number) => void): void {
+  let start = 0;
+  while (start < text.length) {
+    let next = text.indexOf("\n", start);
+    const broken = next >= 0;
+    if (!broken) next = text.length;
+    const end = broken && next > start && text.charCodeAt(next - 1) === 13 ? next - 1 : next;
+    visit(start, end);
+    start = next + 1;
+  }
+}
+
+/** The next index of `pattern` at or after `from`, as a position that only
+ * moves forward. Each line asks only when it passed the last position. */
+function finder(text: string, pattern: string): (from: number) => number {
+  let found = -2;
+  return (from) => {
+    if (found !== -1 && found < from) found = text.indexOf(pattern, from);
+    return found;
+  };
+}
+
 /** The ATX headings of a Markdown text, with their levels. Headings in
- * fenced code are not headings. */
+ * fenced code are not headings.
+ *
+ * A plan holds megabytes of Markdown, and few lines are headings or fences.
+ * Thus the scan looks only at the lines that start with `#` or that hold a
+ * fence. */
 export function scanHeadings(text: string): [number, string][] {
   const out: [number, string][] = [];
   let fence: string | null = null;
-  for (const line of lines(text)) {
-    const trimmed = trimStart(line);
-    const marker = trimmed.startsWith("```") ? "```" : trimmed.startsWith("~~~") ? "~~~" : null;
-    if (marker !== null) {
-      if (fence === marker) fence = null;
-      else if (fence === null) fence = marker;
-      continue;
+  const ticks = finder(text, "```");
+  const tildes = finder(text, "~~~");
+  eachLine(text, (start, end) => {
+    const tick = ticks(start);
+    const tilde = tildes(start);
+    const fenced = (tick >= 0 && tick < end) || (tilde >= 0 && tilde < end);
+    if (fenced) {
+      const trimmed = trimStart(text.slice(start, end));
+      const marker = trimmed.startsWith("```") ? "```" : trimmed.startsWith("~~~") ? "~~~" : null;
+      if (marker !== null) {
+        if (fence === marker) fence = null;
+        else if (fence === null) fence = marker;
+        return;
+      }
     }
-    if (fence !== null || line.startsWith(" ") || line.startsWith("\t")) continue;
+    if (fence !== null || text.charCodeAt(start) !== 35 || start >= end) return;
+    const line = text.slice(start, end);
     let level = 0;
     while (line[level] === "#") level += 1;
     if (level >= 1 && level <= 6) {
@@ -29,7 +66,7 @@ export function scanHeadings(text: string): [number, string][] {
         out.push([level, trim(trim(rest).replace(/#+$/, ""))]);
       }
     }
-  }
+  });
   return out;
 }
 
@@ -47,35 +84,38 @@ export function slugs(text: string): Set<string> {
   return out;
 }
 
-/** The targets of the inline Markdown links outside fenced code. */
+/** The targets of the inline Markdown links outside fenced code.
+ *
+ * The plan of a large project holds megabytes of Markdown. Thus the search
+ * uses `indexOf`, and looks only at the lines that hold a link or a fence. */
 export function markdownLinks(contents: string): string[] {
   const out: string[] = [];
   let inFence = false;
-  for (const line of lines(contents)) {
-    if (trimStart(line).startsWith("```")) {
+  const ticks = finder(contents, "```");
+  const links = finder(contents, "](");
+  eachLine(contents, (start, end) => {
+    const tick = ticks(start);
+    if (tick >= 0 && tick < end && trimStart(contents.slice(start, end)).startsWith("```")) {
       inFence = !inFence;
-      continue;
+      return;
     }
-    if (inFence) continue;
-    const chars = [...line];
-    let i = 0;
-    while (i < chars.length) {
-      if (chars[i] === "]" && chars[i + 1] === "(") {
-        let j = i + 2;
-        let target = "";
-        while (j < chars.length && chars[j] !== ")") {
-          target += chars[j];
-          j += 1;
-        }
-        if (j < chars.length && target !== "" && !target.includes(" ")) {
-          out.push(target);
-          i = j + 1;
-          continue;
-        }
+    if (inFence) return;
+    const first = links(start);
+    if (first < 0 || first >= end) return;
+    const line = contents.slice(start, end);
+    let open = first - start;
+    while (open >= 0) {
+      const close = line.indexOf(")", open + 2);
+      if (close < 0) break;
+      const target = line.slice(open + 2, close);
+      if (target !== "" && !target.includes(" ")) {
+        out.push(target);
+        open = line.indexOf("](", close + 1);
+      } else {
+        open = line.indexOf("](", open + 1);
       }
-      i += 1;
     }
-  }
+  });
   return out;
 }
 

@@ -84,16 +84,18 @@ impl ModuleIndex {
 /// The index for each module that the server loaded.
 #[derive(Debug, Default)]
 pub struct Index {
-    modules: HashMap<ModuleId, ModuleIndex>,
+    /// Shared, so that a later index can keep the modules that an edit did
+    /// not change. See [`Index::build_after`].
+    modules: HashMap<ModuleId, std::sync::Arc<ModuleIndex>>,
 }
 
 impl Index {
     pub fn get(&self, module: ModuleId) -> Option<&ModuleIndex> {
-        self.modules.get(&module)
+        self.modules.get(&module).map(|index| index.as_ref())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleIndex)> {
-        self.modules.iter()
+        self.modules.iter().map(|(module, index)| (module, index.as_ref()))
     }
 
     /// All occurrences of `target` in the full program.
@@ -119,8 +121,26 @@ impl Index {
 
     /// Builds the index for a compiled program.
     pub fn build(compilation: &Compilation) -> Index {
+        Index::build_after(compilation, None)
+    }
+
+    /// The same as [`Index::build`]. When the compilation took values from
+    /// the compilation of `previous`, each module that the edit did not
+    /// affect keeps its index from `previous`. Such a module has the same
+    /// text, ids and names, so its index is the same.
+    pub fn build_after(compilation: &Compilation, previous: Option<&Index>) -> Index {
         let mut modules = HashMap::new();
         for module in compilation.graph().iter() {
+            let kept = match (previous, &compilation.affected) {
+                (Some(previous), Some(affected)) if !affected.contains(&module.id) => {
+                    previous.modules.get(&module.id).cloned()
+                }
+                _ => None,
+            };
+            if let Some(index) = kept {
+                modules.insert(module.id, index);
+                continue;
+            }
             let mut index = ModuleIndex::default();
             let mut builder = Builder {
                 compilation,
@@ -128,7 +148,7 @@ impl Index {
                 index: &mut index,
             };
             builder.walk_file(module.ast());
-            modules.insert(module.id, index);
+            modules.insert(module.id, std::sync::Arc::new(index));
         }
         Index { modules }
     }

@@ -13,7 +13,7 @@
 //! promises that wait. It does not have eight threads of JavaScript.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -60,6 +60,12 @@ pub trait Services {
     /// Reports the diagnostics of a compilation. Returns true if one or more
     /// are errors.
     fn compilation_diagnostics(&self, compilation: &Compilation) -> bool;
+    /// Compiles the project for a plugin, from its entry, or with
+    /// `workspace`, from all of its sources. `None` lets the host compile.
+    /// The editor gives a compilation that takes the parses it already has.
+    fn compile(&self, _workspace: bool) -> Option<Compilation> {
+        None
+    }
     /// Prints the slice of `target` from `compilation`. For each anchor, it
     /// cites the compiled location from `links`, not the source. Returns the
     /// exit code.
@@ -540,10 +546,11 @@ impl Host {
             "settings" => self.settings(manifest)?,
             "compile" => {
                 let project = self.project().clone();
-                let compilation = if field(payload, "workspace").as_bool().unwrap_or(false) {
-                    Compilation::build_workspace(project, Default::default(), &[])
-                } else {
-                    Compilation::build(project)
+                let workspace = field(payload, "workspace").as_bool().unwrap_or(false);
+                let compilation = match self.services.compile(workspace) {
+                    Some(compilation) => compilation,
+                    None if workspace => Compilation::build_workspace(project, Default::default(), &[]),
+                    None => Compilation::build(project),
                 };
                 let errors = compilation.diagnostics.error_count();
                 let warnings = compilation.diagnostics.warning_count();
@@ -581,6 +588,12 @@ impl Host {
                 let compilation = self.compilation(&state, payload)?;
                 let anchor = anchor_of(compilation, payload)?;
                 piton_compile::json::typed_properties(&compilation.store().anchor(anchor).properties, compilation)
+            }
+            "references" => {
+                let state = self.state.borrow();
+                let compilation = self.compilation(&state, payload)?;
+                let anchor = anchor_of(compilation, payload)?;
+                Json::Array(references(compilation, anchor))
             }
             "slot" => {
                 let state = self.state.borrow();
@@ -941,6 +954,9 @@ impl Host {
         let only_exported = field(query, "exported").as_bool().unwrap_or(false);
         let only_concrete = field(query, "concrete").as_bool().unwrap_or(false);
         let only_source = field(query, "withinSourceRoot").as_bool().unwrap_or(false);
+        // A plugin that only needs to know which anchors exist can leave
+        // the properties out. They are most of the size of the answer.
+        let with_properties = field(query, "properties").as_bool().unwrap_or(true);
         let project = self.project();
         let tethers = project.root.join(piton_compile::packages::TETHERS);
 
@@ -962,7 +978,11 @@ impl Host {
             {
                 continue;
             }
-            let properties = piton_compile::json::properties_map(&def.properties, compilation);
+            let properties = if with_properties {
+                piton_compile::json::properties_map(&def.properties, compilation)
+            } else {
+                Default::default()
+            };
             found.push((
                 file.clone(),
                 def.name.clone(),
@@ -1226,6 +1246,78 @@ impl Host {
 }
 
 /// The anchor that the `id` of a payload names.
+/// Each reference in the values of an anchor, in order, with the anchor and
+/// the property that hold it. The walk goes into the anchors that a value
+/// embeds, one time each. A reference in an embedded copy belongs to the
+/// embedded anchor, where the author wrote it.
+fn references(compilation: &Compilation, anchor: AnchorId) -> Vec<Json> {
+    use piton_core::{MixedItem, Value};
+
+    fn text(out: &mut Vec<Json>, text: &piton_core::Text, from: AnchorId, key: &str) {
+        for target in text.refs() {
+            out.push(json!({ "target": { "id": target.anchor.0, "path": target.path }, "from": from.0, "key": key }));
+        }
+    }
+
+    fn walk(
+        compilation: &Compilation,
+        value: &Value,
+        from: AnchorId,
+        key: &str,
+        out: &mut Vec<Json>,
+        embedded: &mut HashSet<AnchorId>,
+    ) {
+        match value {
+            Value::Reference(reference) => out.push(json!({
+                "target": { "id": reference.anchor.0, "path": reference.path },
+                "from": from.0,
+                "key": key,
+            })),
+            Value::Str(content) => text(out, content, from, key),
+            Value::List(items) => {
+                for item in items {
+                    walk(compilation, item, from, key, out, embedded);
+                }
+            }
+            Value::Dict(entries) => {
+                for item in entries.values() {
+                    walk(compilation, item, from, key, out, embedded);
+                }
+            }
+            Value::Mixed(mixed) => {
+                for item in &mixed.items {
+                    match item {
+                        MixedItem::Text(content) => text(out, content, from, key),
+                        MixedItem::List(items) => {
+                            for item in items {
+                                walk(compilation, item, from, key, out, embedded);
+                            }
+                        }
+                        MixedItem::Entry(_, item) | MixedItem::Value(item) => {
+                            walk(compilation, item, from, key, out, embedded)
+                        }
+                    }
+                }
+            }
+            Value::Anchor(inner) => {
+                if embedded.insert(*inner) {
+                    for (name, item) in compilation.store().anchor(*inner).properties.iter() {
+                        walk(compilation, item, *inner, name, out, embedded);
+                    }
+                }
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) => {}
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut embedded = HashSet::from([anchor]);
+    for (name, item) in compilation.store().anchor(anchor).properties.iter() {
+        walk(compilation, item, anchor, name, &mut out, &mut embedded);
+    }
+    out
+}
+
 fn anchor_of(compilation: &Compilation, payload: &Json) -> Result<AnchorId, String> {
     let id = field(payload, "id").as_u64().ok_or("`id` has to be an anchor's id")?;
     if id as usize >= compilation.store().anchors.len() {

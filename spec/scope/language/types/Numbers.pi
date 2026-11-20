@@ -23,9 +23,9 @@ export type Numbers:
     representation:
         Under the hood, numbers are 64-bit floats (IEEE 754).
 
-        Negative numbers are written with a minus, like `-5`. List items
-        always have a space after the dash, so `-5` is a number and `- 5` is a
-        list item.
+        Negative numbers are written with a minus, like `-5`. List items always
+        have a space after the dash, so `-5` is a number and `- 5` is a list
+        item.
 
         The minus is only part of a number. There's no minus in front of an
         expression, so `\ {-price} \` is a compiler error. Write

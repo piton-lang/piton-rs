@@ -425,6 +425,33 @@ fn a_glob_without_write_is_refused() {
 }
 
 #[test]
+fn format_removes_unused_imports_in_a_project() {
+    let fixture = Fixture::new("format-imports");
+    fixture.write("piton.config.pi", "use @piton/config\n\nexport piton-config C:\n    root: ./spec\n");
+    fixture.write("spec/lib.pi", "export anchor A:\n    a: 1\nexport anchor B:\n    b: 2\n");
+    fixture.write(
+        "spec/index.pi",
+        "use ./lib\nuse ./lib\nfrom ./lib import B, A\nexport anchor Main:\n    v: {B.b}\n",
+    );
+    // A file with an error keeps its imports, because an import that does
+    // not resolve can have a cause that the formatter cannot see.
+    let broken = "use ./lib\nfrom ./lib import A, B\nfrom ./missing import Z\n\nexport anchor M:\n    m: {A.a}\n";
+    fixture.write("spec/broken.pi", broken);
+
+    let (_, stderr, code) = fixture.run(&["format", "--check"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("spec/index.pi"), "{stderr}");
+
+    let (_, stderr, code) = fixture.run(&["format"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fixture.read("spec/index.pi"),
+        "from ./lib import B\n\nexport anchor Main:\n    v: {B.b}\n"
+    );
+    assert_eq!(fixture.read("spec/broken.pi"), broken);
+}
+
+#[test]
 fn format_normalizes_and_check_reports() {
     let fixture = Fixture::new("format");
     fixture.write(
@@ -445,7 +472,7 @@ fn format_normalizes_and_check_reports() {
     let formatted = fixture.read("messy.pi");
     assert_eq!(
         formatted,
-        "from ./x import\n    A,\n    B,\n    C\nanchor A:\n    value: 1 //tight\n"
+        "from ./x import\n    A,\n    B,\n    C\n\nanchor A:\n    value: 1 //tight\n"
     );
 
     let (_, _, code) = fixture.run(&["format", "messy.pi", "--check"]);
@@ -842,7 +869,7 @@ fn format_reads_stdin_when_given_a_dash() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "from ./x import A, B\nanchor A:\n    value: 1 //tight\n"
+        "from ./x import A, B\n\nanchor A:\n    value: 1 //tight\n"
     );
 
     let mut child = Command::new(binary())

@@ -107,6 +107,7 @@ A project gets the part of its type, then belay, testing and crux, in that order
 - `{{name}}` in a file is replaced by the project's name; `{{codeRoot}}` by the code root followed by a slash, like `src/`, or by nothing when it is the project root; `{{shapeRoot}}` by the shape root relative to the specification root, like `shape`; and `{{specRoot}}` by the specification root relative to the shape root, like `..`.
 
 When several parts have a file at the same path, the project gets them joined into one: the lines of each that come before its first declaration, its comments, uses and imports, in the order of the parts, then the rest of each in the same order, formatted with the compiler's formatter. That is how the entry gains the exports of Belay and crux.
+Every Piton file is formatted with the compiler's formatter once its placeholders are filled in, since a long project name can push a line of prose past the 80 columns the formatter wraps at.
 The parts are embedded with the plugin's files when the compiler is built, so init needs no network for them, and a release always writes the parts it was released with. Authors change what a project starts with by editing a part's files.
 Every combination of answers has to start a project that checks without problems, is already formatted, and builds, for each adapter it can be built for.
 

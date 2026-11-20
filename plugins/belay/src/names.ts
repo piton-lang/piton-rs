@@ -70,7 +70,11 @@ export function isValidArtifactName(name: string): boolean {
 export function headingSlug(title: string): string {
   let out = "";
   for (const ch of trim(title)) {
-    if (ALPHANUMERIC.test(ch) || ch === "_" || ch === "-") {
+    const code = ch.charCodeAt(0);
+    // ASCII letters and digits are most characters. The test of the
+    // regular expression is slow.
+    const ascii = (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    if (ascii || (code > 127 && ALPHANUMERIC.test(ch)) || ch === "_" || ch === "-") {
       out += ch.toLowerCase();
     } else if (ch === " ") {
       out += "-";

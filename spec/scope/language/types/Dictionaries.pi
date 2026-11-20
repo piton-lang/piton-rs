@@ -71,5 +71,5 @@ export type Dictionaries:
 
     hyphenatedKeys:
         A hyphen in the middle of a name is part of the name, so
-        `\ {config.foo-bar} \` reads the key `foo-bar`. If you want
-        subtraction, put spaces around it: `\ {a - b} \`.
+        `\ {config.foo-bar} \` reads the key `foo-bar`. If you want subtraction,
+        put spaces around it: `\ {a - b} \`.

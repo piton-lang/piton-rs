@@ -143,6 +143,31 @@ fn completing_a_module_path_offers_installed_packages() {
 }
 
 #[test]
+fn completion_offers_package_modules_that_nothing_imports_yet() {
+    let fixture = Fixture::new("unimported");
+    fixture.write("tethers/dep-lib/lib/Text.pi", "export anchor Text:\n    base: words\n");
+    fixture.write("spec/Draft.pi", "from dep-lib/\n");
+    let world = fixture.world();
+    assert!(
+        world
+            .compilation
+            .as_ref()
+            .expect("compiled")
+            .graph()
+            .id_for(&fixture.dir.join("tethers/dep-lib/lib/Text.pi"))
+            .is_none(),
+        "no file imports the module, so the compilation did not load it"
+    );
+
+    let labels = completion_labels(features::completion(
+        &world,
+        &fixture.uri("spec/Draft.pi"),
+        fixture.after("spec/Draft.pi", "from dep-lib/"),
+    ));
+    assert!(labels.contains(&"dep-lib/lib/Text".to_string()), "{labels:?}");
+}
+
+#[test]
 fn going_to_a_package_import_opens_the_package() {
     let fixture = Fixture::new("goto");
     let world = fixture.world();

@@ -7,7 +7,9 @@
 //! show the files that the plans will write.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
+use piton_compile::module::ParseCache;
 use piton_compile::{Compilation, Project};
 use piton_core::{Diagnostic, Span};
 use piton_plugin::plan::PluginPlan;
@@ -16,6 +18,9 @@ use piton_plugin::{Services, Stream};
 /// The requests of the plugin host to an editor. The editor prints nothing.
 struct Quiet {
     project: Project,
+    /// The parses of the editor. A plugin compiles the files on disk. Most of
+    /// them have the text that the editor parsed already.
+    parses: Arc<ParseCache>,
 }
 
 impl Services for Quiet {
@@ -31,6 +36,14 @@ impl Services for Quiet {
     fn compilation_diagnostics(&self, _: &Compilation) -> bool {
         false
     }
+    fn compile(&self, workspace: bool) -> Option<Compilation> {
+        let project = self.project.clone();
+        Some(if workspace {
+            Compilation::build_workspace_cached(project, Default::default(), &[], &self.parses, None)
+        } else {
+            Compilation::build_cached(project, &self.parses)
+        })
+    }
     fn slice(&self, _: &Compilation, _: &str, _: &dyn piton_emit::markdown::LinkResolver) -> u8 {
         1
     }
@@ -39,14 +52,14 @@ impl Services for Quiet {
 /// Plans each plugin build that the project enabled. When a plugin fails, or
 /// makes a plan that is not correct, the configuration shows an error. The
 /// other plugins continue to plan.
-pub fn plan(project: &Project) -> Vec<PluginPlan> {
+pub fn plan(project: &Project, parses: &Arc<ParseCache>) -> Vec<PluginPlan> {
     if project.config_path.is_none() {
         return Vec::new();
     }
     let (manifests, _) = piton_plugin::discover(project);
     let mut plans = Vec::new();
     for manifest in piton_plugin::builders(project, &manifests) {
-        let services = Rc::new(Quiet { project: project.clone() });
+        let services = Rc::new(Quiet { project: project.clone(), parses: parses.clone() });
         let failure = match piton_plugin::run_build(&manifests, &manifest.name, services) {
             Ok(planned) => match piton_plugin::plan::read(manifest, &planned, &project.root) {
                 Ok(plan) => {
@@ -76,12 +89,12 @@ pub fn plan(project: &Project) -> Vec<PluginPlan> {
 /// user saves a file, as for the build plans. When a plugin cannot supply
 /// them, the result does not include that plugin. The other plugins still
 /// count.
-pub fn reached(project: &Project) -> Vec<(std::path::PathBuf, String)> {
+pub fn reached(project: &Project, parses: &Arc<ParseCache>) -> Vec<(std::path::PathBuf, String)> {
     if project.config_path.is_none() {
         return Vec::new();
     }
     let (manifests, _) = piton_plugin::discover(project);
-    let (roots, _) = piton_plugin::reach::roots(project, &manifests, || Rc::new(Quiet { project: project.clone() }));
+    let (roots, _) = piton_plugin::reach::roots(project, &manifests, || Rc::new(Quiet { project: project.clone(), parses: parses.clone() }));
     roots.into_iter().map(|root| (root.file, root.name)).collect()
 }
 
@@ -90,14 +103,14 @@ pub fn reached(project: &Project) -> Vec<(std::path::PathBuf, String)> {
 /// asks for them when the user saves a file, as for the build plans. The
 /// editor offers the edits of each finding as a code action. It never applies
 /// them without the user. A plugin that fails gives no findings.
-pub fn findings(project: &Project) -> Vec<piton_plugin::inspection::Finding> {
+pub fn findings(project: &Project, parses: &Arc<ParseCache>) -> Vec<piton_plugin::inspection::Finding> {
     if project.config_path.is_none() {
         return Vec::new();
     }
     let (manifests, _) = piton_plugin::discover(project);
     let mut found = Vec::new();
     for manifest in manifests.iter().filter(|manifest| manifest.inspect) {
-        let services = Rc::new(Quiet { project: project.clone() });
+        let services = Rc::new(Quiet { project: project.clone(), parses: parses.clone() });
         let Ok(result) = piton_plugin::run_inspect(&manifests, &manifest.name, services) else {
             continue;
         };

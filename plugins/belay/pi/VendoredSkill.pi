@@ -1,0 +1,8 @@
+// Part of the bundled Belay plugin, as @piton/belay. Its behaviour is
+// described in spec/scope/belay/anchors/Skill.pi.
+//
+// A skill that its folder supplies whole: the folder holds the SKILL.md, and
+// Belay copies it as it is. Thus the skill has no other properties.
+
+export abstract anchor VendoredSkill as vendored-skill:
+    files:: string:: dictionary

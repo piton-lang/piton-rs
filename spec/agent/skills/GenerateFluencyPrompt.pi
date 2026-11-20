@@ -16,15 +16,20 @@ export skill GenerateFluencyPrompt:
         You should try to keep the fluency prompt as small as possible while
         still being useful and covering everything important.
 
-        Write the fluency prompt in ASD-STE100 Simplified Technical English.
-        An agent reads it to act, so each sentence has one meaning and no
+        Write the fluency prompt in ASD-STE100 Simplified Technical English. An
+        agent reads it to act, so each sentence has one meaning and no
         ambiguity. Use these rules:
 
-        \ - \ Use only words from the ASD-STE100 dictionary, with their approved meanings, and use one word for one meaning.
+        \ - \ Use only words from the ASD-STE100 dictionary, with their approved
+        meanings, and use one word for one meaning.
 
-        \ - \ Technical names stay exactly as they are: Piton keywords and syntax, code, file paths, commands, flags, diagnostic codes, anchor and property names. Do not change examples or code blocks to make them simpler.
+        \ - \ Technical names stay exactly as they are: Piton keywords and
+        syntax, code, file paths, commands, flags, diagnostic codes, anchor and
+        property names. Do not change examples or code blocks to make them
+        simpler.
 
-        \ - \ Write sentences of no more than 20 words for instructions, and 25 words for descriptions. Give each sentence one topic.
+        \ - \ Write sentences of no more than 20 words for instructions, and 25
+        words for descriptions. Give each sentence one topic.
 
         \ - \ Use the active voice and the simple present, past or future tense.
 

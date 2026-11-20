@@ -28,9 +28,8 @@ export type Strings:
         `\ greeting: "Hello" \` is the string `"Hello"`, quotes and all.
 
         The one exception is inside an expression. There, bare words are
-        symbols, so you write strings in double quotes:
-        `\ {"Hello" + name} \`. In that case the quotes aren't part of the
-        string.
+        symbols, so you write strings in double quotes: `\ {"Hello" + name} \`.
+        In that case the quotes aren't part of the string.
 
     lineBreaks:
         Within a string block, you can add line breaks without affecting the

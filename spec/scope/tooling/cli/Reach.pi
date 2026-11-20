@@ -26,39 +26,37 @@ export cli-command Reach:
 
     composition:
         Composition covers everything a value is built from, including what
-        evaluation folded into it. Embedding a top-level variable (`\ {PURPOSE} \`)
-        reaches the module that declares it, and whatever that variable embeds
-        or reads in turn. Reading another anchor's property (`\ ${Other.name} \`)
-        reaches that anchor through composition.
+        evaluation folded into it. Embedding a top-level variable
+        (`\ {PURPOSE} \`) reaches the module that declares it, and whatever that
+        variable embeds or reads in turn. Reading another anchor's property
+        (`\ ${Other.name} \`) reaches that anchor through composition.
 
     plugins:
-        Without targets, the roots are the entry's exports and the anchors
-        that plugins reach themselves, like the tests the test plugin runs,
-        described in @{PluginReach}. So an anchor a plugin uses is not
-        reported as unreachable, and whatever it reaches is reachable through
-        it. A file that nothing imports but that holds such an anchor is
-        compiled with the project. With targets, plugins add nothing: the
-        question is what those targets see.
+        Without targets, the roots are the entry's exports and the anchors that
+        plugins reach themselves, like the tests the test plugin runs, described
+        in @{PluginReach}. So an anchor a plugin uses is not reported as
+        unreachable, and whatever it reaches is reachable through it. A file
+        that nothing imports but that holds such an anchor is compiled with the
+        project. With targets, plugins add nothing: the question is what those
+        targets see.
 
     tethers:
         By default, reach does not examine the installed packages under
         `tethers/`. A package is the work of another project, so its dead
         anchors are not this project's to delete. The anchors and modules in
-        `tethers/` are left out of the reachable list, the unreachable list
-        and the never-imported files, and the summary lines do not count them.
-        The walk still follows imports and references through a package, so
-        a project anchor that is reached only through a package stays
-        reachable.
+        `tethers/` are left out of the reachable list, the unreachable list and
+        the never-imported files, and the summary lines do not count them. The
+        walk still follows imports and references through a package, so a
+        project anchor that is reached only through a package stays reachable.
 
-        With `--include-tethers`, reach examines them like
-        any other source. Their anchors and modules are listed as reachable or
-        unreachable and counted in the summary. Files under `tethers/` that
-        nothing imports are listed as never imported, with their anchor
-        counts.
+        With `--include-tethers`, reach examines them like any other source.
+        Their anchors and modules are listed as reachable or unreachable and
+        counted in the summary. Files under `tethers/` that nothing imports are
+        listed as never imported, with their anchor counts.
 
     configuration:
-        `piton.config.pi` is read rather than imported. It is never reported
-        as unreachable.
+        `piton.config.pi` is read rather than imported. It is never reported as
+        unreachable.
 
     direction:
         outgoing
@@ -77,8 +75,8 @@ export cli-command Reach:
         source
 
     summary:
-        The report ends with two summary lines, and they count exactly what
-        the report lists.
+        The report ends with two summary lines, and they count exactly what the
+        report lists.
 
         ```
         \\\
@@ -89,21 +87,20 @@ export cli-command Reach:
 
         The first line counts anchors. Its unreachable count covers every
         unreachable anchor, including the ones declared in files nothing
-        imports. Those files are never compiled, but reach parses them to
-        count the anchors they declare. So the headline can't say 0
-        unreachable while files are listed as dead. Whenever there are
-        never-imported files, the line ends with how many of the unreachable
-        anchors are in them and how many files that is, even when the number
-        of anchors is 0.
+        imports. Those files are never compiled, but reach parses them to count
+        the anchors they declare. So the headline can't say 0 unreachable while
+        files are listed as dead. Whenever there are never-imported files, the
+        line ends with how many of the unreachable anchors are in them and how
+        many files that is, even when the number of anchors is 0.
 
-        The second line counts modules. It gives how many were loaded, how
-        many of those carry nothing reachable, and how many files were never
+        The second line counts modules. It gives how many were loaded, how many
+        of those carry nothing reachable, and how many files were never
         imported.
 
         In the unreachable list, each never-imported file is marked with how
-        many anchors it declares, for example (never imported, 8 anchors).
-        Every anchor is counted once. An anchor that lost a duplicate export
-        is counted where it is declared, like any other anchor.
+        many anchors it declares, for example (never imported, 8 anchors). Every
+        anchor is counted once. An anchor that lost a duplicate export is
+        counted where it is declared, like any other anchor.
 
     diagnostics:
         errors: false

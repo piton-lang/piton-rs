@@ -2,13 +2,13 @@ export anchor TestVerdict:
     description:
         The verdict is the last line in the tool's answer that carries
         PITON-VERDICT followed by a JSON object with a boolean pass, a reason,
-        and, when pass is false, an explanation and a fix, even
-        wrapped in backticks. So the request echoed back, whose example isn't
-        valid JSON, doesn't count, and a verdict the tool revised is replaced
-        by the revision. For Claude the answer is the text of its messages
-        and its final result; for the other tools it is what they print, on
-        stdout first, then stderr. The reason is the verdict's reason, and is
-        empty when it gives none.
+        and, when pass is false, an explanation and a fix, even wrapped in
+        backticks. So the request echoed back, whose example isn't valid JSON,
+        doesn't count, and a verdict the tool revised is replaced by the
+        revision. For Claude the answer is the text of its messages and its
+        final result; for the other tools it is what they print, on stdout
+        first, then stderr. The reason is the verdict's reason, and is empty
+        when it gives none.
 
         A test against both is judged in the specification and in the code
         separately, so its verdict also carries a result for each, spec and
@@ -24,11 +24,11 @@ export anchor TestVerdict:
         overall pass says, so a tool can't pass a test whose specification and
         code disagree: true in one and false in the other is a failure. A
         verdict without both results falls back to its overall pass. A test
-        against spec or code alone has one result, and any results for each
-        side in its verdict are ignored.
+        against spec or code alone has one result, and any results for each side
+        in its verdict are ignored.
 
         A session that exits with an error, or ends without a verdict, is an
         error rather than a failure: the test was never judged. The error
-        says which: the tool's exit code with the last three lines it wrote
-        to stderr, or to stdout when stderr is empty, or that it ended
-        without a verdict line.
+        says which: the tool's exit code with the last three lines it wrote to
+        stderr, or to stdout when stderr is empty, or that it ended without a
+        verdict line.

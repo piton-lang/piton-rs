@@ -44,12 +44,17 @@ export piton-plugin BelayPlugin:
                     default: claude
 
                 model:
-                    help: The model the agent uses; without one, the agent's models are listed to choose from; with --model and no model, they are listed and nothing runs
+                    help:
+                        The model the agent uses; without one, the agent's
+                        models are listed to choose from; with --model and no
+                        model, they are listed and nothing runs
                     short: m
                     optionalValue: true
 
                 print-fluency:
-                    help: Print the entire fluency prompt instead of launching the agent
+                    help:
+                        Print the entire fluency prompt instead of launching the
+                        agent
                     type: flag
 
                 args:
@@ -60,12 +65,18 @@ export piton-plugin BelayPlugin:
 
         slice:
             group: belay
-            about: Print the slice of a target, citing where an adapter's build compiles it
+            about:
+                Print the slice of a target, citing where an adapter's build
+                compiles it
 
             arguments:
                 target:
-                    help: `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare name
+                    help:
+                        `file.pi#Anchor`, `file.pi#Anchor.property`, or a bare
+                        name
                     positional: true
 
                 adapter:
-                    help: The Belay target whose compiled documents are cited, like claude-code
+                    help:
+                        The Belay target whose compiled documents are cited,
+                        like claude-code

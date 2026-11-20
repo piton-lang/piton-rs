@@ -45,6 +45,24 @@ export anchor Abstract:
         \\\
         ```
 
+        A value that a concrete base gives fills one in, even when an abstract
+        comes after that base, like the abstract of a keyword, which always
+        comes last. The abstract only declares the property, and a declaration
+        without a value never removes a value that a base before it gave.
+
+        ```piton
+        \\\
+        abstract anchor Skill as skill:
+            useWhen:: string
+
+        anchor Shared:
+            useWhen: Asked for a review
+
+        skill Review extends Shared:
+            description: Reviews code
+        \\\
+        ```
+
     multipleAbstracts:
         An anchor can implement more than one abstract, even ones that share a
         base. It is in fact good practice to export an abstract anchor as a
@@ -64,8 +82,8 @@ export anchor Abstract:
         abstracts like simple, complex, any, [], etc.
 
         There's also the extends type constraint keyword, which lets us
-        represent inheritance hierarchy. You can use it anywhere, but it's
-        most at home in abstracts. Take the following example.
+        represent inheritance hierarchy. You can use it anywhere, but it's most
+        at home in abstracts. Take the following example.
 
         ```piton
         \\\
@@ -84,29 +102,29 @@ export anchor Abstract:
         ```
 
         Here, we have defined an anchor A with a description and an anchor B
-        which extends A and adds a name property. So B has both description
-        and name while A only has a description.
+        which extends A and adds a name property. So B has both description and
+        name while A only has a description.
 
         We have then defined an anchor C. Let’s go one property at a time.
 
-        A plain anchor type only matches anchors that directly implement it.
-        If an anchor has more than one abstract, the one that counts is the
-        one that wins: the keyword's abstract, or else the right-most one.
+        A plain anchor type only matches anchors that directly implement it. If
+        an anchor has more than one abstract, the one that counts is the one
+        that wins: the keyword's abstract, or else the right-most one.
 
         listOfA will be satisfied by anything that directly implements the
         abstract A.
 
         listOfB will be satisfied by anything that directly implements the
-        abstract B. Something implementing B won't fit in listOfA, even though
-        B extends A.
+        abstract B. Something implementing B won't fit in listOfA, even though B
+        extends A.
 
         Where it gets a little more interesting is in the third property,
         listOfExtendsA.
 
-        extends on an anchor type means that the constraint may be satisfied
-        by any concrete anchor whose inheritance chain includes that anchor.
+        extends on an anchor type means that the constraint may be satisfied by
+        any concrete anchor whose inheritance chain includes that anchor.
 
-        So in this example, that constraint is satisfied by a list of
-        anything that has A in its inheritance hierarchy. So in this case,
-        you’d be able to pass concrete anchors that implement either A or B
-        given that B has A in its inheritance chain.
+        So in this example, that constraint is satisfied by a list of anything
+        that has A in its inheritance hierarchy. So in this case, you’d be able
+        to pass concrete anchors that implement either A or B given that B has A
+        in its inheritance chain.

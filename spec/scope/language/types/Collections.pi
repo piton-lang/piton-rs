@@ -55,8 +55,8 @@ export anchor Collections:
 
         You'll get the same implicit list if you put a list, dictionary, or
         anchor in the middle of some text with \ {} \. So
-        \ See {Foo} for details \ becomes a list with “See”, a copy of Foo,
-        and “for details”.
+        \ See {Foo} for details \ becomes a list with “See”, a copy of Foo, and
+        “for details”.
 
         One additional gotcha with Piton is that, with an implicit list,
         dictionary properties declared directly within the mixed block remain
@@ -75,7 +75,7 @@ export anchor Collections:
         \\\
         ```
 
-        Since the dictionary is an item in an explicit list, you cannot
-        access that dictionary anymore. I’m just pointing this out because it is
+        Since the dictionary is an item in an explicit list, you cannot access
+        that dictionary anymore. I’m just pointing this out because it is
         syntactically possible, though arguably not a very wise choice in
         structuring your data.

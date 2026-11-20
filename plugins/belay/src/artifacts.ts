@@ -13,7 +13,7 @@ import { body, discoveryDescription, roleIntroduction, type Fields } from "./ren
 import { frontmatterField, tomlField } from "./scan";
 import { formatNumber, hasSpace, isBlank, trim, trimEnd } from "./text";
 import { emittedOnce } from "./validate";
-import { checkIdentity, choose, readFile, readFolder, reportConflicts, unreadable, vendoredProperty } from "./vendored";
+import { checkIdentity, choose, readFile, readFolder, reportConflicts, shown, unreadable, vendoredProperty } from "./vendored";
 
 type Field = Fields[string];
 
@@ -66,15 +66,18 @@ function requireVendoredDescription(
   );
 }
 
-/** Reports a field that Belay renders and the construct leaves empty. */
-function requireField(context: TargetContext, item: Construct, field: string, value: string, draft: Draft): void {
-  if (!isBlank(value)) return;
+/** Reports a vendored file on a construct of the wrong keyword. A
+ * `skill` whose folder holds its own SKILL.md is a `vendored-skill`, and an
+ * `agent` with a native `file` is a `vendored-agent`. The keyword decides
+ * which properties the compiler requires. */
+function wrongKeyword(context: TargetContext, item: Construct, key: string, detail: string, draft: Draft): void {
+  const keyword = `vendored-${item.kind}`;
   draft.diagnostics.push(
     error(
-      `missing-${kebabCase(field)}`,
-      `the ${item.kind} \`${item.name}\` has no \`${field}\`, which Belay needs to render it`,
-      context.world.source.anchorSite(item.anchor),
-      { help: `add \`${field}:\` to \`${item.name}\`, or supply the whole ${item.kind} as a vendored file` },
+      "vendored-keyword",
+      `\`${item.name}\` ${detail}, so it is a ${keyword}`,
+      context.world.source.propertySite(item.anchor, key),
+      { help: `declare it as \`${keyword} ${item.name}\`; \`piton migrate\` makes this change` },
     ),
   );
 }
@@ -97,24 +100,39 @@ export function renderSkill(context: TargetContext, item: Construct, draft: Draf
   }
   const skillFile = fileName(path) ?? "";
   const folder = parent(path) ?? "";
-  let verbatim: { contents: string; source: string } | null = null;
+  const own = entries.find((entry) => entry.relative === skillFile) ?? null;
+  if (item.vendored && own === null) {
+    if (choice.kind === "path") {
+      draft.diagnostics.push(
+        error(
+          "missing-vendored-skill",
+          `\`${item.name}\` is a vendored-skill, but \`${shown(source, choice.path)}\` has no ${skillFile}`,
+          source.propertySite(item.anchor, "files"),
+          { help: `add the ${skillFile} to the folder, or declare it as a skill with \`useWhen\`, which Belay renders` },
+        ),
+      );
+    }
+    return;
+  }
+  if (!item.vendored && own !== null) {
+    wrongKeyword(context, item, "files", `names a folder that holds its own ${skillFile}`, draft);
+    return;
+  }
   for (const entry of entries) {
-    const own = entry.relative === skillFile;
-    if (own) verbatim = { contents: entry.text, source: entry.copied.source };
     draft.push({
       path: join(folder, entry.relative),
       contents: entry.text,
-      kind: own ? "skill" : "skill file",
+      kind: entry === own ? "skill" : "skill file",
       target: target.id,
       origin: item.name,
       copied: entry.copied,
       anchors: [item.anchor],
     });
   }
-  if (verbatim !== null) {
+  if (own !== null) {
     reportConflicts(source, item, draft);
-    checkIdentity(source, item, verbatim.source, frontmatterField(verbatim.contents, "name"), name, draft);
-    requireVendoredDescription(context, item, frontmatterField(verbatim.contents, "description"), verbatim.source, draft);
+    checkIdentity(source, item, own.copied.source, frontmatterField(own.text, "name"), name, draft);
+    requireVendoredDescription(context, item, frontmatterField(own.text, "description"), own.copied.source, draft);
     return;
   }
 
@@ -122,7 +140,6 @@ export function renderSkill(context: TargetContext, item: Construct, draft: Draf
   const useWhen = metadataText(item, "useWhen") ?? "";
   const prompt = text(context, item, path, "prompt") ?? "";
   requireDescription(context, item, description, draft);
-  requireField(context, item, "useWhen", useWhen, draft);
 
   const fields: Fields = { name };
   const discovery = discoveryDescription(description, useWhen);
@@ -184,13 +201,17 @@ export function renderAgent(context: TargetContext, item: Construct, draft: Draf
   const path = agentPath(target, name);
   const choice = choose(source, item, target, draft);
   if (choice.kind === "path") return vendoredAgent(context, item, name, path, choice.path, draft);
-  if (choice.kind !== "render") return;
+  if (choice.kind !== "render" || item.vendored) return;
+  const file = item.properties.find(([key]) => key === "file")?.[1];
+  if (file !== undefined && file.kind !== "null") {
+    wrongKeyword(context, item, "file", "names a native definition file", draft);
+    return;
+  }
 
   const description = metadataText(item, "description") ?? "";
   const role = text(context, item, path, "role") ?? "";
   const prompt = text(context, item, path, "prompt") ?? "";
   requireDescription(context, item, description, draft);
-  requireField(context, item, "role", role, draft);
 
   const fields: Fields = {};
   if (target.agentFormat !== "markdown-filename-identity") fields.name = name;

@@ -22,76 +22,211 @@ Positions are counted in UTF-16 code units, the protocol's default, and the serv
 
 ## Features
 
-```
-diagnostics: Validate Piton syntax and semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
-  Plugins with a build, like Belay, report their diagnostics too. Their builds are planned when a file is saved, never as you type, so typing runs no build; their diagnostics are the ones the last save found. A plugin that fails to plan is reported on the configuration.
-completion: Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
-  However, don't autocomplete things that don't exist.
-  Offer each thing once. A name an index re-exports is exported by several modules that all lead to the same anchor, and it is offered once, imported from the shortest path. Two different anchors that share a name, like a project's copy of a spec and the one bundled with the compiler, are both offered, each naming the module it would be imported from so they can be told apart.
-  Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
-  Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md#property-access-operator) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
-  What the cursor is in the middle of is read with the parser's own line rules, so completion never believes a line is something the compiler would not make of it. Nothing is offered in a comment, in a sentence, inside an inline escape or an escape block, in a quoted string, for the name a declaration declares, or for a keyword being invented after `as`. A list item without its space, `-word`, is a sentence too.
-  In an anchor's body, the properties it still lacks are offered and the ones it already has are not. Required properties come first. `pass` is offered only in a body with nothing else in it. A key completed in front of a colon that is already written keeps that one colon. Inside a dictionary nested in a property, nothing is offered, because nothing says what keys belong there.
-  Items are ranked by the word already typed before the cursor, with case ignored: an item with the same name as the typed word comes first, then items that start with it, then items that contain it, then all other items. Within each rank the order above holds, so required properties still come first among equals. Each item filters on its own name. Thus the top item completes what is written, and accepting it does not replace the typed word with a different word.
-  An editor that can replace a whole word gets both ranges, what is written before the cursor and the whole word, so accepting an item in the middle of a word can replace all of it. An item's documentation is filled in when the editor asks for it, and an item made before the workspace last compiled gets none, rather than the description of whatever its name means now.
-autoImport: When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
-hoverInformation: Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
-  Hover only on what means something: a symbol, a declaring name, or a composition operator. Plain text in a string gets no hover, even a word that happens to name an anchor, and neither does the prose around a `+` line. Where a construct compiles to is shown on the name that declares it, not on every word of its value.
-  A composition is explained on its `+` or `++` alone, so a name inside the expression keeps a hover of its own. `this`, `self` and `super` say what they stand for where they are written. A property says whether it is inherited, overrides a base's value, or implements what an abstract base requires, and a required property says it has to be written. Where something is declared is shown as a path relative to the workspace, linking to its line. A literal, a language keyword, a comment, escaped text and a name that does not resolve get no hover; the diagnostic speaks for the last.
-goToDefinition: Navigate from any reference to the anchor, property, skill, agent, import, or other symbol that defines it.
-  A module path opens its file. A user keyword lands on the anchor it stands for. A member read through `this` or `super` lands on the declaration that supplies it. On the name of a property that replaces a base's, it lands on the one replaced. When the editor can show it, the answer also says which word was followed and the whole declaration it lands in.
-typeDefinition: From a property or a variable, go to the anchors its constraints name, in the order they are written; from an anchor, to the anchor itself. A built-in type has nowhere to go.
-documentHighlight: Mark every place in the file that names what is under the cursor, with where it is declared marked apart from where it is read.
-findReferences: Show every place a symbol is referenced, inherited, composed, interpolated, exported, or otherwise depended upon across the specbase.
-renameSymbol: Rename a symbol safely across the entire specbase while updating all imports, references, expressions, inheritance relationships, and compositions that depend on it.
-  The new name has to be one the symbol can have. An anchor name starts with a letter or an underscore and holds letters, digits and underscores; a variable or a key holds letters, digits, underscores and hyphens; a keyword is lowercase and may be kebab-case; and neither an anchor, a variable nor a keyword may be a reserved word. A name already used where the rename reaches is refused, and so is a property name already in the family. A module path is renamed by moving its file, and a symbol a bundled package declares cannot be renamed. Each refusal says why. An imported name and its alias are different names, so renaming one never rewrites the other, and the module path on the same line is never touched.
-moduleRename: When a Piton file or a folder is moved or renamed, every `use` and `from` path that named it is pointed at its new place, and the moved file's own relative paths are pointed back at what they named, before the move happens. A path keeps its style. A rooted one stays rooted, a relative one stays relative, `.pi` stays written or left off, and a path to a folder's index stays a path to the folder. Package paths never change.
-documentSymbols: Expose the structural contents of the current Piton file as an outline of anchors, skills, agents, properties, exports, and other named constructs.
-  A property shows its constraints as written, and the keys of a dictionary it holds sit beneath it. List items are values rather than names, and are not in the outline.
-workspaceSymbols: Allow fast searching across all named constructs in the entire specbase regardless of which file defines them.
-  Matching ignores case. The same name ranks first, then names that start with the query, then names that contain it, then names that hold its letters in order; within a rank, shorter names come first. At most 256 are returned. Each names the module it is in, relative to the workspace. A bundled package has no file to open, so its names are not offered.
-semanticHighlighting: Highlight Piton constructs according to their semantic meaning rather than syntax alone, distinguishing anchors, references, properties, inherited values, exports, imports, expressions, types, and keywords.
-  A string is a string. Prose gets no tokens of its own: a word in it that looks like a keyword, number, constant, or anchor name is part of the string. Only the expressions inside `{...}` forms are highlighted within a value.
-  The server colours names, by what they resolve to, module paths and language keywords, and nothing else. Comments, literals, operators, punctuation and prose belong to the syntax highlighter. A language keyword (`use`, `from`, `import`, `export`, `anchor`, `abstract`, `extends`, `as` and `pass`) is a keyword token only where the parser reads it as a keyword, never in a string body. Thus a syntax highlighter without context can leave keywords to the server. For each kind of token the server sends, the editor is told the same scope the syntax highlighter already uses, so a token arriving changes a colour only where resolving the name says something the text could not. An anchor is a class, abstract or not; a property or a dictionary key is a property; a variable is a variable; a user keyword or a language keyword is a keyword; a module path is a namespace. A name that does not resolve gets no token.
-inlayHints: Show useful inferred information inline, such as resolved types, inherited origins, composition sources, or the anchor from which a value ultimately derives.
-  A hint says only what the source does not. After the name of a property or a variable whose value is a single {...} and that no constraint types, the type it turned out to have, written the way a constraint is, so accepting the hint makes the type explicit. After a member read through `this`, `super` or an anchor, an arrow and the anchor that supplies it, when that is not the anchor read through. `self` is whichever anchor is compiled, so it names none. Types of literal values, overrides and composition operators are already visible and are not hinted.
-codeActions: Offer context-sensitive fixes and transformations such as importing a missing symbol, creating an unresolved anchor, adding an export, qualifying an ambiguous reference, or resolving a simple inheritance conflict.
-  Each action belongs to something at the cursor: an unresolved name, a declaration's header line, or an import. Plain text offers nothing. Whole-file actions, organizing imports and formatting, are offered when the editor asks for that kind of action, and organizing imports also when the cursor is on an import.
-  A configuration diagnostic at the cursor, like `frameworks-removed`, offers each finding of the inspect hooks, described in [PluginInspection](../../plugins/Inspection.md#plugin-inspection), that edits that file: a quick fix that applies the finding's edits, so the editor offers the same migration the command line does. The server asks the hooks when a file is saved, as it plans plugin builds, never while the user types, and applies nothing itself.
-importOrganization: Detect unused, duplicate, invalid, or unnecessarily broad imports and provide an action to clean and normalize them.
-formatting: Format Piton source according to the canonical language style, particularly indentation, spacing, declaration layout, expressions, imports, and multiline structures.
-  The edits replace only the lines that change, so cursors and marks elsewhere stay where they were. Formatting part of a file is not offered, because re-indenting some lines of a block and not their siblings would change the structure.
-inheritanceResolution: Understand `extends` relationships and expose the fully resolved inheritance chain, including which parent contributed each inherited property.
-compositionResolution: Understand `+`, `++`, and other Piton composition semantics and show how multiple inputs combine into the resulting construct.
-overrideTracking: Identify when a property overrides an inherited value and allow navigation between the overriding declaration and the declaration it replaces.
-  Writing a property an abstract base only requires is implementing it, not overriding it, and gets no lens. Replacing a value does, and the lens opens the declaration replaced. Looking for the implementations of a property lists the anchors that write it themselves.
-conflictDetection: Report incompatible inherited or composed values where Piton or Belay cannot resolve the result deterministically.
-referenceResolution: Resolve symbolic references such as anchors and `@{...}` expressions to their actual target and report unresolved or ambiguous references.
-expressionValidation: Parse and validate Piton expressions inside `{...}`, `${...}`, `#{...}`, and `@{...}` expression forms according to their expected output type.
-expressionTypeInformation: Show the inferred output type of an expression and warn when the expression cannot produce the type required by its interpolation form or destination.
-exportValidation: Track explicit exports and report attempts to import or reference symbols that are not visible outside their defining module.
-moduleResolution: Resolve relative and root-based Piton imports according to the project configuration and report missing modules and invalid paths. Circular imports are fine, so don't report them.
-circularDependencyDetection: Find cycles that can't resolve, and anchors that end up extending themselves, and show the cycle that caused the error. Circular imports are fine and aren't reported.
-relatedSymbolNavigation: Provide navigation between closely related constructs such as an abstract and its implementations, a base anchor and its extensions, or a symbol and the constructs that compose it.
-hierarchyView: Expose inheritance and composition relationships as a hierarchy so the editor can show parents, children, extensions, and implementations of a selected construct.
-resolvedValueInspection: Allow the editor to show the final resolved value of a property after inheritance, overrides, composition, and expressions have been applied.
-provenanceInspection: For any resolved value, show exactly where it came from: its original declaration, inheritance path, composition step, override, or expression.
-compiledOutputPreview: Allow a Piton construct or file to be previewed as its compiled representation, such as Markdown, JSON, or what a plugin's build writes for it, like the agent instructions of a Belay target, named by the group the plugin gives its output. The plugin output is the one planned at the last save.
-sourceToOutputMapping: Maintain mappings between Piton source and compiled output so an editor can identify which source construct produced a particular section of generated output.
-  The mapping is shown in the hover, under Compiled to, and in a code lens on the construct's first line. It is never offered as document links. A construct's range is its whole body, and it usually compiles to one file per adapter, so links would mark the whole body as navigable and stack one tooltip per adapter on every hover.
-  The server shows renderer output (JSON, YAML or Markdown) only when the build writes it. The build writes it when no plugin builds output, or when the project sets `output` or `renderer`. A project that builds with Belay and sets neither gets no renderer output, so no hover, code lens or inlay names a JSON file there. Only the plugin output is mapped. The compiled interpretation in the hover, and the default of the preview, are then Markdown, as the plugin output is, never JSON.
-unusedSymbolDetection: Warn about anchors, imports, properties, exports, or other declarations that are never referenced or contribute nothing to the compiled result.
-  What is used is what `piton reach` reaches: the entry's exports, and the anchors that plugins reach themselves, described in [PluginReach](../../plugins/Reach.md#plugin-reach), like the exported tests the test plugin runs, with all they reach in turn. The server asks the plugins for those anchors when a file is saved, never as you type, and keeps them until the next save, as it does plugin builds. So an exported test is not reported as an unused anchor.
-duplicateRedundantDefinitionDetection: Identify declarations that unnecessarily repeat inherited or composed values and could be removed without changing the resolved specification.
-documentationIntegration: Surface documentation comments and descriptions through hover, completion, symbol search, and hierarchy views so the specbase remains understandable while navigating it.
-incrementalAnalysis: Only re-evaluate the portions of the dependency graph affected by an edit rather than recompiling the entire specbase after every keystroke.
-  Not yet met. The server recompiles the workspace once typing pauses for a quarter of a second, which takes tens of milliseconds for a specbase the size of this one.
-workspaceIndexing: Maintain an index of symbols, relationships, references, exports, inheritance, and composition across the project so navigation and completion remain fast.
-  The index covers every source under the project root and every open file, whether or not the entry reaches it. A missing or unreadable entry is reported, and everything else still loads, so the files that would fix the project keep their diagnostics, symbols, and completion. Without an entry nothing is reachable, so nothing is reported as unused.
-  The project is the one that holds the nearest piton.config.pi in the workspace folder or a folder above it, as for piton slice. The editor can open a folder that holds no configuration, such as a folder of many projects. So when a file opens, the server moves to the project of the nearest piton.config.pi above that file, if that is a different project. Without it the server has no plugins, source root, or packages, and every import of an .emul file, rooted path, and package fails. A configuration inside the tethers directory of the current project is an installed package, not a project, so a file there keeps the current project.
-  A module that a plugin's module hook gives for a file that isn't Piton, such as an .emul file, gets no editor checks: no unused imports or anchors, no redundant definitions. The user didn't write that Piton source and can't fix it. Compile errors on such a file, such as a hook that fails, still show on it.
-editorSelectionRanges: Understand Piton's semantic structure so expanding selection moves naturally from a value to a property, declaration, and enclosing anchor.
-  From a name, selection grows to each expression around it, the braces, the value, the property, each enclosing block, the declaration and the file. Each step is wider than the last and leaves out surrounding blank lines.
-folding: Provide folding ranges for anchors, skills, agents, multiline values, documentation blocks, and other structural Piton constructs.
-  A declaration folds, and so does a property whose value is a block, an escape block, a run of two or more comment lines and a run of two or more import lines. An escape block written directly inside a code fence folds with the fence. A range runs from its first line to its last line with content, whole lines only. A declaration whose header is half-written still folds, with its body.
-```
+### Diagnostics
+
+Validate Piton syntax and semantics continuously, reporting invalid constructs, unresolved symbols, inheritance problems, type mismatches, circular dependencies, and invalid compositions directly in the editor. Don't report a missing optional property (one with a default value).
+Plugins with a build, like Belay, report their diagnostics too. Their builds are planned when a file is saved, never as you type, so typing runs no build; their diagnostics are the ones the last save found. A plugin that fails to plan is reported on the configuration.
+
+### Completion
+
+Suggest anchors, skills, agents, properties, keywords, imports, inherited members, and valid values based on the current scope and semantic context.
+However, don't autocomplete things that don't exist.
+Offer each thing once. A name an index re-exports is exported by several modules that all lead to the same anchor, and it is offered once, imported from the shortest path. Two different anchors that share a name, like a project's copy of a spec and the one bundled with the compiler, are both offered, each naming the module it would be imported from so they can be told apart.
+Don't propose autocomplete on nothing. If I type `property: ` it shouldn't propose anything because the likely intent is to type unstructured next.
+Typing a [PropertyAccessOperator](../../language/operators/access/PropertyAccessOperator.md#property-access-operator) in the middle of a string shouldn't autocomplete because there's nothing to complete on a string.
+What the cursor is in the middle of is read with the parser's own line rules, so completion never believes a line is something the compiler would not make of it. Nothing is offered in a comment, in a sentence, inside an inline escape or an escape block, in a quoted string, for the name a declaration declares, or for a keyword being invented after `as`. A list item without its space, `-word`, is a sentence too.
+A module path after `use`, `from` or `import` offers the bundled packages, each installed package by its name, and each module of the source root and of each installed package. A module in a package is offered by its package path, like `crux/lib/AsdSte100`, never by a relative path into the tethers directory. A package module is offered even when no file imports it yet, since writing that first import is what completion is for.
+A path keeps the style it is typed in. After a `/`, every module of the source root is offered as a path from the root, like `/kernel/Shape`, and never changed to a relative path. After a `.`, modules are offered relative to the file. Before either, and for the import that completing a name adds, the style is that of the file's own imports: from the root when its first import that is not a package starts with `/`. A module of an installed package is always offered by its package path, and a bundled one by its name.
+A path is one word for completion, all of what is written since the last space, not its last segment. Once something is typed, only the paths that contain it are offered: the same path first, then the ones that start with it, then the ones that contain it, and the shortest first within each. The list says it is incomplete, so the editor asks again as the path grows. An editor that builds its own query from word characters counts `/` as one, so its query is the whole path too.
+In an anchor's body, the properties it still lacks are offered and the ones it already has are not. Required properties come first. `pass` is offered only in a body with nothing else in it. A key completed in front of a colon that is already written keeps that one colon. Inside a dictionary nested in a property, nothing is offered, because nothing says what keys belong there.
+Items are ranked by the word already typed before the cursor, with case ignored: an item with the same name as the typed word comes first, then items that start with it, then items that contain it, then all other items. Within each rank the order above holds, so required properties still come first among equals. Each item filters on its own name. Thus the top item completes what is written, and accepting it does not replace the typed word with a different word.
+An editor that can replace a whole word gets both ranges, what is written before the cursor and the whole word, so accepting an item in the middle of a word can replace all of it. An item's documentation is filled in when the editor asks for it, and an item made before the workspace last compiled gets none, rather than the description of whatever its name means now.
+
+### Auto Import
+
+When a referenced symbol exists elsewhere in the specbase, offer to automatically add the appropriate `use` or import declaration.
+
+### Hover Information
+
+Show the resolved definition of a symbol, including its type, source, documentation, inheritance chain, exported status, and where applicable its compiled interpretation.
+Hover only on what means something: a symbol, a declaring name, or a composition operator. Plain text in a string gets no hover, even a word that happens to name an anchor, and neither does the prose around a `+` line. Where a construct compiles to is shown on the name that declares it, not on every word of its value.
+A composition is explained on its `+` or `++` alone, so a name inside the expression keeps a hover of its own. `this`, `self` and `super` say what they stand for where they are written. A property says whether it is inherited, overrides a base's value, or implements what an abstract base requires, and a required property says it has to be written. Where something is declared is shown as a path relative to the workspace, linking to its line. A literal, a language keyword, a comment, escaped text and a name that does not resolve get no hover; the diagnostic speaks for the last.
+
+### Go To Definition
+
+Navigate from any reference to the anchor, property, skill, agent, import, or other symbol that defines it.
+A module path opens its file. A user keyword lands on the anchor it stands for. A member read through `this` or `super` lands on the declaration that supplies it. On the name of a property that replaces a base's, it lands on the one replaced. When the editor can show it, the answer also says which word was followed and the whole declaration it lands in.
+
+### Type Definition
+
+From a property or a variable, go to the anchors its constraints name, in the order they are written; from an anchor, to the anchor itself. A built-in type has nowhere to go.
+
+### Document Highlight
+
+Mark every place in the file that names what is under the cursor, with where it is declared marked apart from where it is read.
+
+### Find References
+
+Show every place a symbol is referenced, inherited, composed, interpolated, exported, or otherwise depended upon across the specbase.
+
+### Rename Symbol
+
+Rename a symbol safely across the entire specbase while updating all imports, references, expressions, inheritance relationships, and compositions that depend on it.
+The new name has to be one the symbol can have. An anchor name starts with a letter or an underscore and holds letters, digits and underscores; a variable or a key holds letters, digits, underscores and hyphens; a keyword is lowercase and may be kebab-case; and neither an anchor, a variable nor a keyword may be a reserved word. A name already used where the rename reaches is refused, and so is a property name already in the family. A module path is renamed by moving its file, and a symbol a bundled package declares cannot be renamed. Each refusal says why. An imported name and its alias are different names, so renaming one never rewrites the other, and the module path on the same line is never touched.
+
+### Module Rename
+
+When a Piton file or a folder is moved or renamed, every `use` and `from` path that named it is pointed at its new place, and the moved file's own relative paths are pointed back at what they named, before the move happens. A path keeps its style. A rooted one stays rooted, a relative one stays relative, `.pi` stays written or left off, and a path to a folder's index stays a path to the folder. Package paths never change.
+
+### Document Symbols
+
+Expose the structural contents of the current Piton file as an outline of anchors, skills, agents, properties, exports, and other named constructs.
+A property shows its constraints as written, and the keys of a dictionary it holds sit beneath it. List items are values rather than names, and are not in the outline.
+
+### Workspace Symbols
+
+Allow fast searching across all named constructs in the entire specbase regardless of which file defines them.
+Matching ignores case. The same name ranks first, then names that start with the query, then names that contain it, then names that hold its letters in order; within a rank, shorter names come first. At most 256 are returned. Each names the module it is in, relative to the workspace. A bundled package has no file to open, so its names are not offered.
+
+### Semantic Highlighting
+
+Highlight Piton constructs according to their semantic meaning rather than syntax alone, distinguishing anchors, references, properties, inherited values, exports, imports, expressions, types, and keywords.
+A string is a string. Prose gets no tokens of its own: a word in it that looks like a keyword, number, constant, or anchor name is part of the string. Only the expressions inside `{...}` forms are highlighted within a value.
+The server colours names, by what they resolve to, module paths and language keywords, and nothing else. Comments, literals, operators, punctuation and prose belong to the syntax highlighter. A language keyword (`use`, `from`, `import`, `export`, `anchor`, `abstract`, `extends`, `as` and `pass`) is a keyword token only where the parser reads it as a keyword, never in a string body. Thus a syntax highlighter without context can leave keywords to the server. For each kind of token the server sends, the editor is told the same scope the syntax highlighter already uses, so a token arriving changes a colour only where resolving the name says something the text could not. An anchor is a class, abstract or not; a property or a dictionary key is a property; a variable is a variable; a user keyword or a language keyword is a keyword; a module path is a namespace. A name that does not resolve gets no token.
+
+### Inlay Hints
+
+Show useful inferred information inline, such as resolved types, inherited origins, composition sources, or the anchor from which a value ultimately derives.
+A hint says only what the source does not. After the name of a property or a variable whose value is a single {...} and that no constraint types, the type it turned out to have, written the way a constraint is, so accepting the hint makes the type explicit. After a member read through `this`, `super` or an anchor, an arrow and the anchor that supplies it, when that is not the anchor read through. `self` is whichever anchor is compiled, so it names none. Types of literal values, overrides and composition operators are already visible and are not hinted.
+
+### Code Actions
+
+Offer context-sensitive fixes and transformations such as importing a missing symbol, creating an unresolved anchor, adding an export, qualifying an ambiguous reference, or resolving a simple inheritance conflict.
+Each action belongs to something at the cursor: an unresolved name, a declaration's header line, or an import. Plain text offers nothing. Whole-file actions, organizing imports and formatting, are offered when the editor asks for that kind of action, and organizing imports also when the cursor is on an import.
+A configuration diagnostic at the cursor, like `frameworks-removed`, offers each finding of the inspect hooks, described in [PluginInspection](../../plugins/Inspection.md#plugin-inspection), that edits that file: a quick fix that applies the finding's edits, so the editor offers the same migration the command line does. The server asks the hooks when a file is saved, as it plans plugin builds, never while the user types, and applies nothing itself.
+
+### Import Organization
+
+Detect unused, duplicate, invalid, or unnecessarily broad imports and provide an action to clean and normalize them.
+
+### Formatting
+
+Format Piton source according to the canonical language style, particularly indentation, spacing, declaration layout, expressions, imports, and multiline structures.
+The edits replace only the lines that change, so cursors and marks elsewhere stay where they were. Formatting part of a file is not offered, because re-indenting some lines of a block and not their siblings would change the structure.
+
+### Inheritance Resolution
+
+Understand `extends` relationships and expose the fully resolved inheritance chain, including which parent contributed each inherited property.
+
+### Composition Resolution
+
+Understand `+`, `++`, and other Piton composition semantics and show how multiple inputs combine into the resulting construct.
+
+### Override Tracking
+
+Identify when a property overrides an inherited value and allow navigation between the overriding declaration and the declaration it replaces.
+Writing a property an abstract base only requires is implementing it, not overriding it, and gets no lens. Replacing a value does, and the lens opens the declaration replaced. Looking for the implementations of a property lists the anchors that write it themselves.
+
+### Conflict Detection
+
+Report incompatible inherited or composed values where Piton or Belay cannot resolve the result deterministically.
+
+### Reference Resolution
+
+Resolve symbolic references such as anchors and `@{...}` expressions to their actual target and report unresolved or ambiguous references.
+
+### Expression Validation
+
+Parse and validate Piton expressions inside `{...}`, `${...}`, `#{...}`, and `@{...}` expression forms according to their expected output type.
+
+### Expression Type Information
+
+Show the inferred output type of an expression and warn when the expression cannot produce the type required by its interpolation form or destination.
+
+### Export Validation
+
+Track explicit exports and report attempts to import or reference symbols that are not visible outside their defining module.
+
+### Module Resolution
+
+Resolve relative and root-based Piton imports according to the project configuration and report missing modules and invalid paths. Circular imports are fine, so don't report them.
+
+### Circular Dependency Detection
+
+Find cycles that can't resolve, and anchors that end up extending themselves, and show the cycle that caused the error. Circular imports are fine and aren't reported.
+
+### Related Symbol Navigation
+
+Provide navigation between closely related constructs such as an abstract and its implementations, a base anchor and its extensions, or a symbol and the constructs that compose it.
+
+### Hierarchy View
+
+Expose inheritance and composition relationships as a hierarchy so the editor can show parents, children, extensions, and implementations of a selected construct.
+
+### Resolved Value Inspection
+
+Allow the editor to show the final resolved value of a property after inheritance, overrides, composition, and expressions have been applied.
+
+### Provenance Inspection
+
+For any resolved value, show exactly where it came from: its original declaration, inheritance path, composition step, override, or expression.
+
+### Compiled Output Preview
+
+Allow a Piton construct or file to be previewed as its compiled representation, such as Markdown, JSON, or what a plugin's build writes for it, like the agent instructions of a Belay target, named by the group the plugin gives its output. The plugin output is the one planned at the last save.
+
+### Source To Output Mapping
+
+Maintain mappings between Piton source and compiled output so an editor can identify which source construct produced a particular section of generated output.
+The mapping is shown in the hover, under Compiled to, and in a code lens on the construct's first line. It is never offered as document links. A construct's range is its whole body, and it usually compiles to one file per adapter, so links would mark the whole body as navigable and stack one tooltip per adapter on every hover.
+The server shows renderer output (JSON, YAML or Markdown) only when the build writes it. The build writes it when no plugin builds output, or when the project sets `output` or `renderer`. A project that builds with Belay and sets neither gets no renderer output, so no hover, code lens or inlay names a JSON file there. Only the plugin output is mapped. The compiled interpretation in the hover, and the default of the preview, are then Markdown, as the plugin output is, never JSON.
+The server maps a file to the renderer output only when a request asks for it: a hover on a declared name, a code lens, or a query between source and output. It renders only the modules whose output holds a declaration of that file, which are the file's own module and each module that exports one of its declarations again, and it keeps what it rendered until the next compilation. An index that exports a large package again renders megabytes, so rendering every module after every keystroke is too slow.
+
+### Unused Symbol Detection
+
+Warn about anchors, imports, properties, exports, or other declarations that are never referenced or contribute nothing to the compiled result.
+What is used is what `piton reach` reaches: the entry's exports, and the anchors that plugins reach themselves, described in [PluginReach](../../plugins/Reach.md#plugin-reach), like the exported tests the test plugin runs, with all they reach in turn. The server asks the plugins for those anchors when a file is saved, never as you type, and keeps them until the next save, as it does plugin builds. So an exported test is not reported as an unused anchor.
+
+### Duplicate Redundant Definition Detection
+
+Identify declarations that unnecessarily repeat inherited or composed values and could be removed without changing the resolved specification.
+
+### Documentation Integration
+
+Surface documentation comments and descriptions through hover, completion, symbol search, and hierarchy views so the specbase remains understandable while navigating it.
+
+### Incremental Analysis
+
+Only re-evaluate the portions of the dependency graph affected by an edit rather than recompiling the entire specbase after every keystroke.
+Partly met. The server still parses and resolves the whole workspace once typing pauses for a quarter of a second, or at once when a request needs the buffers as they are now. Past that, it does again only what the edit can change:
+
+- It parses again only the files whose text changed, and keeps the parse of every other file from the compilation before. The first compilation parses all files on all cores at once.
+- It evaluates again only the anchors and variables that the edit can change: those of the changed files, those that read one of them, and those that inherit a declaration of one, and so on. When a changed file exports other names than before, each file that imports from it counts as changed too. Every other value, with its diagnostics, comes from the compilation before. When the two compilations don't declare the same anchors, bases and properties, it evaluates everything.
+- A file that the edit didn't affect keeps its occurrence index, and what the analysis found in its imports and names.
+- It compiles on a thread of its own, outside the lock the requests share, so a keystroke never waits for a compilation. One compilation runs at a time, and the next takes the buffers as they are when it starts, so edits made meanwhile are compiled once.
+- It publishes the errors first, and the warnings about unused and redundant items after them, because those need reachability, which takes the longest. Until they are ready, the warnings of the compilation before stay where the edit didn't move them.
+- It sends a file's diagnostics again only when they or the version of its buffer changed.
+- A request about one file waits for a compilation only when that file's buffer changed since the last one. A request that spans files, like a rename or a search for references, waits whenever any buffer changed.
+- It frees the compilation before on a thread of its own.
+- The plugin builds, reach hooks and inspect hooks that a save runs run in the background, with the parses the server already has, and the server publishes again when they are done. Until then it keeps those of the save before.
+- It resolves each name a module exports through its `export *` lines once a compilation, and keeps the result, and it resolves each import path once until a file appears, goes or is saved.
+
+A compilation after a keystroke takes tens of milliseconds for a specbase the size of this one, and well under a quarter of a second for one of six thousand files.
+With `"timings": true` in its initialization options, or the environment variable PITON_LSP_TIMINGS set, the server writes to the editor's log how long each phase of each compilation took, and the later checks and plugin plans, so a slow project can be measured where it is used.
+
+### Workspace Indexing
+
+Maintain an index of symbols, relationships, references, exports, inheritance, and composition across the project so navigation and completion remain fast.
+The index covers every source under the project root and every open file, whether or not the entry reaches it. A missing or unreadable entry is reported, and everything else still loads, so the files that would fix the project keep their diagnostics, symbols, and completion. Without an entry nothing is reachable, so nothing is reported as unused.
+The project is the one that holds the nearest piton.config.pi in the workspace folder or a folder above it, as for piton slice. The editor can open a folder that holds no configuration, such as a folder of many projects. So when a file opens, the server moves to the project of the nearest piton.config.pi above that file, if that is a different project. Without it the server has no plugins, source root, or packages, and every import of an .emul file, rooted path, and package fails. A configuration inside the tethers directory of the current project is an installed package, not a project, so a file there keeps the current project.
+A module that a plugin's module hook gives for a file that isn't Piton, such as an .emul file, gets no editor checks: no unused imports or anchors, no redundant definitions. The user didn't write that Piton source and can't fix it. Compile errors on such a file, such as a hook that fails, still show on it.
+
+### Editor Selection Ranges
+
+Understand Piton's semantic structure so expanding selection moves naturally from a value to a property, declaration, and enclosing anchor.
+From a name, selection grows to each expression around it, the braces, the value, the property, each enclosing block, the declaration and the file. Each step is wider than the last and leaves out surrounding blank lines.
+
+### Folding
+
+Provide folding ranges for anchors, skills, agents, multiline values, documentation blocks, and other structural Piton constructs.
+A declaration folds, and so does a property whose value is a block, an escape block, a run of two or more comment lines and a run of two or more import lines. An escape block written directly inside a code fence folds with the fence. A range runs from its first line to its last line with content, whole lines only. A declaration whose header is half-written still folds, with its body.

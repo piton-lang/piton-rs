@@ -131,3 +131,35 @@ fn inline_lists_move_too() {
     let (_, stderr, code) = fixture.run(&["check"]);
     assert_eq!(code, 0, "{stderr}");
 }
+
+#[test]
+fn vendored_skills_and_agents_get_the_vendored_keywords() {
+    let config = OLD.replace("    frameworks:\n", "    entry: ./spec/index.pi\n\n    plugins:\n");
+    let fixture = Fixture::new("vendored", &config);
+    let write = |path: &str, text: &str| {
+        let path = fixture.dir.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).expect("dir");
+        std::fs::write(path, text).expect("write");
+    };
+    write("src/.keep", "");
+    write("spec/whole/SKILL.md", "---\nname: whole\ndescription: Whole.\n---\n");
+    write("spec/tools/check.sh", "echo ok\n");
+    write("spec/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews.\n---\n");
+    // A tethered package belongs to its own project. The migration leaves it.
+    write("spec/tethers/pkg/Old.pi", "use @piton/belay\n\nexport skill Old:\n    files: ./x\n");
+    let spec = "use @piton/belay\n\nexport skill Whole:\n    files:\n        claude-code: ./whole\n\nexport skill Tools:\n    useWhen: asked\n    files: ./tools\n\nexport agent Reviewer:\n    file: ./agents/reviewer.md\n";
+    write("spec/index.pi", spec);
+
+    let (stdout, stderr, code) = fixture.run(&["migrate"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stdout, "spec/index.pi\n", "{stderr}");
+    let migrated = std::fs::read_to_string(fixture.dir.join("spec/index.pi")).expect("spec");
+    assert_eq!(
+        migrated,
+        spec.replace("export skill Whole", "export vendored-skill Whole")
+            .replace("export agent Reviewer", "export vendored-agent Reviewer"),
+        "a skill whose folder has no SKILL.md stays a skill"
+    );
+    let (_, stderr, code) = fixture.run(&["check"]);
+    assert_eq!(code, 0, "{stderr}");
+}

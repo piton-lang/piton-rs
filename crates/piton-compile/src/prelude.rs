@@ -132,6 +132,8 @@ const BELAY_INSTRUCTION: &str = include_str!("../../../plugins/belay/pi/Instruct
 const BELAY_SKILL: &str = include_str!("../../../plugins/belay/pi/Skill.pi");
 const BELAY_COMMAND: &str = include_str!("../../../plugins/belay/pi/Command.pi");
 const BELAY_AGENT: &str = include_str!("../../../plugins/belay/pi/Agent.pi");
+const BELAY_VENDORED_SKILL: &str = include_str!("../../../plugins/belay/pi/VendoredSkill.pi");
+const BELAY_VENDORED_AGENT: &str = include_str!("../../../plugins/belay/pi/VendoredAgent.pi");
 // The adapters. They also come from the specification. A project selects an
 // adapter when it lists the anchor. Belay reads the paths and settings of the
 // target from it.
@@ -183,6 +185,8 @@ fn modules() -> &'static [(&'static str, &'static str)] {
                 ("@piton/belay/Skill", BELAY_SKILL),
                 ("@piton/belay/Command", BELAY_COMMAND),
                 ("@piton/belay/Agent", BELAY_AGENT),
+                ("@piton/belay/VendoredSkill", BELAY_VENDORED_SKILL),
+                ("@piton/belay/VendoredAgent", BELAY_VENDORED_AGENT),
                 ("@piton/belay/adapters/Adapter", BELAY_ADAPTER),
                 ("@piton/belay/adapters/ClaudeCode", BELAY_CLAUDE_CODE),
                 ("@piton/belay/adapters/Codex", BELAY_CODEX),

@@ -1,8 +1,9 @@
 // Part of the bundled Belay plugin, as @piton/belay. Its behaviour is
 // described in spec/scope/belay/anchors/Agent.pi.
+//
+// An agent that a native file defines is a vendored-agent.
 
 from ./Construct import Construct
 
 export abstract anchor Agent extends Construct as agent:
-    role:: string:: null: null
-    file:: string:: dictionary:: null: null
+    role:: string

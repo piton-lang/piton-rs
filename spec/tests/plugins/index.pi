@@ -16,5 +16,5 @@ export test LspRespectsOverride:
 
 export test ImportAdditionalThings:
     expects:
-        Plugins should enable Piton to import and hand additional kinds of
-        files beyond just Piton itself.
+        Plugins should enable Piton to import and hand additional kinds of files
+        beyond just Piton itself.
