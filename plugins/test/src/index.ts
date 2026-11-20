@@ -8,7 +8,7 @@
 // At the end of its answer, the tool writes a verdict line.
 // This command reads that line.
 
-import { definePlugin, type Anchor, type Context, type Json } from "@piton/plugin";
+import { definePlugin, type Anchor, type Compilation, type Context, type Json, type Value } from "@piton/plugin";
 import { fixPrompt, judge, relative, type Launcher, type Outcome, type Sides, type TestCase } from "./judge";
 import * as output from "./output";
 import { Progress } from "./progress";
@@ -119,18 +119,60 @@ function text(anchor: Anchor, key: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** The statements of a test: one text, or each text of a list, without
- * spaces at the two ends. If a statement is empty or is not text, it gives
- * null. */
-function statements(anchor: Anchor): string[] | null {
-  const value = anchor.properties.expects;
-  const list = Array.isArray(value) ? value : [value];
-  const out: string[] = [];
-  for (const item of list) {
-    if (typeof item !== "string" || item.trim().length === 0) return null;
-    out.push(item.trim());
+/** The statements of a test, without spaces at the two ends.
+ *
+ * - A text is one statement.
+ * - A list of texts is several statements. Each one must be true.
+ * - A block that mixes text with list items is one statement: its text,
+ *   then its items, one to a line, as Markdown writes a list.
+ *
+ * If a statement is empty or is not text, it gives null. */
+function statements(compilation: Compilation, anchor: Anchor): string[] | null {
+  const value = compilation.values(anchor.id).find(([key]) => key === "expects")?.[1];
+  if (value === undefined) return null;
+  const nonEmpty = (text: string | null) => (text !== null && text.trim().length > 0 ? text.trim() : null);
+  if (value.kind === "list") {
+    const out: string[] = [];
+    for (const item of value.items) {
+      const statement = nonEmpty(item.kind === "text" ? item.text : null);
+      if (statement === null) return null;
+      out.push(statement);
+    }
+    return out.length > 0 ? out : null;
   }
-  return out.length > 0 ? out : null;
+  const statement = nonEmpty(statementText(value));
+  return statement === null ? null : [statement];
+}
+
+/** One statement as text. A list in it is a Markdown list, one item to a
+ * line, and a list in an item is indented beneath it. It gives null for a
+ * value that holds something other than text and lists. */
+function statementText(value: Value | { kind: "entry"; key: string; value: Value }, depth = 0): string | null {
+  switch (value.kind) {
+    case "text":
+      return value.text;
+    case "list": {
+      const lines: string[] = [];
+      for (const item of value.items) {
+        const text = statementText(item, depth + 1);
+        if (text === null) return null;
+        // A nested list is already written as lines with markers.
+        lines.push(item.kind === "list" ? text : `${"  ".repeat(depth)}- ${text}`);
+      }
+      return lines.join("\n");
+    }
+    case "mixed": {
+      const parts: string[] = [];
+      for (const item of value.items) {
+        const text = statementText(item, depth);
+        if (text === null) return null;
+        parts.push(text);
+      }
+      return parts.join("\n\n");
+    }
+    default:
+      return null;
+  }
 }
 
 /** Finds each exported, concrete test in the source of the project. The
@@ -138,12 +180,18 @@ function statements(anchor: Anchor): string[] | null {
  * correct, it gives null. `flagScope` is the value of the `--against` flag.
  * This value has priority over the value in a test. `fallback` is the scope
  * for a test that does not give a scope. */
-function collect(ctx: Context, anchors: Anchor[], flagScope: string | null, fallback: string): TestCase[] | null {
+function collect(
+  ctx: Context,
+  compilation: Compilation,
+  anchors: Anchor[],
+  flagScope: string | null,
+  fallback: string,
+): TestCase[] | null {
   const root = ctx.project().root;
   const tests: TestCase[] = [];
   let valid = true;
   for (const anchor of anchors) {
-    const expects = statements(anchor);
+    const expects = statements(compilation, anchor);
     if (expects === null) {
       ctx.report.error(`test \`${anchor.name}\` has no statement to judge`);
       ctx.report.note(`declared in ${relative(anchor.file, root)}`);
@@ -289,7 +337,7 @@ async function test(ctx: Context, args: Record<string, Json>): Promise<number> {
     concrete: true,
     withinSourceRoot: true,
   });
-  let tests = collect(ctx, anchors, flagScope, fallback);
+  let tests = collect(ctx, compilation, anchors, flagScope, fallback);
   if (tests === null) return 1;
   const targets = (args.targets as string[] | null) ?? [];
   const selecting = targets.length > 0 || filter !== null;

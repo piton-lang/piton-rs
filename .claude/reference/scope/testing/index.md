@@ -45,7 +45,7 @@ export test SaveButtonSaves:
 
 ```piton
 export abstract anchor Test as test:
-    expects:: string:: string[]
+    expects:: string:: string[]:: list
     against:: string:: null: null
     context:: string:: null: null
     description:: string:: null: null
@@ -61,6 +61,16 @@ export test SaveButtonSaves:
     expects:
         - The Save button saves the document
         - Saving keeps the cursor where it was
+```
+A block that mixes text with a list is one statement that holds the list, not several statements. The agent gets its text, then each item of the list on a line of its own, as Markdown writes a list. Thus a statement can name the things it is about, each one from the specification.
+```piton
+export test TestsAreSeparate:
+    expects:
+        The tests for the following are in separate files from their
+        implementation
+
+        - {ArithmeticCrate.name}
+        - {SolversCrate.name}
 ```
 
 ## Against

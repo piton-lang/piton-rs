@@ -1,11 +1,12 @@
 // This anchor is the shape of a test.
 // A test is one statement about the project, in plain English, or a list of
-// statements that must all be true.
+// statements that must all be true. A block that mixes text with a list is
+// one statement that holds a list.
 // An agent decides if the statement is true or false.
 // This file is part of the bundled test plugin, as @piton/test.
 // Projects use this file as the test keyword.
 export abstract anchor Test as test:
-    expects:: string:: string[]
+    expects:: string:: string[]:: list
     against:: string:: null: null
     context:: string:: null: null
     description:: string:: null: null

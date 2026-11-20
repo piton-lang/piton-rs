@@ -478,3 +478,21 @@ fn a_test_with_an_empty_list_of_statements_is_not_well_formed() {
     assert_eq!(code, 1, "{stderr}");
     assert!(stderr.contains("test `Nothing` has no statement to judge"), "{stderr}");
 }
+
+#[test]
+fn a_statement_can_hold_a_list() {
+    // Text with a list beneath it is one statement, not several.
+    let tests = "use @piton/test\n\nexport test Separate:\n    expects:\n        The tests of these crates are in their own files\n\n        - {App.name}\n        - core\n    against: spec\n";
+    let fixture = project("held-list", "", &format!("from ../index import App\n\n{tests}"));
+    let (stdout, stderr, code) = fixture.run(&["test", "--list"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("  Separate  against spec\n"), "{stdout}");
+
+    let _ = fixture.run(&["test", "Separate"]);
+    let request = request_of(&fixture.calls(), "in their own files").join("\n");
+    assert!(request.contains("Decide whether this statement is true:"), "{request}");
+    assert!(
+        request.contains("The tests of these crates are in their own files\n\n- app\n- core\n"),
+        "{request}"
+    );
+}
